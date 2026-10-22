@@ -5,12 +5,12 @@ pub mod store;
 #[cfg(test)]
 mod tests;
 mod tools;
-pub(crate) mod workspace;
+pub mod workspace;
 
 use anyhow::{bail, Context, Result};
 use capacity::{acquire_pair, Capacity};
 use futures::FutureExt;
-use kanzei_core::store::session_execution::{try_acquire, SessionExecutionGuard};
+use kanzei_core::session_execution::{try_acquire, SessionExecutionGuard};
 use kanzei_core::{CancellationToken, DelegationFuture, DelegationHost, RunEvent, SubagentRuntime};
 use kanzei_harness::{
     AsyncMailbox, AsyncNotice, ConfigComponent, Harness, InputRequests, MarkdownComponent,

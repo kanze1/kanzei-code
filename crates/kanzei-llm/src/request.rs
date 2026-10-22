@@ -94,7 +94,7 @@ impl Message {
     }
 }
 
-/// 思考强度:三种协议的表达方式不同(anthropic 是 token 预算,openai 系是 effort 档位),
+/// 思考强度：各协议映射到原生 effort 或预算；Anthropic 新模型支持 effort/adaptive，旧模型使用预算，
 /// 统一成一档一档的强度,由各协议自己翻译成原生参数。
 /// Off = 省略档位并使用模型默认;None = 在模型支持时明确请求无思考。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]

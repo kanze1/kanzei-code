@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::docstore::Entry;
+use kanzei_memory::docstore::Entry;
 
 use super::{expected_prior_art_path, metadata, validate_artifact};
 

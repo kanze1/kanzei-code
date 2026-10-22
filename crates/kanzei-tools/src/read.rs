@@ -155,7 +155,11 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
     let output = match result {
         Ok(Ok(ReadPayload::Text(text))) => {
             // 成功返回记忆文件文本后记录同一运行内读取，不推断采用或收益。
-            crate::memory::mark_memory_file_read(&ctx.project_root, &path, ctx.run_id.as_deref());
+            kanzei_memory::memory::mark_memory_file_read(
+                &ctx.project_root,
+                &path,
+                ctx.run_id.as_deref(),
+            );
             ToolOutput::ok(text)
         }
         Ok(Ok(ReadPayload::Image {
@@ -313,8 +317,8 @@ fn render_pdf_lines(text: &str, offset: usize, limit: usize) -> Result<String, S
     Ok(out)
 }
 
-/// Extract text from a real PDF using the installed `pdftotext` executable.
-/// The path is passed as an argument, never through a shell; missing tooling is explicit.
+/// Extract PDF text with pdftotext when available, otherwise use in-process pdf-extract.
+/// Input is passed without a shell; an error is returned when extraction cannot complete.
 pub fn pdf_to_text(path: &std::path::Path) -> Result<String, String> {
     pdf_to_text_file(std::fs::File::open(path).map_err(|error| error.to_string())?)
 }
@@ -768,7 +772,7 @@ mod tests {
     #[tokio::test]
     async fn read_memory_file_records_current_run_without_rewriting_legacy() {
         let (dir, ctx) = temp_project();
-        let store = crate::memory::MemoryStore::project(&dir);
+        let store = kanzei_memory::memory::MemoryStore::project(&dir);
         let entry = match store
             .add(
                 "sop",
@@ -782,14 +786,14 @@ mod tests {
             )
             .unwrap()
         {
-            crate::memory::AddOutcome::Added(e) => e,
+            kanzei_memory::memory::AddOutcome::Added(e) => e,
             _ => panic!("expected add"),
         };
-        // D-366:决策排序在检索门面(kanzei_tools::memory = kanzei_memory re-export)。
-        let index = crate::memory::SqliteMemoryIndex::new(&dir);
+        // D-366:决策排序在检索门面(kanzei_memory::memory = kanzei_memory re-export)。
+        let index = kanzei_memory::memory::SqliteMemoryIndex::new(&dir);
         let hits = index
             .search_entries(
-                &crate::memory::IndexQuery::text("发版"),
+                &kanzei_memory::memory::IndexQuery::text("发版"),
                 None,
                 Some("active"),
                 5,
@@ -797,13 +801,13 @@ mod tests {
             .unwrap();
         assert!(!hits.is_empty());
         store.record_recall("历史轮次", &hits, 128);
-        crate::memory::record_memory_search_telemetry(
+        kanzei_memory::memory::record_memory_search_telemetry(
             &dir,
             "发版",
             &hits,
             true,
             "lexical",
-            &crate::memory::RetrievalTiming::default(),
+            &kanzei_memory::memory::RetrievalTiming::default(),
             ctx.run_id.as_deref(),
             "memory_search",
         );

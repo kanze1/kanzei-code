@@ -177,7 +177,7 @@ fn now_ms() -> i64 {
 }
 
 pub fn topic_dir(root: &Path, topic: &str) -> Result<PathBuf, String> {
-    crate::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     let research = root
         .join(".kanzei/research")
         .canonicalize()
@@ -478,10 +478,13 @@ pub fn advance(
                 if directions.is_empty() {
                     return Err("研究地图至少需要一个候选方向".into());
                 }
-                let sources =
-                    crate::docstore::DocStore::open_topic(root, &crate::docstore::SOURCES, topic)
-                        .and_then(|store| store.load())
-                        .map_err(|e| e.to_string())?;
+                let sources = kanzei_memory::docstore::DocStore::open_topic(
+                    root,
+                    &kanzei_memory::docstore::SOURCES,
+                    topic,
+                )
+                .and_then(|store| store.load())
+                .map_err(|e| e.to_string())?;
                 let mut ids = std::collections::HashSet::new();
                 for d in &directions {
                     for value in [
@@ -638,7 +641,7 @@ pub fn advance(
 
 /// The runner calls this before creating any process. Missing workflow preserves manual research.
 pub fn check_run(root: &Path, topic: &str, exploration_id: &str) -> Result<(), String> {
-    crate::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     if !root
         .join(".kanzei/research")
         .join(topic)

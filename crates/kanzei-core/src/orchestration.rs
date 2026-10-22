@@ -211,7 +211,7 @@ impl MemoryCoordinator {
         }
     }
 
-    /// 归还读槽(批6):按 agent_name 移除登记并记录 AgentCompleted 事件。
+    /// 归还读槽：按 run_id 移除登记并记录 AgentCompleted 事件。
     /// 由 ReadPermit 的 drop 回调调用——子代理结束(含失败/取消)即回收。
     /// R-173 批4.5 修:按 **run_id** 回收,不按 agent_name。
     ///

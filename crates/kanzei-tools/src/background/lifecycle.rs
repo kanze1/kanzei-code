@@ -3,6 +3,7 @@
 //! 该模块只拆出生命周期编排；`BackgroundProcess` 数据对象、登记/输出收集与
 //! persistent 注册表仍通过父模块的私有协作函数共享，保持原有调用链和安全语义。
 
+use kanzei_base::sync::MutexPoisonExt;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -45,20 +46,19 @@ pub(super) fn install_window_observer_once() {
                     kanzei_harness::managed_fence::WindowPhase::Opened => {
                         // A new tool must not start writing while a guard is
                         // restoring this process's protected tree.
-                        let _baseline = process.baseline.lock().unwrap();
+                        let _baseline = process.baseline.lock_or_recover();
                         let snapshot = _baseline.refresh(&root);
                         window_open_snapshots()
-                            .lock()
-                            .unwrap()
+                            .lock_or_recover()
                             .insert(key, snapshot);
                     }
                     kanzei_harness::managed_fence::WindowPhase::Closed => {
-                        let opened = { window_open_snapshots().lock().unwrap().remove(&key) };
+                        let opened = { window_open_snapshots().lock_or_recover().remove(&key) };
                         #[cfg(test)]
                         run_before_absorb_hook(&process.id);
                         // Read/absorb under the same lock: another completed
                         // window cannot lose its update to this commit.
-                        let mut baseline = process.baseline.lock().unwrap();
+                        let mut baseline = process.baseline.lock_or_recover();
                         let current = baseline.refresh(&root);
                         let before = opened.as_ref().unwrap_or(&baseline);
                         if let Some(change) = crate::managed::diff(before, &current) {
@@ -79,8 +79,7 @@ pub(super) fn install_window_observer_once() {
                 // A process can end while a tool is running. Its opening snapshot
                 // is no longer needed even though it was skipped above.
                 window_open_snapshots()
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .retain(|(_, id), _| *id != window.id);
             }
         });
@@ -105,12 +104,12 @@ fn before_absorb_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
 
 #[cfg(test)]
 pub(super) fn set_before_absorb_hook(hook: Option<BeforeAbsorbHook>) {
-    *before_absorb_hook().lock().unwrap() = hook;
+    *before_absorb_hook().lock_or_recover() = hook;
 }
 
 #[cfg(test)]
 fn run_before_absorb_hook(process_id: &str) {
-    let hook = before_absorb_hook().lock().unwrap().clone();
+    let hook = before_absorb_hook().lock_or_recover().clone();
     if let Some(hook) = hook {
         hook(process_id);
     }
@@ -124,12 +123,12 @@ fn before_reconcile_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
 
 #[cfg(test)]
 pub(super) fn set_before_reconcile_hook(hook: Option<BeforeAbsorbHook>) {
-    *before_reconcile_hook().lock().unwrap() = hook;
+    *before_reconcile_hook().lock_or_recover() = hook;
 }
 
 #[cfg(test)]
 fn run_before_reconcile_hook(process_id: &str) {
-    let hook = before_reconcile_hook().lock().unwrap().clone();
+    let hook = before_reconcile_hook().lock_or_recover().clone();
     if let Some(hook) = hook {
         hook(process_id);
     }
@@ -137,8 +136,7 @@ fn run_before_reconcile_hook(process_id: &str) {
 
 fn running_processes() -> Vec<Arc<BackgroundProcess>> {
     registry()
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .values()
         .filter(|p| p.is_running() || !p.guard_completion.restore_succeeded())
         .cloned()
@@ -153,7 +151,7 @@ pub(super) fn spawn_guard(process: Arc<BackgroundProcess>) {
             let was_running = guarded.is_running();
             #[cfg(test)]
             if !was_running {
-                let hook = final_guard_hook().lock().unwrap().clone();
+                let hook = final_guard_hook().lock_or_recover().clone();
                 if let Some(hook) = hook {
                     hook(&guarded.id);
                 }
@@ -183,7 +181,7 @@ fn final_guard_hook() -> &'static Mutex<Option<BeforeAbsorbHook>> {
 }
 #[cfg(test)]
 pub(crate) fn set_final_guard_hook(hook: Option<BeforeAbsorbHook>) {
-    *final_guard_hook().lock().unwrap() = hook;
+    *final_guard_hook().lock_or_recover() = hook;
 }
 
 /// 一次对账。返回 Some = 检测到越界(已隔离并回滚)。
@@ -218,7 +216,7 @@ pub(super) fn reconcile_restore(
 ) -> Result<Option<BreachRecord>, String> {
     #[cfg(test)]
     run_before_reconcile_hook(&process.id);
-    let baseline = process.baseline.lock().unwrap();
+    let baseline = process.baseline.lock_or_recover();
     reconcile_restore_locked(process, &baseline)
 }
 
@@ -226,7 +224,7 @@ pub(super) fn reconcile_restore(
 /// restore with legal window commits and publication of its successful receipt.
 pub(super) fn finish_restore(process: &Arc<BackgroundProcess>) -> Result<(), String> {
     let _ = process.guard_completion.completed()?;
-    let baseline = process.baseline.lock().unwrap();
+    let baseline = process.baseline.lock_or_recover();
     if process.guard_completion.restore_succeeded() {
         return Ok(());
     }
@@ -393,14 +391,13 @@ pub(super) fn project_hash(root: &Path) -> String {
 }
 
 pub fn get(id: &str) -> Option<Arc<BackgroundProcess>> {
-    registry().lock().unwrap().get(id).cloned()
+    registry().lock_or_recover().get(id).cloned()
 }
 
 pub fn list(project_root: &Path) -> Vec<Arc<BackgroundProcess>> {
     let root = project_root.display().to_string();
     let mut items: Vec<Arc<BackgroundProcess>> = registry()
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .values()
         .filter(|p| p.project_root == root)
         .cloned()

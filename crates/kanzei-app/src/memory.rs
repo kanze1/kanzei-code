@@ -5,11 +5,13 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-fn memory_stores_for(project_dir: &str) -> Vec<kanzei_tools::memory::MemoryStore> {
+fn memory_stores_for(project_dir: &str) -> Vec<kanzei_memory::memory::MemoryStore> {
     let cwd = PathBuf::from(project_dir);
     let root = crate::normalized_project_root(&cwd);
-    let mut stores = vec![kanzei_tools::memory::MemoryStore::project(&root)];
-    stores.extend(kanzei_tools::memory::MemoryStore::global_for_project(&root));
+    let mut stores = vec![kanzei_memory::memory::MemoryStore::project(&root)];
+    stores.extend(kanzei_memory::memory::MemoryStore::global_for_project(
+        &root,
+    ));
     stores
 }
 
@@ -53,7 +55,7 @@ fn now_ms() -> u64 {
 }
 
 fn promotion_gap_count(
-    entries: &[(PathBuf, kanzei_tools::memory::MemoryEntry)],
+    entries: &[(PathBuf, kanzei_memory::memory::MemoryEntry)],
     source_backed: &HashSet<String>,
 ) -> usize {
     entries
@@ -77,7 +79,7 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
         let entries = store.load_all();
         let hits = store.hits_map();
         let mut categories = serde_json::Map::new();
-        for cat in kanzei_tools::memory::CATEGORIES {
+        for cat in kanzei_memory::memory::CATEGORIES {
             let of_cat: Vec<_> = entries.iter().filter(|(_, e)| e.category == *cat).collect();
             let active = of_cat.iter().filter(|(_, e)| e.status == "active").count();
             // 候选(candidate/shadow)与失效(deprecated/invalid)分开数:此前 `总数 - active` 把候选也记成 stale。
@@ -106,7 +108,7 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
 pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
     let cwd = PathBuf::from(&project_dir);
     let root = crate::normalized_project_root(&cwd);
-    let store = kanzei_tools::memory::MemoryStore::project(&root);
+    let store = kanzei_memory::memory::MemoryStore::project(&root);
     let entries = store.load_all();
     let pending = store.pending_notes();
     let oldest_waiting = store
@@ -174,16 +176,16 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
 
 /// memory_entries / memory_entry_get 同形:一条记忆的列表/详情数据。
 fn memory_entry_json(
-    store: &kanzei_tools::memory::MemoryStore,
+    store: &kanzei_memory::memory::MemoryStore,
     path: &std::path::Path,
-    entry: kanzei_tools::memory::MemoryEntry,
+    entry: kanzei_memory::memory::MemoryEntry,
     profile: &std::collections::BTreeMap<String, (u64, i64)>,
     usage: &std::collections::BTreeMap<String, kanzei_core::MemoryUsageCounts>,
     archived: bool,
 ) -> serde_json::Value {
     let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
     let counts = usage.get(&entry.id).cloned().unwrap_or_default();
-    let revision = kanzei_tools::memory::entry_revision(&entry);
+    let revision = kanzei_memory::memory::entry_revision(&entry);
     json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
         "title": entry.title, "description": entry.description, "status": entry.status,
         "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
@@ -334,7 +336,7 @@ fn project_root_of(project_dir: &str) -> PathBuf {
 /// 缓存层 + 命中数覆盖。`stores` 由调用方给:命令用项目库 + 全局库,契约测试只给项目库。
 pub(crate) fn memory_graph_with(
     root: &std::path::Path,
-    stores: &[kanzei_tools::memory::MemoryStore],
+    stores: &[kanzei_memory::memory::MemoryStore],
 ) -> serde_json::Value {
     let started = std::time::Instant::now();
     let fingerprint = kanzei_tools::refgraph::input_fingerprint_from(root, stores);
@@ -437,7 +439,7 @@ pub(crate) fn memory_note_candidates(project_dir: String) -> serde_json::Value {
     let mut out = Vec::new();
     for store in memory_stores_for(&project_dir) {
         for note in store.pending_note_records() {
-            let kanzei_tools::memory::InboxNote {
+            let kanzei_memory::memory::InboxNote {
                 id,
                 hint,
                 summary,
@@ -486,7 +488,7 @@ pub(crate) fn memory_recalls(
     let observations = state
         .memory_recall_observations(limit)
         .map_err(|error| error.to_string())?;
-    let entries = kanzei_tools::memory::MemoryStore::project(&root)
+    let entries = kanzei_memory::memory::MemoryStore::project(&root)
         .load_all()
         .into_iter()
         .map(|(_, entry)| (entry.id.clone(), entry))
@@ -627,10 +629,10 @@ pub(crate) fn memory_search_page(
     // R-161 桌面端同源:与 memory_search 工具/CLI 开跑预检索走同一漏斗口径,
     // 命中即记 RETRIEVED(桌面搜索页只展示、不进 LLM 上下文,故 injected=false)。
     // D-366:检索走统一门面(index 是 ranking 唯一实现处),不再直调 store.search。
-    let index = kanzei_tools::memory::SqliteMemoryIndex::new(&root);
-    let all_hits: Vec<kanzei_tools::memory::SearchHit> = index
+    let index = kanzei_memory::memory::SqliteMemoryIndex::new(&root);
+    let all_hits: Vec<kanzei_memory::memory::SearchHit> = index
         .search_entries(
-            &kanzei_tools::memory::IndexQuery::text(&query),
+            &kanzei_memory::memory::IndexQuery::text(&query),
             None,
             Some("active"),
             limit,
@@ -643,13 +645,13 @@ pub(crate) fn memory_search_page(
         })
         .collect();
     {
-        kanzei_tools::memory::record_memory_search_telemetry(
+        kanzei_memory::memory::record_memory_search_telemetry(
             &root,
             &query,
             &all_hits,
             false,
             "lexical",
-            &kanzei_tools::memory::RetrievalTiming::default(),
+            &kanzei_memory::memory::RetrievalTiming::default(),
             None,
             "user_search",
         );
@@ -892,7 +894,7 @@ mod tests {
     #[test]
     fn memory_graph_cache_hits_until_input_changes() {
         let root = crate::ipc_contract::tests::memory_graph_fixture_project();
-        let stores = [kanzei_tools::memory::MemoryStore::project(&root)];
+        let stores = [kanzei_memory::memory::MemoryStore::project(&root)];
         let first = super::memory_graph_with(&root, &stores);
         assert_eq!(first["cache"], "miss");
         let second = super::memory_graph_with(&root, &stores);
@@ -1028,8 +1030,8 @@ mod tests {
         status: &str,
         source: &str,
         refs: &[(&str, &str)],
-    ) -> kanzei_tools::memory::MemoryEntry {
-        kanzei_tools::memory::MemoryEntry {
+    ) -> kanzei_memory::memory::MemoryEntry {
+        kanzei_memory::memory::MemoryEntry {
             id: id.into(),
             scope: "project".into(),
             category: "fact".into(),

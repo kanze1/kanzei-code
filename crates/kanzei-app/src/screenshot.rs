@@ -251,13 +251,13 @@ mod tests {
     /// 默认跳过:它依赖一个正在运行且未被遮挡的窗口,进 CI 必红。这不是摆设——
     /// 截图这条路上「编译通过」和「抓得到画面」之间隔着 WebView2 的合成层,
     /// 单元测试再多也证明不了后者。改动 capture_window 后必须手动跑一次:
-    ///   KZ_SHOT_OUT=<路径.png> cargo test -p kanzei-app screenshot_live -- --nocapture
+    ///   KZ_SHOT_OUT=<路径.png> cargo test -p kanzei-app screenshot_live -- --ignored --nocapture
     #[cfg(windows)]
     #[test]
+    #[ignore = "external: requires an unobscured Kanzei window and KZ_SHOT_OUT"]
     fn screenshot_live_window_is_not_blank() {
         let Ok(out) = std::env::var("KZ_SHOT_OUT") else {
-            eprintln!("跳过:未设 KZ_SHOT_OUT(本用例需要真实窗口,不进常规门禁)");
-            return;
+            panic!("KZ_SHOT_OUT is required for the live-window test");
         };
         // 先声明 per-monitor DPI 感知,再取任何窗口坐标。
         //

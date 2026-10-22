@@ -405,7 +405,7 @@ struct MergeInput {
     scope: String,
     /// 保留的主条目(最老引用优先)
     primary: String,
-    /// 被并入的重复条目(将 stale 并链接 superseded_by)
+    /// 被并入的重复条目(将置为 deprecated 并链接 superseded_by)
     duplicates: Vec<String>,
     /// 合并后的正文(通常是两者的并集提炼)
     #[serde(default)]

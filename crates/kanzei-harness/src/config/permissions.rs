@@ -24,10 +24,9 @@ pub struct PermissionsSection {
     /// 或者手抖拼错)**不能炸掉启动**,只能 fail-closed 回落 deny 再产一条告警。
     /// 读的时候走 [`KanzeiConfig::non_interactive_policy`],别直接读这个字段。
     ///
-    /// 本批只落 schema 与告警,**暂时没有消费者**——策略真正生效在后续批次。
-    /// 三处接线(`unknown_keys` / `merge` / 告警)在本批一次做齐,各有一条命名测试守着:
-    /// `Limits::barrier_timeout_secs` 就栽在只加字段没接 merge,项目层设了却静默不生效
-    /// (D-300 已补,`limits_全字段_层叠往返不丢值_且名单穷举` 在防复发)。
+    /// CLI 非交互运行由 cli/run/permissions.rs 消费该策略。
+    /// schema、unknown_keys、层叠 merge 和启动告警必须同时接线；
+    /// Limits 的全字段层叠测试防止新增可选字段只进入 schema、遗漏 overlay。
     #[serde(default)]
     pub non_interactive: Option<String>,
 }

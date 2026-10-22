@@ -1,0 +1,9 @@
+[
+  { "name": "fill", "host": {"x":10,"y":20,"w":80,"h":100}, "preset":"fill", "expected":{"x":10,"y":20,"w":80,"h":100,"scale":1} },
+  { "name": "phone-cropped-at-min-zoom", "host": {"x":10,"y":20,"w":80,"h":100}, "preset":"phone", "expected":{"x":10,"y":20,"w":80,"h":100,"scale":0.25} },
+  { "name": "phone-narrow-centered", "host": {"x":10,"y":20,"w":200,"h":100}, "preset":"phone", "expected":{"x":61.25,"y":20,"w":97.5,"h":100,"scale":0.25} },
+  { "name": "tablet-regular", "host": {"x":10,"y":20,"w":384,"h":512}, "preset":"tablet", "expected":{"x":10,"y":20,"w":384,"h":512,"scale":0.5} },
+  { "name": "desktop-no-upscale", "host": {"x":0,"y":0,"w":1600,"h":1000}, "preset":"desktop", "expected":{"x":160,"y":100,"w":1280,"h":800,"scale":1} },
+  { "name": "zero-width", "host": {"x":10,"y":20,"w":0,"h":100}, "preset":"phone", "expected":{"x":10,"y":20,"w":0,"h":0,"scale":1} },
+  { "name": "zero-height", "host": {"x":10,"y":20,"w":100,"h":0}, "preset":"phone", "expected":{"x":10,"y":20,"w":0,"h":0,"scale":1} }
+]

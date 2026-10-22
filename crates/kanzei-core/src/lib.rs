@@ -8,9 +8,9 @@ pub mod notification;
 pub mod orchestration;
 pub mod replay;
 pub mod research;
-pub mod research_runner;
+pub mod research_callback;
 pub mod runner;
-pub mod store;
+mod store;
 
 pub use assemble::build_route;
 pub use history::filter_message_history;
@@ -21,9 +21,9 @@ pub use research::{
     ExplorationStatus, ParsedExploration, ResearchDiagnostic, ResearchError, ResearchTopic,
     ResultArtifactSkeleton,
 };
-pub use research_runner::{
-    parse_callback_line, CallbackStats, ParsedCallbackLine, ResearchCallbackEvent, CALLBACK_PREFIX,
-    MAX_CALLBACK_LINE_BYTES,
+pub use research_callback::{
+    encode_callback_line, parse_callback_line, CallbackEncodeError, CallbackMessage, CallbackStats,
+    ParsedCallbackLine, ResearchCallbackEvent, CALLBACK_PREFIX, MAX_CALLBACK_LINE_BYTES,
 };
 pub use runner::{
     compact_conversation, compact_conversation_with_model, compaction_budget, completed_entry,
@@ -53,4 +53,25 @@ pub use store::{
     WorkProjection, WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS,
     MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT,
     WORK_PROJECTION_FORMAT_VERSION,
+};
+
+// Public domain services. The SQLite implementation stays private.
+pub use store::{artifact_liveness, context_manifest, decisions, session_execution};
+pub use store::{
+    capture_file_preimage_in, decode_session_fact, file_checkpoint_blob_path,
+    file_checkpoint_path_key, file_checkpoint_tree_root, record_file_postimage_in,
+    stable_json_hash, stable_message_hash, FileCheckpointTarget, TaskOutcome,
+    FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
+};
+
+pub use store::{
+    capture_file_preimage, file_checkpoint_rel_path, project_work_events, record_file_postimage,
+    EffectEstimate, EvalCaseSet, InterruptedAssistant, OriginalConversation, RewindFile,
+    RewindPlan, TaskCompatibilityAudit, TaskLegacyProjection, TaskMetricsProjection,
+    TaskProjection, TaskRoundProjection, TaskStatus, ASSISTANT_DRAFT_APPENDED,
+    ASSISTANT_MESSAGE_COMMITTED, ASSISTANT_MESSAGE_INTERRUPTED, FILE_CHECKPOINT_MAX_BYTES,
+    LEGACY_SEEDED, SESSION_EVENT_FORMAT_VERSION, TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION,
+    TASK_MEMBERSHIP_ADDED_EVENT_TYPE, TASK_STARTED_EVENT_TYPE, TOOL_CALLED, TOOL_RESULT_COMMITTED,
+    TOOL_RESULT_INTERRUPTED, TURN_COMPLETED, TURN_FAILED, TURN_STARTED, TURN_STOPPED,
+    USER_MESSAGE_COMMITTED,
 };

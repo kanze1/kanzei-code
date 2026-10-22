@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use kanzei_harness::{auto_run::BacklogStatus, ToolCtx};
 
 use super::fields;
-use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
+use kanzei_memory::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 type DependencyMap = BTreeMap<String, Vec<String>>;
 
@@ -52,7 +52,7 @@ pub fn append_progress(
         return Err(unknown_id(id, &entries));
     };
     let entry = &mut entries[pos];
-    let now = crate::memory::today();
+    let now = kanzei_memory::memory::today();
     let line = format!("{now} 收活回写: {note}");
     match entry.fields.iter_mut().find(|(k, _)| k == "进展") {
         Some((_, slot)) => {
@@ -818,7 +818,7 @@ pub fn coupling_signals(a: &Entry, b: &Entry) -> (bool, Vec<String>) {
 /// 派发记录,合并后若真出语义问题能回查当初的判据。
 pub fn dispatch_verdict(a: &Entry, b: &Entry) -> String {
     let (coupled, reasons) = coupling_signals(a, b);
-    let date = crate::memory::today();
+    let date = kanzei_memory::memory::today();
     if !coupled {
         format!(
             "[dispatch {date}] {a_id} ∥ {b_id} 可并行:耦合证伪通过,无 refs 互指、无路径重叠。\

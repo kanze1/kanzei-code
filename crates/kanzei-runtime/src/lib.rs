@@ -1,13 +1,6 @@
-//! 运行装配公共层(R-256 批2):桌面端与 CLI 共用的运行期装配构建块。
-//!
-//! 独立理由:桌面端 `run/assembly.rs` / `run/execution.rs` 与 CLI `main.rs` 各写了一套
-//! harness/模型/RunnerConfig/子代理装配,每加一个运行期能力要改两处且只有一端被验证。
-//! 本模块把**两端逐字节重复的装配步骤**收成单一实现:RunnerConfig 构造与子代理运行时
-//! 构造;两端差异(桌面登记读槽/取消注册表,CLI 单运行不参与)收敛为参数注入。
-//!
-//! 危险点(搬迁纪律):漂移项先对齐再合并,不在合并动作里顺手改行为;本模块只做
-//! 「同一实现、参数化差异」,不改变任何装配顺序与字段值(对照表见
-//! docs/design/monolith_decomposition.md 章节 F 的 #12/#16)。
+//! Shared composition root for CLI, desktop and scheduled execution.
+//! Capability crates do not construct runners or depend on this crate.
+pub mod schedules;
 
 use std::sync::Arc;
 
@@ -20,7 +13,7 @@ use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx};
 use kanzei_llm::{ProxyConfig, Route};
 
-use crate::{BaseComponent, DevProfile, ResearchProfile};
+use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
 
 /// R-256 批4:两端共用的 harness 装配(对照表 #5 公共部分:Base/Dev/Research/
 /// Markdown/Config 在此单点)。端独有组件经 `middle`/`tail` 注入,顺序与两端原装配
@@ -34,7 +27,7 @@ pub fn build_harness(
     let mut harness = Harness::default();
     if profile == kanzei_harness::ProfileKind::Isolated {
         harness
-            .add(crate::profiles::IsolatedProfile)
+            .add(kanzei_tools::IsolatedProfile)
             .add(ConfigComponent);
         return harness;
     }
@@ -45,7 +38,7 @@ pub fn build_harness(
     middle(&mut harness);
     harness.add(MarkdownComponent).add(ConfigComponent);
     tail(&mut harness);
-    harness.add(crate::GeneralChatProfile);
+    harness.add(kanzei_tools::GeneralChatProfile);
     harness
 }
 
@@ -73,7 +66,7 @@ pub fn build_runner_config(
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
         // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ 桌面端/CLI 侧)。
-        recall: Some(Box::new(crate::memory::FailureRecallPolicy::new(
+        recall: Some(Box::new(kanzei_memory::memory::FailureRecallPolicy::new(
             project_root,
         ))),
         // R-171:CLI 单运行实例用默认策略;桌面端多进程场景才启用串行写。
@@ -156,7 +149,7 @@ pub async fn build_subagent_runtime(
     }
     let mut sub_harness = Harness::default();
     sub_harness
-        .add(crate::SubagentBase)
+        .add(kanzei_tools::SubagentBase)
         .add(MarkdownComponent)
         .add(ConfigComponent);
     let sub_snapshot = sub_harness.resolve(rctx)?;
@@ -214,7 +207,7 @@ pub async fn build_subagent_runtime(
         // 只放只读人格——writer 由编排器按阶段派发,不进模型可选集合。
         roster,
         snapshot: sub_snapshot,
-        agent: crate::explore_agent(),
+        agent: kanzei_tools::explore_agent(),
         fast: fast
             .map(|(r, m, _)| (r, m))
             .unwrap_or_else(|| (route.clone(), resolved.model.clone())),

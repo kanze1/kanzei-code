@@ -107,7 +107,7 @@ pub(crate) async fn schedule_cli(args: &[String]) -> anyhow::Result<()> {
                     None => return Ok(()),
                 }
             };
-            let result = kanzei_tools::schedules::execute(root, def, slot, trigger)
+            let result = kanzei_runtime::schedules::execute(root, def, slot, trigger)
                 .await
                 .map_err(anyhow::Error::msg)?;
             match result {

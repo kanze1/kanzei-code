@@ -2516,6 +2516,8 @@ dependencies = [
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
+ "kanzei-memory",
+ "kanzei-runtime",
  "kanzei-tools",
  "serde_json",
  "tokio",
@@ -2542,6 +2544,8 @@ dependencies = [
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
+ "kanzei-memory",
+ "kanzei-runtime",
  "kanzei-tools",
  "png 0.17.16",
  "quote",
@@ -2665,6 +2669,25 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml 0.8.23",
+ "tracing",
+]
+
+[[package]]
+name = "kanzei-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures",
+ "kanzei-base",
+ "kanzei-core",
+ "kanzei-harness",
+ "kanzei-llm",
+ "kanzei-memory",
+ "kanzei-tools",
+ "serde",
+ "serde_json",
+ "tokio",
  "tracing",
 ]
 

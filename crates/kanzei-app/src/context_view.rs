@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn native_writer_receipts_project_into_the_selected_conversation_and_request() {
-        use kanzei_core::store::context_manifest::{ContextCapture, ContextSnapshot};
+        use kanzei_core::context_manifest::{ContextCapture, ContextSnapshot};
         let root = tempfile::tempdir().unwrap();
         let path = kanzei_core::project_state_path(root.path());
         let store = kanzei_core::SessionStore::open(&path).unwrap();

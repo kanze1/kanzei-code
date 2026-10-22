@@ -13,7 +13,7 @@ use kanzei_harness::{ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
 use std::collections::BTreeSet;
 
-use kanzei_tools::memory::{MemoryEntry, MemoryStore};
+use kanzei_memory::memory::{MemoryEntry, MemoryStore};
 
 /// CLI 与桌面端共用同一份有界、可 checkpoint 的整理服务。
 pub(crate) async fn consolidate_memory_inbox(
@@ -97,7 +97,7 @@ pub async fn memory_cli(args: &[String]) -> anyhow::Result<()> {
             );
         }
         "review-global" => {
-            let report = kanzei_tools::memory::reconcile_candidates(&project_root, None, 365)?;
+            let report = kanzei_memory::memory::reconcile_candidates(&project_root, None, 365)?;
             let project = MemoryStore::project(&project_root).load_all();
             let global_store = MemoryStore::global();
             let global = global_store.as_ref().map(|store| store.load_all());

@@ -1,6 +1,6 @@
 //! Capture provenance is written by the app, never reconstructed by the model.
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};
-use kanzei_tools::docstore::{requirement::RequirementSpec, DocStore, REQUIREMENTS};
+use kanzei_memory::docstore::{requirement::RequirementSpec, DocStore, REQUIREMENTS};
 
 pub(crate) fn save_source(root: &std::path::Path, original: &str) -> Result<String, String> {
     let hash = original.bytes().fold(0xcbf29ce484222325u64, |h, b| {

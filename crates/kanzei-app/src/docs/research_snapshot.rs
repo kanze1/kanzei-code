@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
-use kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES};
+use kanzei_memory::docstore::{DocStore, FINDINGS, SOURCES};
 use serde_json::json;
 
 /// 研究来源/发现条目的 IPC 形状。`nextStatuses` 与 docs_snapshot 里需求/缺陷条目同口径(UX-106):
 /// 只列引擎真会放行的目标状态,界面据此画「归档/确认/放弃」按钮,不再自己抄一份状态机。
 fn research_entry_json(
-    entry: &kanzei_tools::docstore::Entry,
+    entry: &kanzei_memory::docstore::Entry,
     topic: &str,
     store: &DocStore,
 ) -> serde_json::Value {
@@ -100,20 +100,20 @@ pub(super) fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, Str
         .flat_map(|entries| entries.filter_map(Result::ok))
         .filter(|entry| entry.path().is_dir())
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|topic| kanzei_tools::docstore::DocStore::validate_topic(topic).is_ok())
+        .filter(|topic| kanzei_memory::docstore::DocStore::validate_topic(topic).is_ok())
         .collect::<Vec<_>>();
     names.sort();
     let mut topics = names
         .into_iter()
         .map(|topic| {
             let source_store =
-                kanzei_tools::docstore::DocStore::open_topic(root, &SOURCES, &topic)
+                kanzei_memory::docstore::DocStore::open_topic(root, &SOURCES, &topic)
                     .map_err(|error| format!("读取 topic `{topic}` 来源失败: {error}"))?;
             let sources = source_store
                 .load()
                 .map_err(|error| format!("读取 topic `{topic}` 来源失败: {error}"))?;
             let finding_store =
-                kanzei_tools::docstore::DocStore::open_topic(root, &FINDINGS, &topic)
+                kanzei_memory::docstore::DocStore::open_topic(root, &FINDINGS, &topic)
                     .map_err(|error| format!("读取 topic `{topic}` 发现失败: {error}"))?;
             let findings = finding_store
                 .load()
@@ -166,7 +166,7 @@ pub(super) fn research_topics(root: &Path) -> Result<Vec<serde_json::Value>, Str
 #[cfg(test)]
 mod research_snapshot_tail_tests {
     use super::{next_statuses, read_tail_lossy};
-    use kanzei_tools::docstore::{DocStore, FINDINGS, SOURCES};
+    use kanzei_memory::docstore::{DocStore, FINDINGS, SOURCES};
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("kz-docs-{name}-{}", std::process::id()));

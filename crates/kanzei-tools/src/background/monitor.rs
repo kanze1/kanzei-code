@@ -1,5 +1,6 @@
 //! Bounded output subscriptions deliver updates to the subscribing actor.
 use super::*;
+use kanzei_base::sync::MutexPoisonExt;
 use kanzei_harness::{AsyncMailbox, AsyncNotice};
 use serde_json::{json, Value};
 use std::{
@@ -25,8 +26,7 @@ fn key(root: &std::path::Path, owner: &str, id: &str) -> String {
 pub fn subscriptions(root: &std::path::Path, owner: &str) -> Vec<Value> {
     let root = crate::worktree::worktree_key(root);
     MONITORS
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .values()
         .filter(|m| {
             m.root == root
@@ -39,8 +39,7 @@ pub fn subscriptions(root: &std::path::Path, owner: &str) -> Vec<Value> {
 }
 pub fn unsubscribe(root: &std::path::Path, owner: &str, id: &str) -> bool {
     MONITORS
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .remove(&key(root, owner, id))
         .is_some_and(|m| m.active.swap(false, Ordering::SeqCst))
 }
@@ -78,7 +77,7 @@ pub fn subscribe(
     let key = key(root, owner, id);
     let serial = SEQ.fetch_add(1, Ordering::SeqCst);
     {
-        let mut all = MONITORS.lock().unwrap();
+        let mut all = MONITORS.lock_or_recover();
         all.retain(|_, m| m.active.load(Ordering::SeqCst) && !m.mailbox.is_closed());
         if let Some(old) = all.get(&key) {
             if !old.mailbox.is_closed()
@@ -144,7 +143,7 @@ pub fn subscribe(
             }
         }
         monitor.active.store(false, Ordering::SeqCst);
-        let mut all = MONITORS.lock().unwrap();
+        let mut all = MONITORS.lock_or_recover();
         if all.get(&key).is_some_and(|m| Arc::ptr_eq(m, &monitor)) {
             all.remove(&key);
         }
@@ -186,7 +185,7 @@ mod tests {
             guard_completion: GuardCompletion::new(false),
             exit_completion: GuardCompletion::new(false),
         });
-        registry().lock().unwrap().insert(id.clone(), process);
+        registry().lock_or_recover().insert(id.clone(), process);
         let old_mailbox = AsyncMailbox::new(|_| Ok(()));
         subscribe(
             &root,
@@ -198,7 +197,7 @@ mod tests {
         )
         .unwrap();
         let subscription_key = key(&root, "actor", &id);
-        let old = MONITORS.lock().unwrap()[&subscription_key].clone();
+        let old = MONITORS.lock_or_recover()[&subscription_key].clone();
         old_mailbox.close();
         // The current-thread executor has not polled the old task: active is still
         // true, reproducing the real stop -> immediate user watch ordering.
@@ -215,7 +214,7 @@ mod tests {
         )
         .unwrap();
         assert_ne!(result["existing"], true);
-        let current = MONITORS.lock().unwrap()[&subscription_key].clone();
+        let current = MONITORS.lock_or_recover()[&subscription_key].clone();
         assert!(!Arc::ptr_eq(&old, &current));
         tokio::time::timeout(Duration::from_secs(2), async {
             while Arc::strong_count(&old) > 1 {
@@ -225,19 +224,19 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            Arc::ptr_eq(&MONITORS.lock().unwrap()[&subscription_key], &current),
+            Arc::ptr_eq(&MONITORS.lock_or_recover()[&subscription_key], &current),
             "old worker cleanup must preserve the replacement"
         );
         assert_eq!(subscriptions(&root, "actor").len(), 1);
         current_mailbox.close();
         tokio::time::timeout(Duration::from_secs(2), async {
-            while MONITORS.lock().unwrap().contains_key(&subscription_key) {
+            while MONITORS.lock_or_recover().contains_key(&subscription_key) {
                 tokio::task::yield_now().await;
             }
         })
         .await
         .unwrap();
-        registry().lock().unwrap().remove(&id);
+        registry().lock_or_recover().remove(&id);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

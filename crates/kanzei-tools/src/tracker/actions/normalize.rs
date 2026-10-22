@@ -3,8 +3,8 @@
 //! This action is kept separate from the routing module so the action family remains
 //! below the metrics growth guard. The behavior and output contract are unchanged.
 
-use crate::docstore::{DocStore, Entry};
 use kanzei_harness::{ToolCtx, ToolOutput};
+use kanzei_memory::docstore::{DocStore, Entry};
 
 use super::super::{TrackerInput, TrackerTool};
 
@@ -165,7 +165,7 @@ pub(crate) fn normalize(
             .fields
             .iter()
             .filter(|(key, _)| {
-                crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+                kanzei_memory::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -176,7 +176,7 @@ pub(crate) fn normalize(
             ));
             if apply {
                 entry.fields.retain(|(key, _)| {
-                    !crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+                    !kanzei_memory::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
                 });
                 touched = true;
                 fixed.push(format!(
@@ -186,8 +186,8 @@ pub(crate) fn normalize(
             }
         }
         // ③ 标题状态标记污染(D-331 口径:状态的家是 header,不是标题)
-        if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
-            let stripped = crate::docstore::strip_status_markers(&entry.title);
+        if let Some(marker) = kanzei_memory::docstore::title_status_marker(&entry.title) {
+            let stripped = kanzei_memory::docstore::strip_status_markers(&entry.title);
             findings.push(format!(
                 "{region} {entry_id}: title status marker `[{marker}]` → will strip to `{stripped}`"
             ));
@@ -226,7 +226,7 @@ pub(crate) fn normalize(
                 entry.id, entry.status
             ));
         }
-        if let Some(marker) = crate::docstore::title_status_marker(&entry.title) {
+        if let Some(marker) = kanzei_memory::docstore::title_status_marker(&entry.title) {
             findings.push(format!(
                 "archived {}: title status marker `[{marker}]` — fix_terminal 纠错通道处理",
                 entry.id
@@ -261,7 +261,7 @@ pub(crate) fn normalize(
             .fields
             .iter()
             .filter(|(key, _)| {
-                crate::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
+                kanzei_memory::docstore::DocStore::ENGINE_DERIVED_FIELDS.contains(&key.trim())
             })
             .map(|(key, _)| key.as_str())
             .collect();

@@ -168,7 +168,7 @@ fn spawn(app: tauri::AppHandle, root: PathBuf, def: ScheduleDef, slot: i64, trig
         let _admission = admission;
         let name = def.name.clone();
         let notify = def.writeback.iter().any(|channel| channel == "notify");
-        let result = shared::execute(root.clone(), def, slot, trigger).await;
+        let result = kanzei_runtime::schedules::execute(root.clone(), def, slot, trigger).await;
         let payload = match result {
             Ok(Some(outcome)) => {
                 json!({"project":root,"name":name,"phase":"finished","notify":notify,"result":outcome})

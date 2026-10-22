@@ -454,15 +454,15 @@
     "host": "service"
   },
   {
-    "path": "commands::run::run_metrics",
+    "path": "commands::run::metrics::run_metrics",
     "host": "service"
   },
   {
-    "path": "commands::run::run_metrics_by_category",
+    "path": "commands::run::metrics::run_metrics_by_category",
     "host": "service"
   },
   {
-    "path": "commands::run::run_metrics_by_task",
+    "path": "commands::run::metrics::run_metrics_by_task",
     "host": "service"
   },
   {

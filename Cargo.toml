@@ -7,6 +7,7 @@ members = [
     "crates/kanzei-core",
     "crates/kanzei-memory",
     "crates/kanzei-tools",
+    "crates/kanzei-runtime",
     "crates/kanzei",
     "crates/kanzei-app",
 ]
@@ -23,6 +24,7 @@ kanzei-llm = { path = "crates/kanzei-llm" }
 kanzei-core = { path = "crates/kanzei-core" }
 kanzei-memory = { path = "crates/kanzei-memory" }
 kanzei-tools = { path = "crates/kanzei-tools" }
+kanzei-runtime = { path = "crates/kanzei-runtime" }
 
 tokio = { version = "1", features = ["full"] }
 # R-249:read 读图片需在 Rust 侧做 base64(桌面端附件的编码在 JS 侧,复用不了)。

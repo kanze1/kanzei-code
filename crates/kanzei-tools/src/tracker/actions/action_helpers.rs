@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::process::Command;
 
-use crate::docstore::{DocStore, Entry};
+use kanzei_memory::docstore::{DocStore, Entry};
 
 /// R-306 验收⑤:关闭带仓库观测锚点的活动条目时，observed_head 必须已进入当前
 /// HEAD 祖先链。否则拒绝关闭，迫使调用方先完成收编或在条目里登记真实的收编处置。

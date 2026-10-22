@@ -1142,8 +1142,7 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
     #[test]
     fn rpc_嵌套result_error透传为工具错误() {
         let Some(node) = find_node() else {
-            eprintln!("跳过:本机无 node");
-            return;
+            panic!("required test dependency missing: 本机无 node");
         };
         let script = r#"
             process.stdin.setEncoding("utf8");

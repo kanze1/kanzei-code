@@ -186,7 +186,7 @@ impl MemoryEntry {
 
     /// 记忆图谱:frontmatter `area: kanzei-tools/edit kanzei-app/ui/memory`(空格或逗号分隔)。
     /// 值由写入侧(memory_add/memory_update/memory_entry_save)经 AreaRegistry 归一;读侧宽容,
-    /// 缺键 = 空(图谱改用推断,见 docs/design/memory_knowledge_graph.md §3.5)。
+    /// 缺键 = 空(图谱改用推断，见 docs/design/memory_knowledge_graph.md 的“抽取规则”)。
     pub fn areas(&self) -> Vec<String> {
         self.field("area")
             .map(|v| {
@@ -1282,39 +1282,26 @@ pub fn reconcile_candidates(
 /// 可选 dense embedder + RRF,R-233),命中则返回提示块(只给索引行不给正文,
 /// 拉正文是模型自己的决定)。无命中返回 None。
 ///
-/// `autonomous`(自主推进/鞭挞轮)时**不拿 prompt 当检索键**:那是一段每轮
-/// 一字不差的模板,拿它检索等于每轮注入同一批条目。改用 tracker 的取活条目
-/// 标题;没有可推进项就不注入(那种轮次本来也没什么可召回的)。
+/// The caller supplies the actual work query; memory never selects tracker work.
 ///
 /// `embedder` 为 None 时 hybrid 自动退化为纯 lexical(功能完整,不依赖向量)。
 pub fn prompt_hints(
     project_root: &std::path::Path,
     prompt: &str,
-    autonomous: bool,
     embedder: Option<std::sync::Arc<dyn Embedder>>,
 ) -> Option<String> {
-    prompt_hints_for_run(project_root, prompt, autonomous, embedder, None)
+    prompt_hints_for_run(project_root, prompt, embedder, None)
 }
 
 pub fn prompt_hints_for_run(
     project_root: &std::path::Path,
     prompt: &str,
-    autonomous: bool,
     embedder: Option<std::sync::Arc<dyn Embedder>>,
     run_id: Option<&str>,
 ) -> Option<String> {
-    let query = if autonomous {
-        let titles = crate::scheduling::workable_titles(project_root, 2);
-        if titles.is_empty() {
-            return None;
-        }
-        titles.join(" ")
-    } else {
-        prompt.to_string()
-    };
     prompt_hints_scoped(
         project_root,
-        &query,
+        prompt,
         MEMORY_CONTEXT_BUDGET,
         embedder,
         run_id,
@@ -1869,24 +1856,23 @@ mod tests {
             AddOutcome::Added(_) => {}
             _ => panic!("expected add"),
         }
-        let hit = prompt_hints(&dir, "帮我把这一批发版出去", false, None);
+        let hit = prompt_hints(&dir, "帮我把这一批发版出去", None);
         assert!(hit.is_some());
         assert!(hit.unwrap().contains("M-001"), "提示块应含索引行");
         // hints 不保存到历史，每次组装均须注入，包括同一查询的下一运行。
         assert!(
-            prompt_hints_for_run(&dir, "帮我把这一批发版出去", false, None, Some("new-run"))
-                .is_some()
+            prompt_hints_for_run(&dir, "帮我把这一批发版出去", None, Some("new-run")).is_some()
         );
         // query 变化照常注入(命中同一条目也算新语境)。
         assert!(
-            prompt_hints(&dir, "发版流程要走哪些步骤", false, None).is_some(),
+            prompt_hints(&dir, "发版流程要走哪些步骤", None).is_some(),
             "query 变化后应恢复注入"
         );
-        assert!(prompt_hints(&dir, "完全无关的宇宙话题", false, None).is_none());
+        assert!(prompt_hints(&dir, "完全无关的宇宙话题", None).is_none());
         // 自动轮不拿 prompt 当检索键:这个临时项目没有 tracker 取活条目,
         // 于是不注入——而不是用模板 prompt 去捞一批不相干的条目回来。
         assert!(
-            prompt_hints(&dir, "帮我把这一批发版出去", true, None).is_none(),
+            prompt_hints(&dir, "", None).is_none(),
             "自动轮应改用取活条目做检索键,无取活项时不注入"
         );
         std::fs::remove_dir_all(dir).ok();
@@ -1934,7 +1920,7 @@ mod tests {
         };
         // 场景1:无 embedder → lexical,embed 段 0。
         let dir1 = mk("kz-hints-lex");
-        let hit1 = prompt_hints(&dir1, "帮我把这一批发版出去", false, None);
+        let hit1 = prompt_hints(&dir1, "帮我把这一批发版出去", None);
         assert!(hit1.is_some());
         let (action1, embed1) = last_policy(&dir1.join(".kanzei").join("state.db"));
         assert_eq!(
@@ -1945,7 +1931,7 @@ mod tests {
         // 场景2:有 FakeEmbedder → hybrid 通道(即使 dense 相似度有限,通道如实记)。
         let dir2 = mk("kz-hints-hyb");
         let embedder = std::sync::Arc::new(crate::embed::FakeEmbedder::new(8));
-        let hit2 = prompt_hints(&dir2, "帮我把这一批发版出去", false, Some(embedder));
+        let hit2 = prompt_hints(&dir2, "帮我把这一批发版出去", Some(embedder));
         assert!(hit2.is_some());
         let (action2, _embed2) = last_policy(&dir2.join(".kanzei").join("state.db"));
         assert_eq!(
@@ -2016,12 +2002,12 @@ mod tests {
         let query = "评估 harness 质量";
         // 对照:无 embedder → 纯 BM25 词面零重叠 → 不注入。
         assert!(
-            prompt_hints(&dir, query, false, None).is_none(),
+            prompt_hints(&dir, query, None).is_none(),
             "词面零重叠时纯 BM25 必须召回不到(对照)"
         );
         // 语义通道:同 query 经 dense 召回 SOP 条目并注入。
         let embedder = std::sync::Arc::new(TopicEmbedder);
-        let hit = prompt_hints(&dir, query, false, Some(embedder));
+        let hit = prompt_hints(&dir, query, Some(embedder));
         let block = hit.expect("语义通道必须召回 SOP 条目");
         assert!(block.contains("M-001"), "提示块应含 SOP 索引行: {block}");
         std::fs::remove_dir_all(dir).ok();

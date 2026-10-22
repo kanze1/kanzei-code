@@ -1012,8 +1012,8 @@ mod tests {
             ],
         );
         let canonical = crate::normalized_project_root(&root);
-        kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
-            .save(&[kanzei_tools::docstore::Entry {
+        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
+            .save(&[kanzei_memory::docstore::Entry {
                 id: "R-184".into(),
                 title: "并行协作".into(),
                 status: "doing".into(),

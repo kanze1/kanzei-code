@@ -7,7 +7,7 @@ pub fn workflow(
     root: &Path,
     topic: &str,
 ) -> Result<Option<crate::research_workflow::Workflow>, String> {
-    crate::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     if !root
         .join(".kanzei/research")
         .join(topic)

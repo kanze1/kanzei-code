@@ -85,8 +85,8 @@ pub(crate) async fn replay_eval_cli(args: &[String]) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let provider = kanzei_tools::replay_eval::ReplayMemoryProvider::new(&project_root);
-    let decider = kanzei_tools::replay_eval::LlmDecider::new(
+    let provider = kanzei_memory::replay_eval::ReplayMemoryProvider::new(&project_root);
+    let decider = kanzei_memory::replay_eval::LlmDecider::new(
         Arc::new(client),
         Arc::new(route),
         resolved.model.clone(),

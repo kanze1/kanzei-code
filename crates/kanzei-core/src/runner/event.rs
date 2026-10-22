@@ -2,6 +2,7 @@
 //! 拆分自 runner.rs(设计 §C B1);RunEvent/RunSummary/Ask* 经 mod.rs pub use 平铺,
 //! drain_task_events/preview 仅 runner 内部使用,见 mod.rs 的 use event 导入。
 
+use kanzei_base::sync::MutexPoisonExt;
 use std::sync::{
     atomic::{AtomicBool, AtomicU32},
     Arc, Mutex,
@@ -20,13 +21,12 @@ pub struct MessageCommitReceipt {
 impl MessageCommitReceipt {
     pub fn reject(&self, error: impl Into<String>) {
         self.error
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get_or_insert_with(|| error.into());
     }
 
     pub fn check(&self) -> Result<(), String> {
-        match self.error.lock().unwrap().as_ref() {
+        match self.error.lock_or_recover().as_ref() {
             Some(error) => Err(error.clone()),
             None => Ok(()),
         }

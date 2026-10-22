@@ -35,7 +35,7 @@ pub(crate) fn clear_conversation(
     if runtime.running.load(Ordering::SeqCst) {
         return Err("对话运行中,不能在它脚下开新段;请先停止它,或新建讨论".into());
     }
-    let _owner = kanzei_core::store::session_execution::try_acquire(
+    let _owner = kanzei_core::session_execution::try_acquire(
         &kanzei_core::project_state_path(&root),
         &session_id,
     )
@@ -292,7 +292,7 @@ pub(crate) fn conversation_get(
                 if event.event_type == "conversation.rewind" {
                     return project_segment_at_sequence(&store, &session_id, sequence);
                 }
-                if kanzei_core::store::decode_session_fact(&event)
+                if kanzei_core::decode_session_fact(&event)
                     .map_err(|e| e.to_string())?
                     .is_some()
                 {
@@ -672,7 +672,7 @@ pub(crate) fn delete_conversation_segments(
     if runtime.running.load(Ordering::SeqCst) {
         return Err("对话运行中,先停止再删除历史对话".into());
     }
-    let _owner = kanzei_core::store::session_execution::try_acquire(
+    let _owner = kanzei_core::session_execution::try_acquire(
         &kanzei_core::project_state_path(&root),
         &session_id,
     )
@@ -733,7 +733,7 @@ fn deletion_ranges(
             ranges.insert(legacy_segment_range(&boundaries, &snapshots, sequence));
             continue;
         }
-        if kanzei_core::store::decode_session_fact(&event)
+        if kanzei_core::decode_session_fact(&event)
             .map_err(|e| e.to_string())?
             .is_none()
         {

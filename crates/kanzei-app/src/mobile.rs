@@ -133,7 +133,7 @@ fn mobile_authorized(request: &str, devices: &HashMap<String, String>) -> Option
 struct BridgeSession {
     session_id: String,
     label: String,
-    /// `main` 主对话 / `discussion` 讨论 / `task` 独立任务。
+    /// ProcessKind 的线协议：conversation 对话 / discussion 讨论 / research 研究。
     kind: &'static str,
     updated_at: i64,
 }

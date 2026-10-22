@@ -74,12 +74,11 @@ pub(crate) async fn run_execution_loop(
     let memory_hints = if deps.rctx.profile == kanzei_harness::ProfileKind::Isolated {
         None
     } else {
-        kanzei_tools::memory::prompt_hints_for_run(
+        kanzei_memory::memory::prompt_hints_for_run(
             &ctx.project_root,
             &memory_query,
-            false,
             // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-            kanzei_tools::embed::embedder_from_config(config)
+            kanzei_memory::embed::embedder_from_config(config)
                 .ok()
                 .flatten(),
             ctx.run_id.as_deref(),

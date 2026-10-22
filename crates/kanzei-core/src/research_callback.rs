@@ -9,6 +9,50 @@ use serde_json::{Map, Value};
 pub const CALLBACK_PREFIX: &str = "@@kanzei ";
 pub const MAX_CALLBACK_LINE_BYTES: usize = 8 * 1024;
 
+/// Producer contract for known callback events. External programs use this JSON
+/// shape after CALLBACK_PREFIX; readers also preserve future event types.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "t", rename_all = "snake_case")]
+pub enum CallbackMessage {
+    Stage { name: String },
+    Metric { name: String, value: f64 },
+    Progress { done: f64, total: f64 },
+    Artifact { kind: String, path: String },
+    Checkpoint { path: String },
+    Message { level: String, text: String },
+    Heartbeat,
+    Result { status: String },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum CallbackEncodeError {
+    #[error("invalid callback: {0}")]
+    Invalid(&'static str),
+    #[error("callback serialization: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("callback exceeds {MAX_CALLBACK_LINE_BYTES} bytes")]
+    TooLong,
+}
+
+pub fn encode_callback_line(message: &CallbackMessage) -> Result<String, CallbackEncodeError> {
+    let value = serde_json::to_value(message)?;
+    let object = value
+        .as_object()
+        .ok_or(CallbackEncodeError::Invalid("expected object"))?;
+    validate_event(
+        object["t"]
+            .as_str()
+            .ok_or(CallbackEncodeError::Invalid("expected type"))?,
+        object,
+    )
+    .map_err(CallbackEncodeError::Invalid)?;
+    let line = format!("{CALLBACK_PREFIX}{}", serde_json::to_string(&value)?);
+    if line.len() > MAX_CALLBACK_LINE_BYTES {
+        return Err(CallbackEncodeError::TooLong);
+    }
+    Ok(line)
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CallbackStats {
     pub parsed: u64,
@@ -201,6 +245,62 @@ fn is_known_event(event_type: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_producer_and_reader_share_the_protocol_and_limits() {
+        for message in [
+            CallbackMessage::Stage {
+                name: "train".into(),
+            },
+            CallbackMessage::Metric {
+                name: "loss".into(),
+                value: 0.5,
+            },
+            CallbackMessage::Progress {
+                done: 2.0,
+                total: 10.0,
+            },
+            CallbackMessage::Artifact {
+                kind: "plot".into(),
+                path: "loss.png".into(),
+            },
+            CallbackMessage::Checkpoint {
+                path: "weights.bin".into(),
+            },
+            CallbackMessage::Message {
+                level: "info".into(),
+                text: "ready".into(),
+            },
+            CallbackMessage::Heartbeat,
+            CallbackMessage::Result {
+                status: "done".into(),
+            },
+        ] {
+            let line = encode_callback_line(&message).unwrap();
+            let parsed = parse_callback_line(&line);
+            assert!(parsed.parsed && !parsed.malformed);
+            assert_eq!(
+                parsed.event.unwrap().payload,
+                serde_json::to_value(message).unwrap()
+            );
+        }
+        assert!(encode_callback_line(&CallbackMessage::Metric {
+            name: "loss".into(),
+            value: f64::NAN
+        })
+        .is_err());
+        assert!(encode_callback_line(&CallbackMessage::Stage {
+            name: String::new()
+        })
+        .is_err());
+        assert!(matches!(
+            encode_callback_line(&CallbackMessage::Message {
+                level: "info".into(),
+                text: "x".repeat(MAX_CALLBACK_LINE_BYTES)
+            }),
+            Err(CallbackEncodeError::TooLong)
+        ));
+    }
 
     #[test]
     fn parses_known_callback_events_and_keeps_payload() {

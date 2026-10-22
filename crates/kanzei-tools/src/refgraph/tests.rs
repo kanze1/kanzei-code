@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use kanzei_harness::areas::AreaRegistry;
 
 use super::memory_graph::*;
-use crate::memory::MemoryEntry;
+use kanzei_memory::memory::MemoryEntry;
 
 fn temp_root(tag: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!(

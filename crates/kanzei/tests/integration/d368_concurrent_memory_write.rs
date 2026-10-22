@@ -46,13 +46,13 @@ fn entry_files(root: &Path) -> Vec<String> {
 /// `force=true` 跳过 R-216 语义/去重闸(双 scope FTS 探测会命中本机 global 记忆,
 /// 与本次验证的围栏互斥无关),只走真实写路径:tree_lock → 校验 → write_entry →
 /// refresh_derived——围栏互斥点全部保留。
-fn add_memory(root: &Path, title: &str, description: &str) -> kanzei_tools::memory::AddOutcome {
+fn add_memory(root: &Path, title: &str, description: &str) -> kanzei_memory::memory::AddOutcome {
     let subscriber = tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .with_ansi(false)
         .finish();
     tracing::subscriber::with_default(subscriber, || {
-        kanzei_tools::memory::MemoryStore::project(root)
+        kanzei_memory::memory::MemoryStore::project(root)
             .add(
                 "fact",
                 title,
@@ -107,7 +107,7 @@ async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() 
     );
 
     let entry = match writer.join().expect("写者线程不得 panic") {
-        kanzei_tools::memory::AddOutcome::Added(e) => e,
+        kanzei_memory::memory::AddOutcome::Added(e) => e,
         other => panic!("全新仓库应直接 Added: {other:?}"),
     };
     let file = root
@@ -138,7 +138,7 @@ fn 窗口超过写者锁预算时memory_add明确报错() {
     let writer_root = root.clone();
     let writer = std::thread::spawn(move || {
         // 返回 Result:预算失败必须可断言,不在这里 unwrap 成假成功。
-        kanzei_tools::memory::MemoryStore::project(&writer_root).add(
+        kanzei_memory::memory::MemoryStore::project(&writer_root).add(
             "fact",
             "D-368 预算外写入",
             "窗口超过预算必须报错",
@@ -179,8 +179,8 @@ fn 两个并发memory_add编号互异条目齐全() {
     let rb = root.clone();
     let a = std::thread::spawn(move || add_memory(&ra, "并发甲", "并发写者甲"));
     let b = std::thread::spawn(move || add_memory(&rb, "并发乙", "并发写者乙"));
-    let id_of = |outcome: kanzei_tools::memory::AddOutcome| match outcome {
-        kanzei_tools::memory::AddOutcome::Added(e) => e.id,
+    let id_of = |outcome: kanzei_memory::memory::AddOutcome| match outcome {
+        kanzei_memory::memory::AddOutcome::Added(e) => e.id,
         other => panic!("应 Added: {other:?}"),
     };
     let (ida, idb) = (id_of(a.join().unwrap()), id_of(b.join().unwrap()));

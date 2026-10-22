@@ -1,5 +1,6 @@
 //! 主 agent 侧的记忆工具(M1):search(读)/note(草稿投递)/stats(概览)。
-//! 写路径(add/update/merge/stale)属于 M2 的 memory-manager 子代理,主 agent 不可直写。
+//! add/update/merge/deprecated 生命周期写入归 memory-manager；主 agent 的 note 通常投递草稿，
+//! R-316 文本修正使用带 expected_hash 的 CAS 通道同步写入并记录审计。
 
 use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};

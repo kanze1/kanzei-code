@@ -116,7 +116,7 @@ async fn item_context_successful_real_claim_reduces_next_request_without_summary
             use std::io::Write;
             writeln!(std::fs::OpenOptions::new().append(true).open(project.join(".kanzei/kanzei.toml")).unwrap(),
                 "context_limit = 131072\n\n[[permissions.rules]]\naction = \"work\"\nresource = \"write:claim\"\neffect = \"allow\"").unwrap();
-            use kanzei_tools::docstore::{DocStore, Entry, DEFECTS};
+            use kanzei_memory::docstore::{DocStore, Entry, DEFECTS};
             DocStore::open(project, &DEFECTS).save(&[Entry {
                 id: "D-002".into(), title: "手机阅读器滚动位置".into(), status: "open".into(),
                 severity: Some("medium".into()), fields: vec![],

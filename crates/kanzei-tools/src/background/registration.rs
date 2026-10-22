@@ -4,6 +4,7 @@
 //! 仍由 `background.rs` 负责，避免改变后台进程生命周期语义。
 
 use super::*;
+use kanzei_base::sync::MutexPoisonExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ pub(crate) struct CapturedOutput {
 }
 
 pub(super) fn append_bounded(buf: &Arc<Mutex<Vec<u8>>>, truncated: &Arc<AtomicBool>, chunk: &[u8]) {
-    let mut buf = buf.lock().unwrap();
+    let mut buf = buf.lock_or_recover();
     buf.extend_from_slice(chunk);
     if buf.len() > MAX_BACKGROUND_OUTPUT {
         // 丢头留尾:长驻进程关心的是最近发生了什么。
@@ -235,7 +236,7 @@ pub(crate) async fn register_captured(
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         {
-                            let mut bytes = output.lock().unwrap();
+                            let mut bytes = output.lock_or_recover();
                             bytes.extend_from_slice(&chunk[..n]);
                             output_total.fetch_add(n as u64, Ordering::SeqCst);
                             let drop_to = bytes.len().saturating_sub(MAX_BACKGROUND_OUTPUT);
@@ -289,7 +290,7 @@ pub(crate) async fn register_captured(
         exit_completion: GuardCompletion::new(true),
     });
     {
-        let mut registry = registry().lock().unwrap();
+        let mut registry = registry().lock_or_recover();
         prune_finished(&mut registry, 127);
         registry.insert(id, process.clone());
     }
@@ -340,7 +341,7 @@ pub(crate) async fn register_captured(
                 finish_reader(reader).await;
             }
             {
-                let mut recorded_exit = exit.lock().unwrap();
+                let mut recorded_exit = exit.lock_or_recover();
                 if recorded_exit.is_none() {
                     *recorded_exit = Some(status);
                 }

@@ -11,9 +11,11 @@ use serde::Serialize;
 
 pub mod jobs;
 
-pub use crate::memory::MemoryJobStatus as ConsolidationStatus;
+pub use kanzei_memory::memory::MemoryJobStatus as ConsolidationStatus;
 
-use crate::memory::{consolidation_prompt, InboxCheckpoint, MemoryManagerComponent, MemoryStore};
+use kanzei_memory::memory::{
+    consolidation_prompt, InboxCheckpoint, MemoryManagerComponent, MemoryStore,
+};
 
 const MAX_BATCH_NOTES: usize = 10;
 const MAX_BATCH_BYTES: usize = 32 * 1024;
@@ -116,7 +118,7 @@ pub struct ConsolidationBatchReport {
 #[derive(Debug, Clone, Serialize)]
 pub struct ConsolidationReport {
     pub status: ConsolidationStatus,
-    pub job: Option<crate::memory::MemoryJobProgress>,
+    pub job: Option<kanzei_memory::memory::MemoryJobProgress>,
     pub pending_before: usize,
     pub pending_after: usize,
     pub batches: Vec<ConsolidationBatchReport>,
@@ -418,7 +420,9 @@ async fn consolidate_owned_inbox(
         };
         let mut agent = dream
             .as_ref()
-            .map_or_else(crate::memory::inbox_manager_agent, |dream| dream.agent());
+            .map_or_else(kanzei_memory::memory::inbox_manager_agent, |dream| {
+                dream.agent()
+            });
         agent.steps = agent.steps.min(available);
         let prompt = match dream.as_ref().map(|dream| dream.prompt()).transpose() {
             Ok(Some(prompt)) => prompt,
@@ -629,12 +633,12 @@ fn finish_job(mut report: ConsolidationReport, job: &jobs::JobLease) -> Consolid
     report.stopped_reason = report
         .stopped_reason
         .as_deref()
-        .map(crate::memory::redact_credentials);
+        .map(kanzei_memory::memory::redact_credentials);
     for batch in &mut report.batches {
         batch.error = batch
             .error
             .as_deref()
-            .map(crate::memory::redact_credentials);
+            .map(kanzei_memory::memory::redact_credentials);
     }
     if report.status == ConsolidationStatus::Completed {
         report.status = if report.stopped_reason.is_some()
@@ -735,11 +739,11 @@ pub async fn dream_conversation_for_project(
             .chunks(CHUNK_BYTES)?
             .into_iter()
             .map(|chunk| {
-                Ok(crate::memory::SourceDraftNote {
+                Ok(kanzei_memory::memory::SourceDraftNote {
                     id: format!("dream-{}-{}", reference.sha256, chunk.index),
                     summary: format!("对话沉淀 {} · 片段 {}", session_id, chunk.index + 1),
                     detail: serde_json::to_string(&chunk)?,
-                    source: crate::memory::InboxSource::Conversation {
+                    source: kanzei_memory::memory::InboxSource::Conversation {
                         sha256: reference.sha256.clone(),
                         chunk_index: chunk.index,
                         chunk_bytes: CHUNK_BYTES,
@@ -775,7 +779,7 @@ pub async fn dream_conversation_for_project(
 #[cfg(test)]
 mod tests {
 
-    use crate::memory::{AddOutcome, MemoryStore};
+    use kanzei_memory::memory::{AddOutcome, MemoryStore};
 
     #[tokio::test]
     async fn exhausted_job_budget_keeps_drafts_without_starting_a_model_step() {

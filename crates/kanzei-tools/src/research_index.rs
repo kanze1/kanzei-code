@@ -13,8 +13,8 @@ use tantivy::{doc, Index, IndexReader, TantivyDocument, Term};
 
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 
-use crate::docstore::DocStore;
 use crate::symbols::SymbolsTool;
+use kanzei_memory::docstore::DocStore;
 
 const INDEX_DIR: &str = "index";
 const CHECKPOINT_FILE: &str = "index_checkpoint.json";

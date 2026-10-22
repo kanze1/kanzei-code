@@ -1,4 +1,5 @@
 //! Adjustable capacity. Lowering a limit never cancels an existing worker.
+use kanzei_base::sync::MutexPoisonExt;
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 
@@ -14,7 +15,7 @@ impl Capacity {
         })
     }
     pub(super) fn set_limit(&self, limit: usize) {
-        self.state.lock().unwrap().0 = limit.max(1);
+        self.state.lock_or_recover().0 = limit.max(1);
         self.changed.notify_waiters();
     }
     pub(super) async fn acquire(self: &Arc<Self>) -> Permit {
@@ -23,7 +24,7 @@ impl Capacity {
             tokio::pin!(notified);
             notified.as_mut().enable();
             {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock_or_recover();
                 if state.1 < state.0 {
                     state.1 += 1;
                     return Permit(self.clone());
@@ -36,7 +37,7 @@ impl Capacity {
 pub(super) struct Permit(Arc<Capacity>);
 impl Drop for Permit {
     fn drop(&mut self) {
-        self.0.state.lock().unwrap().1 -= 1;
+        self.0.state.lock_or_recover().1 -= 1;
         self.0.changed.notify_waiters();
     }
 }

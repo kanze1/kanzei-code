@@ -3,8 +3,8 @@
 //! These actions keep the existing `TrackerTool` routing and `DocStore` write paths;
 //! this module only separates the action implementations from the main CRUD flow.
 
-use crate::docstore::{DocStore, Entry};
 use kanzei_harness::{ToolCtx, ToolOutput};
+use kanzei_memory::docstore::{DocStore, Entry};
 
 use super::action_helpers::archived_or_unknown;
 use super::{TrackerInput, TrackerTool};
@@ -123,7 +123,7 @@ pub(crate) fn reopen(
     // 一滚动就没人知道这条为什么被退回来(D-241 验收②「处置依据逐条写进进展」)。
     // 追加新的一行进展,而不是拼进已有字段值:docstore 按行解析,
     // 值里嵌 \n 的重载会被拆成 Raw 行而丢失(D-241 实测)。
-    let note = format!("[reopen {}] {}", crate::memory::today(), reason);
+    let note = format!("[reopen {}] {}", kanzei_memory::memory::today(), reason);
     entries[pos].fields.push(("进展".into(), note.clone()));
     if let Err(e) = store.save(entries) {
         return ToolOutput::error(format!("cannot write {}: {e}", store.path.display()));

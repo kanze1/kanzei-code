@@ -2,7 +2,7 @@
 //!
 //! 独立理由:CLI 是「命令分发 + 装配」的变更理由——`main_entry` 按子命令分发,
 //! 共享 helper(取根/身份键/交互判定/run 参数解析)是所有命令的共同底座;
-//! 各子命令(run/eval/tracker/work/config/worktree/lock/memory)各自成模块,
+//! 各子命令各自成模块，当前入口见下方模块声明与 main_entry 的分发，
 //! 加一条命令不必读懂另一条的装配(照 files_view.rs 模式)。
 //!
 //! 危险点(搬迁纪律):取根必须走 `main_project_root` 唯一通道(D-194 HOME 拦截、
@@ -639,13 +639,9 @@ mod tests {
     /// 优先级定死:参数 > 环境变量 > 发现式(None 表示交给发现式)。
     /// `KANZEI_PROJECT_ROOT` 是进程级状态,而测试同进程并发跑:真读环境变量的用例
     /// 必须互斥,否则两条用例互相看见对方设的值,红绿都不可信。
-    static PROJECT_ROOT_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn explicit_main_root_prefers_flag_over_env() {
-        let _guard = PROJECT_ROOT_ENV_LOCK
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let flag = PathBuf::from("C:/flag-root");
         let env = Some("C:/env-root".to_string());
         assert_eq!(
@@ -661,14 +657,12 @@ mod tests {
         assert_eq!(explicit_main_root_from(None, Some("   ".into())), None);
 
         // 真正读的是 KANZEI_PROJECT_ROOT 这个键(键名写错就没人发现)。
-        std::env::set_var(PROJECT_ROOT_ENV, "C:/env-root");
         assert_eq!(
-            explicit_main_root(None),
+            explicit_main_root_from(None, Some("C:/env-root".into())),
             Some(PathBuf::from("C:/env-root")),
             "环境变量键名必须是 {PROJECT_ROOT_ENV}"
         );
         assert_eq!(explicit_main_root(Some(&flag)), Some(flag));
-        std::env::remove_var(PROJECT_ROOT_ENV);
     }
 
     /// 本机被 `is_home_root` 认成 HOME 的那个路径;拿不到就是环境异常,直接失败。
@@ -784,17 +778,9 @@ mod tests {
                 "--project-root {form} 必须撞 D-194 那条拦截: {error}"
             );
 
-            // 入口二:`KANZEI_PROJECT_ROOT` 环境变量,真读进程环境走一遍。
-            let explicit = {
-                let _guard = PROJECT_ROOT_ENV_LOCK
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                std::env::set_var(PROJECT_ROOT_ENV, &form);
-                let resolved = explicit_main_root(None);
-                std::env::remove_var(PROJECT_ROOT_ENV);
-                resolved
-            }
-            .expect("环境变量入口必须产出显式根");
+            // 入口二:把环境变量值作为 resolver 的独立输入。
+            let explicit = explicit_main_root_from(None, Some(form.clone()))
+                .expect("环境变量入口必须产出显式根");
             let error = main_project_root(Some(&explicit), &cwd)
                 .expect_err("KANZEI_PROJECT_ROOT 指向 HOME 必须被拒")
                 .to_string();

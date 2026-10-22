@@ -18,7 +18,7 @@ fn question(id: u64, pending: &PendingAsk) -> Option<Value> {
     }
     let mut value = crate::pending_ask_payload(id, pending);
     value["projectDir"] = json!(pending.project_root.display().to_string());
-    value["revision"] = json!(kanzei_core::store::stable_json_hash(&value));
+    value["revision"] = json!(kanzei_core::stable_json_hash(&value));
     Some(value)
 }
 

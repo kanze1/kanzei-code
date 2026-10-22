@@ -277,11 +277,11 @@ fn shown_path(path: &Path, root: &Path) -> String {
     crate::grep::display_path(&path, &root)
 }
 
-/// 递归收集目录下 .rs 文件;单文件直接返回。跳过 .kanzei 与 target。
+/// 收集目录或单文件中的受支持源码；扩展名见 SOURCE_EXTENSIONS，跳过 .kanzei 与 target。
 /// R-324:symbols 覆盖的源码扩展名。
 ///
-/// 加 js/mjs 的理由是实测:本仓受跟踪文件里 257 个 `.rs` 对 139 个 `.js`/`.mjs`,
-/// 而 `crates/kanzei-app/ui/` 一处就是 26 个文件 16k 行——改得最频繁的那一半代码
+/// R-324 引入 JS 索引时测得 257 个 `.rs` 对 139 个 `.js`/`.mjs`，
+/// 当时 `crates/kanzei-app/ui/` 有 26 个文件 16k 行；这段是历史测量，非当前规模。频繁修改的 JS
 /// 此前完全没有符号索引,定位只能 grep 函数名。
 const SOURCE_EXTENSIONS: &[&str] = &["rs", "js", "mjs"];
 
@@ -810,9 +810,8 @@ fn scan_symbols(file: &Path) -> Vec<Symbol> {
             continue;
         }
         let parsed = if is_js {
-            // 「列 0」= 顶层。判据与 scripts/gen-ui-lint-globals.mjs 一致:ui/*.js 是
-            // 经典 script 按序加载,共享全局作用域的只有列 0 的声明。两处必须同源——
-            // 漂开就会出现「lint 认作全局、symbols 不认作公共面」这种自相矛盾。
+            // 列 0 是行级顶层近似，export 是显式导出提示。
+            // 对 ESM 不能把顶层声明等同于公共导出；此 public 字段仅为启发式可见性。
             let top_level = !raw.starts_with(char::is_whitespace);
             parse_js_symbol_line(code, idx + 1, top_level)
         } else {
@@ -836,8 +835,8 @@ fn strip_line_tail(line: &str) -> &str {
 /// R-324:从单行 JS 代码近似识别声明。
 ///
 /// 与 Rust 侧同哲学——**行级、无 AST**。JS 没有 `pub`,可见性改用两条判据:
-/// 显式 `export` 前缀,或**位于列 0**(经典 script 里顶层声明即全局,判据与
-/// `scripts/gen-ui-lint-globals.mjs` 一致)。`top_level` 由调用方按原始行的
+/// 显式 export 前缀或位于列 0。后者仅是历史脚本的顶层近似，不能证明 ESM 导出。
+/// top_level 由调用方按原始行的
 /// 缩进给出——`code` 已被 trim,这里自己看不出缩进。
 ///
 /// 仅识别部分声明形态,结果仍为行级近似:
@@ -991,7 +990,7 @@ fn parse_symbol_line(code: &str, line: usize) -> Option<Symbol> {
             // 原先只检查 trim 之后的首字符是不是字母——那是词边界的反面:
             // `typed_writer.lock()` 剥掉 `type` 剩 `d_writer.lock()`,首字符 `d`
             // 是字母于是照过,产出假符号 `type d_writer.lock`。实测假阳性:
-            // crates/kanzei/src/main.rs:522/:573、crates/kanzei-app/src/fast_model.rs:209
+            // CLI 的 typed_writer.lock() 事件处理与 fast_model 的 models.iter()
             // (`models.iter()` → `mod els.iter`)。列表模式下这只是噪声,一旦拿
             // symbols 当「符号定义在哪」用,它就是直接给出错误答案。
             if !rest.starts_with(char::is_whitespace) {
@@ -1176,8 +1175,8 @@ mod tests {
     /// 关键字必须按词边界匹配:以关键字为**前缀**的标识符不是符号声明。
     ///
     /// 这三行都是从仓里真实抄来的假阳性来源:
-    /// - `typed_writer.lock()`  crates/kanzei/src/main.rs:522(剥 `type` → `d_writer.lock`)
-    /// - `models.iter()`        crates/kanzei-app/src/fast_model.rs:209(剥 `mod` → `els.iter`)
+    /// - `typed_writer.lock()`  cli/run/events.rs 的事件处理(剥 type → d_writer.lock)
+    /// - `models.iter()`        fast_model.rs 的模型遍历(剥 mod → els.iter)
     /// - `constant_foo`         const/static 分支原先连空白都不检查
     ///
     /// 列表模式下这些只是噪声;拿 symbols 回答「符号定义在哪」时,它们就是错答案。
@@ -1711,8 +1710,7 @@ mod js_symbol_tests {
         assert_eq!(parse("export class Widget {", true).unwrap().0, "class");
     }
 
-    /// 可见性判据 = 列 0 或 export。列 0 那条与 gen-ui-lint-globals.mjs 同源:
-    /// 经典 script 里只有顶层声明共享全局作用域。
+    /// 锁定行级可见性启发式：列 0 或 export。结果不承诺真实 ESM 导出边界。
     #[test]
     fn 可见性按列0或export判定() {
         assert!(

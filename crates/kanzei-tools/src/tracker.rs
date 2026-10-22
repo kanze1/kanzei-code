@@ -8,7 +8,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
+use kanzei_memory::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 // R-204:取活调度域独立成模块(scheduling.rs),供 auto_run/CLI/docs/memory 四方统一消费。
 // 本文件保留既有 pub 面(re-export),消费方调用点零改动;行为零变更。
@@ -82,7 +82,8 @@ fn normalize_batch_field(fields: &mut BTreeMap<String, String>) {
     else {
         return;
     };
-    let Some((done, total, note)) = crate::docstore::split_batch_value(&fields[&key]) else {
+    let Some((done, total, note)) = kanzei_memory::docstore::split_batch_value(&fields[&key])
+    else {
         return;
     };
     fields.insert(key, format!("{done}/{total}"));
@@ -876,15 +877,15 @@ impl TrackerTool {
             .iter()
             .find(|(key, _)| **key == "批次" || key.eq_ignore_ascii_case("batches"))?;
         let existing_total = existing
-            .and_then(crate::docstore::declared_batch_progress)
+            .and_then(kanzei_memory::docstore::declared_batch_progress)
             .map(|(_, total)| total);
-        crate::docstore::check_declared_batches(value, existing_total).err()
+        kanzei_memory::docstore::check_declared_batches(value, existing_total).err()
     }
 
     /// D-331:标题不得携带跨 DocKind 状态标记(`[done]`/`[dropped]` 等)——状态的家是
     /// header 方括号(引擎维护),写进标题会渲染成 `[dropped] [fixed]` 双终态污染。
     fn check_title(&self, title: &str) -> Option<String> {
-        if let Some(marker) = crate::docstore::title_status_marker(title) {
+        if let Some(marker) = kanzei_memory::docstore::title_status_marker(title) {
             return Some(format!(
                 "title must not carry a status marker `[{marker}]` — the status lives in the \
                  header bracket (engine-managed); writing it into the title produces \
@@ -892,7 +893,7 @@ impl TrackerTool {
                  from the title."
             ));
         }
-        crate::docstore::invalid_severity_marker(self.kind, title).map(|severity| {
+        kanzei_memory::docstore::invalid_severity_marker(self.kind, title).map(|severity| {
             format!(
                 "title must not carry an invalid severity suffix `({severity})` — defect severity \
                  is a separate engine-managed field and only accepts high | medium | low (D-569)."
@@ -1141,8 +1142,8 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::TrackerTool;
-    use crate::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
+    use kanzei_memory::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
     use serde_json::json;
     use std::process::Command;
 
@@ -2902,14 +2903,14 @@ mod tests {
         let tool = TrackerTool {
             tool_name: "idea",
             noun: "idea",
-            kind: &crate::docstore::IDEAS,
+            kind: &kanzei_memory::docstore::IDEAS,
             requires_refs: None,
         };
         let out = tool
             .execute(json!({"action": "add", "title": "支持协议 [RFC]"}), &ctx)
             .await;
         assert!(!out.is_error, "合法标题应被工具接受: {}", out.content);
-        let store = DocStore::open(&dir, &crate::docstore::IDEAS);
+        let store = DocStore::open(&dir, &kanzei_memory::docstore::IDEAS);
         let entries = store.load().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].title, "支持协议 [RFC]");
@@ -4239,7 +4240,7 @@ mod tests {
     /// priority 与 severity 是两个维度,合法取值必须进 schema 而不是只写在描述里。
     #[test]
     fn schema_gives_real_enums_for_each_document_kind() {
-        use crate::docstore::DEFECTS;
+        use kanzei_memory::docstore::DEFECTS;
         let defects = TrackerTool {
             tool_name: "defect",
             noun: "defect",

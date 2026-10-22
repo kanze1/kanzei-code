@@ -173,7 +173,7 @@ pub(crate) async fn finish_run(
     // 条目收口判定 → SOP 候选(项目 inbox,落库目标 global)→ 根因 fact 候选(项目
     // inbox)。SOP 通道 D-229 起双端一致,D-214 起候选投项目 inbox 进消化通道。
     {
-        let (delivered, sop, fact) = kanzei_tools::memory::harvest_end_of_run(
+        let (delivered, sop, fact) = kanzei_memory::memory::harvest_end_of_run(
             &state.ctx.project_root,
             state.prompt,
             this_run,
@@ -253,10 +253,10 @@ pub(crate) async fn finish_run(
     // 其余保持 candidate。
     // 与 inbox 消化解耦:没有草稿也要跑,否则 candidate 永远躺着无人验收。
     // 机械判定不依赖 LLM,失败不阻塞收尾(报告仅用于打日志留证据)。
-    if let Ok(report) = kanzei_tools::memory::reconcile_candidates(
+    if let Ok(report) = kanzei_memory::memory::reconcile_candidates(
         &state.ctx.project_root,
         current_episode_id,
-        kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
+        kanzei_memory::memory::CANDIDATE_MAX_AGE_DAYS,
     ) {
         if !report.promoted.is_empty()
             || !report.deprecated.is_empty()

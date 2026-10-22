@@ -8,7 +8,7 @@ pub(super) fn preflight(ctx: &ToolCtx, entry: &Entry) -> Result<serde_json::Valu
         kanzei_harness::execution::ExecutionIdentity::capture(&ctx.cwd, &ctx.project_root)
             .map_err(|error| error.to_string())?;
     let mut source = None;
-    if let Some(spec) = crate::docstore::requirement::RequirementSpec::from_entry(entry)? {
+    if let Some(spec) = kanzei_memory::docstore::requirement::RequirementSpec::from_entry(entry)? {
         let reference = spec.source.reference.trim();
         let path = reference.split('#').next().unwrap_or(reference);
         if !path.contains("://")
@@ -104,8 +104,8 @@ mod tests {
             severity: None,
             fields: vec![],
         };
-        let spec = crate::docstore::requirement::RequirementSpec {
-            source: crate::docstore::requirement::RequirementSource {
+        let spec = kanzei_memory::docstore::requirement::RequirementSpec {
+            source: kanzei_memory::docstore::requirement::RequirementSource {
                 reference: foreign.join("design.md").display().to_string(),
                 quote: "implement".into(),
             },

@@ -5,31 +5,14 @@
 use std::path::PathBuf;
 
 use super::super::admission::MemoryAdmission;
-use super::super::{parse_entry, render_entry, today, MemoryEntry};
+use super::super::{render_entry, today, MemoryEntry};
 use super::MemoryStore;
 
 impl MemoryStore {
-    /// 记忆图谱:扫描 archive/ 加载全部归档条目(与 load_all 同写法;解析不了的跳过)。
+    /// 记忆图谱:扫描 archive/ 加载有效归档条目；读取/格式问题由 integrity 报告。
     /// 只读,不触发归档搬移或派生物重建。
     pub fn load_archived(&self) -> Vec<(PathBuf, MemoryEntry)> {
-        let mut out = Vec::new();
-        let Ok(dir) = std::fs::read_dir(self.archive_dir()) else {
-            return out;
-        };
-        for item in dir.flatten() {
-            let path = item.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                let entry = parse_entry(&text);
-                if !entry.id.is_empty() {
-                    out.push((path, entry));
-                }
-            }
-        }
-        out.sort_by(|a, b| a.1.id.cmp(&b.1.id));
-        out
+        super::source::scan(&self.archive_dir()).entries
     }
 
     /// 记忆图谱:写 frontmatter `area:`(规范区域 id,空格分隔);空切片 = 删除该键。

@@ -191,7 +191,7 @@ pub fn backlog_status(project_root: &Path) -> BacklogStatus {
 /// 不能让人再去翻 defects.md/requirements.md 逐条找。只扫 WIP(doing/fixing)
 /// 且「阻塞」字段非空的条目——已经 todo/open 的排队条目不算「正在卡住」。
 pub fn blocked_wip_summary(project_root: &Path) -> Vec<String> {
-    use kanzei_tools::docstore::{DocStore, DEFECTS, REQUIREMENTS};
+    use kanzei_memory::docstore::{DocStore, DEFECTS, REQUIREMENTS};
     let mut out = Vec::new();
     for kind in [&REQUIREMENTS, &DEFECTS] {
         let Ok(entries) = DocStore::open(project_root, kind).load() else {
@@ -1076,16 +1076,22 @@ mod tests {
     /// 各写一份判空迟早漂开。
     #[test]
     fn conversation_goals_persist_in_isolated_home_and_clear_without_affecting_peers() {
-        crate::prefs::failure_tests::with_home("conversation-goal", |_| {
-            super::persist_goal("one", Some("complete user goal")).unwrap();
-            super::persist_goal("two", Some("peer goal")).unwrap();
-            let restored = crate::prefs::load_prefs();
-            assert_eq!(restored.conversation_goals["one"], "complete user goal");
-            super::persist_goal("one", None).unwrap();
-            let cleared = crate::prefs::load_prefs();
-            assert!(!cleared.conversation_goals.contains_key("one"));
-            assert_eq!(cleared.conversation_goals["two"], "peer goal");
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "conversation_goals_persist_in_isolated_home_and_clear_without_affecting_peers",
+            || {
+                crate::prefs::failure_tests::with_home("conversation-goal", |_| {
+                    super::persist_goal("one", Some("complete user goal")).unwrap();
+                    super::persist_goal("two", Some("peer goal")).unwrap();
+                    let restored = crate::prefs::load_prefs();
+                    assert_eq!(restored.conversation_goals["one"], "complete user goal");
+                    super::persist_goal("one", None).unwrap();
+                    let cleared = crate::prefs::load_prefs();
+                    assert!(!cleared.conversation_goals.contains_key("one"));
+                    assert_eq!(cleared.conversation_goals["two"], "peer goal");
+                });
+            },
+        );
     }
 
     #[test]

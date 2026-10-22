@@ -81,15 +81,18 @@ impl Component for DevProfile {
         // Memory 系统(R-104,文件优先分级记忆):主 agent 有 检索/草稿投递/概览，
         // 以及 R-316 限定的既有条目单字段文本纠错(action=correct)。新增、删除、
         // 状态与 extra 字段仍属 M2 的 memory-manager 子代理。
-        draft
-            .tools
-            .insert("memory_search", Arc::new(crate::memory::MemorySearchTool));
-        draft
-            .tools
-            .insert("memory_note", Arc::new(crate::memory::MemoryNoteTool));
-        draft
-            .tools
-            .insert("memory_stats", Arc::new(crate::memory::MemoryStatsTool));
+        draft.tools.insert(
+            "memory_search",
+            Arc::new(kanzei_memory::memory::MemorySearchTool),
+        );
+        draft.tools.insert(
+            "memory_note",
+            Arc::new(kanzei_memory::memory::MemoryNoteTool),
+        );
+        draft.tools.insert(
+            "memory_stats",
+            Arc::new(kanzei_memory::memory::MemoryStatsTool),
+        );
         for tool in ["memory_search", "memory_note", "memory_stats"] {
             draft.permissions.push(rule(tool, "*", Effect::Allow));
         }
@@ -208,7 +211,7 @@ impl Component for DevProfile {
                     let entries = DocStore::open(&ctx.project_root, &IDEAS)
                         .load()
                         .context("读取 ideas 文档")?;
-                    let inbox: Vec<&crate::docstore::Entry> =
+                    let inbox: Vec<&kanzei_memory::docstore::Entry> =
                         entries.iter().filter(|e| e.status == "inbox").collect();
                     if inbox.is_empty() {
                         return Ok(None);
@@ -303,7 +306,7 @@ impl Component for DevProfile {
                 |ctx: &ResolveCtx| {
                     let mut out = String::from("<project-constraints>\n");
                     let mut folded = 0;
-                    for (_, entry) in crate::memory::MemoryStore::project(&ctx.project_root)
+                    for (_, entry) in kanzei_memory::memory::MemoryStore::project(&ctx.project_root)
                         .load_all_checked()
                         .context("读取项目记忆约束")?
                     {

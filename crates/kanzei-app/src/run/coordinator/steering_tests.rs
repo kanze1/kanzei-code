@@ -155,7 +155,7 @@ async fn run_fixture(point: FailurePoint) -> Value {
     store
         .create_session("ses", fixture.0.to_str().unwrap(), None)
         .unwrap();
-    let owner = Arc::new(kanzei_core::store::session_execution::try_acquire(&path, "ses").unwrap());
+    let owner = Arc::new(kanzei_core::session_execution::try_acquire(&path, "ses").unwrap());
     owner.prepare(&store, "ses", None).unwrap();
     store
         .admit_input("ses", "initial", "prompt", kanzei_core::Delivery::Queue)

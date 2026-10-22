@@ -312,7 +312,7 @@ pub async fn pull(root: &Path, def: &ScheduleDef) -> Result<usize, String> {
             .retain(|channel| !channel.starts_with("file:"));
         outcome
             .writeback
-            .extend(match tokio::time::timeout(Duration::from_secs(60),super::executor::writeback(root,&local,&outcome,false)).await {
+            .extend(match tokio::time::timeout(Duration::from_secs(60),super::writeback(root,&local,&outcome,false)).await {
             Ok(receipts)=>receipts,Err(_)=>vec![json!({"channel":"import","ok":false,"detail":"导入回写超时；按运行 ID 检查部分回写，不自动重放"})]
         });
         record(root, "schedule.run_finished", &json!(outcome))?;

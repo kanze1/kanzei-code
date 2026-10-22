@@ -10,8 +10,8 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::docstore::{DocStore, FINDINGS};
 use crate::latex_tool::compile_paper;
+use kanzei_memory::docstore::{DocStore, FINDINGS};
 
 const MAX_REPAIR_ATTEMPTS: u32 = 3;
 
@@ -44,7 +44,7 @@ pub struct StructureBasis {
     pub missing_roles: Vec<String>,
 }
 
-fn entry_field(entry: &crate::docstore::Entry, names: &[&str]) -> Option<String> {
+fn entry_field(entry: &kanzei_memory::docstore::Entry, names: &[&str]) -> Option<String> {
     entry
         .fields
         .iter()
@@ -52,7 +52,7 @@ fn entry_field(entry: &crate::docstore::Entry, names: &[&str]) -> Option<String>
         .map(|(_, value)| value.clone())
 }
 
-fn finding_roles(entry: &crate::docstore::Entry) -> Vec<String> {
+fn finding_roles(entry: &kanzei_memory::docstore::Entry) -> Vec<String> {
     let explicit = entry_field(entry, &["结构角色", "structure_role"]);
     let text = format!(
         "{} {}",
@@ -685,8 +685,8 @@ mod tests {
         }
     }
 
-    fn finding(id: &str, title: &str, role: &str) -> crate::docstore::Entry {
-        crate::docstore::Entry {
+    fn finding(id: &str, title: &str, role: &str) -> kanzei_memory::docstore::Entry {
+        kanzei_memory::docstore::Entry {
             id: id.into(),
             title: title.into(),
             status: "draft".into(),

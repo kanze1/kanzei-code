@@ -11,7 +11,7 @@
 //! 本模块交付:
 //! - [`MemoryIndex`]:检索 + 维护接口,供回放台三臂对比(验收③)与运行时召回共用;
 //! - [`SqliteMemoryIndex`]:默认实现。lexical 通道复用 [`super::FingerprintIndex`]
-//!   (Tier0 fingerprint 精确)与 [`super::MemoryStore::search`](Tier1 BM25,FTS5),
+//!   (Tier0 fingerprint 精确)与 [`super::MemoryStore::search_candidates`](Tier1 BM25,FTS5),
 //!   与 FailureRecallPolicy 同源;dense 通道接 [`crate::embed::Embedder`]
 //!   (embedder_from_config),R-233 起由 prompt_hints 生产接线启用——向量表按
 //!   id 差集增量维护(ensure_vectors),冷启动/外部写入后只补缺失清孤儿,
@@ -114,20 +114,19 @@ pub trait MemoryIndex: Send + Sync {
 ///
 /// 批2 范围:接入 [`Embedder`] 与向量列——有 embedder 时 rebuild 全量生成向量、
 /// upsert/remove 增量维护;无 embedder 时向量列空、dense 恒空、hybrid 退化为
-/// lexical(验收①)。dense 检索(brute-force 余弦)与 RRF 融合由批3 落地,
-/// 本批保证存储与重建闭环。
+/// lexical。dense 使用 brute-force 余弦检索，hybrid 通过 RRF 融合两路结果。
 pub struct SqliteMemoryIndex {
     project_root: PathBuf,
     /// Tier0 指纹索引:启动扫描 + 写时增量(upsert/remove)。
     fp: HashMap<String, Vec<String>>,
     /// active 条目快照(id → entry),供命中 materialize 与 upsert 增量。
     entries: HashMap<String, MemoryEntry>,
-    /// 向量通道:None = 关闭(hybrid 退化为 lexical)。批3 用 cosine 检索。
+    /// 向量通道：None 时 hybrid 退化为 lexical；启用时使用余弦相似度。
     embedder: Option<Arc<dyn Embedder>>,
 }
 
 impl SqliteMemoryIndex {
-    /// 启动扫描构建(project + global 两级,与 FailureRecallPolicy 同规)。
+    /// 扫描项目记忆构建索引；不加载已退役的全局记忆层。
     pub fn new(project_root: &Path) -> Self {
         Self::with_embedder(project_root, None)
     }
@@ -275,7 +274,7 @@ impl SqliteMemoryIndex {
 
     /// 统一检索入口(lexical 决策排序,记命中观测):Tier0 指纹优先,miss 走 BM25
     /// 候选 + 决策排序。category/status 过滤与 MemoryStore 候选语义一致;返回完整
-    /// SearchHit。D-366:消费方(tools/桌面/失败召回)一律经此入口,不再直调 store.search。
+    /// SearchHit。tools/桌面/失败召回经此入口取得排序结果；新颖性探测可直接读 search_candidates。
     pub fn search_entries(
         &self,
         query: &IndexQuery,

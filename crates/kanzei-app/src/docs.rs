@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use kanzei_tools::docstore::{
+use kanzei_memory::docstore::{
     DocStore, DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES,
 };
 use serde_json::json;
@@ -286,17 +286,15 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
             }
         }
     }
-    let read_failed = |kind: &kanzei_tools::docstore::DocKind, e: std::io::Error| {
+    let read_failed = |kind: &kanzei_memory::docstore::DocKind, e: std::io::Error| {
         format!("读取 {} 失败: {e}", kind.rel_path)
     };
     // D-296:一次快照建立单份 active/archive 读缓存。后续批次、计数、依赖、调度与
     // IPC 组装都只消费这份缓存,不再让同一个 md 文件被不同闭包重复解析。
-    // source/finding 这两条线零写入方(dev 档提示词里没有 source/finding 工具)、
-    // 零消费者,绝大多数项目里文件根本不存在。可 DocStore::open + load 会为了取锁
-    // create_dir_all 父目录并造一个 .lock 文件——每次快照都在给一条没人用的线造垃圾,
-    // 还让前端拿到两个恒空数组去渲染两块永远的「(空)」。文件不存在就不入列;
-    // 下游全部走 active_entries/archived_entries 的 &[] 回落,一行都不用改。
-    let mut kinds: Vec<&'static kanzei_tools::docstore::DocKind> =
+    // source/finding 由 research 工具、CLI 与文档界面读写，并非每个项目都有。
+    // 活动或归档文件存在时才加入快照，避免给尚未使用这些文档线的项目制造空文件/目录；
+    // 未加入的 kind 由 active_entries/archived_entries 投影为空集合。
+    let mut kinds: Vec<&'static kanzei_memory::docstore::DocKind> =
         vec![&REQUIREMENTS, &DEFECTS, &IDEAS];
     for optional in [&SOURCES, &FINDINGS] {
         let store = DocStore::open(&root, optional);
@@ -304,8 +302,8 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
             kinds.push(optional);
         }
     }
-    let mut active: BTreeMap<&'static str, Vec<kanzei_tools::docstore::Entry>> = BTreeMap::new();
-    let mut archived_docs: BTreeMap<&'static str, Vec<kanzei_tools::docstore::Entry>> =
+    let mut active: BTreeMap<&'static str, Vec<kanzei_memory::docstore::Entry>> = BTreeMap::new();
+    let mut archived_docs: BTreeMap<&'static str, Vec<kanzei_memory::docstore::Entry>> =
         BTreeMap::new();
     for kind in kinds {
         let store = DocStore::open(&root, kind);
@@ -318,10 +316,10 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
             store.load_archive().map_err(|e| read_failed(kind, e))?,
         );
     }
-    let active_entries = |kind: &'static kanzei_tools::docstore::DocKind| {
+    let active_entries = |kind: &'static kanzei_memory::docstore::DocKind| {
         active.get(kind.rel_path).map(Vec::as_slice).unwrap_or(&[])
     };
-    let archived_entries = |kind: &'static kanzei_tools::docstore::DocKind| {
+    let archived_entries = |kind: &'static kanzei_memory::docstore::DocKind| {
         archived_docs
             .get(kind.rel_path)
             .map(Vec::as_slice)
@@ -360,9 +358,9 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
             .push(unit.clone());
     }
     let load =
-        |kind: &'static kanzei_tools::docstore::DocKind| -> Result<Vec<serde_json::Value>, String> {
+        |kind: &'static kanzei_memory::docstore::DocKind| -> Result<Vec<serde_json::Value>, String> {
             let entries = active_entries(kind);
-            let scheduled: Vec<(kanzei_tools::docstore::Entry, Vec<String>)> =
+            let scheduled: Vec<(kanzei_memory::docstore::Entry, Vec<String>)> =
                 if kind.rel_path == REQUIREMENTS.rel_path || kind.rel_path == DEFECTS.rel_path {
                     kanzei_tools::tracker::schedule_for_display_with_states(entries, &states)
                         .into_iter()
@@ -382,7 +380,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     .and_then(|counts| counts.get(&e.id))
                     .copied();
                 let (batch_done, batch_total) =
-                    kanzei_tools::docstore::batch_progress_with_derived_done(&e, derived_done);
+                    kanzei_memory::docstore::batch_progress_with_derived_done(&e, derived_done);
                 // R-247:backlog 的「被取得」直接读 tracker 字段。None 对 doing/fixing
                 // 的含义由 D-354 定义为默认线持有；前端不得再解析 prompt 猜条目。
                 let claimed_by = e
@@ -409,7 +407,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     "block_reasons": block_reasons, "claimed_by": claimed_by, "fields": e.fields,
                     "execution_model": execution_model,
                     "prior_art": prior_art,
-                    "requirement": (kind.prefix == "R").then(|| kanzei_tools::docstore::requirement::requirement_view(&e)),
+                    "requirement": (kind.prefix == "R").then(|| kanzei_memory::docstore::requirement::requirement_view(&e)),
                     "work_units": work_units_by_requirement.get(&e.id).cloned().unwrap_or_default(),
                     "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
                     "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
@@ -498,7 +496,7 @@ pub fn docs_archive_entries(
                     json!({
                         "id": entry.id, "title": entry.title, "status": entry.status,
                         "severity": entry.severity, "fields": entry.fields, "closed": true,
-                        "requirement": (doc_kind.prefix == "R").then(|| kanzei_tools::docstore::requirement::requirement_view(&entry)),
+                        "requirement": (doc_kind.prefix == "R").then(|| kanzei_memory::docstore::requirement::requirement_view(&entry)),
                     })
                 })
                 .collect()
@@ -611,7 +609,7 @@ mod user_acceptance_tests {
         ));
         let store = DocStore::open(&root, &REQUIREMENTS);
         store
-            .save(&[kanzei_tools::docstore::Entry {
+            .save(&[kanzei_memory::docstore::Entry {
                 id: "R-001".into(),
                 title: "移动端 Markdown".into(),
                 status: "doing".into(),
@@ -689,7 +687,7 @@ fn research_fulltext_path(
     id: &str,
     extension: &str,
 ) -> Result<PathBuf, String> {
-    kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|error| error.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|error| error.to_string())?;
     let safe_id = id.replace(['/', '\\'], "_");
     let dir = root.join(".kanzei/research").join(topic).join("fulltext");
     std::fs::create_dir_all(&dir).map_err(|error| format!("创建正文目录失败: {error}"))?;
@@ -796,10 +794,10 @@ pub async fn webfetch_preview(url: String) -> Result<serde_json::Value, String> 
 
 fn docs_path(project_dir: &str, kind: &str, topic: Option<&str>) -> Result<PathBuf, String> {
     let root = normalized_project_root(Path::new(project_dir));
-    let topic_path = |doc_kind: &'static kanzei_tools::docstore::DocKind| {
+    let topic_path = |doc_kind: &'static kanzei_memory::docstore::DocKind| {
         topic
             .map(|topic| {
-                kanzei_tools::docstore::DocStore::open_topic(&root, doc_kind, topic)
+                kanzei_memory::docstore::DocStore::open_topic(&root, doc_kind, topic)
                     .map(|store| store.path)
                     .map_err(|error| error.to_string())
             })
@@ -820,7 +818,7 @@ fn docs_path(project_dir: &str, kind: &str, topic: Option<&str>) -> Result<PathB
         "finding" => topic_path(&FINDINGS)?.unwrap_or_else(|| root.join(FINDINGS.rel_path)),
         "report" => topic
             .map(|topic| {
-                kanzei_tools::docstore::DocStore::validate_topic(topic)
+                kanzei_memory::docstore::DocStore::validate_topic(topic)
                     .map_err(|error| error.to_string())?;
                 Ok::<PathBuf, String>(root.join(".kanzei/research").join(topic).join("report.md"))
             })

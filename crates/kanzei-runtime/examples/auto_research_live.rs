@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
         project_root: root.clone(),
         config: config.clone(),
     };
-    let harness = kanzei_tools::run::build_harness(
+    let harness = kanzei_runtime::build_harness(
         rctx.profile,
         |_| {},
         |harness| {
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot.select_primary_agent(None)?.clone();
     agent.steps = 24;
-    let mut runner = kanzei_tools::run::build_runner_config(
+    let mut runner = kanzei_runtime::build_runner_config(
         &resolved,
         &config,
         None,

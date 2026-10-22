@@ -290,7 +290,7 @@ pub(crate) fn field_view(layers: &ModelLayers, merged: &KanzeiConfig, key: Model
                 inherited_follows_primary: false,
                 // 生效档用运行路径的判据(未知值回落 off),与芯片、请求一致。
                 effective: Value::String(
-                    kanzei_tools::run::resolve_reasoning_override(
+                    kanzei_runtime::resolve_reasoning_override(
                         None,
                         merged.models.reasoning.as_deref(),
                     )
@@ -441,7 +441,7 @@ pub(crate) fn turn_view(
     let line_reasoning = line_reasoning.map(str::trim).filter(|v| !v.is_empty());
     let configured = merged.models.reasoning.as_deref();
     let reasoning = ReasoningChoice {
-        value: kanzei_tools::run::resolve_reasoning_override(line_reasoning, configured)
+        value: kanzei_runtime::resolve_reasoning_override(line_reasoning, configured)
             .as_str()
             .to_string(),
         source: if line_reasoning.is_some() {
@@ -451,7 +451,7 @@ pub(crate) fn turn_view(
         },
     };
     let default_reasoning = ReasoningChoice {
-        value: kanzei_tools::run::resolve_reasoning_override(None, configured)
+        value: kanzei_runtime::resolve_reasoning_override(None, configured)
             .as_str()
             .to_string(),
         source: reasoning_source(layers),
@@ -1111,7 +1111,7 @@ mod tests {
             let reference =
                 kanzei_harness::config::resolve_model_chain(*line_model, None, agent_model);
             let resolved = merged.resolve_model(&reference).unwrap();
-            let runner = kanzei_tools::run::build_runner_config(
+            let runner = kanzei_runtime::build_runner_config(
                 &resolved,
                 &merged,
                 *line_reasoning,
@@ -1145,123 +1145,129 @@ mod tests {
     /// 逐项比对模型、思考档、Fast mode 与上下文上限;来源标签也要与真实合并后的值对得上。
     #[test]
     fn turn_view_at_matches_runner_on_real_two_layer_load() {
-        let home = temp_dir("real-load");
-        let project = home.join("project");
-        let worktree = home.join("worktree");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        std::fs::create_dir_all(&worktree).unwrap();
-        std::fs::write(
-            home.join("kanzei.toml"),
-            "[models]\nprimary = \"codex:gpt-6-luna\"\nfast = \"local:small\"\nreasoning = \"xhigh\"\n\n\
-             [providers.local]\nprotocol = \"openai\"\nbase_url = \"http://127.0.0.1:1/v1\"\ncontext_limit = 64000\n",
-        )
-        .unwrap();
-        std::fs::write(
-            project.join(".kanzei/kanzei.toml"),
-            "[models]\nprimary = \"codex:gpt-5.6-luna\"\nreasoning = \"high\"\ncodex_fast_mode = true\n",
-        )
-        .unwrap();
-        let lines = [
-            LineState::default(),
-            LineState {
-                model: Some("local:llama".into()),
-                reasoning: Some("low".into()),
-                code_root: Some(worktree.clone()),
-            },
-            LineState {
-                model: Some("fast".into()),
-                reasoning: None,
-                code_root: None,
-            },
-        ];
-        let checks = crate::settings::with_kanzei_home(&home, || {
-            let sources = kanzei_harness::project_trust::status(&project).unwrap();
-            kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
-            let config = KanzeiConfig::load_at_root(&project).unwrap();
-            lines
-                .iter()
-                .map(|line| {
-                    let view = turn_view_at(Some(&project), line, None, None).unwrap();
-                    // 运行路径:assemble_run 的 ResolveCtx → select_primary_agent → resolve_model_chain
-                    // → resolve_model → build_runner_config。
-                    let ctx = kanzei_harness::ResolveCtx {
-                        profile: config.default_profile(),
-                        cwd: line.code_root.clone().unwrap_or_else(|| project.clone()),
-                        project_root: project.clone(),
-                        config: std::sync::Arc::new(config.clone()),
-                    };
-                    let snapshot =
-                        crate::run::assembly::build_run_harness(ctx.profile, false, None)
-                            .resolve(&ctx)
-                            .unwrap();
-                    let agent = snapshot.select_primary_agent(None).unwrap().clone();
-                    let reference = kanzei_harness::config::resolve_model_chain(
-                        line.model.as_deref(),
-                        None,
-                        &agent.model,
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "turn_view_at_matches_runner_on_real_two_layer_load",
+            || {
+                let home = temp_dir("real-load");
+                let project = home.join("project");
+                let worktree = home.join("worktree");
+                std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+                std::fs::create_dir_all(&worktree).unwrap();
+                std::fs::write(
+                home.join("kanzei.toml"),
+                "[models]\nprimary = \"codex:gpt-6-luna\"\nfast = \"local:small\"\nreasoning = \"xhigh\"\n\n\
+                 [providers.local]\nprotocol = \"openai\"\nbase_url = \"http://127.0.0.1:1/v1\"\ncontext_limit = 64000\n",
+            )
+            .unwrap();
+                std::fs::write(
+                project.join(".kanzei/kanzei.toml"),
+                "[models]\nprimary = \"codex:gpt-5.6-luna\"\nreasoning = \"high\"\ncodex_fast_mode = true\n",
+            )
+            .unwrap();
+                let lines = [
+                    LineState::default(),
+                    LineState {
+                        model: Some("local:llama".into()),
+                        reasoning: Some("low".into()),
+                        code_root: Some(worktree.clone()),
+                    },
+                    LineState {
+                        model: Some("fast".into()),
+                        reasoning: None,
+                        code_root: None,
+                    },
+                ];
+                let checks = crate::settings::with_kanzei_home(&home, || {
+                    let sources = kanzei_harness::project_trust::status(&project).unwrap();
+                    kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
+                    let config = KanzeiConfig::load_at_root(&project).unwrap();
+                    lines
+                        .iter()
+                        .map(|line| {
+                            let view = turn_view_at(Some(&project), line, None, None).unwrap();
+                            // 运行路径:assemble_run 的 ResolveCtx → select_primary_agent → resolve_model_chain
+                            // → resolve_model → build_runner_config。
+                            let ctx = kanzei_harness::ResolveCtx {
+                                profile: config.default_profile(),
+                                cwd: line.code_root.clone().unwrap_or_else(|| project.clone()),
+                                project_root: project.clone(),
+                                config: std::sync::Arc::new(config.clone()),
+                            };
+                            let snapshot =
+                                crate::run::assembly::build_run_harness(ctx.profile, false, None)
+                                    .resolve(&ctx)
+                                    .unwrap();
+                            let agent = snapshot.select_primary_agent(None).unwrap().clone();
+                            let reference = kanzei_harness::config::resolve_model_chain(
+                                line.model.as_deref(),
+                                None,
+                                &agent.model,
+                            );
+                            let resolved = config.resolve_model(&reference).unwrap();
+                            let runner = kanzei_runtime::build_runner_config(
+                                &resolved,
+                                &config,
+                                line.reasoning.as_deref(),
+                                &project,
+                                kanzei_core::AskPolicy::Interactive,
+                                None,
+                            );
+                            (view, agent.name, resolved, runner)
+                        })
+                        .collect::<Vec<_>>()
+                });
+                for (index, (view, agent, resolved, runner)) in checks.iter().enumerate() {
+                    assert_eq!(
+                        view.agent.as_deref(),
+                        Some(agent.as_str()),
+                        "case {index}: agent"
                     );
-                    let resolved = config.resolve_model(&reference).unwrap();
-                    let runner = kanzei_tools::run::build_runner_config(
-                        &resolved,
-                        &config,
-                        line.reasoning.as_deref(),
-                        &project,
-                        kanzei_core::AskPolicy::Interactive,
-                        None,
+                    assert_eq!(view.agent_error, None, "case {index}: agent 解析不该失败");
+                    assert_eq!(
+                        view.model.resolved.as_deref(),
+                        Some(format!("{}:{}", resolved.provider_name, resolved.model).as_str()),
+                        "case {index}: 模型与运行路径不一致"
                     );
-                    (view, agent.name, resolved, runner)
-                })
-                .collect::<Vec<_>>()
-        });
-        for (index, (view, agent, resolved, runner)) in checks.iter().enumerate() {
-            assert_eq!(
-                view.agent.as_deref(),
-                Some(agent.as_str()),
-                "case {index}: agent"
-            );
-            assert_eq!(view.agent_error, None, "case {index}: agent 解析不该失败");
-            assert_eq!(
-                view.model.resolved.as_deref(),
-                Some(format!("{}:{}", resolved.provider_name, resolved.model).as_str()),
-                "case {index}: 模型与运行路径不一致"
-            );
-            assert_eq!(
-                view.reasoning.value,
-                runner.reasoning.as_str(),
-                "case {index}: 思考档"
-            );
-            assert_eq!(
-                view.codex_fast_mode.active,
-                runner.service_tier.is_some(),
-                "case {index}: Fast mode"
-            );
-            assert_eq!(
-                view.context_limit, runner.context_limit,
-                "case {index}: 上下文上限"
-            );
-        }
-        // 来源与真实合并对得上:项目写了 primary/reasoning/codex_fast_mode,全局写了 fast。
-        let (plain, _, _, _) = &checks[0];
-        assert_eq!(plain.model.resolved.as_deref(), Some("codex:gpt-5.6-luna"));
-        assert_eq!(plain.model.source, Source::Project);
-        assert_eq!(plain.reasoning.value, "high");
-        assert_eq!(plain.reasoning.source, Source::Project);
-        assert!(plain.codex_fast_mode.active);
-        assert_eq!(plain.codex_fast_mode.source, Source::Project);
-        let (direct, _, _, _) = &checks[1];
-        assert_eq!(direct.model.resolved.as_deref(), Some("local:llama"));
-        assert_eq!(direct.model.source, Source::Line);
-        assert_eq!(direct.reasoning.source, Source::Line);
-        assert_eq!(direct.context_limit, Some(64_000));
-        assert!(!direct.codex_fast_mode.applies);
-        let (role, _, _, _) = &checks[2];
-        assert_eq!(role.model.resolved.as_deref(), Some("local:small"));
-        assert_eq!(role.model.source, Source::Line);
-        assert_eq!(
-            role.default_model.resolved.as_deref(),
-            Some("codex:gpt-5.6-luna")
+                    assert_eq!(
+                        view.reasoning.value,
+                        runner.reasoning.as_str(),
+                        "case {index}: 思考档"
+                    );
+                    assert_eq!(
+                        view.codex_fast_mode.active,
+                        runner.service_tier.is_some(),
+                        "case {index}: Fast mode"
+                    );
+                    assert_eq!(
+                        view.context_limit, runner.context_limit,
+                        "case {index}: 上下文上限"
+                    );
+                }
+                // 来源与真实合并对得上:项目写了 primary/reasoning/codex_fast_mode,全局写了 fast。
+                let (plain, _, _, _) = &checks[0];
+                assert_eq!(plain.model.resolved.as_deref(), Some("codex:gpt-5.6-luna"));
+                assert_eq!(plain.model.source, Source::Project);
+                assert_eq!(plain.reasoning.value, "high");
+                assert_eq!(plain.reasoning.source, Source::Project);
+                assert!(plain.codex_fast_mode.active);
+                assert_eq!(plain.codex_fast_mode.source, Source::Project);
+                let (direct, _, _, _) = &checks[1];
+                assert_eq!(direct.model.resolved.as_deref(), Some("local:llama"));
+                assert_eq!(direct.model.source, Source::Line);
+                assert_eq!(direct.reasoning.source, Source::Line);
+                assert_eq!(direct.context_limit, Some(64_000));
+                assert!(!direct.codex_fast_mode.applies);
+                let (role, _, _, _) = &checks[2];
+                assert_eq!(role.model.resolved.as_deref(), Some("local:small"));
+                assert_eq!(role.model.source, Source::Line);
+                assert_eq!(
+                    role.default_model.resolved.as_deref(),
+                    Some("codex:gpt-5.6-luna")
+                );
+                std::fs::remove_dir_all(home).ok();
+            },
         );
-        std::fs::remove_dir_all(home).ok();
     }
 
     #[test]

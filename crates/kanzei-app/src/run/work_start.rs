@@ -50,7 +50,7 @@ pub(crate) async fn claim_requested_work(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanzei_tools::docstore::{DocStore, REQUIREMENTS};
+    use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
 
     #[tokio::test]
     async fn start_claims_real_item_but_never_bypasses_discovery_gates() {

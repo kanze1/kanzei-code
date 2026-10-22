@@ -1,12 +1,14 @@
-use super::*;
 use futures::FutureExt;
+use kanzei_core::SessionStore;
 use kanzei_core::{
     AskPolicy, AskReply, AskResponse, RunEvent, SessionTurnTerminal, TypedSessionWriter,
 };
-use kanzei_harness::{
-    Component, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolCtx,
-};
+use kanzei_harness::{Component, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, Message, ProxyConfig};
+use kanzei_tools::schedules::*;
+use serde_json::json;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
@@ -26,30 +28,11 @@ impl Drop for CommandGuard {
     fn drop(&mut self) {
         let pid = self.0;
         tokio::spawn(async move {
-            crate::shell::kill_tree(pid).await;
+            kanzei_tools::kill_tree(pid).await;
         });
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Outcome {
-    pub name: String,
-    pub run_id: String,
-    pub slot_ms: i64,
-    pub run_session_id: String,
-    pub ok: bool,
-    pub text: String,
-    pub summary: String,
-    pub duration_ms: u64,
-    #[serde(default)]
-    pub worktree: Option<PathBuf>,
-    #[serde(default)]
-    pub candidate_head: Option<String>,
-    pub error: Option<String>,
-    pub declined: Vec<Value>,
-    pub writeback: Vec<Value>,
-    pub finished_at_ms: i64,
-}
 struct TrackerReadonly;
 impl Component for TrackerReadonly {
     fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
@@ -119,8 +102,10 @@ pub async fn execute(
     let workspace = if writing && !general {
         let parent = root.clone();
         let id = run_id.clone();
-        match tokio::task::spawn_blocking(move || crate::team::workspace::prepare(&parent, &id))
-            .await
+        match tokio::task::spawn_blocking(move || {
+            kanzei_tools::team::workspace::prepare(&parent, &id)
+        })
+        .await
         {
             Ok(Ok(pair)) => {
                 outcome.worktree = Some(pair.0.clone());
@@ -164,7 +149,7 @@ pub async fn execute(
     };
     if let Some((tree, base)) = workspace {
         let result = tokio::task::spawn_blocking(move || {
-            crate::team::workspace::result(&tree, &base, "Scheduled task result")
+            kanzei_tools::team::workspace::result(&tree, &base, "Scheduled task result")
         })
         .await;
         match result {
@@ -266,7 +251,7 @@ pub async fn execute(
         )?;
         drop(_lock);
         if def.host == "system" {
-            if let Err(error) = super::hosts::system(&root, &def, false).await {
+            if let Err(error) = kanzei_tools::schedules::hosts::system(&root, &def, false).await {
                 record(
                     &root,
                     "schedule.host_cleanup_failed",
@@ -346,10 +331,10 @@ async fn run_steps(
         profile,
         config: config.clone(),
     };
-    let harness = crate::run::build_harness(
+    let harness = crate::build_harness(
         profile,
         |h| {
-            h.add(crate::ReadonlyProfile);
+            h.add(kanzei_tools::ReadonlyProfile);
         },
         |h| {
             h.add(TrackerReadonly);
@@ -381,7 +366,7 @@ async fn run_steps(
         None
     };
     let cancel = kanzei_core::CancellationToken::new();
-    let mut runner = crate::run::build_runner_config(
+    let mut runner = crate::build_runner_config(
         &resolved,
         &config,
         None,
@@ -391,7 +376,7 @@ async fn run_steps(
     );
     runner.ask_policy = AskPolicy::NonInteractive;
     if let Some(route) = &route {
-        let mut digest = crate::run::build_digest_model(&config, &proxy, &resolved, route).await;
+        let mut digest = crate::build_digest_model(&config, &proxy, &resolved, route).await;
         digest.archive_root = Some(root.into());
         runner.digest_model = Some(digest);
     }
@@ -595,7 +580,7 @@ async fn command_step(
             .await
             .map_err(|e| e.to_string())?;
     }
-    let shell = crate::shell::detected_shell();
+    let shell = kanzei_tools::detected_shell();
     let mut command_process = tokio::process::Command::new(&shell.program);
     command_process
         .args(&shell.args)
@@ -608,7 +593,11 @@ async fn command_step(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    crate::hide_console_async(&mut command_process);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command_process.creation_flags(CREATE_NO_WINDOW);
+    }
     let mut child = command_process.spawn().map_err(|e| e.to_string())?;
     let pid = child.id().ok_or("命令没有进程 ID")?;
     let mut command_guard = Some(CommandGuard(pid));
@@ -631,7 +620,7 @@ async fn command_step(
         let (mut bytes, errors) = match tokio::try_join!(bounded(stdout), bounded(stderr)) {
             Ok(output) => output,
             Err(error) => {
-                crate::shell::kill_tree(pid).await;
+                kanzei_tools::kill_tree(pid).await;
                 return Err(error);
             }
         };
@@ -676,7 +665,7 @@ async fn command_step(
     match tokio::time::timeout(timeout, collect).await {
         Ok(result) => result,
         Err(_) => {
-            let killed = crate::shell::kill_tree(pid).await;
+            let killed = kanzei_tools::kill_tree(pid).await;
             Err(if killed {
                 "命令超时，进程树已终止"
             } else {
@@ -685,101 +674,4 @@ async fn command_step(
             .into())
         }
     }
-}
-pub(super) async fn writeback(
-    root: &Path,
-    def: &ScheduleDef,
-    outcome: &Outcome,
-    remote: bool,
-) -> Vec<Value> {
-    let mut results = vec![];
-    for channel in &def.writeback {
-        if remote && !channel.starts_with("file:") {
-            continue;
-        }
-        if channel != "notify" && (!outcome.ok || outcome.text.trim().is_empty()) {
-            results.push(
-                json!({"channel":channel,"ok":false,"detail":"运行未成功，保留已有文件和记录"}),
-            );
-            continue;
-        }
-        let result: Result<String, String> = match channel.as_str() {
-            "notify" => SessionStore::open(&kanzei_core::project_state_path(root))
-                .map_err(|e| e.to_string())
-                .and_then(|store| {
-                    store
-                        .append_notification_atomic(
-                            "kz-schedules",
-                            if outcome.ok { "succeeded" } else { "failed" },
-                            &format!("{}: {}", def.name, outcome.summary),
-                            false,
-                        )
-                        .map(|_| "已保存通知".into())
-                        .map_err(|e| e.to_string())
-                }),
-            "memory_inbox" => crate::memory::MemoryStore::project(root)
-                .append_note(
-                    &format!("定时任务 {}: {}", def.name, outcome.summary),
-                    &outcome.text.chars().take(8000).collect::<String>(),
-                    "fact",
-                    &[],
-                )
-                .map(|path| path.display().to_string())
-                .map_err(|e| e.to_string()),
-            "idea" => {
-                let tool = crate::tracker::TrackerTool {
-                    tool_name: "idea",
-                    noun: "idea",
-                    kind: &crate::docstore::IDEAS,
-                    requires_refs: None,
-                };
-                let ctx = ToolCtx::new(root.into(), root.into());
-                let output=kanzei_harness::managed_fence::tool_scope(&ctx.project_root,"idea",tool.execute(json!({"action":"add","title":format!("定时任务 {}: {}",def.name,outcome.summary.chars().take(40).collect::<String>()),"fields":{"原始描述":outcome.text,"来源":format!("schedule:{} run {}",def.name,outcome.run_id)}}),&ctx)).await;
-                if output.is_error {
-                    Err(output.content)
-                } else {
-                    Ok(output.content)
-                }
-            }
-            value => {
-                safe_output_path(root, value.strip_prefix("file:").unwrap_or("")).and_then(|path| {
-                    kanzei_base::atomic_file::write_atomic(&path, &outcome.text)
-                        .map(|_| path.display().to_string())
-                        .map_err(|e| e.to_string())
-                })
-            }
-        };
-        results.push(match result {
-            Ok(detail) => json!({"channel":channel,"ok":true,"detail":detail}),
-            Err(detail) => json!({"channel":channel,"ok":false,"detail":detail}),
-        });
-    }
-    results
-}
-fn safe_output_path(root: &Path, relative: &str) -> Result<PathBuf, String> {
-    let path = Path::new(relative);
-    if path.as_os_str().is_empty()
-        || path
-            .components()
-            .any(|part| !matches!(part, std::path::Component::Normal(_)))
-        || path.starts_with(".kanzei")
-    {
-        return Err("回写文件必须是项目内普通相对路径，不能指向 .kanzei 托管区".into());
-    }
-    let root = std::fs::canonicalize(root).map_err(|e| e.to_string())?;
-    let target = root.join(path);
-    let parent = target.parent().ok_or("回写路径缺少父目录")?;
-    for ancestor in parent.ancestors().take_while(|ancestor| *ancestor != root) {
-        if ancestor.exists()
-            && !std::fs::canonicalize(ancestor)
-                .map_err(|e| e.to_string())?
-                .starts_with(&root)
-        {
-            return Err("回写路径通过链接越出项目".into());
-        }
-    }
-    if std::fs::symlink_metadata(&target).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        return Err("回写目标为符号链接".into());
-    }
-    Ok(target)
 }

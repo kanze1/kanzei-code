@@ -131,7 +131,7 @@ async fn execute_impl(
             config: config.clone(),
         };
         let session = runtime_for(state, &owner);
-        let mut runtime = kanzei_tools::run::build_subagent_runtime(
+        let mut runtime = kanzei_runtime::build_subagent_runtime(
             &rctx,
             &config,
             &proxy,

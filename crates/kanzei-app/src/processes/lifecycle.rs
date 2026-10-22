@@ -963,43 +963,56 @@ mod prefs_failure_tests {
 
     #[test]
     fn cleanup_writer_reports_failed_read_without_publishing_defaults() {
-        with_home("process-cleanup", |home| {
-            let good = fixture(home);
-            let process = format!("p1|{}", good["projects"][0].as_str().unwrap());
-            for (_, bytes) in damaged_inputs(&good) {
-                assert_rejected_unchanged(home, &bytes, || forget_process_prefs(&process));
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "cleanup_writer_reports_failed_read_without_publishing_defaults",
+            || {
+                with_home("process-cleanup", |home| {
+                    let good = fixture(home);
+                    let process = format!("p1|{}", good["projects"][0].as_str().unwrap());
+                    for (_, bytes) in damaged_inputs(&good) {
+                        assert_rejected_unchanged(home, &bytes, || forget_process_prefs(&process));
+                    }
+                });
+            },
+        );
     }
 
     #[test]
     fn cleanup_writer_preserves_normal_fields_and_not_found_noop() {
-        with_home("cleanup-controls", |home| {
-            forget_process_prefs("missing").unwrap();
-            assert!(!home.join("app.json").exists());
-            let good = fixture(home);
-            let a = good["projects"][0].as_str().unwrap();
-            let target = format!("p1|{a}");
-            let other = format!("p2|{a}");
-            std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
-            forget_process_prefs(&target).unwrap();
-            let bytes = std::fs::read(home.join("app.json")).unwrap();
-            let after: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            assert!(after["process_auto_state"].get(&target).is_none());
-            assert_eq!(
-                after["process_auto_state"][&other],
-                good["process_auto_state"][&other]
-            );
-            for field in ["projects", "names", "theme", "open_tools"] {
-                assert_eq!(after[field], good[field], "{field}");
-            }
-            forget_process_prefs(&target).unwrap();
-            assert_eq!(
-                std::fs::read(home.join("app.json")).unwrap(),
-                bytes,
-                "unchanged cleanup remains a no-write noop"
-            );
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "cleanup_writer_preserves_normal_fields_and_not_found_noop",
+            || {
+                with_home("cleanup-controls", |home| {
+                    forget_process_prefs("missing").unwrap();
+                    assert!(!home.join("app.json").exists());
+                    let good = fixture(home);
+                    let a = good["projects"][0].as_str().unwrap();
+                    let target = format!("p1|{a}");
+                    let other = format!("p2|{a}");
+                    std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap())
+                        .unwrap();
+                    forget_process_prefs(&target).unwrap();
+                    let bytes = std::fs::read(home.join("app.json")).unwrap();
+                    let after: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    assert!(after["process_auto_state"].get(&target).is_none());
+                    assert_eq!(
+                        after["process_auto_state"][&other],
+                        good["process_auto_state"][&other]
+                    );
+                    for field in ["projects", "names", "theme", "open_tools"] {
+                        assert_eq!(after[field], good[field], "{field}");
+                    }
+                    forget_process_prefs(&target).unwrap();
+                    assert_eq!(
+                        std::fs::read(home.join("app.json")).unwrap(),
+                        bytes,
+                        "unchanged cleanup remains a no-write noop"
+                    );
+                });
+            },
+        );
     }
 }
 

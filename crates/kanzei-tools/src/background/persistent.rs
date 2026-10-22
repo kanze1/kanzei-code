@@ -3,6 +3,7 @@
 //! 注册表格式与普通后台进程 registry 共用父模块的原语；这里仅拆出持久化生命周期，
 //! 通过父模块的私有协作函数继续使用同一守卫、日志和回收语义。
 
+use kanzei_base::sync::MutexPoisonExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -194,21 +195,20 @@ pub async fn adopt_persistent(
         exit_completion: super::GuardCompletion::new(true),
     });
     super::registry()
-        .lock()
-        .unwrap()
+        .lock_or_recover()
         .insert(process.id.clone(), process.clone());
     let completed = process.clone();
     let watcher = tokio::spawn(async move {
         loop {
             let (size, bytes) = log_snapshot(&watch_log).await;
             {
-                let mut output = watch_output.lock().unwrap();
+                let mut output = watch_output.lock_or_recover();
                 *output = bytes.clone();
                 watch_total.store(size, std::sync::atomic::Ordering::SeqCst);
             }
-            *watch_full.lock().unwrap() = super::read_log_tail(&watch_log).await;
+            *watch_full.lock_or_recover() = super::read_log_tail(&watch_log).await;
             if !crate::shell::process_alive(watch_pid) {
-                *exit_watch.lock().unwrap() = Some(None);
+                *exit_watch.lock_or_recover() = Some(None);
                 let result = match completed.guard_completion.wait().await {
                     Ok(()) => super::lifecycle::finish_restore(&completed),
                     Err(error) => Err(error),
@@ -218,7 +218,7 @@ pub async fn adopt_persistent(
                     return Err(error);
                 }
                 remove_registry_entry(&watch_root, &watch_id)?;
-                super::registry().lock().unwrap().remove(&watch_id);
+                super::registry().lock_or_recover().remove(&watch_id);
                 return Ok(());
             }
             tokio::time::sleep(std::time::Duration::from_secs(1)).await;

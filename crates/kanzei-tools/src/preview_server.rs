@@ -27,6 +27,8 @@
 //!   里面的脚本即使从自己的 URL 拿到 token,也读不了同源的 `/r/` 项目文件、碰不到本源的存储;
 //!   项目文件(`/r/`)使用独立的未注册协议子域，保留 ES module 与页内存储；Host 必须与 root_id 匹配。
 
+#[cfg(test)]
+use kanzei_base::sync::MutexPoisonExt;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -1239,7 +1241,7 @@ mod tests {
         let second = add_snippet_to(&registry, "<p>1</p>").unwrap();
         add_snippet_to(&registry, "<p>new-a</p>").unwrap();
         add_snippet_to(&registry, "<p>new-b</p>").unwrap();
-        assert_eq!(registry.lock().unwrap().snippets.len(), SNIPPET_CAPACITY);
+        assert_eq!(registry.lock_or_recover().snippets.len(), SNIPPET_CAPACITY);
         let served = get(&registry, &format!("/t/{TOKEN}/s/{first}.html"));
         assert_eq!(served.status, 200);
         assert_eq!(served.content_type, "text/html; charset=utf-8");

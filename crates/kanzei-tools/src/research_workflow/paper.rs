@@ -45,8 +45,8 @@ pub fn tex_escape(text: &str) -> String {
         .collect()
 }
 
-fn sources(root: &Path, topic: &str) -> Result<Vec<crate::docstore::Entry>, String> {
-    crate::docstore::DocStore::open_topic(root, &crate::docstore::SOURCES, topic)
+fn sources(root: &Path, topic: &str) -> Result<Vec<kanzei_memory::docstore::Entry>, String> {
+    kanzei_memory::docstore::DocStore::open_topic(root, &kanzei_memory::docstore::SOURCES, topic)
         .and_then(|s| s.load())
         .map_err(|e| e.to_string())
 }

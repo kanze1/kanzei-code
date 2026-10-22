@@ -480,7 +480,7 @@ fn detect_stacks(root: &Path) -> Vec<String> {
 
 /// 空项目时从活动需求的文字里推断计划技术栈(关键词表,忽略大小写)。
 fn planned_stacks(root: &Path) -> Vec<PlannedStack> {
-    use crate::docstore::{DocStore, REQUIREMENTS};
+    use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
     const KEYWORDS: &[(&str, &[&str])] = &[
         ("flutter", &["flutter", "dart"]),
         (

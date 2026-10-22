@@ -161,7 +161,7 @@ pub(crate) async fn link_to_project(
         store
             .create_session(&owner, &target.display().to_string(), None)
             .map_err(|e| e.to_string())?;
-        let hash = kanzei_core::store::stable_json_hash(&messages);
+        let hash = kanzei_core::stable_json_hash(&messages);
         let seed = kanzei_core::SessionFactEnvelope::new(
             format!("general-link:{}", created.id),
             None,
@@ -237,162 +237,172 @@ mod tests {
     use super::*;
     #[test]
     fn global_store_restores_events_without_registering_a_project() {
-        let home = std::env::temp_dir().join(format!(
-            "kz-general-{}-{}",
-            std::process::id(),
-            crate::run::now_ms()
-        ));
-        crate::settings::with_kanzei_home(&home, || {
-            std::fs::create_dir_all(home.join("skills")).unwrap();
-            std::fs::create_dir_all(home.join("agents")).unwrap();
-            std::fs::write(home.join("skills/general-fixture.md"), "---\nname: general-fixture\ndescription: Generate an artifact\n---\nUse tools to create files.").unwrap();
-            std::fs::write(home.join("agents/persona-fixture.md"), "---\nname: persona-fixture\nmode: subagent\nprofile: all\n---\nCUSTOM_GENERAL_PERSONA").unwrap();
-            let state = crate::AppState::default();
-            let root = PathBuf::from(open(&state).unwrap());
-            assert!(is_general_root(&root));
-            let p = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
-            assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev"));
-            assert!(p.subagent_mode.lock().unwrap().enabled());
-            *p.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
-            enforce(&p);
-            assert!(!(*p.subagent_mode.lock().unwrap()).enabled());
-            *p.profile.lock().unwrap() = Some("isolated".into());
-            enforce(&p);
-            assert_eq!(p.profile.lock().unwrap().as_deref(), Some("isolated"));
-            crate::processes::registry::persist_process(&root, &p).unwrap();
-            let workspace = kanzei_harness::general_conversation_workspace(&root, "chat-one");
-            assert_ne!(
-                workspace,
-                kanzei_harness::general_conversation_workspace(&root, "chat-two")
-            );
-            let tool_ctx = kanzei_harness::ToolCtx::new(workspace, root.clone());
-            assert!(!tool_ctx.project_workflow);
-            assert!(!tool_ctx.clone().project_workflow);
-            let session = crate::process_session_id(&root, Some(&p.id));
-            let store =
-                kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
-            store
-                .create_session(&session, &root.display().to_string(), None)
-                .unwrap();
-            store
-                .append_event(
-                    &session,
-                    "general.probe",
-                    &serde_json::json!({"text":"saved"}),
-                )
-                .unwrap();
-            drop(store);
-            let restarted = crate::AppState::default();
-            assert_eq!(open(&restarted).unwrap(), root.display().to_string());
-            assert!(restarted.processes.lock().unwrap().contains_key(&p.id));
-            assert_eq!(
-                restarted.processes.lock().unwrap()[&p.id]
-                    .profile
-                    .lock()
-                    .unwrap()
-                    .as_deref(),
-                Some("isolated")
-            );
-            let restored_store =
-                kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
-            assert_eq!(
-                restored_store
-                    .latest_event(&session, "general.probe")
-                    .unwrap()
-                    .unwrap()
-                    .payload["text"],
-                "saved"
-            );
-            drop(restored_store);
-            assert!(!home.join("app.json").exists());
-            assert!(!root.join(".kanzei/project/requirements.md").exists());
-            let mut config = kanzei_harness::config::KanzeiConfig::default();
-            config.permissions.rules.push(kanzei_harness::rule(
-                "write",
-                "*/protected.txt",
-                kanzei_harness::Effect::Deny,
-            ));
-            let ctx = kanzei_harness::ResolveCtx {
-                profile: kanzei_harness::ProfileKind::Dev,
-                cwd: root.clone(),
-                project_root: root,
-                config: std::sync::Arc::new(config),
-            };
-            let snapshot = crate::run::assembly::build_run_harness(ctx.profile, false, None)
-                .resolve(&ctx)
-                .unwrap();
-            let tools: Vec<_> = snapshot
-                .materialize_tools()
-                .iter()
-                .map(|tool| tool.name())
-                .collect();
-            assert!(tools.contains(&"webfetch"));
-            for name in [
-                "read",
-                "write",
-                "edit",
-                "bash",
-                "process",
-                "browser",
-                "latex",
-                "plot",
-                "memory_search",
-                "tool_search",
-            ] {
-                assert!(tools.contains(&name), "missing general tool {name}");
-            }
-            for name in [
-                "req",
-                "work",
-                "defect",
-                "test_record",
-                "architecture",
-                "conventions",
-                "prior_art",
-            ] {
-                assert!(!tools.contains(&name), "project tool leaked: {name}");
-            }
-            assert!(snapshot.agents().len() > 1);
-            assert!(snapshot
-                .select_primary_agent(Some("general"))
-                .unwrap()
-                .system
-                .contains("create the actual file"));
-            assert!(snapshot.select_primary_agent(Some("dev")).is_ok());
-            assert!(snapshot.skills().get("personal:general-fixture").is_some());
-            assert_eq!(
-                snapshot.agents().get("persona-fixture").unwrap().system,
-                "CUSTOM_GENERAL_PERSONA"
-            );
-            assert_eq!(
-                snapshot.permissions().evaluate("write", "/protected.txt"),
-                kanzei_harness::Effect::Deny
-            );
-            assert_eq!(
-                snapshot.permissions().evaluate("write", "/ordinary.txt"),
-                kanzei_harness::Effect::Ask
-            );
-            assert_eq!(
-                snapshot
-                    .permissions()
-                    .evaluate("write", "/.kanzei/project/requirements.md"),
-                kanzei_harness::Effect::Ask
-            );
-            // A writable child keeps task steering and private memory context.
-            let mut draft = kanzei_harness::HarnessDraft::default();
-            draft.context.insert(
-                "team/inbox",
-                kanzei_harness::source("team/inbox", |_| Some("STEERING".into())),
-            );
-            kanzei_harness::Component::contribute(
-                &kanzei_tools::GeneralChatProfile,
-                &mut draft,
-                &ctx,
-            )
-            .unwrap();
-            assert!(draft.context.get("team/inbox").is_some());
-            assert!(!is_general_root(&home.join("real-project")));
-        });
-        std::fs::remove_dir_all(home).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "global_store_restores_events_without_registering_a_project",
+            || {
+                let home = std::env::temp_dir().join(format!(
+                    "kz-general-{}-{}",
+                    std::process::id(),
+                    crate::run::now_ms()
+                ));
+                crate::settings::with_kanzei_home(&home, || {
+                    std::fs::create_dir_all(home.join("skills")).unwrap();
+                    std::fs::create_dir_all(home.join("agents")).unwrap();
+                    std::fs::write(home.join("skills/general-fixture.md"), "---\nname: general-fixture\ndescription: Generate an artifact\n---\nUse tools to create files.").unwrap();
+                    std::fs::write(home.join("agents/persona-fixture.md"), "---\nname: persona-fixture\nmode: subagent\nprofile: all\n---\nCUSTOM_GENERAL_PERSONA").unwrap();
+                    let state = crate::AppState::default();
+                    let root = PathBuf::from(open(&state).unwrap());
+                    assert!(is_general_root(&root));
+                    let p = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
+                    assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev"));
+                    assert!(p.subagent_mode.lock().unwrap().enabled());
+                    *p.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
+                    enforce(&p);
+                    assert!(!(*p.subagent_mode.lock().unwrap()).enabled());
+                    *p.profile.lock().unwrap() = Some("isolated".into());
+                    enforce(&p);
+                    assert_eq!(p.profile.lock().unwrap().as_deref(), Some("isolated"));
+                    crate::processes::registry::persist_process(&root, &p).unwrap();
+                    let workspace =
+                        kanzei_harness::general_conversation_workspace(&root, "chat-one");
+                    assert_ne!(
+                        workspace,
+                        kanzei_harness::general_conversation_workspace(&root, "chat-two")
+                    );
+                    let tool_ctx = kanzei_harness::ToolCtx::new(workspace, root.clone());
+                    assert!(!tool_ctx.project_workflow);
+                    assert!(!tool_ctx.clone().project_workflow);
+                    let session = crate::process_session_id(&root, Some(&p.id));
+                    let store =
+                        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+                            .unwrap();
+                    store
+                        .create_session(&session, &root.display().to_string(), None)
+                        .unwrap();
+                    store
+                        .append_event(
+                            &session,
+                            "general.probe",
+                            &serde_json::json!({"text":"saved"}),
+                        )
+                        .unwrap();
+                    drop(store);
+                    let restarted = crate::AppState::default();
+                    assert_eq!(open(&restarted).unwrap(), root.display().to_string());
+                    assert!(restarted.processes.lock().unwrap().contains_key(&p.id));
+                    assert_eq!(
+                        restarted.processes.lock().unwrap()[&p.id]
+                            .profile
+                            .lock()
+                            .unwrap()
+                            .as_deref(),
+                        Some("isolated")
+                    );
+                    let restored_store =
+                        kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+                            .unwrap();
+                    assert_eq!(
+                        restored_store
+                            .latest_event(&session, "general.probe")
+                            .unwrap()
+                            .unwrap()
+                            .payload["text"],
+                        "saved"
+                    );
+                    drop(restored_store);
+                    assert!(!home.join("app.json").exists());
+                    assert!(!root.join(".kanzei/project/requirements.md").exists());
+                    let mut config = kanzei_harness::config::KanzeiConfig::default();
+                    config.permissions.rules.push(kanzei_harness::rule(
+                        "write",
+                        "*/protected.txt",
+                        kanzei_harness::Effect::Deny,
+                    ));
+                    let ctx = kanzei_harness::ResolveCtx {
+                        profile: kanzei_harness::ProfileKind::Dev,
+                        cwd: root.clone(),
+                        project_root: root,
+                        config: std::sync::Arc::new(config),
+                    };
+                    let snapshot =
+                        crate::run::assembly::build_run_harness(ctx.profile, false, None)
+                            .resolve(&ctx)
+                            .unwrap();
+                    let tools: Vec<_> = snapshot
+                        .materialize_tools()
+                        .iter()
+                        .map(|tool| tool.name())
+                        .collect();
+                    assert!(tools.contains(&"webfetch"));
+                    for name in [
+                        "read",
+                        "write",
+                        "edit",
+                        "bash",
+                        "process",
+                        "browser",
+                        "latex",
+                        "plot",
+                        "memory_search",
+                        "tool_search",
+                    ] {
+                        assert!(tools.contains(&name), "missing general tool {name}");
+                    }
+                    for name in [
+                        "req",
+                        "work",
+                        "defect",
+                        "test_record",
+                        "architecture",
+                        "conventions",
+                        "prior_art",
+                    ] {
+                        assert!(!tools.contains(&name), "project tool leaked: {name}");
+                    }
+                    assert!(snapshot.agents().len() > 1);
+                    assert!(snapshot
+                        .select_primary_agent(Some("general"))
+                        .unwrap()
+                        .system
+                        .contains("create the actual file"));
+                    assert!(snapshot.select_primary_agent(Some("dev")).is_ok());
+                    assert!(snapshot.skills().get("personal:general-fixture").is_some());
+                    assert_eq!(
+                        snapshot.agents().get("persona-fixture").unwrap().system,
+                        "CUSTOM_GENERAL_PERSONA"
+                    );
+                    assert_eq!(
+                        snapshot.permissions().evaluate("write", "/protected.txt"),
+                        kanzei_harness::Effect::Deny
+                    );
+                    assert_eq!(
+                        snapshot.permissions().evaluate("write", "/ordinary.txt"),
+                        kanzei_harness::Effect::Ask
+                    );
+                    assert_eq!(
+                        snapshot
+                            .permissions()
+                            .evaluate("write", "/.kanzei/project/requirements.md"),
+                        kanzei_harness::Effect::Ask
+                    );
+                    // A writable child keeps task steering and private memory context.
+                    let mut draft = kanzei_harness::HarnessDraft::default();
+                    draft.context.insert(
+                        "team/inbox",
+                        kanzei_harness::source("team/inbox", |_| Some("STEERING".into())),
+                    );
+                    kanzei_harness::Component::contribute(
+                        &kanzei_tools::GeneralChatProfile,
+                        &mut draft,
+                        &ctx,
+                    )
+                    .unwrap();
+                    assert!(draft.context.get("team/inbox").is_some());
+                    assert!(!is_general_root(&home.join("real-project")));
+                });
+                std::fs::remove_dir_all(home).unwrap();
+            },
+        );
     }
 }

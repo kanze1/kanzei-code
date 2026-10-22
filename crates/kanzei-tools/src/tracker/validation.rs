@@ -3,7 +3,7 @@
 //! 该模块只承载旧格式验收开放度、草稿完整性、语义确认和限定词一致性校验；
 //! action 路由通过 `TrackerTool` 复用这些门禁，保持校验顺序与错误文案不变。
 
-use crate::docstore::Entry;
+use kanzei_memory::docstore::Entry;
 
 use super::TrackerTool;
 

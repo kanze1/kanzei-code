@@ -3072,7 +3072,7 @@ async fn role_memory_persists_and_stale_writers_cannot_overwrite_it() {
     assert!(legacy["content"]
         .as_str()
         .unwrap()
-        .contains(crate::memory::REDACTED_CREDENTIAL));
+        .contains(kanzei_memory::memory::REDACTED_CREDENTIAL));
     let (legacy_context, _) = snapshot.refreshable_system_baseline_with_report().unwrap();
     assert!(!legacy_context.contains("sk-proj-0123456789abcdefgh"));
     let restored = memory.execute(json!({"revision":legacy["revision"],"content":"base.txt:1 contains the baseline evidence"}), &team.0.ctx).await;

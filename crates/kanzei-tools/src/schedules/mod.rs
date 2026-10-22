@@ -1,8 +1,7 @@
 //! Project wakeups. This is independent of the tracker's work selection scheduler.
-mod executor;
 pub mod hosts;
 mod when;
-pub use executor::{execute, Outcome};
+mod writeback;
 use kanzei_core::SessionStore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,7 +10,27 @@ use std::{
     time::Duration,
 };
 pub use when::When;
+pub use writeback::writeback;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Outcome {
+    pub name: String,
+    pub run_id: String,
+    pub slot_ms: i64,
+    pub run_session_id: String,
+    pub ok: bool,
+    pub text: String,
+    pub summary: String,
+    pub duration_ms: u64,
+    #[serde(default)]
+    pub worktree: Option<PathBuf>,
+    #[serde(default)]
+    pub candidate_head: Option<String>,
+    pub error: Option<String>,
+    pub declined: Vec<Value>,
+    pub writeback: Vec<Value>,
+    pub finished_at_ms: i64,
+}
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Step {
@@ -722,109 +741,6 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[tokio::test]
-    async fn real_command_run_isolated_history_file_writeback_and_duplicate_skipped() {
-        let root = project();
-        let mut def = parse(TEXT, "check").unwrap();
-        def.steps = vec![Step::Run("echo SCHEDULE_ACTUAL_OUTPUT".into())];
-        def.writeback = vec!["file:reports/result.md".into()];
-        std::fs::write(path(&root, "check").unwrap(), render(&def)).unwrap();
-        let outcome = execute(root.clone(), def.clone(), 1, "manual".into())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(outcome.ok, "{:?}", outcome.error);
-        assert!(outcome.text.contains("SCHEDULE_ACTUAL_OUTPUT"));
-        assert!(std::fs::read_to_string(root.join("reports/result.md"))
-            .unwrap()
-            .contains("SCHEDULE_ACTUAL_OUTPUT"));
-        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
-        assert!(store
-            .list_events(&kanzei_core::project_session_id(&root), 0)
-            .unwrap()
-            .is_empty());
-        assert!(store
-            .latest_event(&outcome.run_session_id, "conversation.updated")
-            .unwrap()
-            .is_some());
-        assert!(execute(root.clone(), def, 1, "manual".into())
-            .await
-            .unwrap()
-            .is_none());
-        drop(store);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[tokio::test]
-    async fn three_failed_real_commands_disable_definition() {
-        let root = project();
-        let mut def = parse(TEXT, "check").unwrap();
-        def.steps = vec![Step::Run("exit 7".into())];
-        def.writeback = vec![];
-        std::fs::write(path(&root, "check").unwrap(), render(&def)).unwrap();
-        for slot in 1..=3 {
-            let outcome = execute(root.clone(), def.clone(), slot, "manual".into())
-                .await
-                .unwrap()
-                .unwrap();
-            assert!(!outcome.ok);
-            assert!(outcome.error.unwrap().contains("7"));
-        }
-        assert!(
-            !parse(
-                &std::fs::read_to_string(path(&root, "check").unwrap()).unwrap(),
-                "check"
-            )
-            .unwrap()
-            .enabled
-        );
-        assert!(history(&root, Some("check"), 20)
-            .unwrap()
-            .iter()
-            .any(|event| event["type"] == "schedule.auto_disabled"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[test]
-    fn stale_dispatch_does_not_run_a_replaced_definition() {
-        let root = project();
-        let def = parse(TEXT, "check").unwrap();
-        std::fs::write(path(&root, "check").unwrap(), set_enabled(TEXT, false)).unwrap();
-        assert!(!claim(&root, &def, 42, "old-dispatch", "timer").unwrap());
-        assert!(history(&root, Some("check"), 10).unwrap().is_empty());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-    #[tokio::test]
-    async fn rearming_starts_a_new_failure_streak() {
-        let root = project();
-        let mut def = parse(TEXT, "check").unwrap();
-        def.steps = vec![Step::Run("exit 7".into())];
-        def.writeback = vec![];
-        std::fs::write(path(&root, "check").unwrap(), render(&def)).unwrap();
-        for slot in 1..=2 {
-            execute(root.clone(), def.clone(), slot, "manual".into())
-                .await
-                .unwrap()
-                .unwrap();
-        }
-        record(
-            &root,
-            "schedule.armed",
-            &json!({"name":"check","at_ms":chrono::Local::now().timestamp_millis()}),
-        )
-        .unwrap();
-        execute(root.clone(), def.clone(), 3, "manual".into())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            parse(
-                &std::fs::read_to_string(path(&root, "check").unwrap()).unwrap(),
-                "check"
-            )
-            .unwrap()
-            .enabled
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
     #[test]
     fn toggle_only_updates_the_parsed_frontmatter_enabled_field() {
         let text = "---\nname: check\n  enabled: true\nwhen: 每 15 分钟\nsteps:\n  - run: echo ready\n---\nenabled: example\n";

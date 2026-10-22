@@ -112,7 +112,7 @@ pub struct RecallWatch<'a> {
     /// 上一轮每个失败桶的原始检索候选，供重复失败重查排除。
     last_retrieved: HashMap<(String, String), Vec<String>>,
     /// 待判定的注入结局:(memory_id, tool, kind, 注入时该 kind 的失败次数)。
-    /// Drop 时对账——若失败计数没再涨,判定 ACTION_CHANGED 成立。
+    /// finish 时记录同类失败是否重现及运行终态；Drop 以 Unknown 终态兜底。
     pending: Vec<(String, String, String, usize)>,
     /// 注入的策略(检索 + 遥测)。
     policy: Option<&'a dyn RecallPolicy>,
@@ -515,7 +515,7 @@ mod tests {
     #[test]
     fn 轮末对账_注入后复发judged_false_未复发judged_true() {
         // ACTION_CHANGED 机械口径:注入后同 (tool,kind) 失败计数再涨 → false;
-        // 到轮末没再失败 → true。Drop 统一回收,所有退出路径都覆盖。
+        // 到轮末没再失败 → true。正常路径由 finish 提交，未显式收尾时 Drop 兜底。
         let outcomes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let policy = RecordingPolicy {
             hits: vec![hit("M-009", "sop")],

@@ -11,7 +11,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::docstore::DocStore;
+use kanzei_memory::docstore::DocStore;
 
 mod lifecycle;
 pub(crate) use lifecycle::{check_input_fields, check_start, update_audit};

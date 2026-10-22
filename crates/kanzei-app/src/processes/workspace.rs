@@ -16,8 +16,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
 use kanzei_llm::{Message, Part};
-use kanzei_tools::docstore::DocStore;
-use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
+use kanzei_memory::docstore::DocStore;
+use kanzei_memory::docstore::{DEFECTS, REQUIREMENTS};
 
 use crate::{normalized_project_root, process_session_id, AppState, WorktreeInfo};
 use kanzei_tools::worktree as wt;

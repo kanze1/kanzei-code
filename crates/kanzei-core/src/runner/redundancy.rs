@@ -5,10 +5,57 @@
 use crate::runner::metrics::is_git_query;
 use kanzei_llm::Part;
 
+/// Stable categories in tool-result transcripts. Human wording may change independently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RedundancyKind {
+    Git,
+    Test,
+    Task,
+}
+
+impl RedundancyKind {
+    fn marker(self) -> &'static str {
+        match self {
+            Self::Git => "[redundancy_hint=git]",
+            Self::Test => "[redundancy_hint=test]",
+            Self::Task => "[redundancy_hint=task]",
+        }
+    }
+
+    fn append(self, content: &mut String, note: &str) {
+        content.push_str(&format!("\n{}\n[冗余提醒] {note}", self.marker()));
+    }
+
+    pub(crate) fn from_content(content: &str) -> Option<Self> {
+        for line in content.lines() {
+            if line.starts_with("[redundancy_hint=") {
+                return [Self::Git, Self::Test, Self::Task]
+                    .into_iter()
+                    .find(|kind| line == kind.marker());
+            }
+        }
+        // Transcripts written before category markers remain readable. Test reminders
+        // have no current producer, but are still part of persisted historical metrics.
+        content.lines().find_map(|line| {
+            if line.starts_with("[冗余提醒] 工作树与上次")
+                || line.starts_with("[冗余提醒] 本次 Git 查询输出与上次相同")
+            {
+                Some(Self::Git)
+            } else if line.starts_with("[冗余提醒] 自上次全量测试") {
+                Some(Self::Test)
+            } else if line.starts_with("[冗余提醒] 缺陷") {
+                Some(Self::Task)
+            } else {
+                None
+            }
+        })
+    }
+}
+
 /// R-100 机械门禁:对可机械识别的冗余模式在工具结果中就地处提醒(不阻断,
 /// 先观察后升级)。状态按单次运行持有——轮与轮之间不复用,避免跨轮误报。
 ///
-/// 两种提示均使用 `[冗余提醒]` 前缀供 summarize_metrics 计数:
+/// 当前生成两种提示，稳定类别标记供 summarize_metrics 计数，中文说明供模型阅读:
 /// 1. Git 查询输出重复，仅描述输出，不据此推断源码或测试有效性。
 /// 2. 缺陷记录已含文件路径仍调 task:task prompt 里引用 D-xxx 且该缺陷条目
 ///    字段已含的路径也出现在 prompt 里,说明是在让子代理重新探索已知位置。
@@ -62,8 +109,9 @@ impl RedundancyWatch {
                     if is_git_query(input) {
                         if let Some(prev) = &self.last_git_content {
                             if prev == &original {
-                                content.push_str(
-                                    "\n[冗余提醒] 本次 Git 查询输出与上次相同；输出相同不代表文件内容未变",
+                                RedundancyKind::Git.append(
+                                    content,
+                                    "本次 Git 查询输出与上次相同；输出相同不代表文件内容未变",
                                 );
                             }
                         }
@@ -73,7 +121,7 @@ impl RedundancyWatch {
                 "task" => {
                     let prompt = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
                     if let Some(note) = defect_known_path_hint(project_root, prompt) {
-                        content.push_str(&format!("\n[冗余提醒] {note}"));
+                        RedundancyKind::Task.append(content, &note);
                     }
                 }
                 _ => {}
@@ -155,6 +203,39 @@ mod tests {
     use crate::runner::testutil::result_content;
 
     #[test]
+    fn categories_survive_wording_changes_and_read_legacy_transcripts() {
+        for kind in [
+            RedundancyKind::Git,
+            RedundancyKind::Test,
+            RedundancyKind::Task,
+        ] {
+            let mut content = "tool output".to_owned();
+            kind.append(&mut content, "说明文字可以修改");
+            assert_eq!(RedundancyKind::from_content(&content), Some(kind));
+        }
+        assert_eq!(
+            RedundancyKind::from_content("[冗余提醒] 工作树与上次 git status/diff 无变化"),
+            Some(RedundancyKind::Git)
+        );
+        assert_eq!(
+            RedundancyKind::from_content("[冗余提醒] 本次 Git 查询输出与上次相同"),
+            Some(RedundancyKind::Git)
+        );
+        assert_eq!(
+            RedundancyKind::from_content("[冗余提醒] 自上次全量测试以来工作树无变更"),
+            Some(RedundancyKind::Test)
+        );
+        assert_eq!(
+            RedundancyKind::from_content("[redundancy_hint=unknown]\n[冗余提醒] 缺陷"),
+            None
+        );
+        assert_eq!(
+            RedundancyKind::from_content("quoted: [冗余提醒] 缺陷"),
+            None
+        );
+    }
+
+    #[test]
     fn 重复_git_status_无变化时_就地提醒() {
         let mut watch = RedundancyWatch::new(true);
         let dir = std::env::temp_dir().join(format!("kz-red-git-{}", std::process::id()));
@@ -187,6 +268,25 @@ mod tests {
             },
         ];
         watch.note_step(&dir, &calls, &mut results);
+        let messages = vec![
+            kanzei_llm::Message::assistant(
+                calls
+                    .iter()
+                    .map(|(id, name, input, _)| Part::ToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    })
+                    .collect(),
+            ),
+            kanzei_llm::Message::tool_results(results.clone()),
+        ];
+        let metrics = crate::runner::summarize_metrics(&messages);
+        assert_eq!(
+            metrics.redundant_git, 1,
+            "the actual emitted hint must be counted"
+        );
+        assert_eq!(metrics.redundant_total(), 1);
         assert!(!result_content(&results[0]).contains("[冗余提醒]"));
         assert!(
             result_content(&results[1]).contains("[冗余提醒]"),
@@ -340,6 +440,11 @@ mod tests {
             result_content(&results[0]).contains("[冗余提醒] 缺陷 D-001"),
             "{}",
             result_content(&results[0])
+        );
+        assert_eq!(
+            crate::runner::summarize_metrics(&[kanzei_llm::Message::tool_results(results.clone())])
+                .redundant_task,
+            1
         );
         // 路径不在缺陷记录里 → 不提醒。
         let calls2 = vec![(

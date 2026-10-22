@@ -116,7 +116,7 @@ pub(crate) fn parse_tracker_flags(args: &[String], input: &mut serde_json::Value
 }
 
 pub(crate) async fn tracker_cli(args: &[String]) -> anyhow::Result<()> {
-    use kanzei_tools::docstore::{DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
+    use kanzei_memory::docstore::{DECISIONS, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES};
     use kanzei_tools::tracker::TrackerTool;
 
     let tool = match args[0].as_str() {

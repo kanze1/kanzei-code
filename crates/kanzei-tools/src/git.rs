@@ -631,9 +631,8 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
 ///
 /// 与 compile_gate 同理由:测试记录是自报证据,挡不住「没跑却说跑了」。规则层
 /// (conventions §1.4)写「提交前跑 fmt/clippy」已被自举漏掉三次(D-264 复现 +
-/// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。命令与 CI(ci.yml)
-/// 和发版门禁(scripts/verify.ps1)完全同参数,任何一处增删门禁都要同步——
-/// 守护测试 gate_checklists_align_across_git_verify_and_ci 比对三处清单。
+/// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。参数与 verification registry 对齐；
+/// CI 可声明 ci_args 变体，git/verify 参数及 CI 委派关系由 gate_checklists_align_across_git_verify_and_ci 守护。
 async fn fmt_gate(cwd: &Path) -> Result<(), String> {
     if !cwd.join("Cargo.toml").is_file() {
         return Ok(());
@@ -694,14 +693,13 @@ async fn fmt_gate(cwd: &Path) -> Result<(), String> {
 ///
 /// 实测(碰 kanzei-harness/src/lib.rs 后,rust-lld 链接):
 ///   原 `clippy --all-targets` 37.9s  vs  `check --all-targets` 7.2s + `clippy` 5.0s = 12.2s
-/// 省 25.7s。丢掉的只有**测试代码的 lint**,那份覆盖由 CI(ci.yml,目前只手动触发
-/// workflow_dispatch,push 不会自动跑)的 `cargo clippy --workspace --all-targets`
-/// 全量形态兜住。
+/// 省 25.7s。测试代码的 lint 由 CI 的 `cargo clippy --workspace --all-targets`
+/// 全量形态覆盖；PR、合并队列和 main/dev 推送都会触发，也保留手动入口。
 ///
 /// 这是刻意的三处分工——提交门禁(此处)与 verify.ps1 走轻量 lint,CI 走全量——
 /// 由守护测试 gate_checklists_align_across_git_verify_and_ci 显式断言,不是漂移。
-/// 代价明写:测试代码的 lint 违规会本地绿、只在 CI(手动触发)红;没人手动跑 CI 时
-/// 就没人拦,改测试代码须自跑 `cargo clippy -p <crate> --all-targets -- -D warnings`。
+/// 本地轻量 lint 不检查测试代码；改测试代码时仍须自跑
+/// `cargo clippy -p <crate> --all-targets -- -D warnings`，并核对自动 CI。
 ///
 /// 2026-08-11 实例(为什么 lint 仍必须全 workspace,不能退成 `-p <改动 crate>`):
 /// 新增集成测试落在 crates/kanzei/tests/,自举只跑了「改动最多的 crate」的定向测试,
@@ -1016,22 +1014,6 @@ async fn commit_body(
     }
 }
 
-/// D-334:finalize 事务化——把「fmt → 相关测试 → test_record → stage → CAS commit」
-/// 收敛为一次机械调用,Agent 不再手动驾驶 Harness 状态机。
-///
-/// 内部顺序(任一失败立即返回该阶段,不留半状态):
-///   1. `fmt_gate`(提交前代码门禁,D-264):fmt 不过先拦,省得 Agent 先 test 再被拦;
-///   2. `clippy_gate`:与 commit 一致的全仓 clippy 硬门禁;
-///   3. 按暂存源码推导相关 crate,构造定向测试命令(无 crate 改动时退化为
-///      `cargo test --workspace` 由调用方显式指定 —— 见参数说明);
-///   4. 跑测试(超时 10 分钟防挂死),失败返回测试输出;
-///   5. `test_record::record_test_run_with_duration` 记 passed(带 source_fingerprint,
-///      与 staged_source_fingerprint 一致,背书「这份源码测过」);
-///   6. `stage`(显式文件,与既有 stage 同语义);
-///   7. CAS commit(消费 stage 的 staged_hash,与既有 commit 同语义)。
-///
-/// 与手工「test→record→stage→commit」的差异:fmt/clippy 在测试**之前**拦,且全部
-/// 在一个调用内完成——Agent 只发一次 finalize,不手动编排每一步。
 /// 引用名校验:只放行分支/标签的常规形态。拒绝 `-` 开头(选项注入)、区间语法
 /// (`..`)、修订运算符(`~`/`^`/`:`)与空白——merge_ff 只该拿到一个干净的名字。
 fn validate_ref(raw: &str) -> Result<String, String> {
@@ -2256,15 +2238,8 @@ prunable gitdir file points to non-existent location
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// D-264 验收② + R-209:git.rs 提交门禁、发版门禁(verify.ps1)与 CI(ci.yml)
-    /// 的**完整检查项集合**机械同步——任一侧增删一步即红(不再只比对 fmt/clippy 两项)。
-    ///
-    /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
-    /// {fmt, clippy, test, ui_runtime, ui_lint, ipc_event_contract,
-    /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity, ui_diagram,
-    /// metrics_build, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
-    /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
-    /// ui_syntax 已删(P0-2):ESLint 解析错误覆盖 node --check 的全部检查面。
+    /// registry 检查键唯一；verify/CI 委派给同一 runner，git 的核心门禁参数与 registry 对齐。
+    /// CI 的 clippy 可用 all-targets 变体；本测试不声称比较三份完整清单。
     #[test]
     fn gate_checklists_align_across_git_verify_and_ci() {
         // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是

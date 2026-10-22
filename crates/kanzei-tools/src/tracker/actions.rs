@@ -2,8 +2,8 @@
 //! `TrackerTool::execute` 只剩路由。校验方法仍挂在 `TrackerTool`(impl 在
 //! tracker.rs),这里经 `tool` 参数调用;调度语义走 `super::scheduling`。
 
-use crate::docstore::{DocStore, Entry};
 use kanzei_harness::{ToolCtx, ToolOutput};
+use kanzei_memory::docstore::{DocStore, Entry};
 
 use super::scheduling::{deadlock_banner, dependency_states, schedule_entries, structured_entry};
 use super::{TrackerInput, TrackerTool};
@@ -718,7 +718,7 @@ pub(crate) fn update_close(
                 .ok()
                 .filter(|done| *done > 0);
             if let (Some((declared_done, declared_total)), Some(derived_done)) = (
-                crate::docstore::declared_batch_progress(&merged),
+                kanzei_memory::docstore::declared_batch_progress(&merged),
                 derived_done,
             ) {
                 if declared_done != derived_done {
@@ -728,7 +728,7 @@ pub(crate) fn update_close(
                 }
             }
             let (done, total) =
-                crate::docstore::batch_progress_with_derived_done(&merged, derived_done);
+                kanzei_memory::docstore::batch_progress_with_derived_done(&merged, derived_done);
             if total > 1 && done < total {
                 return ToolOutput::needs_correction(
                     "TRACKER_CLOSE_BLOCKED",

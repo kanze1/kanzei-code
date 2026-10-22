@@ -123,7 +123,7 @@ impl MemoryStore {
         format!("{}-{:03}", prefix, max + 1)
     }
 
-    /// 合并重复:并入首个 id(保住最老引用),其余 stale 并留 superseded_by 墓碑链接。
+    /// 合并重复：并入首个 id(保住最老引用)，其余置为 deprecated 并留 superseded_by 墓碑链接。
     pub fn merge(
         &self,
         primary: &str,
@@ -247,10 +247,15 @@ impl MemoryStore {
         Ok(merged)
     }
 
-    /// 完整性检测(D-112 同款哲学):ID 重复、缺号、解析失败的文件都要可见。
+    /// 活动与归档源的完整性检测：ID 重复、缺号、读取失败和缺少 ID 都要可见。
     pub fn integrity_issues(&self) -> Vec<String> {
-        let mut issues = Vec::new();
-        let entries = self.load_all();
+        let scan = self.all_source_entries();
+        let mut issues: Vec<String> = scan
+            .issues
+            .into_iter()
+            .map(|error| format!("{error:#}"))
+            .collect();
+        let entries = scan.entries;
         let mut seen = std::collections::BTreeMap::new();
         for (path, e) in &entries {
             if let Some(previous) = seen.insert(e.id.clone(), path.clone()) {
@@ -269,20 +274,17 @@ impl MemoryStore {
                 .parse::<u32>()
                 .ok()
         };
-        let archived = self.load_archived_ids();
         let voided = self.voided_ids();
         let mut numbers: std::collections::BTreeSet<u32> = entries
             .iter()
             .map(|(_, e)| e.id.as_str())
-            .chain(archived.iter().map(String::as_str))
             .filter_map(parse)
             .collect();
         // D-321:登记在 voided-ids.md 里的编号是"已交代的缺号",不再是账实不符。
         numbers.extend(voided.keys().copied());
         // 登记为 voided 的编号如果又出现了条目(手工改号/恢复),账实不符,必须可见。
         for (number, reason) in &voided {
-            let alive = entries.iter().any(|(_, e)| parse(&e.id) == Some(*number))
-                || archived.iter().any(|id| parse(id) == Some(*number));
+            let alive = entries.iter().any(|(_, e)| parse(&e.id) == Some(*number));
             if alive {
                 issues.push(format!(
                     "{prefix}-{number:03} recorded as voided ({reason}) but an entry exists — \

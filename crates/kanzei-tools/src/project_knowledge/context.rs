@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use std::path::Path;
 
 use super::{KnowledgeLink, KnowledgeMemory, ProjectKnowledge};
-use crate::memory::{parse_entry, query_relevance};
+use kanzei_memory::memory::{parse_entry, query_relevance};
 
 struct Budget {
     text: String,

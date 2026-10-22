@@ -1,6 +1,7 @@
 //! 子代理域(R-155 B7):SubagentRuntime 运行时、task 工具 schema(task_spec)与
 //! run_subagent(独立只读快照 + 空历史,ask 一律 Deny,run_once 递归经 dyn Box 断开)。
 
+use kanzei_base::sync::MutexPoisonExt;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -32,7 +33,7 @@ pub struct TaskCancellationGuard {
 impl TaskCancellations {
     pub fn register(self: &Arc<Self>, id: &str) -> TaskCancellationGuard {
         let token = {
-            let mut tasks = self.inner.lock().unwrap();
+            let mut tasks = self.inner.lock_or_recover();
             let (token, owners) = tasks
                 .entry(id.to_string())
                 .or_insert_with(|| (CancellationToken::new(), 0));
@@ -49,8 +50,7 @@ impl TaskCancellations {
     pub fn cancel(&self, id: &str) -> bool {
         let token = self
             .inner
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get(id)
             .map(|(token, _)| token.clone());
         if let Some(token) = token {
@@ -62,7 +62,7 @@ impl TaskCancellations {
     }
     /// Release this future's claim; dispatch and execution can share one identity.
     fn unregister(&self, id: &str) {
-        let mut tasks = self.inner.lock().unwrap();
+        let mut tasks = self.inner.lock_or_recover();
         if let Some((_, owners)) = tasks.get_mut(id) {
             *owners -= 1;
             if *owners == 0 {
@@ -72,7 +72,7 @@ impl TaskCancellations {
     }
     /// 取消全部在册子代理，返回被取消的 id 列表。
     pub fn cancel_all(&self) -> Vec<String> {
-        let guard = self.inner.lock().unwrap();
+        let guard = self.inner.lock_or_recover();
         let ids: Vec<String> = guard.keys().cloned().collect();
         for (token, _) in guard.values() {
             token.cancel();
@@ -82,7 +82,7 @@ impl TaskCancellations {
 
     /// Cancellation is only a request; registrations remain until their future drops.
     pub fn is_quiescent(&self) -> bool {
-        self.inner.lock().unwrap().is_empty()
+        self.inner.lock_or_recover().is_empty()
     }
 }
 
@@ -181,7 +181,7 @@ impl SubagentChangeLog {
     /// 记录一次写工具调用:owner 首次触碰某文件时快照其当前内容。
     /// `project_root` 用于把相对路径解析成绝对路径;`path` 来自工具入参。
     pub fn record(&self, owner: &str, project_root: &std::path::Path, path: &str) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock_or_recover();
         let owner_map = inner.entry(owner.to_string()).or_default();
         if owner_map.contains_key(path) {
             return; // 已快照过,保持首次内容
@@ -194,8 +194,7 @@ impl SubagentChangeLog {
     /// 该 owner 改过的文件(按首次记录顺序)。空 = 该子代理没碰过写工具。
     pub fn files_of(&self, owner: &str) -> Vec<String> {
         self.inner
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .get(owner)
             .map(|map| map.keys().cloned().collect())
             .unwrap_or_default()
@@ -206,7 +205,7 @@ impl SubagentChangeLog {
     /// 原样保留(验收⑤:单独回滚不误伤)。
     pub fn rollback(&self, owner: &str, project_root: &std::path::Path) -> usize {
         let files: Vec<(String, Vec<u8>)> = {
-            let inner = self.inner.lock().unwrap();
+            let inner = self.inner.lock_or_recover();
             inner
                 .get(owner)
                 .map(|map| map.iter().map(|(p, c)| (p.clone(), c.clone())).collect())
@@ -876,8 +875,7 @@ async fn run_subagent_inner(
         // 全丢,主代理连「它查过什么」都看不到。
         if let Some(store) = rt.transcripts.as_ref() {
             store
-                .lock()
-                .unwrap()
+                .lock_or_recover()
                 .insert(parent_call_id.to_string(), summary.messages.clone());
         }
         // R-279:transcript 事件落库(跨进程/重启可恢复)。payload 含 call_id +
@@ -1009,7 +1007,7 @@ fn resumed_transcript(rt: &SubagentRuntime, id: &str, input: &serde_json::Value)
     if prior.is_empty() {
         rt.transcripts
             .as_ref()
-            .and_then(|store| store.lock().unwrap().get(id).cloned())
+            .and_then(|store| store.lock_or_recover().get(id).cloned())
             .unwrap_or_default()
     } else {
         prior

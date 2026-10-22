@@ -1,7 +1,7 @@
 //! LaTeX 编译工具(R-273):封装 latex 编译通道,输出 PDF + 诊断。
 //!
-//! 双轨:①系统发行版优先(MiKTeX/TeX Live——检测 PATH 里的 kpsewhich,全量宏包
-//! + biber);②缺失回落 Tectonic CLI 侧车(检测 tectonic exe;缺失给下载指引不崩溃)。
+//! 双轨：系统发行版优先(通过 kpsewhich 检测 MiKTeX/TeX Live)，使用 pdflatex/bibtex；
+//! 缺失时回落 Tectonic CLI 侧车，未检测到后端则给出安装指引。
 //!
 //! 编译循环:
 //! - 系统发行:pdflatex ×2 → bibtex → pdflatex ×2(含 bibtex 的完整解析循环);
@@ -30,7 +30,7 @@ impl Tool for LatexTool {
         "Compile a LaTeX file to PDF and return diagnostics. Params: tex (file name in workdir), \
          workdir (the directory containing the .tex — must be a research artifact dir or an \
          explicitly named directory). Uses your installed MiKTeX/TeX Live when present \
-         (full packages + biber), otherwise falls back to the Tectonic sidecar; if neither is \
+         (pdflatex and BibTeX), otherwise falls back to the Tectonic sidecar; if neither is \
          found it reports download guidance instead of crashing. Diagnostics include line numbers \
          for errors so you can fix and recompile in a loop."
             .into()
@@ -184,7 +184,7 @@ pub fn compile_latex(workdir: &Path, tex_name: &str) -> (bool, String) {
 /// 副本漂移(此前测试断言的是副本,生产分支零执行)。
 pub(crate) fn missing_guidance() -> String {
     "未检测到 LaTeX 编译后端。\n\
-     方案一(推荐):安装 MiKTeX 或 TeX Live(全量宏包 + biber),并确保 kpsewhich 在 PATH。\n\
+     方案一(推荐):安装 MiKTeX 或 TeX Live(含 pdflatex/bibtex)，并确保 kpsewhich 在 PATH。\n\
      方案二:Tectonic 侧车——从 https://github.com/tectonic-typesetting/tectonic/releases \
      下载官方 Windows 预编译 exe,放到 PATH 或本工具侧车目录,首次运行会自动预热 bundle。\n\
      侧车缺失不崩溃:本工具如实报告,等待安装后重试。"
@@ -490,10 +490,10 @@ mod tests {
 
     /// 本机若有 MiKTeX/TeX Live:含公式+图+bibtex 的 .tex 应成功出 PDF(验收①系统路径)。
     #[test]
+    #[ignore = "external: 本机无 pdflatex"]
     fn 系统发行版编译含公式图bibtex出pdf() {
         if !which_in_path("pdflatex").is_some() {
-            eprintln!("跳过:本机无 pdflatex");
-            return;
+            panic!("required external test dependency missing: 本机无 pdflatex");
         }
         let dir = temp_dir("system");
         std::fs::write(
@@ -518,10 +518,10 @@ mod tests {
     /// D-394:加 skip guard——本机无 LaTeX 后端时 compile_latex 走 Missing 分支
     /// (指引文案无行号),测试不得假失败。
     #[test]
+    #[ignore = "external: 本机无 LaTeX 后端,无法验证行号诊断"]
     fn 错误诊断含行号() {
         if which_in_path("pdflatex").is_none() && which_in_path("tectonic").is_none() {
-            eprintln!("跳过:本机无 LaTeX 后端,无法验证行号诊断");
-            return;
+            panic!("required external test dependency missing: 本机无 LaTeX 后端,无法验证行号诊断");
         }
         let dir = temp_dir("errors");
         std::fs::write(
@@ -579,10 +579,10 @@ mod tests {
     /// R-273 批2:PDF 首页转 PNG(验收②轨迹——编译产物页面转 PNG 被模型消费)。
     /// 用本机 MiKTeX 的 pdftoppm 实测:编译含公式的 .tex → PDF → PNG 字节可解码为 PNG。
     #[test]
+    #[ignore = "external: 本机无 pdflatex/pdftoppm"]
     fn pdf首页转png被消费() {
         if !which_in_path("pdflatex").is_some() || !which_in_path("pdftoppm").is_some() {
-            eprintln!("跳过:本机无 pdflatex/pdftoppm");
-            return;
+            panic!("required external test dependency missing: 本机无 pdflatex/pdftoppm");
         }
         let dir = temp_dir("png");
         std::fs::write(
@@ -616,10 +616,10 @@ mod tests {
     /// 只渲染首页 -f 1 -l 1,产物恒为 -1.png,不受 ≥10 页零填充影响),
     /// 且临时 PNG 无残留。
     #[test]
+    #[ignore = "external: 本机无 pdflatex/pdftoppm"]
     fn 多页pdf首页转png成功无残留() {
         if !which_in_path("pdflatex").is_some() || !which_in_path("pdftoppm").is_some() {
-            eprintln!("跳过:本机无 pdflatex/pdftoppm");
-            return;
+            panic!("required external test dependency missing: 本机无 pdflatex/pdftoppm");
         }
         let dir = temp_dir("multipage");
         // 10 页文档(论文常态规模;纯英文,避免 pdflatex 默认字体不支持中文)。
@@ -775,10 +775,10 @@ mod tests {
     /// 不再用假 .cmd 脚本替代)。本机无 tectonic 时跳过(测试就位,具备 tectonic
     /// 的环境自动真跑,留记录)。
     #[test]
+    #[ignore = "external: 本机无 tectonic 真 exe;真编译实测由具备 tectonic 的环境执行"]
     fn tectonic真exe真编译() {
         let Some(tectonic) = which_in_path("tectonic") else {
-            eprintln!("跳过:本机无 tectonic 真 exe;真编译实测由具备 tectonic 的环境执行");
-            return;
+            panic!("required external test dependency missing: 本机无 tectonic 真 exe;真编译实测由具备 tectonic 的环境执行");
         };
         let dir = temp_dir("tectonic-real");
         std::fs::write(

@@ -11,7 +11,7 @@ pub(crate) struct TopicMetadata {
 }
 
 pub(crate) fn topic_path(root: &Path, topic: &str) -> Result<PathBuf, String> {
-    kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     let research_root = root.join(".kanzei/research");
     let path = research_root.join(topic);
     let canonical_root = research_root.canonicalize().map_err(|e| e.to_string())?;
@@ -84,7 +84,7 @@ pub(crate) fn create_topic(
     topic: &str,
     title: &str,
 ) -> Result<serde_json::Value, String> {
-    kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     let title = title.trim();
     if title.is_empty() || title.chars().count() > 200 {
         return Err("课题名称应为 1 到 200 个字符".into());

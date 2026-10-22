@@ -158,100 +158,105 @@ fn handoff_uses_only_the_current_source_segment() {
 
 #[test]
 fn handoff_uses_new_typed_discussion_facts_over_stale_legacy_and_respects_reset() {
-    use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant};
+    kanzei_base::test_support::isolated_test(
+        module_path!(),
+        "handoff_uses_new_typed_discussion_facts_over_stale_legacy_and_respects_reset",
+        || {
+            use kanzei_core::{SessionFact, SessionFactEnvelope, SessionInvariant};
 
-    let _gate_guard = crate::conversation_tests::GATE_ENV_LOCK.lock().unwrap();
-    struct RestoreGate(Option<std::ffi::OsString>);
-    impl Drop for RestoreGate {
-        fn drop(&mut self) {
-            match &self.0 {
-                Some(value) => std::env::set_var("KANZEI_PROJECTION_GATES", value),
-                None => std::env::remove_var("KANZEI_PROJECTION_GATES"),
+            struct RestoreGate(Option<std::ffi::OsString>);
+            impl Drop for RestoreGate {
+                fn drop(&mut self) {
+                    match &self.0 {
+                        Some(value) => std::env::set_var("KANZEI_PROJECTION_GATES", value),
+                        None => std::env::remove_var("KANZEI_PROJECTION_GATES"),
+                    }
+                }
             }
-        }
-    }
-    let _restore = RestoreGate(std::env::var_os("KANZEI_PROJECTION_GATES"));
-    std::env::set_var("KANZEI_PROJECTION_GATES", "conversation_get");
-    let f = Fixture::new();
-    f.save(
-        &f.source_session,
-        vec![Message::user_text("STALE_LEGACY_SCOPE：只做网页")],
-    );
-    let store = f.store();
-    kanzei_core::prepare_typed_session(&store, &f.source_session).unwrap();
-    let mut invariant = SessionInvariant::default();
-    let mut write_turn = |run: &str, question: &str, answer: &str| {
-        let assistant = Message::assistant(vec![Part::Text {
-            text: answer.into(),
-        }]);
-        store
-            .append_session_facts_checked(
+            let _restore = RestoreGate(std::env::var_os("KANZEI_PROJECTION_GATES"));
+            std::env::set_var("KANZEI_PROJECTION_GATES", "conversation_get");
+            let f = Fixture::new();
+            f.save(
                 &f.source_session,
-                &mut invariant,
-                &[
-                    SessionFactEnvelope::new(
-                        run,
-                        None,
-                        SessionFact::UserMessageCommitted {
-                            input_id: format!("input-{run}"),
-                            message: Message::user_text(question),
-                        },
-                    ),
-                    SessionFactEnvelope::new(
-                        run,
-                        Some(1),
-                        SessionFact::TurnStarted { max_steps: 1 },
-                    ),
-                    SessionFactEnvelope::new(
-                        run,
-                        Some(1),
-                        SessionFact::AssistantMessageCommitted {
-                            message_id: format!("message-{run}"),
-                            content_hash: kanzei_core::store::stable_message_hash(&assistant),
-                            message: assistant,
-                        },
-                    ),
-                    SessionFactEnvelope::new(run, None, SessionFact::TurnCompleted),
-                ],
-            )
-            .unwrap();
-    };
-    write_turn(
-        "discussion-1",
-        "TYPED_SCOPE_ONE：Windows和Android支持离线收藏",
-        "使用自建数据库同步评分",
+                vec![Message::user_text("STALE_LEGACY_SCOPE：只做网页")],
+            );
+            let store = f.store();
+            kanzei_core::prepare_typed_session(&store, &f.source_session).unwrap();
+            let mut invariant = SessionInvariant::default();
+            let mut write_turn = |run: &str, question: &str, answer: &str| {
+                let assistant = Message::assistant(vec![Part::Text {
+                    text: answer.into(),
+                }]);
+                store
+                    .append_session_facts_checked(
+                        &f.source_session,
+                        &mut invariant,
+                        &[
+                            SessionFactEnvelope::new(
+                                run,
+                                None,
+                                SessionFact::UserMessageCommitted {
+                                    input_id: format!("input-{run}"),
+                                    message: Message::user_text(question),
+                                },
+                            ),
+                            SessionFactEnvelope::new(
+                                run,
+                                Some(1),
+                                SessionFact::TurnStarted { max_steps: 1 },
+                            ),
+                            SessionFactEnvelope::new(
+                                run,
+                                Some(1),
+                                SessionFact::AssistantMessageCommitted {
+                                    message_id: format!("message-{run}"),
+                                    content_hash: kanzei_core::stable_message_hash(&assistant),
+                                    message: assistant,
+                                },
+                            ),
+                            SessionFactEnvelope::new(run, None, SessionFact::TurnCompleted),
+                        ],
+                    )
+                    .unwrap();
+            };
+            write_turn(
+                "discussion-1",
+                "TYPED_SCOPE_ONE：Windows和Android支持离线收藏",
+                "使用自建数据库同步评分",
+            );
+            write_turn(
+                "discussion-2",
+                "TYPED_SCOPE_TWO：邀请注册，不公开个人评分",
+                "先实现收藏与评分闭环",
+            );
+            let legacy =
+                crate::conversation::recover_messages_raw(&store, &f.source_session, None).unwrap();
+            assert_eq!(legacy.len(), 1, "typed新讨论没有回写旧legacy快照");
+            assert!(!readable_transcript(&legacy).contains("TYPED_SCOPE_ONE"));
+            let prompt = f.snapshot().unwrap();
+            assert!(prompt.contains("TYPED_SCOPE_ONE：Windows和Android支持离线收藏"));
+            assert!(prompt.contains("TYPED_SCOPE_TWO：邀请注册，不公开个人评分"));
+            assert!(prompt.contains("[助手]\n使用自建数据库同步评分"));
+            store
+                .append_event(
+                    &f.source_session,
+                    "conversation.reset",
+                    &json!({"cleared":true}),
+                )
+                .unwrap();
+            assert!(f.snapshot().unwrap_err().contains("没有可交接的上下文"));
+            write_turn(
+                "discussion-3",
+                "TYPED_CURRENT_SCOPE：当前段只整理轻小说",
+                "当前讨论已确认",
+            );
+            let after_reset = f.snapshot().unwrap();
+            assert!(after_reset.contains("TYPED_CURRENT_SCOPE：当前段只整理轻小说"));
+            for old in ["STALE_LEGACY_SCOPE", "TYPED_SCOPE_ONE", "TYPED_SCOPE_TWO"] {
+                assert!(!after_reset.contains(old), "不能混入reset之前的历史：{old}");
+            }
+        },
     );
-    write_turn(
-        "discussion-2",
-        "TYPED_SCOPE_TWO：邀请注册，不公开个人评分",
-        "先实现收藏与评分闭环",
-    );
-    let legacy =
-        crate::conversation::recover_messages_raw(&store, &f.source_session, None).unwrap();
-    assert_eq!(legacy.len(), 1, "typed新讨论没有回写旧legacy快照");
-    assert!(!readable_transcript(&legacy).contains("TYPED_SCOPE_ONE"));
-    let prompt = f.snapshot().unwrap();
-    assert!(prompt.contains("TYPED_SCOPE_ONE：Windows和Android支持离线收藏"));
-    assert!(prompt.contains("TYPED_SCOPE_TWO：邀请注册，不公开个人评分"));
-    assert!(prompt.contains("[助手]\n使用自建数据库同步评分"));
-    store
-        .append_event(
-            &f.source_session,
-            "conversation.reset",
-            &json!({"cleared":true}),
-        )
-        .unwrap();
-    assert!(f.snapshot().unwrap_err().contains("没有可交接的上下文"));
-    write_turn(
-        "discussion-3",
-        "TYPED_CURRENT_SCOPE：当前段只整理轻小说",
-        "当前讨论已确认",
-    );
-    let after_reset = f.snapshot().unwrap();
-    assert!(after_reset.contains("TYPED_CURRENT_SCOPE：当前段只整理轻小说"));
-    for old in ["STALE_LEGACY_SCOPE", "TYPED_SCOPE_ONE", "TYPED_SCOPE_TWO"] {
-        assert!(!after_reset.contains(old), "不能混入reset之前的历史：{old}");
-    }
 }
 
 #[test]

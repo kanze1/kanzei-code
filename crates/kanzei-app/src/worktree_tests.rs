@@ -283,17 +283,17 @@ async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-bind");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    let requirement = kanzei_tools::docstore::Entry {
+    let requirement = kanzei_memory::docstore::Entry {
         id: "R-247".into(),
         title: "开线绑定".into(),
         status: "todo".into(),
         severity: None,
         fields: vec![("优先级".into(), "P1".into())],
     };
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
         .save(&[requirement])
         .unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::DEFECTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
         .save(&[])
         .unwrap();
 
@@ -311,7 +311,7 @@ async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
         "绑定动作不得放开线路通用 tracker 写权限"
     );
     let entries =
-        kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
             .load()
             .unwrap();
     assert_eq!(entries[0].status, "doing");
@@ -334,7 +334,7 @@ async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
     let closed = close_process(&state, &process).await.unwrap();
     assert!(closed.contains("已释放需求绑定 R-247"), "{closed}");
     let released =
-        kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
             .load()
             .unwrap();
     assert_eq!(released[0].status, "todo");
@@ -352,10 +352,10 @@ async fn r247_条目claim失败时建线整体回滚() {
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-bind-rollback");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
         .save(&[])
         .unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::DEFECTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
         .save(&[])
         .unwrap();
     let state = AppState::default();
@@ -392,8 +392,8 @@ async fn r247_收活合并后立即释放取得线且保留线路供合并后门
     let canonical = crate::normalized_project_root(&root);
     let name = unique("r247-merge");
     let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
-        .save(&[kanzei_tools::docstore::Entry {
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
+        .save(&[kanzei_memory::docstore::Entry {
             id: "R-248".into(),
             title: "合并释放".into(),
             status: "todo".into(),
@@ -401,7 +401,7 @@ async fn r247_收活合并后立即释放取得线且保留线路供合并后门
             fields: vec![("优先级".into(), "P1".into())],
         }])
         .unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::DEFECTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
         .save(&[])
         .unwrap();
     let state = AppState::default();
@@ -426,7 +426,7 @@ async fn r247_收活合并后立即释放取得线且保留线路供合并后门
         "合并后仍要保留线路，供合并后全量门禁和回写继续使用"
     );
     let entries =
-        kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
             .load()
             .unwrap();
     assert_eq!(entries[0].status, "todo");
@@ -887,7 +887,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     let canonical = crate::normalized_project_root(&root);
     std::fs::create_dir_all(canonical.join(".kanzei/project")).unwrap();
     std::fs::write(canonical.join(".kanzei/kanzei.toml"), "profile = \"dev\"\n").unwrap();
-    kanzei_tools::docstore::DocStore::open(&canonical, &kanzei_tools::docstore::REQUIREMENTS)
+    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
         .save(&[])
         .unwrap();
     git(&canonical, &["add", ".kanzei"]);
@@ -923,7 +923,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     let tracker = kanzei_tools::tracker::TrackerTool {
         tool_name: "req",
         noun: "requirement",
-        kind: &kanzei_tools::docstore::REQUIREMENTS,
+        kind: &kanzei_memory::docstore::REQUIREMENTS,
         requires_refs: None,
     };
     let tracker_out = tracker
@@ -941,7 +941,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
         )
         .await;
     assert!(!tracker_out.is_error, "{}", tracker_out.content);
-    let memory_out = kanzei_tools::memory::MemoryNoteTool
+    let memory_out = kanzei_memory::memory::MemoryNoteTool
         .execute(
             serde_json::json!({
                 "summary": format!("F13 main-root memory {}", unique("note")),
@@ -986,7 +986,7 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
             .unwrap()
             .contains("F13 main-root tracker")
     );
-    assert!(kanzei_tools::memory::project_memory_root(&canonical)
+    assert!(kanzei_memory::memory::project_memory_root(&canonical)
         .join("inbox.md")
         .is_file());
     assert!(kanzei_core::project_state_path(&canonical).is_file());

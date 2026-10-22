@@ -9,7 +9,7 @@ use kanzei_harness::Tool as _;
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
 use kanzei_llm::LlmClient;
 use kanzei_llm::ProxyConfig;
-use kanzei_tools::docstore::{DocStore, DEFECTS, IDEAS, REQUIREMENTS};
+use kanzei_memory::docstore::{DocStore, DEFECTS, IDEAS, REQUIREMENTS};
 
 #[cfg(test)]
 const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
@@ -350,7 +350,7 @@ pub(crate) async fn idea_split_with_coordinator(
         ..Default::default()
     };
     // before/after 差集:requirements + defects 两条线都要看,取真实新增 ID。
-    let before_ids = |kind: &'static kanzei_tools::docstore::DocKind| -> Result<std::collections::HashSet<String>, String> {
+    let before_ids = |kind: &'static kanzei_memory::docstore::DocKind| -> Result<std::collections::HashSet<String>, String> {
         Ok(DocStore::open(&project_root, kind)
             .load()
             .map_err(|e| e.to_string())?
@@ -500,7 +500,7 @@ mod tests {
             );
         }
         // 词表与引擎侧校验真源一致:Req/Defect 的 DocKind.tags 就是这份词表。
-        use kanzei_tools::docstore::{DEFECTS, REQUIREMENTS};
+        use kanzei_memory::docstore::{DEFECTS, REQUIREMENTS};
         let expected: Vec<&str> = QUICK_CAPTURE_TAGS.split('|').collect();
         assert_eq!(REQUIREMENTS.tags.unwrap().to_vec(), expected);
         assert_eq!(DEFECTS.tags.unwrap().to_vec(), expected);
@@ -712,7 +712,7 @@ mod tests {
 
         // 想法已转 split 且 refs 是真实 R/D(硬门禁放行即证明条目真实存在)。
         let ideas =
-            kanzei_tools::docstore::DocStore::open(&project, &kanzei_tools::docstore::IDEAS)
+            kanzei_memory::docstore::DocStore::open(&project, &kanzei_memory::docstore::IDEAS)
                 .load()
                 .unwrap();
         let idea = ideas.iter().find(|e| e.id == "I-001").unwrap();
@@ -721,13 +721,15 @@ mod tests {
         assert!(refs.contains(&"R-001".to_string()), "{refs:?}");
         assert!(refs.contains(&"D-001".to_string()), "{refs:?}");
         // requirements/defects 真的落了条目。
-        let reqs =
-            kanzei_tools::docstore::DocStore::open(&project, &kanzei_tools::docstore::REQUIREMENTS)
-                .load()
-                .unwrap();
+        let reqs = kanzei_memory::docstore::DocStore::open(
+            &project,
+            &kanzei_memory::docstore::REQUIREMENTS,
+        )
+        .load()
+        .unwrap();
         assert_eq!(reqs.len(), 1, "拆解必须真实新增需求条目");
         let defects =
-            kanzei_tools::docstore::DocStore::open(&project, &kanzei_tools::docstore::DEFECTS)
+            kanzei_memory::docstore::DocStore::open(&project, &kanzei_memory::docstore::DEFECTS)
                 .load()
                 .unwrap();
         assert_eq!(defects.len(), 1, "拆解必须真实新增缺陷条目");

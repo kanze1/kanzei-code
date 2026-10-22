@@ -10,11 +10,12 @@ use rusqlite::{params, Connection};
 use super::admission::topic_overlap;
 use super::lifecycle::MemoryLifecycle;
 pub(crate) use super::retrieval::{intent_query, segment_cjk};
-use super::{date_days, parse_entry, render_entry, today, MemoryEntry, MemoryScope, STATUSES};
+use super::{date_days, render_entry, today, MemoryEntry, MemoryScope, STATUSES};
 
 // 归档读取、归档搬移与记忆图谱的 `area:` 字段(拆出以控制本文件体量,见 docs/design/metrics_baseline.md 回涨闸)。
 mod archive;
 mod creation;
+mod source;
 
 pub use creation::ReviewCandidateDraft;
 
@@ -75,7 +76,7 @@ pub enum AddOutcome {
     Added(MemoryEntry),
     /// 精确标题重复:拒绝写入并返回既有条目(要求转 update 或 force)。
     Duplicate(MemoryEntry),
-    /// 状态不变量(R-149):同 scope+category+subject 至多一条 active。
+    /// 同 scope+category+subject 至多一条 active/candidate，冲突由准入侧判定。
     /// 冲突返回既有条目,force 不可绕——状态就地覆盖(memory_update),绝不并存。
     SubjectConflict(MemoryEntry),
     /// R-216:语义探测不确定(有 FTS 命中但非精确)——拒绝写入并返回候选条目,
@@ -125,10 +126,7 @@ impl Novelty {
     }
 }
 
-/// 决策权重(R-149):召回≥3 的条目按采纳率温和降权/提权(×0.6~×1.3)。
-/// 下限 0.6 不清零:prompt_hints 只注入索引行,「看行即用不拉正文」会被记为未采纳,
-/// 样本天然有偏——只降权不淘汰,淘汰决定留给人与整理流程。参数为初始值,待实证复核。
-/// D-366:排序决策属于检索门面,定义在 index.rs(此处不再使用)。
+/// 单个 scope 的记忆源条目与派生索引仓库。检索排序由 SqliteMemoryIndex 负责。
 pub struct MemoryStore {
     pub scope: MemoryScope,
     pub root: PathBuf,
@@ -216,31 +214,10 @@ impl MemoryStore {
         self.root.join("index.db")
     }
 
-    /// 扫描根目录(不含 archive/)加载全部条目。宽容:解析不了的文件跳过并计入 integrity。
+    /// 扫描根目录(不含 archive/)加载有效条目。被跳过的读取/格式问题由
+    /// `integrity_issues` 重新扫描报告；需要完整快照的调用方使用 `load_all_checked`。
     pub fn load_all(&self) -> Vec<(PathBuf, MemoryEntry)> {
-        let mut out = Vec::new();
-        let Ok(dir) = std::fs::read_dir(&self.root) else {
-            return out;
-        };
-        for item in dir.flatten() {
-            let path = item.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            if path.file_name().and_then(|n| n.to_str()) == Some("INDEX.md")
-                || path.file_name().and_then(|n| n.to_str()) == Some("inbox.md")
-            {
-                continue;
-            }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                let entry = parse_entry(&text);
-                if !entry.id.is_empty() {
-                    out.push((path, entry));
-                }
-            }
-        }
-        out.sort_by(|a, b| a.1.id.cmp(&b.1.id));
-        out
+        source::scan(&self.root).entries
     }
 
     /// 演化:改内容/钩子/状态;created 与 extras 保留,updated 刷新。
@@ -900,7 +877,7 @@ impl MemoryStore {
     }
 
     pub(super) fn index_source_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
-        Self::source_entries_in(&self.root)
+        source::scan(&self.root).into_checked()
     }
 
     /// Strict source read for context assembly; an inaccessible memory is not an empty memory.
@@ -912,31 +889,13 @@ impl MemoryStore {
 
     /// 迁移恢复必须包含归档,并传播读取错误,不能把读失败当成“目标还没有”。
     pub(super) fn migration_entries(&self) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
-        let mut entries = Self::source_entries_in(&self.root)?;
-        entries.extend(Self::source_entries_in(&self.archive_dir())?);
-        Ok(entries)
+        self.all_source_entries().into_checked()
     }
 
-    fn source_entries_in(root: &Path) -> anyhow::Result<Vec<(PathBuf, MemoryEntry)>> {
-        let mut entries = Vec::new();
-        let directory = match std::fs::read_dir(root) {
-            Ok(directory) => directory,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(entries),
-            Err(error) => return Err(error.into()),
-        };
-        for item in directory {
-            let item = item?;
-            let path = item.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("md") {
-                continue;
-            }
-            let text = std::fs::read_to_string(&path)?;
-            let entry = parse_entry(&text);
-            if !entry.id.is_empty() {
-                entries.push((path, entry));
-            }
-        }
-        Ok(entries)
+    pub(super) fn all_source_entries(&self) -> source::SourceScan {
+        let mut scan = source::scan(&self.root);
+        scan.extend(source::scan(&self.archive_dir()));
+        scan
     }
 
     fn sync_fts(&self, entries: &[(PathBuf, MemoryEntry)]) -> anyhow::Result<bool> {
@@ -2244,6 +2203,64 @@ mod tests {
             "shadow"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn integrity_reports_each_unreadable_or_idless_source() {
+        let dir = kanzei_base::test_support::TestDir::new("kz-memory-source-audit-");
+        let store = MemoryStore::open(MemoryScope::Project, dir.to_path_buf());
+        std::fs::write(
+            dir.join("M-001-idless.md"),
+            "---\ntitle: missing ID\n---\nbody",
+        )
+        .unwrap();
+        std::fs::write(dir.join("M-002-unreadable.md"), [0xff, 0xfe]).unwrap();
+        std::fs::create_dir(dir.join("archive")).unwrap();
+        std::fs::write(dir.join("archive/M-003-broken.md"), "no frontmatter").unwrap();
+        for name in ["INDEX.md", "inbox.md", "voided-ids.md"] {
+            std::fs::write(dir.join(name), "metadata without an entry ID").unwrap();
+        }
+        let issues = store.integrity_issues();
+        assert!(
+            issues.iter().any(|issue| issue.contains("M-001-idless.md")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("M-002-unreadable.md")),
+            "{issues:?}"
+        );
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.contains("archive") && issue.contains("M-003-broken.md")),
+            "{issues:?}"
+        );
+        assert_eq!(issues.len(), 3, "managed metadata is not a memory entry");
+        assert!(
+            store.load_all().is_empty(),
+            "tolerant reads retain valid entries only"
+        );
+        assert!(
+            store.load_all_checked().is_err(),
+            "strict reads must reject an incomplete source"
+        );
+    }
+
+    #[test]
+    fn missing_source_is_empty_but_invalid_directory_is_diagnosed() {
+        let dir = kanzei_base::test_support::TestDir::new("kz-memory-directory-audit-");
+        let path = dir.join("memory");
+        let store = MemoryStore::open(MemoryScope::Project, path.clone());
+        assert!(store.load_all_checked().unwrap().is_empty());
+        assert!(store.integrity_issues().is_empty());
+        std::fs::write(&path, "not a directory").unwrap();
+        assert!(store.load_all_checked().is_err());
+        assert!(store
+            .integrity_issues()
+            .iter()
+            .any(|issue| issue.contains("read memory directory")));
     }
 
     #[test]

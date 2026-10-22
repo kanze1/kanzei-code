@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::ui_probe;
 use kanzei_harness::{ResolveCtx, ToolCtx};
-use kanzei_tools::docstore::{DEFECTS, IDEAS, REQUIREMENTS};
+use kanzei_memory::docstore::{DEFECTS, IDEAS, REQUIREMENTS};
 
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct UiProbeInput {
@@ -526,17 +526,17 @@ impl kanzei_harness::Component for IdeaSplitComponent {
             (
                 "req",
                 "requirement",
-                &REQUIREMENTS as &'static kanzei_tools::docstore::DocKind,
+                &REQUIREMENTS as &'static kanzei_memory::docstore::DocKind,
             ),
             (
                 "defect",
                 "defect",
-                &DEFECTS as &'static kanzei_tools::docstore::DocKind,
+                &DEFECTS as &'static kanzei_memory::docstore::DocKind,
             ),
             (
                 "idea",
                 "idea",
-                &IDEAS as &'static kanzei_tools::docstore::DocKind,
+                &IDEAS as &'static kanzei_memory::docstore::DocKind,
             ),
         ] {
             let tool = kanzei_tools::tracker::TrackerTool {
@@ -596,7 +596,7 @@ mod browser_registration_tests {
         let desktop = crate::run::assembly::build_run_harness(ProfileKind::Dev, false, None);
         assert_eq!(browser_count(desktop), 1, "同名覆盖,不重复");
 
-        let cli = kanzei_tools::run::build_harness(ProfileKind::Dev, |_| {}, |_| {});
+        let cli = kanzei_runtime::build_harness(ProfileKind::Dev, |_| {}, |_| {});
         assert_eq!(browser_count(cli), 1, "CLI 仍有无头 browser");
 
         // 权限分级对桌面版同样生效(规则挂在 BaseComponent,按 action 名匹配)。
