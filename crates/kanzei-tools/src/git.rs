@@ -632,7 +632,7 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
 /// 与 compile_gate 同理由:测试记录是自报证据,挡不住「没跑却说跑了」。规则层
 /// (conventions §1.4)写「提交前跑 fmt/clippy」已被自举漏掉三次(D-264 复现 +
 /// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。参数与 verification registry 对齐；
-/// CI 可声明 ci_args 变体，git/verify 参数及 CI 委派关系由 gate_checklists_align_across_git_verify_and_ci 守护。
+/// git 与本机 verify 的参数及清单关系由 gate_checklists_align_across_git_and_local_verify 守护。
 async fn fmt_gate(cwd: &Path) -> Result<(), String> {
     if !cwd.join("Cargo.toml").is_file() {
         return Ok(());
@@ -693,13 +693,10 @@ async fn fmt_gate(cwd: &Path) -> Result<(), String> {
 ///
 /// 实测(碰 kanzei-harness/src/lib.rs 后,rust-lld 链接):
 ///   原 `clippy --all-targets` 37.9s  vs  `check --all-targets` 7.2s + `clippy` 5.0s = 12.2s
-/// 省 25.7s。测试代码的 lint 由 CI 的 `cargo clippy --workspace --all-targets`
-/// 全量形态覆盖；PR、合并队列和 main/dev 推送都会触发，也保留手动入口。
-///
-/// 这是刻意的三处分工——提交门禁(此处)与 verify.ps1 走轻量 lint,CI 走全量——
-/// 由守护测试 gate_checklists_align_across_git_verify_and_ci 显式断言,不是漂移。
+/// 省 25.7s。提交门禁(此处)与 verify.ps1 走轻量 lint，其参数由
+/// gate_checklists_align_across_git_and_local_verify 守护。
 /// 本地轻量 lint 不检查测试代码；改测试代码时仍须自跑
-/// `cargo clippy -p <crate> --all-targets -- -D warnings`，并核对自动 CI。
+/// `cargo clippy -p <crate> --all-targets -- -D warnings`。
 ///
 /// 2026-08-11 实例(为什么 lint 仍必须全 workspace,不能退成 `-p <改动 crate>`):
 /// 新增集成测试落在 crates/kanzei/tests/,自举只跑了「改动最多的 crate」的定向测试,
@@ -2238,10 +2235,9 @@ prunable gitdir file points to non-existent location
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// registry 检查键唯一；verify/CI 委派给同一 runner，git 的核心门禁参数与 registry 对齐。
-    /// CI 的 clippy 可用 all-targets 变体；本测试不声称比较三份完整清单。
+    /// registry 检查键唯一；本机 verify 委派给 runner，git 的核心门禁参数与 registry 对齐。
     #[test]
-    fn gate_checklists_align_across_git_verify_and_ci() {
+    fn gate_checklists_align_across_git_and_local_verify() {
         // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是
         // crates/kanzei-tools,上溯两级即仓库根。
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2249,7 +2245,6 @@ prunable gitdir file points to non-existent location
             .unwrap()
             .parent()
             .unwrap();
-        let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).unwrap();
         let verify = std::fs::read_to_string(repo_root.join("scripts/verify.ps1")).unwrap();
 
         let registry: serde_json::Value = serde_json::from_str(
@@ -2263,10 +2258,7 @@ prunable gitdir file points to non-existent location
         assert!(verify.contains("verify-policy.mjs classify"));
         assert!(verify.contains("node scripts/verify-runner.mjs"));
         let runner = std::fs::read_to_string(repo_root.join("scripts/verify-runner.mjs")).unwrap();
-        assert!(runner.contains("check.ci_args ?? check.args"));
         assert!(runner.contains("child.stderr.on(\"data\", write)"));
-        assert!(ci.contains("verify.ps1 -Full -Ci"));
-        assert!(ci.contains("npm ci"));
         let this = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/git.rs"),
         )
@@ -2282,17 +2274,6 @@ prunable gitdir file points to non-existent location
             clippy["args"],
             serde_json::json!(["clippy", "--workspace", "--", "-D", "warnings"])
         );
-        assert_eq!(
-            clippy["ci_args"],
-            serde_json::json!([
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--",
-                "-D",
-                "warnings"
-            ])
-        );
 
         // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:
         //    旧文案把提交门禁写成 all-targets clippy,弱模型据此误判「提交成功=测试代码
@@ -2303,7 +2284,7 @@ prunable gitdir file points to non-existent location
             "规范 §1.4 必须写出提交门禁的真实 clippy 命令(不含测试目标)"
         );
         assert!(
-            conventions.contains("gate_checklists_align_across_git_verify_and_ci"),
+            conventions.contains("gate_checklists_align_across_git_and_local_verify"),
             "规范 §1.4 引用的守护测试名必须是真实存在的本测试"
         );
         let commit_gate_line = conventions
@@ -2314,102 +2295,20 @@ prunable gitdir file points to non-existent location
             !commit_gate_line.contains("clippy --workspace --all-targets"),
             "规范不得再宣称提交门禁跑 --all-targets clippy: {commit_gate_line}"
         );
-        //    「clippy 四处分工」条款里描述提交门禁的那一子句(到第一个 `;` 为止)同样不得
+        //    「clippy 本机分工」条款里描述提交门禁的那一子句(到第一个 `;` 为止)同样不得
         //    回退成 all-targets。
         let division_line = conventions
             .lines()
-            .find(|line| line.contains("clippy 四处分工"))
-            .expect("规范 §1.4 缺 clippy 四处分工条款");
+            .find(|line| line.contains("clippy 本机分工"))
+            .expect("规范 §1.4 缺 clippy 本机分工条款");
         let commit_clause = division_line
             .split_once("提交门禁与")
             .map(|(_, rest)| rest.split(';').next().unwrap_or(rest))
-            .expect("clippy 四处分工条款须描述提交门禁");
+            .expect("clippy 本机分工条款须描述提交门禁");
         assert!(
             !commit_clause.contains("--all-targets"),
             "分工条款不得宣称提交门禁跑 --all-targets clippy: {commit_clause}"
         );
-
-        //    CI 触发方式双向对齐:ci.yml 带 push 触发时,规范不得写「只手动触发」;
-        //    不带时,规范不得写「每次 push」兜底。块式与流式写法都要认得出来。
-        fn ci_triggers_on_push(ci: &str) -> bool {
-            fn is_push(token: &str) -> bool {
-                token.trim().trim_matches(['"', '\'']) == "push"
-            }
-            let mut lines = ci.lines();
-            while let Some(line) = lines.next() {
-                // 顶层 `on:`(也认带引号的 "on":,YAML 1.1 里裸 on 会被当布尔,有人会加引号)。
-                let Some(rest) = ["on:", "\"on\":", "'on':"]
-                    .iter()
-                    .find_map(|key| line.strip_prefix(key))
-                else {
-                    continue;
-                };
-                let rest = rest.split('#').next().unwrap_or_default().trim();
-                if !rest.is_empty() {
-                    // 流式:`on: push` / `on: [push, pull_request]` / `on: {push: {…}}`。
-                    return rest
-                        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                        .any(|word| word == "push");
-                }
-                // 块式:只看 `on:` 的直接子层(以第一条子行的缩进为准),
-                // 更深层同名键(如 workflow_dispatch 的 inputs.push)不算触发。
-                let mut child_indent = None;
-                for child in lines.by_ref() {
-                    let body = child.trim_start();
-                    if body.is_empty() || body.starts_with('#') {
-                        continue;
-                    }
-                    let indent = child.len() - body.len();
-                    if indent == 0 {
-                        break;
-                    }
-                    if *child_indent.get_or_insert(indent) != indent {
-                        continue;
-                    }
-                    let key = body.strip_prefix("- ").unwrap_or(body);
-                    let key = key.split('#').next().unwrap_or_default();
-                    if is_push(key.split(':').next().unwrap_or_default()) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            false
-        }
-        for (sample, expected) in [
-            ("on:\n  workflow_dispatch:\n", false),
-            ("on:\n  push:\n    branches: [main]\n", true),
-            ("on:\n  workflow_dispatch:\n  push:\n", true),
-            ("on:\n  - pull_request\n  - push\n", true),
-            ("on: push\n", true),
-            ("on: [pull_request, push]\n", true),
-            ("on: { push: { branches: [main] } }\n", true),
-            ("\"on\": [push]\n", true),
-            ("on: workflow_dispatch\n", false),
-            (
-                "on:\n  workflow_dispatch:\n    inputs:\n      push:\n        type: boolean\n",
-                false,
-            ),
-        ] {
-            assert_eq!(
-                ci_triggers_on_push(sample),
-                expected,
-                "push 触发识别有误: {sample:?}"
-            );
-        }
-        if ci_triggers_on_push(&ci) {
-            for claim in ["只手动触发", "不随 push", "push 不会自动跑"] {
-                assert!(
-                    !conventions.contains(claim),
-                    "ci.yml 已随 push 触发,规范不得再写「{claim}」"
-                );
-            }
-        } else {
-            assert!(
-                !conventions.contains("每次 push"),
-                "ci.yml 不随 push 触发,规范不得宣称 CI 对每次 push 兜底"
-            );
-        }
     }
 
     #[test]
