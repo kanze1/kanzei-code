@@ -13,6 +13,7 @@
 - External prerequisites belong in explicitly ignored tests with a reason. Running
   those tests explicitly must fail when a prerequisite is missing.
 - Reproduce the original failure, exercise the relevant tests and verify the invariant.
+- Verification and release gates run locally. Do not add, enable or run GitHub Actions CI.
   Run `scripts/verify.ps1` for the affected checks and `scripts/verify.ps1 -Full` on
   the final clean commit before release. Passing, ignored and unexecuted are distinct.
 - Never rewrite published history, delete historical refs or reset a shared branch

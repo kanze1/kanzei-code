@@ -35,10 +35,8 @@ export function checkRepository(root) {
   const packages = metadata.packages.filter(crate => metadata.workspace_members.includes(crate.id));
   const sources = new Map(packages.map(crate => [crate.name, readSources(path.join(path.dirname(crate.manifest_path), "src"))]));
   validateArchitecture(packages, sources);
-  const workflow = fs.readFileSync(path.join(root, ".github/workflows/ci.yml"), "utf8");
-  for (const trigger of ["push", "pull_request", "merge_group"]) assert(new RegExp(`^  ${trigger}:`, "m").test(workflow), `CI must run on ${trigger}`);
   for (const filename of ["AGENTS.md", "CONTRIBUTING.md"]) assert(fs.existsSync(path.join(root, filename)), `${filename} is required`);
-  console.log(`Architecture boundaries passed for ${packages.length} workspace crates; automatic CI triggers present.`);
+  console.log(`Architecture boundaries passed for ${packages.length} workspace crates.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) checkRepository(path.resolve(import.meta.dirname, ".."));

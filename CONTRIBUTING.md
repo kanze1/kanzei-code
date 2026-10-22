@@ -11,10 +11,9 @@ browser compatibility tests.
 
 Run `scripts/verify.ps1` during development. Its registry selects affected checks and
 records each result. Run `scripts/verify.ps1 -Full` from the final clean commit before
-packaging; release evidence must match that commit. CI runs the same full registry
-for pull requests, merges, and pushes to `main` and `dev`. Local validation cannot
-substitute for a required remote check. Branch protection is a hosting setting;
-the repository workflow alone cannot require review or prohibit force pushes.
+packaging; release evidence must match that commit. Verification and release gates
+run locally. GitHub Actions CI is disabled by the owner's instruction; do not add
+workflows or enable remote CI for pull requests, merges or branch pushes.
 
 Register one gate per independently scheduled test scope. Related small cases belong
 under scripts/tests/ and share the domain entry's fixture lifecycle. Keep assertion
