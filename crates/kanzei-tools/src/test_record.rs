@@ -822,14 +822,11 @@ pub fn repair_reused_archived_id(root: &Path, old_id: &str) -> Result<String, St
     Ok(report)
 }
 
-/// 从字符串里提取 `R-xxx` / `D-xxx` 条目号(去重保序)。
+/// 提取完整条目/工作节点身份；不能将 W10 或子节点截成 W1 或根条目。
 fn extract_entry_ids(text: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
-    for tok in text.split_whitespace() {
-        let tok = tok.trim_matches(|c: char| {
-            !(c.is_ascii_alphanumeric() || c == '-' || c == '#' || c == ':')
-        });
+    for tok in text.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '/' | '_'))) {
         if is_entry_id(tok) && seen.insert(tok.to_string()) {
             out.push(tok.to_string());
         }
@@ -837,11 +834,21 @@ fn extract_entry_ids(text: &str) -> Vec<String> {
     out
 }
 
-/// 是否形如 `R-153` / `D-201`(条目号,字母 + 至少 2 位数字)。
+/// 既有 R-/D- 条目号及其 R-xxx/Wn 工作节点。
 fn is_entry_id(part: &str) -> bool {
-    (part.starts_with("R-") || part.starts_with("D-"))
-        && part.len() > 3
-        && part[2..].chars().all(|c| c.is_ascii_digit())
+    let (entry, unit) = part
+        .split_once('/')
+        .map_or((part, None), |(entry, unit)| (entry, Some(unit)));
+    let entry_valid = (entry.starts_with("R-") || entry.starts_with("D-"))
+        && entry.len() > 3
+        && entry[2..].chars().all(|c| c.is_ascii_digit());
+    entry_valid
+        && unit.is_none_or(|unit| {
+            entry.starts_with("R-")
+                && unit.strip_prefix('W').is_some_and(|number| {
+                    !number.is_empty() && number.chars().all(|c| c.is_ascii_digit())
+                })
+        })
 }
 
 /// 快照渲染成工具可读文本。
@@ -1271,6 +1278,63 @@ mod tests {
         assert_eq!(by_refs.len(), 1, "refs 字段应命中 D-999:{by_refs:#?}");
         assert_eq!(by_refs[0]["id"], json!("T-2"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn node_evidence_preserves_exact_structured_identity() {
+        let root = kanzei_base::test_support::TestDir::new("node-test-refs-");
+        let record = append_test_run(
+            &root,
+            "node verification",
+            "passed",
+            Some("cargo test"),
+            None,
+            Some(&["R-001/W1".into()]),
+        )
+        .unwrap();
+        let matches = records_for_entry(&root, "R-001/W1");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["id"], record["recorded_id"]);
+        assert!(records_for_entry(&root, "R-001").is_empty());
+        assert!(crate::work::evidence::validate_reference(
+            &root,
+            "R-001/W1",
+            record["recorded_id"].as_str().unwrap()
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn node_evidence_does_not_match_prefixes_or_override_structured_refs() {
+        let root = kanzei_base::test_support::TestDir::new("node-test-ownership-");
+        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::write(root.join(TEST_RUNS_REL),
+            "# Test Runs\n\n## T-1 验证 R-001/W10 [passed]\n- 命令: test\n\n## T-2 对比 R-001/W1 [passed]\n- 关联: R-001/W2\n\n## T-3 验证（R-001/W1） [passed]\n- 命令: test\n\n## T-4 D-2010 [passed]\n- 命令: test\n"
+        ).unwrap();
+        let matches = records_for_entry(&root, "R-001/W1");
+        assert_eq!(
+            matches
+                .iter()
+                .map(|r| r["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            vec!["T-3"]
+        );
+        assert!(records_for_entry(&root, "D-201").is_empty());
+        assert!(crate::work::evidence::validate_reference(&root, "R-001/W1", "T-1").is_err());
+        assert!(crate::work::evidence::validate_reference(&root, "R-001/W1", "T-2").is_err());
+        let running = append_test_run(
+            &root,
+            "R-001/W10",
+            "running",
+            Some("test"),
+            None,
+            Some(&["R-001/W1".into()]),
+        )
+        .unwrap();
+        let pending = unclosed_running_for(&root, "R-001/W1");
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].0, running["recorded_id"].as_str().unwrap());
+        assert!(unclosed_running_for(&root, "R-001/W10").is_empty());
     }
 
     #[test]

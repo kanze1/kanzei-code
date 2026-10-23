@@ -55,6 +55,56 @@ fn frozen_check() -> &'static str {
 }
 
 #[tokio::test]
+async fn partial_background_evidence_can_complete_with_manual_integration() {
+    use kanzei_harness::Tool;
+    let (root, ctx) = fixture();
+    let db = store(&root).unwrap();
+    let current = db.get_work_unit("R-001/W1").unwrap().unwrap();
+    db.refine_work_unit(
+        WorkUnitSpec {
+            node: current.node.clone(),
+            unit_id: current.unit_id.clone(),
+            requirement_id: current.requirement_id.clone(),
+            objective: current.objective.clone(),
+            scope: current.scope.clone(),
+            dependencies: current.dependencies.clone(),
+            acceptance: vec!["reader works".into(), "integration works".into()],
+            verification: current.verification.clone(),
+            base_revision: current.base_revision.clone(),
+        },
+        current.source_sequence,
+        "add integration acceptance",
+    )
+    .unwrap();
+    let job = prepare(&ctx, frozen_check(), 10_000, &request()).unwrap();
+    worker::run(&root, &job.id).await.unwrap();
+    let current = db.get_work_unit("R-001/W1").unwrap().unwrap();
+    assert_eq!(current.status, WorkUnitStatus::Verifying);
+    let reference = &current.evidence[0].evidence_refs[0];
+    assert!(crate::work::evidence::validate_reference(&root, "R-001/W2", reference).is_err());
+    assert!(crate::work::evidence::validate_reference(
+        &root,
+        "R-001/W1",
+        &reference.replace("source=sha256:", "source=sha256:wrong")
+    )
+    .is_err());
+    std::fs::write(root.join("integration.txt"), "integration receipt").unwrap();
+    for input in [
+        serde_json::json!({"action":"evidence", "id":"R-001/W1", "criterion":"integration works", "evidence_refs":["integration.txt"]}),
+        serde_json::json!({"action":"complete", "id":"R-001/W1"}),
+    ] {
+        let result = crate::work::WorkTool.execute(input, &ctx).await;
+        assert!(!result.is_error, "{}", result.content);
+    }
+    assert_eq!(
+        db.get_work_unit("R-001/W1").unwrap().unwrap().status,
+        WorkUnitStatus::Done
+    );
+    std::fs::remove_file(&job.log_path).unwrap();
+    assert!(crate::work::evidence::validate_reference(&root, "R-001/W1", reference).is_err());
+}
+
+#[tokio::test]
 async fn frozen_verification_releases_wip_but_not_dependencies() {
     let (root, mut ctx) = fixture();
     ctx.session_id = Some("peer-recipient".into());

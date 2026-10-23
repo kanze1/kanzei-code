@@ -7,6 +7,10 @@ pub(crate) fn validate_reference(
     if reference.trim().is_empty() {
         return Err("验收证据引用不能为空".into());
     }
+    if reference.starts_with("verification:") {
+        return crate::verification::validate_evidence_reference(root, item_id, reference)
+            .map_err(|error| format!("后台验证证据无效: {error:#}"));
+    }
     if reference.starts_with("T-") {
         let records = crate::test_record::records_for_entry(root, item_id);
         if !records

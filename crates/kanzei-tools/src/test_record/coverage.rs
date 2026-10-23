@@ -259,29 +259,21 @@ pub fn last_passed_at(root: &Path) -> Option<u64> {
     last_passed(root).map(|(at, _, _, _)| at)
 }
 
-/// 某条目(R-xxx/D-xxx)名下仍未收尾的 running 测试记录。
-///
-/// 判据是标题里是否出现该 id:测试记录本身没有结构化的 refs 字段,而实践中标题一律
-/// 以条目号开头("R-153 批6 …")。宁可用这个朴素判据,也好过关闭时对未收尾的验证一无所知。
+/// 某条目或工作节点名下仍未收尾的活动记录，使用与验收证据相同的归属判据。
 pub fn unclosed_running_for(root: &Path, entry_id: &str) -> Vec<(String, String)> {
-    read_test_records(&root.join(TEST_RUNS_REL))
+    records_for_entry(root, entry_id)
         .into_iter()
-        .filter_map(|(_, record)| {
-            if record["status"].as_str() != Some("running") {
-                return None;
-            }
-            let title = record["title"].as_str().unwrap_or_default();
-            title.contains(entry_id).then(|| {
-                (
-                    record["id"].as_str().unwrap_or_default().to_string(),
-                    title.to_string(),
-                )
-            })
+        .filter(|record| record["status"] == "running" && record["archived"] == false)
+        .map(|record| {
+            (
+                record["id"].as_str().unwrap_or_default().to_string(),
+                record["title"].as_str().unwrap_or_default().to_string(),
+            )
         })
         .collect()
 }
 
-/// R-130:按条目(R-xxx/D-xxx)反查关联的测试记录(active + archived)。
+/// 按条目或工作节点反查关联的测试记录(active + archived)。
 ///
 /// 判据**优先结构化 refs**(「关联」字段),标题命中作为兜底——旧记录没有 refs 时
 /// 靠标题里出现的条目号照样能查到,保证初始化前后的查询口径一致。
@@ -293,10 +285,18 @@ pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> 
                 .as_array()
                 .map(|refs| refs.iter().any(|r| r.as_str() == Some(entry_id)))
                 .unwrap_or(false);
-            let title_hit = record["title"]
-                .as_str()
-                .map(|title| title.contains(entry_id))
-                .unwrap_or(false);
+            let has_refs = record["fields"]
+                .as_array()
+                .is_some_and(|fields| fields.iter().any(|field| field["key"] == "关联"));
+            let title_hit = !has_refs
+                && record["title"]
+                    .as_str()
+                    .map(|title| {
+                        super::extract_entry_ids(title)
+                            .iter()
+                            .any(|id| id == entry_id)
+                    })
+                    .unwrap_or(false);
             if refs_hit || title_hit {
                 record["archived"] = json!(rel == TEST_RUNS_ARCHIVE_REL);
                 out.push(record);
