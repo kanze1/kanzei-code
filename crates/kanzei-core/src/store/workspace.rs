@@ -58,7 +58,10 @@ impl SessionStore {
         let (active, verifying, ready_to_try): (u64, u64, u64) = self.connection.query_row(
             &format!("{latest} SELECT
                 COALESCE(SUM(status='active'),0), COALESCE(SUM(status='verifying'),0),
-                COALESCE(SUM(status='done' AND NOT EXISTS
+                COALESCE(SUM(status='done'
+                    AND (json_extract(projection_json,'$.review') IS NULL
+                        OR json_extract(projection_json,'$.review.resolution.decision.disposition') IN ('retain','revise'))
+                    AND NOT EXISTS
                     (SELECT 1 FROM decisions d WHERE json_extract(d.payload_json,'$.work_unit_id')=w.unit_id
                         AND json_extract(d.payload_json,'$.review.action')='correct')
                     AND NOT EXISTS (SELECT 1 FROM session_events a WHERE a.session_id=?1
@@ -79,7 +82,8 @@ impl SessionStore {
             .query_row(
                 "SELECT requirement_id, event_type, created_at FROM work_events
                 WHERE event_type IN ('work.completed','work.checkpointed','work.blocked',
-                    'work.verification_started','work.verification_concluded','work.evidence_added')
+                    'work.verification_started','work.verification_concluded','work.evidence_added',
+                    'work.review_requested','work.review_resolved','work.revision_yielded')
                 ORDER BY created_at DESC, rowid DESC LIMIT 1",
                 [],
                 |row| {
@@ -98,6 +102,9 @@ impl SessionStore {
                     "work.blocked" => "工作遇到阻塞",
                     "work.verification_started" => "开始机器验证",
                     "work.verification_concluded" => "机器验证已返回",
+                    "work.review_requested" => "方向变化待复核",
+                    "work.review_resolved" => "已完成方向复核",
+                    "work.revision_yielded" => "已交还旧方向工作",
                     _ => "补充了验收证据",
                 };
                 json!({"label": format!("{id} · {action}"), "at": at, "kind": kind})

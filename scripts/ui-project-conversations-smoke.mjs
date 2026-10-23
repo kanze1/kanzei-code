@@ -233,6 +233,11 @@ try {
     window.__kzPreview.emit("kz:idle", { sessionId: sid });
     const test = window.__conversationTest;
     test.docs = { requirements: [], defects: [] }; test.captureResearch = true; test.nextCaptureId = "R-1000";
+    window.__kzPreview.setCommand("workspace_snapshot", args => {
+      const snapshot = structuredClone(test.f.commands.workspace_snapshot(args));
+      for (const project of snapshot.projects || []) project.lines.unshift({ id: "idle-unrelated-conversation", current_item_id: null });
+      return snapshot;
+    });
     test.f.state.fileDisk.disk.set(".kanzei/research/r1000/prior-art.md", { text: "# 先行调研\n待补齐外部与仓内对照", bom: false, note: "", mtime: 3 });
     await (await import("/26-project-conversations.js")).refreshConversationWork();
   }, owner.session_id);
@@ -240,6 +245,7 @@ try {
   await registerFromWorkPicker();
   const preparation = await last("run_prompt");
   check(preparation.executionBatch === false && preparation.workItemId == null && preparation.prompt.includes("R-1000"), "Pending research starts in the main conversation without a premature claim");
+  check(preparation.processId === owner.id, "An idle unrelated conversation cannot claim a planning request with a null target");
   check(preparation.prompt.includes("原始描述") && preparation.prompt.includes("外部已有实现") && preparation.prompt.includes("仓内既有设计") && preparation.prompt.includes("检索预算") && preparation.prompt.includes("证据验证通过") && preparation.prompt.includes("待我处理") && !/req get|question|background=true|prior_art validate|work claim|doing/.test(preparation.prompt), "Preparation requests real evidence, validation and Needs attention in concise user-facing language");
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js");

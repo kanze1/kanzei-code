@@ -5,91 +5,19 @@
 
 use super::*;
 use async_trait::async_trait;
+use input::WorkInput;
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Debug, Deserialize, JsonSchema)]
-struct WorkInput {
-    /// next/claim 保留旧工作流；其余动作用于 work_units_v1。
-    action: String,
-    /// next=true 时显式读取完整状态；默认返回有界决策摘要。
-    #[serde(default)]
-    detail: bool,
-    /// claim accepts a requirement/defect ID or a Work Unit ID. Unit lifecycle actions
-    /// require the exact unit_id returned by create_unit/list_units, e.g. R-001/W1.
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    requirement_id: Option<String>,
-    #[serde(default)]
-    objective: Option<String>,
-    #[serde(default)]
-    scope: Vec<String>,
-    #[serde(default)]
-    dependencies: Vec<String>,
-    #[serde(default)]
-    acceptance: Vec<String>,
-    #[serde(default)]
-    verification: Vec<String>,
-    #[serde(default)]
-    base_revision: Option<String>,
-    /// Node purpose, knowledge gaps and sources; independent of execution status.
-    #[serde(default)]
-    node: kanzei_core::WorkNodeContract,
-    /// Required for decompose/refine; use source_sequence from get_unit.
-    #[serde(default)]
-    expected_sequence: Option<i64>,
-    #[serde(default)]
-    children: Vec<WorkChildInput>,
-    /// Complete replacement contract. Identity and parent are immutable.
-    #[serde(default)]
-    refinement: Option<kanzei_core::WorkUnitSpec>,
-    #[serde(default)]
-    summary: Option<String>,
-    #[serde(default)]
-    next_action: Option<String>,
-    #[serde(default)]
-    decisions: Vec<String>,
-    #[serde(default)]
-    retrieval_refs: Vec<String>,
-    #[serde(default)]
-    observed_head: Option<String>,
-    #[serde(default)]
-    observed_worktree_hash: Option<String>,
-    #[serde(default)]
-    criterion: Option<String>,
-    #[serde(default)]
-    evidence_refs: Vec<String>,
-    /// handoff 必填:work_item/batch 只记局部交付;request/goal 需匹配当前委托。内部记录,勿向用户复述。
-    #[serde(default)]
-    handoff_scope: Option<kanzei_harness::handoff::HandoffScope>,
-    /// handoff 必填:事项 id、批次名、当前 admitted input id 或当前目标原文。内部记录,勿向用户复述。
-    #[serde(default)]
-    handoff_target: Option<String>,
-    /// 偏离默认选择、接管、阻塞/解阻塞、废弃时写入审计。
-    #[serde(default)]
-    reason: Option<String>,
-}
+mod input;
 
-#[derive(Debug, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-struct WorkChildInput {
-    /// Unique within this decomposition; dependencies may use @key for siblings.
-    key: String,
-    objective: String,
-    #[serde(default)]
-    scope: Vec<String>,
-    #[serde(default)]
-    dependencies: Vec<String>,
-    acceptance: Vec<String>,
-    #[serde(default)]
-    verification: Vec<String>,
-    #[serde(default)]
-    node: kanzei_core::WorkNodeContract,
-}
+mod revision;
 
 const UNIT_ACTIONS: &[&str] = &[
+    "impact",
+    "begin_revision",
+    "apply_revision",
+    "revision_yield",
     "graph",
     "decompose",
     "refine",
@@ -124,7 +52,36 @@ fn open_work_store(project_root: &std::path::Path) -> Result<SessionStore, Strin
         .map_err(|error| format!("cannot open work unit store: {error}"))
 }
 
-fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutput> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlanActor {
+    Agent,
+    User,
+}
+
+fn outcome_plan_blocker(outcome: Option<&Entry>) -> Option<&'static str> {
+    (!outcome.is_some_and(|entry| {
+        uses_work_units(entry) && matches!(entry.status.as_str(), "draft" | "todo" | "doing")
+    }))
+    .then_some("父需求已暂停、结束或不在活动队列")
+}
+
+fn plan_owner_blocker(
+    unit: &kanzei_core::WorkProjection,
+    actor: PlanActor,
+    owner: Option<String>,
+) -> Option<&'static str> {
+    (matches!(
+        unit.status,
+        WorkUnitStatus::Active | WorkUnitStatus::Verifying
+    ) && (actor == PlanActor::User || unit.claimed_by != owner))
+        .then_some("节点已有执行者，请先由执行者结束当前工作或释放节点，再修改计划")
+}
+
+fn execute_work_unit_action(
+    input: &WorkInput,
+    ctx: &ToolCtx,
+    actor: PlanActor,
+) -> Option<ToolOutput> {
     let is_unit_claim =
         input.action == "claim" && input.id.as_deref().is_some_and(|id| id.contains("/W"));
     if !is_unit_claim && !UNIT_ACTIONS.contains(&input.action.as_str()) {
@@ -153,7 +110,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
                         Err(error) => return Some(ToolOutput::error(error.to_string())),
                     };
                     pretty(
-                        json!({"nodes": units.iter().map(|unit| json!({"unit": unit, "readiness": unit.readiness(&all)})).collect::<Vec<_>>()}),
+                        json!({"nodes": units.iter().map(|unit| json!({"unit": unit, "readiness": unit.readiness(&all), "planning_blockers": unit.planning_blockers(&all)})).collect::<Vec<_>>()}),
                     )
                 }
                 Ok(units) => pretty(units),
@@ -161,7 +118,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
             },
         );
     }
-    if input.action == "get_unit" {
+    if matches!(input.action.as_str(), "get_unit" | "impact") {
         let id = match required(&input.id, "id") {
             Ok(id) => id,
             Err(error) => return Some(ToolOutput::error(error)),
@@ -170,6 +127,12 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
             Ok(store) => store,
             Err(error) => return Some(ToolOutput::error(error)),
         };
+        if input.action == "impact" {
+            return Some(match store.work_revision_impact(id) {
+                Ok(impact) => pretty(impact),
+                Err(error) => ToolOutput::error(error.to_string()),
+            });
+        }
         return Some(
             match (store.get_work_unit(id), store.list_work_events(id)) {
                 (Ok(Some(unit)), Ok(events)) => {
@@ -225,9 +188,10 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
                 "{requirement_id} 未设置 `执行模型: work_units_v1`，不能创建 Work Unit"
             )));
         }
-        if input.acceptance.is_empty() {
-            return Some(ToolOutput::error(
-                "`acceptance` 至少需要一条可逐项登记证据的验收标准",
+        if let Some(reason) = outcome_plan_blocker(Some(outcome)) {
+            return Some(ToolOutput::needs_correction(
+                "WORK_OUTCOME_NOT_PLANNABLE",
+                reason,
             ));
         }
         let existing = match store.list_work_units(Some(requirement_id)) {
@@ -275,16 +239,37 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         Err(error) => return Some(ToolOutput::error(format!("cannot read work unit: {error}"))),
     };
 
+    if matches!(
+        input.action.as_str(),
+        "begin_revision" | "apply_revision" | "revision_yield"
+    ) {
+        return Some(revision::execute(input, ctx, actor, &store, &current));
+    }
+
     if matches!(input.action.as_str(), "decompose" | "refine") {
-        if matches!(
-            current.status,
-            WorkUnitStatus::Active | WorkUnitStatus::Verifying
-        ) && current.claimed_by != line_identity(&ctx.cwd, &ctx.project_root)
-        {
+        let req_store = DocStore::open(&ctx.project_root, &REQUIREMENTS);
+        let _doc_lock = match req_store.lock() {
+            Ok(lock) => lock,
+            Err(error) => return Some(ToolOutput::error(error.to_string())),
+        };
+        let requirements = match req_store.load() {
+            Ok(entries) => entries,
+            Err(error) => return Some(ToolOutput::error(error.to_string())),
+        };
+        if let Some(reason) = outcome_plan_blocker(
+            requirements
+                .iter()
+                .find(|entry| entry.id == current.requirement_id),
+        ) {
             return Some(ToolOutput::needs_correction(
-                "WORK_OWNER_MISMATCH",
-                "先通过 claim 并提供接管理由，不能修改其他执行线正在推进的计划",
+                "WORK_OUTCOME_NOT_PLANNABLE",
+                reason,
             ));
+        }
+        if let Some(reason) =
+            plan_owner_blocker(&current, actor, line_identity(&ctx.cwd, &ctx.project_root))
+        {
+            return Some(ToolOutput::needs_correction("WORK_OWNER_MISMATCH", reason));
         }
         return Some(execute_plan_change(input, &store, &current));
     }
@@ -310,6 +295,9 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     }
 
     if is_unit_claim {
+        if current.review_pending() {
+            return Some(ToolOutput::needs_correction("WORK_REVIEW_PENDING", "方向变化待复核；执行者先停止旧工作并 revision_yield，规划者使用 apply_revision，不要 claim"));
+        }
         if current.status == WorkUnitStatus::Ready {
             if let Err(error) = super::execution::check_revision(ctx, &current.base_revision) {
                 return Some(ToolOutput::needs_correction(
@@ -645,6 +633,33 @@ fn execute_plan_change(
 
 pub struct WorkTool;
 
+impl WorkTool {
+    /// UI hints and actual commits use the same domain/ownership/outcome rules.
+    pub fn user_plan_blockers(
+        unit: &kanzei_core::WorkProjection,
+        all: &[kanzei_core::WorkProjection],
+        outcome: Option<&Entry>,
+    ) -> Vec<String> {
+        let mut blockers = unit.planning_blockers(all);
+        blockers.extend(outcome_plan_blocker(outcome).map(str::to_owned));
+        blockers.extend(plan_owner_blocker(unit, PlanActor::User, None).map(str::to_owned));
+        blockers
+    }
+
+    /// Explicit user planning shares the agent transaction and cannot claim work,
+    /// forge ownership, broaden tool grants or complete a node.
+    pub fn decompose_from_user(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: WorkInput = match crate::parse_input(self, input) {
+            Ok(input) => input,
+            Err(output) => return output,
+        };
+        if input.action != "decompose" {
+            return ToolOutput::error("用户裂变入口只接受 decompose");
+        }
+        execute_work_unit_action(&input, ctx, PlanActor::User).expect("decompose is a unit action")
+    }
+}
+
 #[async_trait]
 impl Tool for WorkTool {
     fn name(&self) -> &'static str {
@@ -655,10 +670,24 @@ impl Tool for WorkTool {
         "Resolve the authoritative work decision. Legacy requirements/defects keep next/claim; \
          requirements opting into `work_units_v1` use create_unit, claim, checkpoint, block, \
          unblock, verify, evidence, complete and supersede over append-only events. \
-         Recursive work uses node.kind (goal/requirement/defect/research/design/documentation/verification), \
-         questions and explanation. Use decompose(id,expected_sequence,reason,children) atomically; \
+         Recursive work uses node.kind (goal/requirement/implementation/defect/research/design/documentation/verification), \
+         and optional node.custom_type={name,description,deliverable}. Read graph and reuse project type definitions; \
+         custom types are vocabulary only, never tool permissions or acceptance exemptions. \
+         Planning decompose/refine does not require claim or prior-art completion; use it to resolve missing knowledge, \
+         while implementation claim retains all execution gates. \
+         acceptance may be omitted while capturing a goal or planning a child; missing criteria produce plan readiness, \
+         never executable or verified work. Use refine to define acceptance before claim or before splitting that node. \
+         questions, explanation, sources and verification methods are optional knowledge, not a form to fill with placeholders. \
+         Use decompose(id,expected_sequence,reason,children) atomically; \
          each child declares node.covers from the parent acceptance and a local key; @key dependencies refer to siblings. \
          Use refine with expected_sequence and the full refinement contract after new evidence. \
+         For a direction change use impact(id), then begin_revision(id,expected_versions,direction,reason). \
+         It freezes affected contracts, not running processes. Owners must stop their old work at a safe checkpoint, \
+         await/cancel pending verification, then revision_yield(id,revision_id,reason). \
+         Re-read impact; apply_revision(id,revision_id,expected_versions,revision_decisions,additions) \
+         atomically decides retain/revise/reverify/replace/retire for every affected node. \
+         Preserve completed history; use successor contracts for replaced or revalidated results and repair dependencies. \
+         No claim is needed for replanning. A pending or replaced result cannot satisfy acceptance. \
          graph shows readiness; parents wait for children and require their own integration evidence. \
          For background verification submit bash with verification={unit_id,criteria,environment,resource}; \
          it freezes source and releases development WIP. Read verification_jobs; cancel with verification_cancel(id=job_id). \
@@ -672,6 +701,10 @@ impl Tool for WorkTool {
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(WorkInput)).unwrap();
         schema["properties"]["action"]["enum"] = json!([
+            "impact",
+            "begin_revision",
+            "apply_revision",
+            "revision_yield",
             "graph",
             "decompose",
             "refine",
@@ -708,6 +741,7 @@ impl Tool for WorkTool {
                 | "get_unit"
                 | "list_units"
                 | "graph"
+                | "impact"
                 | "handoff"
                 | "verification_jobs"
         );
@@ -859,7 +893,7 @@ impl Tool for WorkTool {
                 }
             }
         }
-        if let Some(output) = execute_work_unit_action(&input, ctx) {
+        if let Some(output) = execute_work_unit_action(&input, ctx, PlanActor::Agent) {
             return output;
         }
         if input.action == "reconcile" {

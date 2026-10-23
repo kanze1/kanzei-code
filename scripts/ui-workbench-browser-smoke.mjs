@@ -1,5 +1,5 @@
 import { openComposerOptions, closeComposerOptions } from "./ui-preview/actions.mjs";
-import { previewContentType } from "./ui-preview/server.mjs";
+import { listenPreviewServer, previewContentType } from "./ui-preview/server.mjs";
 // 工作台/项目/对话分层的真实浏览器回归。IPC 仅用隔离夹具，不访问用户项目。
 /* global window, document, CanvasRenderingContext2D, innerWidth, MouseEvent */
 import assert from "node:assert/strict";
@@ -146,8 +146,7 @@ const server = http.createServer(async (request, response) => {
     response.end(JSON.stringify({ error: String(error) }));
   }
 });
-await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-const origin = `http://127.0.0.1:${server.address().port}`;
+const { origin } = await listenPreviewServer(server);
 const browser = await chromium.launch({ channel: "msedge", headless: true });
 const heavyCommands = new Set(["process_list", "conversation_display_get", "conversation_list", "models_list", "model_effective", "docs_snapshot", "research_library_list", "memory_graph"]);
 let observationStart = 0;

@@ -21,6 +21,7 @@ const rows = {
 const refresh = () => page.evaluate(async () => (await import("./14-docs-actions.js")).refreshDocs({ extras: false }));
 const open = async (kind, id) => {
   await page.locator(`[data-management-tab="${kind}"]`).click();
+  await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await page.locator(`.management-row[data-work-id="${id}"]`).click();
   await page.locator(".management-detail-nav").waitFor();
 };

@@ -42,6 +42,13 @@ async function open({ selected = false, idle = false, delivery = null } = {}) {
 }
 
 try {
+  const planning = await open({ selected: true, idle: true });
+  await planning.page.evaluate(async () => (await import("/08-compose-runtime.js")).sendText("补齐节点理解，不领取实施任务", { workItemId: null, executionBatch: false }));
+  const planningRequest = await planning.page.evaluate(() => window.__kzPreview.calls.findLast(call => call.cmd === "run_prompt").args);
+  check("Explicit planning does not inherit the selected execution target", planningRequest.workItemId, null);
+  check("Explicit planning is not promoted to an execution batch", planningRequest.executionBatch, false);
+  check("Planning preserves the next work selection", await planning.page.evaluate(async owner => (await import("/31-work-selection.js")).selectedWork(owner.project, owner.process), planning.owner), planning.owner.selected);
+  await planning.page.close();
   for (const scenario of [
     { name: "Ctrl+Enter with selected work", selected: true, delivery: "queue", key: "Control+Enter", expected: "steer" },
     { name: "Enter defaults to conversation delivery", key: "Enter", expected: "steer" },

@@ -14,6 +14,7 @@ import { renderTrackerFields } from "./04-structured.js";
 import { deliveryState, loadDeliveredFiles, onDeliveriesChanged } from "./06-deliveries.js";
 import { renderFileCard } from "./06-activity.js";
 import { batchCells, dependencyLayers, runtimeSummary } from "./30-workspace-model.js";
+import { renderManagementTree } from "./30-management-tree.js";
 
 const projects = new Map();
 let mounted = null;
@@ -24,7 +25,7 @@ const allEntries = state => [...(documentsView(state)?.requirements || []), ...(
 const numberText = value => typeof value === "number" ? value.toLocaleString(languageIsEnglish() ? "en-US" : "zh-CN") : value;
 function stateFor(project) {
   if (!projects.has(project)) {
-    const state = { project, tab: layoutPref("management", project) || "req", query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
+    const state = { project, tab: layoutPref("management", project) || "req", workView: layoutPref("management_work_view", project) || "tree", treeStates: new Map(), query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
     projects.set(project, state);
   }
   return projects.get(project);
@@ -137,11 +138,17 @@ function render(state, force = false) {
   if (!force && state.fillList && state.body.querySelector(".management-tools")?.contains(document.activeElement)) {
     state.fillList(); return;
   }
+  captureManagementTree(state);
   state.signature = signature; state.fillList = null; state.body.replaceChildren();
   if (state.detail) { renderDetail(state); return; }
   if (state.tab === "map") { renderMapPage(state); return; }
   if (state.tab === "deliveries") { renderDeliveries(state); return; }
   renderList(state);
+}
+
+function captureManagementTree(state) {
+  const tree = state.body.querySelector(".management-goal-tree");
+  if (tree) state.treeStates.set(tree.dataset.trackerKind, tree.captureState());
 }
 
 function renderDetail(state) {
@@ -189,13 +196,39 @@ function renderList(state) {
   const archives = el("div");
   const count = el("p", null, "management-list-count"); count.setAttribute("role", "status");
   const fill = () => {
+    captureManagementTree(state);
     list.replaceChildren();
     const docs = documentsView(state);
     const entries = (state.tab === "req" ? docs?.requirements : docs?.defects) || [];
     const query = state.query.toLocaleLowerCase();
-    const rows = entries.filter(entry => `${entry.id} ${entry.title}`.toLocaleLowerCase().includes(query) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
+    const rows = entries.filter(entry => (state.workView === "tree" || `${entry.id} ${entry.title}`.toLocaleLowerCase().includes(query)) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
     count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
-    for (const entry of rows) {
+    if (rows.length && state.workView === "tree") {
+      const withProject = run => async (...args) => {
+        try {
+          if (state.project !== currentProject) {
+            const { openProjectSpace } = await import("./12-workbench.js");
+            if (!await openProjectSpace(state.project, "project", { activate: true })) throw new Error(t("项目暂不可用"));
+          }
+          await run(...args);
+        } catch (error) { toastError(String(error)); }
+      };
+      const owners = new Map(rows.flatMap(entry => [[entry.id, entry.id], ...(entry.work_units || []).map(unit => [unit.unit_id, entry.id])]));
+      const tree = renderManagementTree(rows, state.treeStates.get(state.tab), search, {
+        onFilter: result => {
+          state.query = result.query;
+          const visibleRoots = new Set(result.visibleIds.map(id => owners.get(id)));
+          count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", `${numberText(visibleRoots.size)} / ${numberText(entries.length)}`));
+        },
+        onOpen: entry => void openManagementItem(state.project, entry),
+        onPlan: withProject(async entry => (await import("./26-project-conversations.js")).planRequirementTree(entry, state.project)),
+        onDecompose: withProject(async (unit, units) => (await import("./26-work-plan.js")).openWorkPlan({ project: state.project, unit, units })),
+        onRevise: withProject(async (entry, unit) => (await import("./26-work-plan.js")).openWorkRevision({ project: state.project, entry, unit })),
+        onStart: withProject(async (entry, unit) => (await import("./26-project-conversations.js")).continueWorkNode(entry, unit, state.project)),
+      });
+      tree.dataset.trackerKind = state.tab; tree.setQuery(state.query); list.append(tree);
+    }
+    for (const entry of state.workView === "list" ? rows : []) {
       const row = action("", () => void openManagementItem(state.project, entry), "management-row"); row.dataset.workId = entry.id;
       const identity = el("div", null, "management-identity"), meta = el("small", null, "dim");
       meta.append(el("span", entry.id, "management-id"), document.createTextNode(` · ${localizedDocStatus(entry.status)}`));
@@ -207,7 +240,7 @@ function renderList(state) {
     renderArchives(state, archives);
   };
   state.fillList = fill;
-  search.addEventListener("input", () => { state.query = search.value; fill(); });
+  search.addEventListener("input", () => { state.query = search.value; if (state.workView === "list") fill(); });
   filter.addEventListener("change", () => { state.filter = filter.value; fill(); });
   const create = action(t(state.tab === "defect" ? "登记缺陷" : "登记需求"), () => document.dispatchEvent(new CustomEvent("kz:open-work-module", { detail: { project: state.project, module: "work", capture: state.tab } })), "primary");
   const more = action("⋯", () => openMenu(more, [{ label: t("高级筛选与批量管理"), onSelect: async () => {
@@ -216,7 +249,12 @@ function renderList(state) {
     if (await openProjectSpace(state.project, "documents")) $(`documents-tab-${kind}`)?.click();
   } }]));
   more.setAttribute("aria-label", t("更多"));
-  tools.append(search, filter, refreshAction(state), create, more);
+  const views = el("div", null, "management-work-views");
+  for (const [view, label] of [["tree", "目标树"], ["list", "列表"]]) {
+    const control = action(t(label), () => { state.workView = view; setLayoutPref("management_work_view", state.project, view); render(state, true); });
+    control.setAttribute("aria-pressed", String(state.workView === view)); views.append(control);
+  }
+  tools.append(search, views, filter, refreshAction(state), create, more);
   state.body.append(tools);
   state.body.append(count, list, archives); fill();
 }

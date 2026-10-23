@@ -33,6 +33,7 @@ dialog.k-surface:not([open]), .k-surface[popover]:not(:popover-open) { display: 
 .k-surface.k-dialog[data-size="lg"] { width: min(860px, 88vw); height: min(680px, 86vh); max-height: none; padding: 0; overflow: hidden; }
 .k-surface.k-dialog[data-size="schedule"] { width: min(920px, 92vw); max-height: 85vh; padding: 24px; overflow: auto; }
 .k-surface.k-dialog[data-size="rewind"] { width: min(720px, 90vw); max-height: 80vh; padding: 24px; overflow: auto; }
+.k-surface.k-dialog.work-plan-dialog { width: min(740px, 94vw); max-height: 88vh; overflow: auto; }
 .k-surface.k-dialog[data-size="palette"] { width: min(620px, calc(100vw - 32px)); margin: 12vh auto auto; padding: 0; overflow: hidden; }
 dialog.k-dialog::backdrop { background: var(--surface-backdrop); }
 /* 命令面板是跳转器不是确认框:背后的界面要能看见,压一层就够。 */

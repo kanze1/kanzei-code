@@ -117,7 +117,9 @@ try {
   });
   for (const theme of ["light", "dark"]) await scenario(`management ${theme}`, async () => {
     const page = await open("empty", theme);
-    await page.locator('[data-work-surface="project"]').click(); await page.locator(".management-row").first().waitFor();
+    await page.locator('[data-work-surface="project"]').click();
+    await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
+    await page.locator(".management-row").first().waitFor();
     check(`${theme}: requirement identifiers use the cyan token`, await colorIs(page.locator(".management-id").first()));
     check(`${theme}: list counts use the neutral secondary token`, await colorIs(page.locator(".management-list-count strong"), "--dim"));
     const total = await page.locator(".management-row").count();

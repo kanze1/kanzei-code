@@ -1,5 +1,5 @@
 import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
-import { renderWorkTree } from "./26-work-tree.js";
+import { renderWorkTree, captureWorkTreeState, workResultCurrent, workIsCurrent, workReviewPending } from "./26-work-tree.js";
 import { openMenu } from "./00-surface.js";
 import "./00-dom.js";
 import { $ } from "./00-dom.js";
@@ -559,7 +559,7 @@ export function captureDetailState(el) {
     const detail = item.querySelector(".doc-detail");
     if (!detail) continue;
     const state = captureWorkDocumentState(detail);
-    if (state.editing || state.unitsOpen || state.workNodeOpen.size || state.olderOpen.size) states.set(item.dataset.docId, state);
+    if (state.editing || state.unitsOpen || state.workTree || state.workNodeOpen.size || state.olderOpen.size) states.set(item.dataset.docId, state);
   }
   return states;
 }
@@ -571,6 +571,7 @@ export function captureWorkDocumentState(detail) {
       drafts: new Map(),
       focus: null,
       unitsOpen: Boolean(detail.querySelector(".work-unit-details")?.open),
+      workTree: captureWorkTreeState(detail.querySelector(".work-tree-workspace")),
       workNodeOpen: new Map([...detail.querySelectorAll("[data-work-node-state]")].map(node => [node.dataset.workNodeState, node.open])),
       olderOpen: new Set([...detail.querySelectorAll(".doc-progress-older")].filter((node) => node.open).map((node) => node.dataset.field ?? "")),
     };
@@ -891,19 +892,38 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   }
   if (!actions.children.length) actions.remove();
 
-  // ⑤ 执行单元:默认折叠,summary 一行说清进度与当前单元。
+  // The goal tree is the primary workspace; the document remains below it.
   if (workUnits.length) {
-    const terminal = workUnits.filter((unit) => unit.status === "done").length;
-    const superseded = workUnits.filter((unit) => unit.status === "superseded").length;
+    const terminal = workUnits.filter(workResultCurrent).length;
+    const superseded = workUnits.filter(unit => !workIsCurrent(unit)).length;
+    const pending = workUnits.filter(workReviewPending).length;
     const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
     const units = document.createElement("details");
     units.className = "work-unit-details";
-    units.open = Boolean(prior?.unitsOpen);
+    units.open = prior ? prior.unitsOpen : true;
     const summary = document.createElement("summary");
-    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.unit_id} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-    const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workNodeOpen);
+    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.objective} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+    if (pending) summary.textContent += ` · ${pending} ${t("待复核节点")}`;
+    const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workTree, {
+      planningBlockers: entry.work_planning_blockers,
+      onRevise: async unit => {
+        if (currentProject !== entryProject) return;
+        try { (await import("./26-work-plan.js")).openWorkRevision({ project: entryProject, entry, unit }); }
+        catch (error) { toastError(String(error)); }
+      },
+      onDecompose: async unit => {
+        if (currentProject !== entryProject) return;
+        try { (await import("./26-work-plan.js")).openWorkPlan({ project: entryProject, unit, units: latestDocsSnapshot?.work_units || workUnits }); }
+        catch (error) { toastError(String(error)); }
+      },
+      onStart: async unit => {
+        if (currentProject !== entryProject) return;
+        try { await (await import("./26-project-conversations.js")).continueWorkNode(entry, unit, entryProject); }
+        catch (error) { toastError(String(error)); }
+      },
+    });
     units.append(summary, section);
-    detail.appendChild(units);
+    head.after(units);
   }
 
   // ⑥ 想法专属(R-252):inbox 显示「拆解」按钮(派 idea_split 子代理产出 R/D),
@@ -1239,12 +1259,14 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];
     if (workUnits.length) {
-      const terminal = workUnits.filter((unit) => unit.status === "done").length;
+      const terminal = workUnits.filter(workResultCurrent).length;
+      const pending = workUnits.filter(workReviewPending).length;
       const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
       const unitBadge = document.createElement("span");
       unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;
-      unitBadge.textContent = `W ${terminal}/${workUnits.length}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-      unitBadge.title = `${t("执行单元")}: ${workUnits.map((unit) => `${unit.unit_id}[${localizedStatusWord(unit.status, "unit")}]`).join(" · ")}`;
+      unitBadge.textContent = `${terminal} ${t("已验证节点")}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+      if (pending) unitBadge.textContent += ` · ${pending} ${t("待复核节点")}`;
+      unitBadge.title = current ? current.objective : t("目标树");
       placeFlag(unitBadge);
     }
     // 复杂度(R-051):行 tooltip 文字 + 单页右端一列;体量不画成色带(cx-* 钩子类随色带一起删了)。

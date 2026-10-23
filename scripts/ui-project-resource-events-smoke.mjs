@@ -14,6 +14,7 @@ try {
   await page.goto(server.origin + "/?scene=chat");
   await page.waitForFunction(() => window.__kzPreview?.ready);
   await page.locator('[data-work-surface="project"]').click();
+  await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await page.locator(".management-row").first().waitFor();
   await page.evaluate(async () => {
     const resources = await import("/01-project-resources.js");

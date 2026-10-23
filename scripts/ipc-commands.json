@@ -3358,6 +3358,33 @@
     "path": "decisions::work_delivery_accept",
     "returns": "-> Result < kanzei_core :: decisions :: WorkAcceptance , String >"
   },
+  "work_node_decompose": {
+    "host": "service",
+    "parameters": {
+      "children": {
+        "required": true,
+        "type": "serde_json :: Value"
+      },
+      "expectedSequence": {
+        "required": true,
+        "type": "i64"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "reason": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "docs::work_nodes::work_node_decompose",
+    "returns": "-> Result < Value , String >"
+  },
   "workspace_overview": {
     "host": "service",
     "parameters": {},

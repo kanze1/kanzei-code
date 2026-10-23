@@ -118,8 +118,30 @@ async function returnToSelectedConversation(project = currentProject) {
 }
 
 export async function continueRequirement(entry) {
-  const project = currentProject;
-  const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id);
+  return startSelectedWork(entry, currentProject, requirementStart(entry));
+}
+
+export async function planRequirementTree(entry, project) {
+  if (project !== currentProject) return false;
+  const target = await returnToSelectedConversation(project);
+  if (!target) return false;
+  return sendText(`请为需求 ${entry.id}「${entry.title}」规划递归工作树。先读取现有目标、验收、批次、进展和执行占用，解释未知并拆成可独立验收的调研、设计、实现或验证节点。保留原始委托和历史证据；已有执行者时先协调安全交接，不抢占或热改正在执行的契约。若仍使用旧队列，确认交接后再通过 req update 设置执行模型 work_units_v1，并用 work create_unit / decompose 建树。旧批次完成标记不能直接当作新节点验收证据。当前是规划请求，无需 claim。`, { workItemId: null, executionBatch: false });
+}
+
+export async function continueWorkNode(entry, unit, project) {
+  if (project !== currentProject || unit.requirement_id !== entry.id) return;
+  return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}。先读取此节点和依赖结果，按其验收契约推进。`, executionBatch: true, workItemId: unit.unit_id });
+}
+
+export async function reviseWorkNode(entry, unit, project, direction) {
+  if (project !== currentProject || unit.requirement_id !== entry.id) return false;
+  const target = await returnToSelectedConversation(project);
+  if (!target) return false;
+  return sendText(`调整节点 ${unit.unit_id}「${unit.objective}」的方向：\n\n${direction}\n\n请先读取当前工作图并用 impact 分析影响，再用 begin_revision 登记方向变化。让受影响的执行者在安全检查点交还节点，逐项判断保留、修订、重验、替代或撤销，修正依赖并用 apply_revision 原子应用；保留历史完成证据，说明哪些结果继续有效。`, { workItemId: null, executionBatch: false });
+}
+
+async function startSelectedWork(entry, project, request) {
+  const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id || (request.workItemId && line.current_item_id === request.workItemId));
   const main = selected_workspace_process();
   // Existing independent work retains its owner; opening a card never steals it.
   if (owner && owner.id !== main?.id) {
@@ -135,9 +157,9 @@ export async function continueRequirement(entry) {
     catch { return; }
     if (currentProject !== project || activeProcessId !== target.id) return;
   }
-  const { prompt, ...options } = requirementStart(entry);
+  const { prompt, ...options } = request;
   await sendText(prompt, options);
-  if (needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));
+  if (!request.workItemId && needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));
   detailId = null; rendered = ""; paint();
 }
 

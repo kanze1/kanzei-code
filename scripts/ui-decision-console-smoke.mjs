@@ -114,6 +114,27 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.locator(".console-decision").first().evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
   await page.screenshot({ path: path.join(output, "decisions-light.png") });
+  await page.getByRole("button", { name: "Deliveries and verification", exact: true }).click();
+  await page.evaluate(() => window.__kzPreview.settle());
+  await page.evaluate(async projectPath => {
+    const api = await import("/12-decision-console.js");
+    const snapshot = structuredClone((await import("/12-docs-pages.js")).lastWorkspaceSnapshot);
+    const project = snapshot.projects.find(p => p.path === projectPath);
+    project.work_acceptances = [];
+    project.work_units[0].review = { request: { direction: "local first", reason: "new scope" }, resolution: null };
+    const callbacks = { refresh: async () => {}, beforeMutation: () => {}, openProject: async () => {} };
+    window.__deliveryReview = { api, snapshot, callbacks, project };
+    window.__kzPreview.setCommand("workspace_snapshot", () => structuredClone(snapshot));
+    api.renderDecisionConsole(snapshot, callbacks);
+  }, trialProject.path);
+  assert.equal(await trialDelivery.getByText("Direction under review", { exact: true }).count(), 1);
+  assert.equal(await trialDelivery.getByRole("button", { name: "Tried it; accept delivery", exact: true, includeHidden: true }).count(), 0, "under-review completed work has no acceptance action");
+  await page.evaluate(() => {
+    const s = window.__deliveryReview;
+    s.project.work_units[0].review.resolution = { decision: { disposition: "retire" } };
+    s.api.renderDecisionConsole(s.snapshot,s.callbacks);
+  });
+  assert.equal(await trialDelivery.getByRole("button", { name: "Tried it; accept delivery", exact: true, includeHidden: true }).count(), 0, "retired completed work has no acceptance action");
   assert.deepEqual(errors, []);
   console.log("决策控制台浏览器验证通过：跨项目归属、批量复核、重复点击、纠正范围、旧证据失效、交付验收、失败保留草稿、窄屏和英文主题。");
 } finally { await browser.close(); await server.close(); }

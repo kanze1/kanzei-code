@@ -390,7 +390,7 @@ fn finish(job: &mut VerificationJob) -> anyhow::Result<()> {
             .clone()
             .unwrap_or_else(|| format!("验证 {}，见 {}", job.status, job.log_path.display())),
     }];
-    if passed {
+    if passed && !current.review_pending() {
         for criterion in &job.criteria {
             facts.push(WorkFact::EvidenceAdded {
                 evidence: kanzei_core::WorkEvidence {

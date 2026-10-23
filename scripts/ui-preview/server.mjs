@@ -112,6 +112,11 @@ export function startPreviewServer({ port = 5178, host = "127.0.0.1" } = {}) {
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error) => send(res, 500, String(error?.stack || error)));
   });
+  return listenPreviewServer(server, { port, host });
+}
+
+/** Custom browser fixtures share the same browser-compatible port allocation. */
+export function listenPreviewServer(server, { port = 0, host = "127.0.0.1" } = {}) {
   return new Promise((resolve, reject) => {
     // OS automatic ports may be below 10240 (including Chromium-blocked
     // 6666). Preserve explicit ports; auto allocation publishes a higher port.

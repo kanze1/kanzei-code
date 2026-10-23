@@ -95,9 +95,18 @@ pub struct WorkUnitContext {
     pub outcome: WorkOutcomeContext,
     pub unit: WorkProjection,
     pub readiness: kanzei_core::WorkNodeReadiness,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision_action: Option<WorkRevisionAction>,
     pub ancestors: Vec<WorkContextNode>,
     pub required_results: Vec<WorkContextNode>,
     pub children: Vec<WorkItemSummary>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkRevisionAction {
+    Yield,
+    Resolve,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -694,6 +703,7 @@ fn work_unit_item(
             outcome: outcome_context(outcome),
             unit: projection.clone(),
             readiness: projection.readiness(all),
+            revision_action: None,
             ancestors: work_node_ancestors(projection, all),
             required_results: graph::work_required_results(projection, all),
             children: all
@@ -914,7 +924,11 @@ fn resolve_work_state(
             .filter(|unit| unit.requirement_id == outcome.id)
             .collect::<Vec<_>>();
         let outcome_parked = crate::tracker::park_reason(outcome, &states).is_some();
-        if outcome_units.is_empty() || outcome_units.iter().all(|unit| unit.status.is_terminal()) {
+        if outcome_units.is_empty()
+            || outcome_units
+                .iter()
+                .all(|unit| unit.status.is_terminal() && !unit.review_pending())
+        {
             let mut view = item(
                 &REQUIREMENTS,
                 outcome,
@@ -939,14 +953,17 @@ fn resolve_work_state(
             continue;
         }
         for projection in outcome_units {
-            if projection.status.is_terminal() {
+            if projection.status.is_terminal() && !projection.review_pending() {
                 continue;
             }
             let mut reasons = scheduled_outcome.block_reasons.clone();
             if outcome_parked {
                 reasons.push("父 Outcome 已停车".into());
             }
-            reasons.extend(projection.readiness(&work_units).blockers);
+            let revision_action = graph::revision_action(projection, &work_units, me.as_deref());
+            if revision_action.is_none() {
+                reasons.extend(projection.readiness(&work_units).blockers);
+            }
             let mut view = work_unit_item(
                 projection,
                 &work_units,
@@ -955,6 +972,20 @@ fn resolve_work_state(
                 &observation,
                 &reference_index,
             );
+            view.work_unit_context
+                .as_mut()
+                .expect("unit context")
+                .revision_action = revision_action;
+            if projection.review_pending() {
+                if view.blocked || revision_action.is_none() {
+                    blocked_items.push(view);
+                } else if revision_action == Some(WorkRevisionAction::Yield) {
+                    executable_wip.push(view);
+                } else {
+                    work_unit_candidates.push(view);
+                }
+                continue;
+            }
             if projection.status == WorkUnitStatus::Verifying
                 && projection
                     .background_verification

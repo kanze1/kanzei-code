@@ -55,6 +55,45 @@ fn frozen_check() -> &'static str {
 }
 
 #[tokio::test]
+async fn direction_review_keeps_verification_result_without_completing_the_old_contract() {
+    let (root, ctx) = fixture();
+    let job = prepare(&ctx, frozen_check(), 10_000, &request()).unwrap();
+    let db = store(&root).unwrap();
+    let impact = db.work_revision_impact("R-001/W1").unwrap();
+    let revision = db
+        .begin_work_revision(
+            "R-001/W1",
+            &impact.versions,
+            "new direction",
+            "user changed scope",
+        )
+        .unwrap();
+    worker::run(&root, &job.id).await.unwrap();
+    let current = db.get_work_unit("R-001/W1").unwrap().unwrap();
+    assert!(current.review_pending());
+    assert_eq!(current.status, WorkUnitStatus::Verifying);
+    assert!(current.evidence.is_empty());
+    assert!(!current.background_verification.unwrap().pending);
+    assert_eq!(read_job(&root, &job.id).unwrap().status, "passed");
+    assert!(job.log_path.is_file());
+    db.append_work_fact(
+        "R-001/W1",
+        WorkFact::RevisionYielded {
+            revision_id: revision.revision_id,
+            reason: "verification ended and executor stopped".into(),
+        },
+    )
+    .unwrap();
+    let count = db.list_work_events("R-001/W1").unwrap().len();
+    worker::run(&root, &job.id).await.unwrap();
+    assert_eq!(db.list_work_events("R-001/W1").unwrap().len(), count);
+    assert_eq!(
+        db.get_work_unit("R-001/W1").unwrap().unwrap().status,
+        WorkUnitStatus::Ready
+    );
+}
+
+#[tokio::test]
 async fn partial_background_evidence_can_complete_with_manual_integration() {
     use kanzei_harness::Tool;
     let (root, ctx) = fixture();

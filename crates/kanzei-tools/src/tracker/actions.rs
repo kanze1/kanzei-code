@@ -674,6 +674,17 @@ pub(crate) fn update_close(
                         "{id} 已启用 work_units_v1，但尚未创建 Work Unit，不能关闭"
                     ));
                 }
+                let pending = units
+                    .iter()
+                    .filter(|unit| unit.review_pending())
+                    .map(|unit| unit.unit_id.as_str())
+                    .collect::<Vec<_>>();
+                if !pending.is_empty() {
+                    return ToolOutput::error(format!(
+                        "{id} 仍有待复核 Work Unit，先完成方向复核再关闭: {}",
+                        pending.join("、")
+                    ));
+                }
                 let nonterminal = units
                     .iter()
                     .filter(|unit| !unit.status.is_terminal())
@@ -685,12 +696,9 @@ pub(crate) fn update_close(
                         nonterminal.join("、")
                     ));
                 }
-                if !units
-                    .iter()
-                    .any(|unit| unit.status == kanzei_core::WorkUnitStatus::Done)
-                {
+                if !units.iter().any(|unit| unit.result_is_current()) {
                     return ToolOutput::error(format!(
-                        "{id} 的 Work Unit 全部 superseded，没有已验证完成的交付，不能关闭"
+                        "{id} 没有适用于当前方向的已验证交付，不能关闭；撤销或替代的历史结果不构成交付"
                     ));
                 }
             }

@@ -675,6 +675,61 @@ Object.assign(SCENES, {
 });
 // ── 分区:网页预览前端(完) ──
 
+Object.assign(SCENES, {
+  async worktree(ctx) {
+    const fixture = await window.__kzPreview.fixtures();
+    const snapshot = fixture.commands.docs_snapshot();
+    const unit = (id, kind, parent, objective, status, acceptance) => ({
+      unit_id: `R-910/W${id}`, requirement_id: "R-910", source_sequence: id, objective, status,
+      node: { kind, parent_id: parent ? `R-910/W${parent}` : null, covers: parent ? ["个人偏好可以纠正"] : [], questions: [], source_refs: [], explanation: "" },
+      acceptance: [acceptance], verification: ["运行偏好纠正场景"], dependencies: [],
+      evidence: status === "done" ? [{ criterion: acceptance, evidence_refs: ["evidence/preferences.json"] }] : [], last_checkpoint: null,
+    });
+    const units = [
+      unit(1, "goal", null, "构建一个懂我的 Agent", "ready", "个人偏好可以纠正"),
+      unit(2, "research", 1, "理解 Agent 的组成", "done", "明确模型和 harness 的边界"),
+      unit(3, "design", 1, "确定架构与工作栈", "done", "记录选择依据"),
+      unit(4, "implementation", 1, "偏好记忆与纠正", "ready", "纠正后读取最新偏好"),
+      unit(5, "documentation", 2, "架构调研笔记", "done", "结论可追溯到来源"),
+      unit(6, "requirement", 4, "工具注册与调用", "ready", "调用结果可被解释"),
+      unit(7, "defect", 4, "修正后仍命中旧偏好", "blocked", "过期偏好不再被使用"),
+      unit(8, "verification", 4, "端到端场景验收", "ready", "保存、纠正、回读场景通过"),
+    ];
+    units[1].node.explanation = "已明确模型与 Harness 的职责边界";
+    units[5].acceptance = [];
+    units[5].node.questions = ["先支持哪些工具调用？"];
+    units[1].node.source_refs = ["research/agent-architecture.md"];
+    units[2].last_checkpoint = { decisions: ["Rust 运行时与 SQLite 本地存储"], summary: "已记录架构选择", retrieval_refs: [] };
+    units[3].node.custom_type = { name: "偏好记忆", description: "维护可纠正的个人偏好", deliverable: "保存偏好，并接受用户纠正" };
+    units[3].dependencies = [units[2].unit_id];
+    units[4].node.source_refs = ["docs/agent-architecture.md"];
+    units[6].node.explanation = "偏好被纠正后，检索仍返回旧版本";
+    units[6].blocked_reason = "等待偏好更新接口";
+    units[7].verification = ["保存偏好 → 用户纠正 → 再次读取"];
+    for (const node of units) {
+      const parent = units.find(candidate => candidate.unit_id === node.node.parent_id);
+      node.node.covers = parent ? [...parent.acceptance] : [];
+    }
+    units[7].dependencies = [units[5].unit_id, units[6].unit_id];
+    const entry = { ...snapshot.requirements[0], id: "R-910", title: "个人适配 Agent", status: "doing", blocked: false, block_reasons: [], dependencies: [], dependents: [], fields: [["目标", "构建具备可纠正记忆的个人助手"]], work_units: units,
+      work_readiness: Object.fromEntries(units.map(n => {
+        const blockers = n.status === "done" ? [] : [n.blocked_reason,
+          ...units.filter(child => child.node.parent_id === n.unit_id && child.status !== "done").map(child => `子节点未结束: ${child.unit_id}`),
+          ...n.dependencies.filter(id => units.find(node => node.unit_id === id)?.status !== "done").map(id => `依赖未完成: ${id}`)].filter(Boolean);
+        return [n.unit_id, { step: n.status === "done" ? "finished" : blockers.length ? "wait" : !n.acceptance.length || n.node.questions.length ? "plan" : "execute", blockers, uncovered: [] }];
+      })),
+      work_planning_blockers: Object.fromEntries(units.map(n => [n.unit_id, n.status === "done" ? ["节点已结束"] : []])),
+    };
+    snapshot.requirements = [entry]; snapshot.work_units = units;
+    window.__kzPreview.setCommand("docs_snapshot", () => structuredClone(snapshot));
+    await SCENES.docs(ctx);
+    (await import("/12-docs-pages.js")).renderDocsSnapshot(snapshot);
+    const item = document.querySelector('.doc-item[data-doc-id="R-910"]');
+    item?.querySelector('.doc-row[aria-expanded="false"]')?.click();
+    item?.querySelector('[data-work-node-id="R-910/W4"] > .work-tree-row')?.click();
+  },
+});
+
 export const SCENE_NAMES = Object.keys(SCENES);
 
 export async function runScene(name, ctx) {

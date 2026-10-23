@@ -1,6 +1,45 @@
 //! Work graph context and durable progress projection.
 use super::*;
 
+/// Review work is schedulable without reopening the frozen implementation contract.
+pub(super) fn revision_action(
+    node: &WorkProjection,
+    all: &[WorkProjection],
+    owner: Option<&str>,
+) -> Option<WorkRevisionAction> {
+    if !node.review_pending() {
+        return None;
+    }
+    let review = node.review.as_ref()?;
+    if matches!(
+        node.status,
+        WorkUnitStatus::Active | WorkUnitStatus::Verifying
+    ) {
+        return (node.claimed_by.as_deref() == owner
+            && !node
+                .background_verification
+                .as_ref()
+                .is_some_and(|job| job.pending))
+        .then_some(WorkRevisionAction::Yield);
+    }
+    (review.request.anchor_id == node.unit_id
+        && !all.iter().any(|other| {
+            other.review_pending()
+                && other
+                    .review
+                    .as_ref()
+                    .is_some_and(|r| r.request.revision_id == review.request.revision_id)
+                && (matches!(
+                    other.status,
+                    WorkUnitStatus::Active | WorkUnitStatus::Verifying
+                ) || other
+                    .background_verification
+                    .as_ref()
+                    .is_some_and(|job| job.pending))
+        }))
+    .then_some(WorkRevisionAction::Resolve)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkContextNode {
     pub id: String,
@@ -12,6 +51,8 @@ pub struct WorkContextNode {
     pub source_refs: Vec<String>,
     pub evidence: Vec<kanzei_core::WorkEvidence>,
     pub status: WorkUnitStatus,
+    pub review_pending: bool,
+    pub result_is_current: bool,
 }
 
 fn context_node(node: &WorkProjection) -> WorkContextNode {
@@ -25,6 +66,8 @@ fn context_node(node: &WorkProjection) -> WorkContextNode {
         source_refs: node.node.source_refs.clone(),
         evidence: node.evidence.clone(),
         status: node.status,
+        review_pending: node.review_pending(),
+        result_is_current: node.result_is_current(),
     }
 }
 
@@ -96,6 +139,7 @@ pub fn progress_snapshot(project_root: &std::path::Path) -> Result<String, Strin
                     unit.spec(),
                     &unit.evidence,
                     unit.status.is_terminal().then_some(unit.status),
+                    &unit.review,
                 )
             })
             .collect::<Vec<_>>(),
