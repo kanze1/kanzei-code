@@ -121,6 +121,13 @@ export async function continueRequirement(entry) {
   return startSelectedWork(entry, currentProject, requirementStart(entry));
 }
 
+export async function planRequirementTree(entry, project) {
+  if (project !== currentProject) return false;
+  const target = await returnToSelectedConversation(project);
+  if (!target) return false;
+  return sendText(`请为需求 ${entry.id}「${entry.title}」规划递归工作树。先读取现有目标、验收、批次、进展和执行占用，解释未知并拆成可独立验收的调研、设计、实现或验证节点。保留原始委托和历史证据；已有执行者时先协调安全交接，不抢占或热改正在执行的契约。若仍使用旧队列，确认交接后再通过 req update 设置执行模型 work_units_v1，并用 work create_unit / decompose 建树。旧批次完成标记不能直接当作新节点验收证据。当前是规划请求，无需 claim。`, { workItemId: null, executionBatch: false });
+}
+
 export async function continueWorkNode(entry, unit, project) {
   if (project !== currentProject || unit.requirement_id !== entry.id) return;
   return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}。先读取此节点和依赖结果，按其验收契约推进。`, executionBatch: true, workItemId: unit.unit_id });

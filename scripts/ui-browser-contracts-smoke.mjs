@@ -6,6 +6,7 @@ import test, { before, after } from "node:test";
 import { chromium } from "playwright-core";
 import { startPreviewServer } from "./ui-preview/server.mjs";
 import workTree from "./tests/browser-contracts/work-tree.mjs";
+import managementTree from "./tests/browser-contracts/management-tree.mjs";
 import resources from "./tests/browser-contracts/resource.mjs";
 import markdown from "./tests/browser-contracts/markdown.mjs";
 import i18n from "./tests/browser-contracts/i18n.mjs";
@@ -16,7 +17,7 @@ import sidePolicy from "./tests/browser-contracts/side-policy.mjs";
 import experience from "./tests/browser-contracts/experience.mjs";
 
 const output = path.resolve("output/browser-contracts");
-const scenarios = { workTree, resources, markdown, i18n, toolSummary, structured, delivery, sidePolicy, experience };
+const scenarios = { workTree, managementTree, resources, markdown, i18n, toolSummary, structured, delivery, sidePolicy, experience };
 const results = [];
 let server, browser;
 before(async () => {

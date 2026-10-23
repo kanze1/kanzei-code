@@ -773,6 +773,10 @@
       "crates/kanzei-app/ui/22-*.js",
       "crates/kanzei-app/ui/07-events.js",
       "crates/kanzei-app/ui/26-work-tree.js",
+      "crates/kanzei-app/ui/26-tree-view.js",
+      "crates/kanzei-app/ui/30-management-tree.js",
+      "crates/kanzei-app/ui/30-management.js",
+      "crates/kanzei-app/ui/familiar-workspace.css",
       "crates/kanzei-app/ui/26-work-plan.js",
       "crates/kanzei-app/ui/26-project-conversations.js",
       "crates/kanzei-app/ui/11-docs-list.js",
@@ -931,6 +935,7 @@
       "crates/kanzei-app/ui/08-auto.js",
       "crates/kanzei-app/ui/12-decision-console.js",
         "crates/kanzei-app/ui/26-work-tree.js",
+        "crates/kanzei-app/ui/26-tree-view.js",
         "crates/kanzei-app/ui/decision-console.css",
         "scripts/ui-decision-console-smoke.mjs",
         "scripts/ui-decision-stability-smoke.mjs"
@@ -949,6 +954,8 @@
     ],
     "paths": [
       "crates/kanzei-app/ui/30-*.js",
+      "crates/kanzei-app/ui/26-tree-view.js",
+      "crates/kanzei-app/ui/26-work-tree.js",
       "crates/kanzei-app/ui/31-*.js",
       "crates/kanzei-app/ui/14-docs-actions.js",
       "crates/kanzei-app/ui/09-*.js",

@@ -52,6 +52,9 @@ try {
   await closeComposerOptions(page);
   await page.locator("#prompt").fill("切换页面后保留的草稿");
   await page.locator('[data-work-surface="project"]').click();
+  await page.locator(".management-goal-tree").waitFor();
+  check(await page.locator('.management-goal-tree [role="treeitem"]').count() > 0, "Management defaults to tracker roots even without work nodes");
+  await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await page.locator(".management-row").first().waitFor();
   check(await page.locator(".management-tabs button").count() === 4, "Requirements, defects, deliveries and map are peer pages");
   check((await page.locator(".management-row").first().innerText()).includes("R-"), "Management consumes real document snapshot entries");

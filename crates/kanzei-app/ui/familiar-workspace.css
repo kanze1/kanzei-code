@@ -110,6 +110,15 @@
 .management-list { border-top: 1px solid var(--border); border-top-color: var(--border-soft); }
 .management-row { display: grid; align-items: center; width: 100%; background: transparent; border: none; border-bottom: 1px solid var(--border); border-radius: 0; text-align: left; gap: 28px; padding: 17px var(--sp-1); border-bottom-color: var(--border-soft); grid-template-columns: minmax(180px,1fr) 132px 32px; }
 .management-row:hover { background: var(--surface-hover); }
+.management-work-views { display: flex; flex: 0 0 auto; gap: var(--sp-2); }
+.management-work-views button[aria-pressed="true"] { color: var(--fg-strong); background: var(--surface-selected); }
+.management-goal-tree { margin-top: var(--sp-4); }
+.management-goal-detail { display: grid; gap: var(--sp-4); font-size: var(--fs-13); line-height: 1.7; }
+.management-goal-detail p { margin: 0; overflow-wrap: anywhere; }
+.management-goal-unplanned { color: var(--dim); }
+.work-tree-empty { padding: var(--sp-5); list-style: none; }
+.management-goal-tree .work-tree-toolbar { min-height: 42px; }
+.management-goal-tree .work-tree-views { margin-right: auto; }
 .management-identity { display: flex; flex-direction: column; min-width: 0; gap: var(--sp-3); }
 .management-identity strong { font-size: 14px; line-height: 1.65; font-weight: 500; color: var(--fg-strong); }
 .management-identity small { font-size: 11px; }

@@ -4334,7 +4334,7 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 .work-tree-workspace[data-view="map"] .work-tree-node[aria-selected="true"] > .work-tree-row { background: var(--panel); border-color: var(--focus-ring); box-shadow: 0 0 0 2px var(--surface-selected); }
 .work-tree-workspace[data-view="map"] .work-tree-glyph { display: grid; place-items: center; width: 22px; height: 22px; border-radius: var(--r-sm); background: var(--surface-hover); }
 .work-tree-workspace[data-view="map"] .work-tree-kind { max-width: none; font-size: var(--fs-11); align-self: center; }
-.work-tree-workspace[data-view="map"] .work-tree-title { grid-column: 1 / -1; margin-top: var(--sp-2); font-size: var(--fs-13); font-weight: 600; color: var(--fg-strong); line-height: 1.6; }
+.work-tree-workspace[data-view="map"] .work-tree-title { grid-column: 1 / -1; margin-top: var(--sp-2); font-size: var(--fs-13); font-weight: 600; color: var(--fg-strong); line-height: 1.45; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .work-tree-workspace[data-view="map"] .work-tree-row .work-unit-status { grid-column: 1 / -1; max-width: none; text-align: start; font-size: var(--fs-11); }
 .work-tree-workspace[data-view="map"] .work-tree-node[data-status="done"] > .work-tree-row .work-unit-status { color: var(--ok); }
 .work-tree-workspace[data-view="map"] .work-tree-node:is([data-status="active"], [data-status="verifying"]) > .work-tree-row .work-unit-status { color: var(--accent-text); }
