@@ -12,9 +12,9 @@ use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use serde_json::{json, Value};
 
-use crate::docstore::{DocStore, SOURCES};
 use crate::research_plan::{load_plan, PlanBudget, PlanStatus};
 use crate::webfetch::{fetch_bytes, html_to_text};
+use kanzei_memory::docstore::{DocStore, SOURCES};
 
 const MAX_SOURCE_BYTES: usize = 3 * 1024 * 1024;
 
@@ -81,7 +81,7 @@ fn now_ms() -> u64 {
 fn source_entries(
     root: &Path,
     topic: &str,
-) -> Result<BTreeMap<String, crate::docstore::Entry>, String> {
+) -> Result<BTreeMap<String, kanzei_memory::docstore::Entry>, String> {
     let store = DocStore::open_topic(root, &SOURCES, topic)
         .map_err(|error| format!("打开 topic sources 失败: {error}"))?;
     let entries = store
@@ -93,7 +93,7 @@ fn source_entries(
         .collect())
 }
 
-fn field(entry: &crate::docstore::Entry, key: &str) -> String {
+fn field(entry: &kanzei_memory::docstore::Entry, key: &str) -> String {
     entry
         .fields
         .iter()
@@ -154,7 +154,7 @@ fn claim_keywords(claim: &Value) -> Result<Vec<String>, String> {
 
 fn verify_literature(
     dir: &Path,
-    entry: &crate::docstore::Entry,
+    entry: &kanzei_memory::docstore::Entry,
     keywords: &[String],
     evidence_level: &str,
 ) -> Result<String, String> {

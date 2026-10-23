@@ -1,5 +1,6 @@
 // App-level event routing and lifecycle coordination. This is not a foundation module.
 import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
+import { setSessionDetails } from "./00-session-state.js";
 import { t } from "./02-i18n.js";
 import { beginStreamResponse, chatAbortRunningFor, commitStreamResponse, markPreviousRunErrors } from "./05-chat-render.js";
 import {
@@ -11,13 +12,12 @@ import {
   sessionState,
   sessionStates,
   toast,
-  toastError,
   transitionSession,
   trackRunElapsed,
 } from "./03-shell.js";
 import { autoContinueTimers, cancelAutoContinueTimer, releaseAutoContinue, takeAwaitingUser, autoStopReason, setAutoStopReason } from "./08-auto.js";
 import { handleBackgroundAutoFail, handleBackgroundSessionDone } from "./08-compose-runtime.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { refreshParallelTaskProjection, refreshProcesses, switchProcess } from "./09-sessions.js";
 import { refreshMemory } from "./13-memory.js";
 import { refreshConversationLists } from "./15-views-misc.js";
@@ -26,9 +26,9 @@ import { neuralFlowEmit } from "./22-neural-flow.js";
 import { subagentSettle } from "./05-subagents.js";
 import { updateSessionStage } from "./03-session-stage.js";
 
-import { $, defer } from "./00-dom.js";
-import { invoke } from "./00-ipc.js";
-import { promptBox, withSessionRender, renderingBackground } from "./01-chat-panes.js";
+import "./00-dom.js";
+import "./00-ipc.js";
+import { withSessionRender, renderingBackground } from "./01-chat-panes.js";
 
 // 事件订阅统一入口:注册失败必须可见(D-005 教训——ACL 拒绝时曾静默失联)。
 export const SESSION_PROGRESS_EVENTS = new Set([
@@ -192,9 +192,9 @@ export function refreshExperienceWorkbench(event) {
   if (pendingExperienceRefreshes.has(refreshKey)) return;
   pendingExperienceRefreshes.add(refreshKey);
   const refresh = event.event_type.startsWith("memory_")
-    ? (typeof refreshMemory === "function" ? refreshMemory : null)
+    ? refreshMemory
     : event.event_type.startsWith("research_") && document.body.dataset.view === "research"
-      ? (typeof refreshResearch === "function" ? refreshResearch : null)
+      ? refreshResearch
       : null;
   if (!refresh) {
     pendingExperienceRefreshes.delete(refreshKey);
@@ -250,7 +250,10 @@ export function on(event, handler) {
     const sessionId = event === "kz:experience"
       ? eventPayload.payload?.session_id
       : eventPayload.payload?.sessionId;
-    if (sessionId && eventPayload.payload?.runtimeManaged) sessionState(sessionId).runtime_managed = true;
+    // detail 字段只能经 setSessionDetails 落笔:直接赋值跳过 revision 递增与监听通知,
+    // 界面会永远停在「不是 runtime_managed」的旧值上。已为真时不重复广播。
+    if (sessionId && eventPayload.payload?.runtimeManaged && !sessionState(sessionId).runtime_managed)
+      setSessionDetails(sessionId, { runtime_managed: true });
     // 除了权限询问(它有专门的缺省会话归属逻辑),所有运行事件都必须带 sessionId。
     // 没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实也不能串线。
     if (!SESSIONLESS_EVENTS.has(event) && !sessionId) {
@@ -329,7 +332,7 @@ export function on(event, handler) {
     if (!controlEvent && !SESSIONLESS_EVENTS.has(event) && sessionId !== activeSessionId) {
       if (BACKGROUND_RENDER_EVENTS.has(event)) {
         withSessionRender(sessionId, () => handler(eventPayload));
-      } else if (event === "kz:auto-fail" && typeof handleBackgroundAutoFail === "function") {
+      } else if (event === "kz:auto-fail") {
         // 失败退避重试是**所属线**的自主推进事实,不是渲染:整条丢掉等于后台线一断网
         // 就永久停摆。走专用后台分支(只动该线状态),不能直接调活动线那个 handler——
         // 它会把别人的重试文案写进当前线的鞭挞控制台。
@@ -339,10 +342,12 @@ export function on(event, handler) {
     }
     if (controlEvent) {
       if (sessionId && event === "kz:done") {
-        sessionState(sessionId).roundResult = {
-          outcome: eventPayload.payload.outcome || (eventPayload.payload.halted ? "halted" : "completed"),
-          reason: eventPayload.payload.incompleteReason || "",
-        };
+        setSessionDetails(sessionId, {
+          roundResult: {
+            outcome: eventPayload.payload.outcome || (eventPayload.payload.halted ? "halted" : "completed"),
+            reason: eventPayload.payload.incompleteReason || "",
+          },
+        });
       }
       // R-086:控制事件先按 sessionId 更新对应会话状态机,再决定是否投影视图——
       // 后台会话的终态也必须收敛,不能只靠 refreshProcesses 间接拉后端
@@ -384,8 +389,8 @@ export function on(event, handler) {
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
         void refreshConversationLists();
-        if (typeof refreshProcesses === "function") refreshProcesses();
-        if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
+        refreshProcesses();
+        handleMobileMessage(eventPayload.payload);
         return;
       }
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
@@ -397,7 +402,7 @@ export function on(event, handler) {
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
           if (!retryPending) cancelAutoContinueTimer(sessionId);
-          if (typeof releaseAutoContinue === "function") releaseAutoContinue(sessionId);
+          releaseAutoContinue(sessionId);
           // #7:该线 pane 里还在转圈的工具行随终态收尾(标「中断」),否则切回去永远在转。
           chatAbortRunningFor(sessionId);
         }
@@ -441,7 +446,7 @@ export function handleMobileMessage(payload) {
 
 // D-387:订阅手机消息事件(与 SESSIONLESS_EVENTS 手动同源,冒烟校验要求 on() 调用)。
 on("kz:mobile-message", (eventPayload) => {
-  if (typeof handleMobileMessage === "function") handleMobileMessage(eventPayload.payload);
+  handleMobileMessage(eventPayload.payload);
 });
 // R-284 B1:结构化事件统一进入归并层；未知事件只记诊断，不得让 UI 崩溃。
 on("kz:experience", (eventPayload) => {
@@ -481,5 +486,5 @@ setInterval(() => {
     || document.body?.dataset.projectPreview === "true" || !currentProject || !activeSessionId) return;
   processPollTick += 1;
   if (!anySessionBusy() && processPollTick % PROCESS_POLL_IDLE_EVERY !== 0) return;
-  if (typeof refreshProcesses === "function") refreshProcesses();
+  refreshProcesses();
 }, PROCESS_POLL_MS);

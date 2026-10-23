@@ -22,7 +22,7 @@ use serde::Serialize;
 
 use super::mentions::{ids_in, line_of, wikilinks};
 use super::tool_areas::{backticked_tools, keyword_areas, title_lead_tool, tool_area};
-use crate::memory::{fp_markers, MemoryEntry};
+use kanzei_memory::memory::{fp_markers, MemoryEntry};
 
 /// 每条记忆最多挂几个区域(再多就是噪声,画面上也读不出来)。
 pub const MAX_AREAS_PER_MEMORY: usize = 4;

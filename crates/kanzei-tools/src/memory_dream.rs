@@ -71,8 +71,8 @@ fn fragment(
         sequence: event.sequence,
         at_ms: event.created_at,
         kind,
-        input_origin: origin.map(crate::memory::redact_credentials),
-        text: crate::memory::redact_credentials(text),
+        input_origin: origin.map(kanzei_memory::memory::redact_credentials),
+        text: kanzei_memory::memory::redact_credentials(text),
     }
 }
 
@@ -147,7 +147,7 @@ impl DreamSnapshot {
                     }
                 }
                 SessionFact::ToolCalled { call_id, name, .. } => {
-                    calls.insert(call_id, crate::memory::redact_credentials(&name));
+                    calls.insert(call_id, kanzei_memory::memory::redact_credentials(&name));
                 }
                 SessionFact::ToolResultCommitted {
                     call_id, is_error, ..
@@ -193,7 +193,10 @@ impl DreamSnapshot {
         Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(self)?)))
     }
 
-    pub fn persist(&self, store: &crate::memory::MemoryStore) -> anyhow::Result<DreamSourceRef> {
+    pub fn persist(
+        &self,
+        store: &kanzei_memory::memory::MemoryStore,
+    ) -> anyhow::Result<DreamSourceRef> {
         let sha256 = self.digest()?;
         store.write_source_artifact(
             &format!("dream-{sha256}.json"),
@@ -203,7 +206,7 @@ impl DreamSnapshot {
     }
 
     pub fn load(
-        store: &crate::memory::MemoryStore,
+        store: &kanzei_memory::memory::MemoryStore,
         reference: &DreamSourceRef,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
@@ -229,7 +232,7 @@ impl DreamSnapshot {
             "冻结来源内容已改变，不能继续引用"
         );
         anyhow::ensure!(
-            crate::memory::redact_credentials(&text) == text,
+            kanzei_memory::memory::redact_credentials(&text) == text,
             "来源仍含凭据，不能交给整理模型"
         );
         let source: Self = serde_json::from_str(&text)?;
@@ -269,8 +272,9 @@ mod tests {
         ));
         let other = root.join("other");
         std::fs::create_dir_all(&other).unwrap();
-        let memories = crate::memory::MemoryStore::project(&root);
-        let text = crate::memory::redact_credentials("喜欢紧凑排版。api_key=opaque-input-value");
+        let memories = kanzei_memory::memory::MemoryStore::project(&root);
+        let text =
+            kanzei_memory::memory::redact_credentials("喜欢紧凑排版。api_key=opaque-input-value");
         let snapshot = DreamSnapshot {
             format_version: DREAM_SOURCE_FORMAT_VERSION,
             session_id: "selected".into(),
@@ -294,9 +298,11 @@ mod tests {
                 .unwrap(),
             reference.sha256
         );
-        assert!(
-            DreamSnapshot::load(&crate::memory::MemoryStore::project(&other), &reference).is_err()
-        );
+        assert!(DreamSnapshot::load(
+            &kanzei_memory::memory::MemoryStore::project(&other),
+            &reference
+        )
+        .is_err());
         assert!(DreamSnapshot::load(
             &memories,
             &DreamSourceRef {

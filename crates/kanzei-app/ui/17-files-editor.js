@@ -279,7 +279,7 @@ function ensureEditor(monaco) {
   monacoApi = monaco;
   if (filesEditor) return filesEditor;
   // R-189:Monaco 主题跟随全局(暗=vs-dark/亮=vs);CSS 变量到不了 Monaco,用与 03-shell.js 相同的主题源。
-  const monacoTheme = typeof currentTheme === "function" && currentTheme() === "light" ? "vs" : "vs-dark";
+  const monacoTheme = currentTheme() === "light" ? "vs" : "vs-dark";
   filesEditor = monaco.editor.create($("files-editor"), {
     readOnly: true,
     automaticLayout: true,

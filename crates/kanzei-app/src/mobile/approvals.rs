@@ -634,71 +634,83 @@ mod tests {
     /// question 不接受 always。
     #[test]
     fn approval_answer_总是允许_落规则_存不下则保留ask() {
-        let root = temp_project("always");
-        let home = root.join("user-home");
-        crate::settings::with_kanzei_home(&home, || {
-            let runtime = Arc::new(SessionRuntime::default());
-            let (ok_ask, mut ok_rx) = pending_permission("bash", "git status", &root, "ses-1");
-            runtime.asks.lock_or_recover().insert(12, ok_ask);
-            let mut table = HashMap::new();
-            table.insert("ses-1".to_string(), runtime.clone());
-            let runtimes = Arc::new(Mutex::new(table));
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "approval_answer_总是允许_落规则_存不下则保留ask",
+            || {
+                let root = temp_project("always");
+                let home = root.join("user-home");
+                crate::settings::with_kanzei_home(&home, || {
+                    let runtime = Arc::new(SessionRuntime::default());
+                    let (ok_ask, mut ok_rx) =
+                        pending_permission("bash", "git status", &root, "ses-1");
+                    runtime.asks.lock_or_recover().insert(12, ok_ask);
+                    let mut table = HashMap::new();
+                    table.insert("ses-1".to_string(), runtime.clone());
+                    let runtimes = Arc::new(Mutex::new(table));
 
-            approval_answer(&runtimes, &json!({"id": 12, "reply": "always"})).unwrap();
-            match ok_rx.try_recv() {
-                Ok(kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AlwaysAllow)) => {}
-                other => panic!("always 应送达 AlwaysAllow,实得: {other:?}"),
-            }
-            let rules = std::fs::read_to_string(home.join("project-trust.json")).unwrap();
-            assert!(rules.contains("git status"), "放行规则应已落盘: {rules}");
+                    approval_answer(&runtimes, &json!({"id": 12, "reply": "always"})).unwrap();
+                    match ok_rx.try_recv() {
+                        Ok(kanzei_core::AskResponse::Permission(
+                            kanzei_core::AskReply::AlwaysAllow,
+                        )) => {}
+                        other => panic!("always 应送达 AlwaysAllow,实得: {other:?}"),
+                    }
+                    let rules = std::fs::read_to_string(home.join("project-trust.json")).unwrap();
+                    assert!(rules.contains("git status"), "放行规则应已落盘: {rules}");
 
-            // 规则文件损坏:报错,ask 仍在 pending,可改点「批准」。
-            let broken = temp_project("always-broken");
-            std::fs::write(home.join("project-trust.json"), "invalid JSON").unwrap();
-            let (bad_ask, mut bad_rx) = pending_permission("bash", "git log", &broken, "ses-1");
-            runtime.asks.lock_or_recover().insert(13, bad_ask);
-            let error =
-                approval_answer(&runtimes, &json!({"id": 13, "reply": "always"})).unwrap_err();
-            assert!(error.contains("规则保存失败"), "{error}");
-            assert!(
-                runtime.asks.lock_or_recover().contains_key(&13),
-                "ask 不得被消耗"
-            );
-            assert!(bad_rx.try_recv().is_err(), "没存成规则不得替用户放行或拒绝");
-            approval_answer(&runtimes, &json!({"id": 13, "reply": "allow"})).unwrap();
-            match bad_rx.try_recv() {
-                Ok(kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)) => {}
-                other => panic!("改点批准应送达 AllowOnce,实得: {other:?}"),
-            }
+                    // 规则文件损坏:报错,ask 仍在 pending,可改点「批准」。
+                    let broken = temp_project("always-broken");
+                    std::fs::write(home.join("project-trust.json"), "invalid JSON").unwrap();
+                    let (bad_ask, mut bad_rx) =
+                        pending_permission("bash", "git log", &broken, "ses-1");
+                    runtime.asks.lock_or_recover().insert(13, bad_ask);
+                    let error = approval_answer(&runtimes, &json!({"id": 13, "reply": "always"}))
+                        .unwrap_err();
+                    assert!(error.contains("规则保存失败"), "{error}");
+                    assert!(
+                        runtime.asks.lock_or_recover().contains_key(&13),
+                        "ask 不得被消耗"
+                    );
+                    assert!(bad_rx.try_recv().is_err(), "没存成规则不得替用户放行或拒绝");
+                    approval_answer(&runtimes, &json!({"id": 13, "reply": "allow"})).unwrap();
+                    match bad_rx.try_recv() {
+                        Ok(kanzei_core::AskResponse::Permission(
+                            kanzei_core::AskReply::AllowOnce,
+                        )) => {}
+                        other => panic!("改点批准应送达 AllowOnce,实得: {other:?}"),
+                    }
 
-            // question 不接受 always,ask 保留。
-            let (question_tx, _question_rx) = tokio::sync::oneshot::channel();
-            runtime.asks.lock_or_recover().insert(
-                14,
-                crate::PendingAsk {
-                    source: String::new(),
-                    agent_id: None,
-                    sender: question_tx,
-                    request: kanzei_core::AskRequest::Question {
-                        question: "继续?".into(),
-                        options: Vec::new(),
-                        default: None,
-                        multiple: false,
-                        background: false,
-                        callback_id: None,
-                    },
-                    action: "question".into(),
-                    resource: "继续?".into(),
-                    project_root: root.clone(),
-                    session_id: "ses-1".into(),
-                },
-            );
-            let error =
-                approval_answer(&runtimes, &json!({"id": 14, "reply": "always"})).unwrap_err();
-            assert!(error.contains("只适用于权限请求"), "{error}");
-            assert!(runtime.asks.lock_or_recover().contains_key(&14));
-            std::fs::remove_dir_all(root).ok();
-            std::fs::remove_dir_all(broken).ok();
-        });
+                    // question 不接受 always,ask 保留。
+                    let (question_tx, _question_rx) = tokio::sync::oneshot::channel();
+                    runtime.asks.lock_or_recover().insert(
+                        14,
+                        crate::PendingAsk {
+                            source: String::new(),
+                            agent_id: None,
+                            sender: question_tx,
+                            request: kanzei_core::AskRequest::Question {
+                                question: "继续?".into(),
+                                options: Vec::new(),
+                                default: None,
+                                multiple: false,
+                                background: false,
+                                callback_id: None,
+                            },
+                            action: "question".into(),
+                            resource: "继续?".into(),
+                            project_root: root.clone(),
+                            session_id: "ses-1".into(),
+                        },
+                    );
+                    let error = approval_answer(&runtimes, &json!({"id": 14, "reply": "always"}))
+                        .unwrap_err();
+                    assert!(error.contains("只适用于权限请求"), "{error}");
+                    assert!(runtime.asks.lock_or_recover().contains_key(&14));
+                    std::fs::remove_dir_all(root).ok();
+                    std::fs::remove_dir_all(broken).ok();
+                });
+            },
+        );
     }
 }

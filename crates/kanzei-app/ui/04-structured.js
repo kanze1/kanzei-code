@@ -86,7 +86,7 @@ function projectRoot() {
 }
 
 // ---------- 语法着色(原 06-activity.js,06 转出同名导出) ----------
-export function highlightLine(container, text, language) {
+export function highlightLine(container, text, _language) {
   const pattern = /("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\/\/.*|#.*|\b\d+(?:\.\d+)?\b|\b(?:fn|let|const|function|class|return|if|else|for|while|pub|struct|use|import|from|true|false|null|None|async|await)\b)/g;
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
@@ -249,7 +249,7 @@ function renderTable(rows, columns) {
 }
 
 /// 值的统一分派:tracker 列表/条目、搜索结果、键值表、扁平表格、字符串,其余 JSON 树。
-export function renderValue(value, { name = "", depth = 0 } = {}) {
+export function renderValue(value, {  depth = 0 } = {}) {
   if (isScalar(value) || value === undefined) return scalarNode(value);
   if (isPlainObject(value)) {
     if (Array.isArray(value.entries) && value.entries.every((entry) => isPlainObject(entry) && typeof entry.id === "string")) {

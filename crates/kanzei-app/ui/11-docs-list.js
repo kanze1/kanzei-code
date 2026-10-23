@@ -1,7 +1,7 @@
 import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
 import { renderWorkTree } from "./26-work-tree.js";
 import { openMenu } from "./00-surface.js";
-import { defer } from "./00-dom.js";
+import "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { promptBox } from "./01-chat-panes.js";
@@ -414,7 +414,7 @@ export function claimedCollaborationLineFor(entry) {
   const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
     ? collaborationLines
     : [];
-  const codes = typeof lineAgentCodes === "function" ? lineAgentCodes(lines) : new Map();
+  const codes = lineAgentCodes(lines);
   const explicitOwner = String(entry.claimed_by ?? "").trim();
   if (explicitOwner) {
     // D-360:取得线必须此刻真在线。claimed_by 是历史事实,线可能早退出了(进程崩掉、

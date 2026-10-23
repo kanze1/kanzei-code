@@ -8,8 +8,8 @@
 //! 危险点(搬迁纪律):存储侧只产候选不做排序决策——`search_candidates` 的 bm25
 //! 原样保留(FTS5 负值,越小越相关),ranking/状态加权/采纳率决策只属于检索门面
 //! (SqliteMemoryIndex,D-366);shadow 条目不注入生产检索(硬排除,只有显式查
-//! shadow 才可见);召回观测(record_recall)与命中追踪(record_hits)由检索门面在
-//! 决策排序完成后调用,纯探测不记,避免污染观测。
+//! shadow 才可见)。检索门面在排序完成后记录命中；旧 record_recall 存储仅供
+//! 历史兼容和全局候选复核使用，运行时召回观测走 core 事件通道。
 
 mod recall;
 mod search;

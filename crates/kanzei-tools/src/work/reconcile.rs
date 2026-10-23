@@ -11,8 +11,8 @@ use std::process::Command;
 use serde::Serialize;
 
 use super::RepoObservation;
-use crate::docstore::Entry;
 use crate::test_record::records_for_entry;
+use kanzei_memory::docstore::Entry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]

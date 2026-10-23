@@ -7,6 +7,9 @@ import { processSwitchGeneration, refreshProcesses, switchProcess } from "./09-s
 import { workbenchNavigationGuard } from "./12-workbench.js";
 import { loadConversation } from "./15-views-misc.js";
 
+// 作废范围 = 「这一个回退/分叉对话框」。只有重新打开对话框才 +1;切线、切视图、
+// 装载历史各走自己的计数(见 03-shell 与 09-sessions、15-views-misc)。合并的后果
+// 是反向的:对话框一打开就把用户同时在途的历史装载判成过期,预览请求全被丢掉。
 let actionGeneration = 0;
 export function conversationActionButton(message) {
   const button = document.createElement("button");

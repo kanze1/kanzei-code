@@ -156,7 +156,7 @@ fn project_root(project_dir: &str) -> PathBuf {
 }
 
 fn validate_topic(topic: &str) -> Result<(), String> {
-    kanzei_tools::docstore::DocStore::validate_topic(topic)
+    kanzei_memory::docstore::DocStore::validate_topic(topic)
         .map(|_| ())
         .map_err(|error| format!("topic 校验失败: {error}"))
 }

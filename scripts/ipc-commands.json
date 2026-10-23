@@ -531,7 +531,7 @@
       },
       "review": {
         "required": true,
-        "type": "kanzei_core :: store :: decisions :: ReviewDecision"
+        "type": "kanzei_core :: decisions :: ReviewDecision"
       }
     },
     "path": "decisions::decision_review",
@@ -2640,7 +2640,7 @@
         "type": "String"
       }
     },
-    "path": "commands::run::run_metrics",
+    "path": "commands::run::metrics::run_metrics",
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "run_metrics_by_category": {
@@ -2655,7 +2655,7 @@
         "type": "String"
       }
     },
-    "path": "commands::run::run_metrics_by_category",
+    "path": "commands::run::metrics::run_metrics_by_category",
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "run_metrics_by_task": {
@@ -2666,7 +2666,7 @@
         "type": "String"
       }
     },
-    "path": "commands::run::run_metrics_by_task",
+    "path": "commands::run::metrics::run_metrics_by_task",
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "run_prompt": {
@@ -2681,6 +2681,10 @@
         "type": "Option < Vec < crate :: PromptAttachment > >"
       },
       "autoAllow": {
+        "required": false,
+        "type": "Option < bool >"
+      },
+      "autoRound": {
         "required": false,
         "type": "Option < bool >"
       },
@@ -3352,7 +3356,7 @@
       }
     },
     "path": "decisions::work_delivery_accept",
-    "returns": "-> Result < kanzei_core :: store :: decisions :: WorkAcceptance , String >"
+    "returns": "-> Result < kanzei_core :: decisions :: WorkAcceptance , String >"
   },
   "workspace_overview": {
     "host": "service",

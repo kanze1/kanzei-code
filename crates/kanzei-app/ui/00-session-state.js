@@ -39,3 +39,15 @@ export function reduceSession(sessionId, phase, detail = {}) {
   for (const listener of listeners) listener(sessionId, state);
   return state;
 }
+
+// 不改相位、只落 detail 的唯一入口。直接给 state 赋值会跳过 revision 递增与监听通知,
+// 界面读到旧值且没有任何信号;把当前相位回灌给 reduceSession 也不安全——starting
+// 分支会清空 roundResult,把刚写入的本轮结果抹掉。
+export function setSessionDetails(sessionId, detail = {}) {
+  for (const key of Object.keys(detail)) if (!detailFields.has(key)) throw new TypeError(`Session details cannot write ${key}`);
+  const state = sessionState(sessionId);
+  for (const [key, value] of Object.entries(detail)) state[key] = value;
+  revisions.set(state, state.revision + 1);
+  for (const listener of listeners) listener(sessionId, state);
+  return state;
+}

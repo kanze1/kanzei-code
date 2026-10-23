@@ -3,7 +3,7 @@
 //! 该模块只承载旧格式验收开放度、草稿完整性、语义确认和限定词一致性校验；
 //! action 路由通过 `TrackerTool` 复用这些门禁，保持校验顺序与错误文案不变。
 
-use crate::docstore::Entry;
+use kanzei_memory::docstore::Entry;
 
 use super::TrackerTool;
 
@@ -122,7 +122,7 @@ impl TrackerTool {
 
     fn quoted_user_text(source: &str) -> String {
         let mut quoted = String::new();
-        for (open, close) in [('「', '」'), ('“', '”'), ('‘', '’')] {
+        for (open, close) in [('「', '」'), ('“', '”'), ('‘', '’'), ('"', '"')] {
             let mut rest = source;
             while let Some(start) = rest.find(open) {
                 let after = &rest[start + open.len_utf8()..];
@@ -130,11 +130,6 @@ impl TrackerTool {
                 quoted.push_str(&after[..end]);
                 rest = &after[end + close.len_utf8()..];
             }
-        }
-        let mut ascii = source.split('"');
-        while let (Some(_), Some(value)) = (ascii.next(), ascii.next()) {
-            quoted.push_str(value);
-            let _ = ascii.next();
         }
         quoted
     }
@@ -164,16 +159,22 @@ impl TrackerTool {
             .iter()
             .filter_map(|name| Self::field_value(fields.clone(), &[*name]))
             .collect::<Vec<_>>()
-            .join(" ");
-        let lower = evidence.to_ascii_lowercase();
-        if lower.contains("question")
-            || evidence.contains("用户明确豁免")
-            || evidence.contains("用户豁免")
-        {
+            .join("\n");
+        // D-764③:过去这里只判 `question` 这个词,模型自述一句「已通过 question 确认」
+        // 就放行,而这句话正是 D-764 里冒写用户名义的那种散文。现在要求逐字引用
+        // runner 在用户作答时给出的凭证;模型自己的决定(dec-…)不在此列。
+        let explicit_waiver = evidence.lines().any(|line| {
+            let line = line.trim();
+            ["用户明确豁免：", "用户明确豁免:", "用户豁免：", "用户豁免:"]
+                .iter()
+                .any(|prefix| line.starts_with(prefix))
+                && !Self::quoted_user_text(line).trim().is_empty()
+        });
+        if kanzei_harness::question_ref::cites_question_ref(&evidence) || explicit_waiver {
             Ok(())
         } else {
             Err(
-                "检测到未决核心语义，不能进入 doing/设计冻结；请先调用 `question` 并把结果写入 `确认记录`，或写入用户明确豁免及原话。"
+                "检测到未决核心语义，不能进入 doing/设计冻结；请先调用 `question`，把用户作答后工具输出里的凭证逐字写进 `确认记录`（形如 `question:<run_id>:<call_id>`），或写入用户明确豁免及原话。"
                     .into(),
             )
         }

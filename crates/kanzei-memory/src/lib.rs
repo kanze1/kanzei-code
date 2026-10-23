@@ -9,16 +9,12 @@
 //! - `scheduling`:workable_titles 取活调度链副本(见 scheduling.rs 头部说明)。
 //!
 //! kanzei-tools 经 `pub use kanzei_memory::{memory, docstore, embed, replay_eval}`
-//! 再导出,`kanzei_tools::memory::*` 等全部调用点零改动。
+//! 再导出,`kanzei_memory::memory::*` 等全部调用点零改动。
 
 pub mod docstore;
 pub mod embed;
 pub mod memory;
 pub mod replay_eval;
-/// R-203:workable_titles 调度链副本(原 tools/tracker.rs 逐字复制)。memory 的
-/// prompt_hints 在自主轮用取活条目标题做检索键,为断 memory↔tools 循环依赖而
-/// 复制,不是新的调度实现;R-204 把取活调度抽成独立可审计模块时在此统一。
-pub mod scheduling;
 
 /// 原子写原语:memory/docstore 共用 kanzei-base 的 atomic_file(原 tools 再导出)。
 pub use kanzei_base::atomic_file;

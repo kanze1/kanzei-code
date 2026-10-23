@@ -1,3 +1,4 @@
+import { collectEsmImports } from "./esm-test-imports.mjs";
 // Complete general scope/controller and real navigation/session/workspace owners.
 // IPC/DOM/other views are isolated fixtures; --before reads exact committed sources.
 import assert from 'node:assert/strict';
@@ -91,10 +92,7 @@ async function harness() {
     ['./20-lines.js', { forProject: () => [] }],
     ['./12-session-tree.js', { processName: item => item.label ?? item.id, orderedProjects: prefs => prefs.projects ?? [], wrapProjectRow: (_path, button) => { const wrapper = new Element(); wrapper._link = button; wrapper.append(button); return wrapper; } }],
   ]);
-  const imported = new Map();
-  for (const text of sources.values()) for (const [, body, specifier] of text.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*"([^"]+)"/g)) {
-    if (modules.has(specifier)) continue; const exports = imported.get(specifier) ?? new Set(); for (const name of body.split(',').map(value => value.trim()).filter(Boolean)) exports.add(name.split(/\s+as\s+/)[0]); imported.set(specifier, exports);
-  }
+  const imported = collectEsmImports(sources, modules);
   imported.get('./03-layout.js').add('flushLayout');
   for (const [specifier, names] of imported) { const exports = values.get(specifier) ?? {}; deps.set(specifier, new vm.SyntheticModule([...names], function () { for (const name of names) this.setExport(name, Object.hasOwn(exports, name) ? exports[name] : () => {}); }, { context })); }
   const linker = specifier => modules.get(specifier) ?? deps.get(specifier);

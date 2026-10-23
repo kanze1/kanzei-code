@@ -440,9 +440,9 @@ fn docs_snapshot_并发刷新不会返回成功但空的快照() {
         let root = root.clone();
         let 停 = Arc::clone(&停);
         std::thread::spawn(move || {
-            let store = kanzei_tools::docstore::DocStore::open(
+            let store = kanzei_memory::docstore::DocStore::open(
                 &root,
-                &kanzei_tools::docstore::REQUIREMENTS,
+                &kanzei_memory::docstore::REQUIREMENTS,
             );
             let entries = store.load().unwrap();
             store.save(&entries).unwrap();
@@ -615,10 +615,10 @@ async fn selected_empty_project_subagents_do_not_load_parent_config_or_tracker()
     // about keeping its config/tracker empty and preserving the parent's material.
     assert!(!child.join(".kanzei/kanzei.toml").exists());
     for kind in [
-        &kanzei_tools::docstore::IDEAS,
-        &kanzei_tools::docstore::DEFECTS,
+        &kanzei_memory::docstore::IDEAS,
+        &kanzei_memory::docstore::DEFECTS,
     ] {
-        assert!(kanzei_tools::docstore::DocStore::open(&child, kind)
+        assert!(kanzei_memory::docstore::DocStore::open(&child, kind)
             .load()
             .unwrap()
             .is_empty());

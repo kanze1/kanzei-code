@@ -1,8 +1,7 @@
 //! edit 工具:精确字符串替换。自举开发的关键——比 write 整文件覆写安全得多。
 //! 硬门禁:old_string 必须唯一命中(除非 replace_all);未命中/多命中都给出
 //! 可操作的纠错反馈;写后语法校验(设计红线 5)。
-//! D-113 门禁:仅换行符差异自动容忍;同一文件连续两次未命中后,错误反馈
-//! 直接附带文件实际内容(等于替模型重读),杜绝盲试与整文件重写兜底。
+//! 未命中时首次就附带文件实际片段；成功编辑清零失败计数，避免盲试与整文件重写兜底。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,8 +13,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
-/// 连续未命中达到该次数后,反馈附带文件实际片段。
-const MISSES_BEFORE_EXCERPT: u32 = 1;
 const EXCERPT_LINES: usize = 40;
 const EXCERPT_MAX_CHARS: usize = 3000;
 
@@ -469,15 +466,10 @@ impl Tool for EditTool {
             return self.miss_feedback(&path, &input.old_string, &content);
         }
         if count > 1 && !input.replace_all {
-            let miss_count = self.record_miss(&path);
+            self.record_miss(&path);
             return ToolOutput::needs_correction("EDIT_ANCHOR_NOT_UNIQUE", format!(
-                "old_string matches {count} locations in {}; make it unique with more context, or set replace_all=true.{}\nActual file context around the first match:\n{}",
+                "old_string matches {count} locations in {}; make it unique with more context, or set replace_all=true.\nDo NOT fall back to rewriting the whole file via shell — add surrounding lines to old_string until it is unique.\nActual file context around the first match:\n{}",
                 path.display(),
-                if miss_count >= MISSES_BEFORE_EXCERPT {
-                    "\nDo NOT fall back to rewriting the whole file via shell — add surrounding lines to old_string until it is unique."
-                } else {
-                    ""
-                },
                 excerpt_around(&content, input.old_string.lines().next().unwrap_or("")),
             ));
         }
@@ -603,8 +595,7 @@ impl EditTool {
         *count
     }
 
-    /// 未命中反馈:第 1 次给最像的一行;连续第 2 次起直接附带文件实际片段
-    /// (等于替模型重读),并明确禁止转向整文件重写。
+    /// 首次未命中即附实际片段，保留连续失败次数，并明确禁止转向整文件重写。
     fn miss_feedback(&self, path: &Path, old_string: &str, content: &str) -> ToolOutput {
         let miss_count = self.record_miss(path);
         let first_line = old_string
@@ -615,16 +606,10 @@ impl EditTool {
             "old_string not found in {} — it must match exactly, including whitespace.",
             path.display()
         );
-        if miss_count < MISSES_BEFORE_EXCERPT {
-            if let Some(closest) = content.lines().find(|l| l.contains(first_line.trim())) {
-                message.push_str(&format!("\nClosest line in file: `{closest}`"));
-            }
-        } else {
-            message.push_str(&format!(
-                "\nConsecutive miss #{miss_count} on this file. The file's ACTUAL content around the closest match is below — align old_string to THIS text exactly. Do NOT rewrite the whole file via shell (Set-Content/Out-File are blocked); do NOT retry blindly:\n{}",
-                excerpt_around(content, first_line.trim())
-            ));
-        }
+        message.push_str(&format!(
+            "\nConsecutive miss #{miss_count} on this file. The file's ACTUAL content around the closest match is below — align old_string to THIS text exactly. Do NOT rewrite the whole file via shell (Set-Content/Out-File are blocked); do NOT retry blindly:\n{}",
+            excerpt_around(content, first_line.trim())
+        ));
         ToolOutput::needs_correction("EDIT_ANCHOR_NOT_FOUND", message)
     }
 }
@@ -937,11 +922,11 @@ mod tests {
 
         // 审计 18:每次写入前像与后像共用一次 open(edit、edit、insert 共三次)。
         assert_eq!(
-            kanzei_core::store::store_open_count(&kanzei_core::store::project_state_path(&dir)),
+            kanzei_core::store_open_count(&kanzei_core::project_state_path(&dir)),
             3
         );
-        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&dir)).unwrap();
-        let key = kanzei_core::store::file_checkpoint_path_key(&path);
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(&dir)).unwrap();
+        let key = kanzei_core::file_checkpoint_path_key(&path);
         let (count, pre_exists, blob, post_hash): (i64, i64, Option<String>, Option<String>) = db
             .query_row(
                 "SELECT COUNT(*), MAX(pre_exists), MAX(pre_blob), MAX(post_hash)
@@ -953,7 +938,7 @@ mod tests {
         assert_eq!((count, pre_exists), (1, 1));
         let blob = blob.expect("已有文件应保存首次前像 blob");
         assert_eq!(
-            std::fs::read(kanzei_core::store::file_checkpoint_blob_path(&dir, &blob)).unwrap(),
+            std::fs::read(kanzei_core::file_checkpoint_blob_path(&dir, &blob)).unwrap(),
             original.as_bytes()
         );
         assert!(post_hash.is_some());

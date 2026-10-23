@@ -1,7 +1,7 @@
 //! Typed requirement writes and versioned acceptance evidence.
 use super::TrackerInput;
-use crate::docstore::Entry;
 use kanzei_memory::docstore::requirement::{acceptance_evidence, RequirementSpec, SPEC_FIELDS};
+use kanzei_memory::docstore::Entry;
 
 pub(super) fn prepare(input: &mut TrackerInput, existing: Option<&Entry>) -> Result<(), String> {
     if input.action == "add"
@@ -154,8 +154,8 @@ pub(super) fn check_close(entry: &Entry, root: &std::path::Path) -> Result<(), S
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::docstore::{DocStore, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
+    use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
     use serde_json::json;
 
     fn temp_root() -> std::path::PathBuf {

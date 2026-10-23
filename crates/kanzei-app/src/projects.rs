@@ -766,74 +766,92 @@ mod prefs_failure_tests {
 
     #[test]
     fn registry_writers_keep_failed_read_bytes_and_report_directory_side_effects() {
-        with_home("projects", |home| {
-            let good = fixture(home);
-            let a = good["projects"][0].as_str().unwrap().to_owned();
-            let b = good["projects"][1].as_str().unwrap().to_owned();
-            for (kind, bytes) in damaged_inputs(&good) {
-                for writer in ["register", "init", "rename", "add", "reorder", "select"] {
-                    let dir = home.join(format!("{kind}-{writer}"));
-                    if writer == "register" || writer == "add" {
-                        std::fs::create_dir(&dir).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "registry_writers_keep_failed_read_bytes_and_report_directory_side_effects",
+            || {
+                with_home("projects", |home| {
+                    let good = fixture(home);
+                    let a = good["projects"][0].as_str().unwrap().to_owned();
+                    let b = good["projects"][1].as_str().unwrap().to_owned();
+                    for (kind, bytes) in damaged_inputs(&good) {
+                        for writer in ["register", "init", "rename", "add", "reorder", "select"] {
+                            let dir = home.join(format!("{kind}-{writer}"));
+                            if writer == "register" || writer == "add" {
+                                std::fs::create_dir(&dir).unwrap();
+                            }
+                            let path = dir.display().to_string();
+                            assert_rejected_unchanged(home, &bytes, || match writer {
+                                "register" => {
+                                    register_project(&dir, Some("New project")).map(|_| ())
+                                }
+                                "init" => projects_init(path.clone(), None).map(|_| ()),
+                                "rename" => {
+                                    projects_rename(a.clone(), "Renamed".into()).map(|_| ())
+                                }
+                                "add" => projects_add(path.clone()).map(|_| ()),
+                                "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
+                                "select" => projects_select(a.clone()).map(|_| ()),
+                                _ => unreachable!(),
+                            });
+                            if writer == "init" || writer == "add" {
+                                assert!(
+                                dir.join(".kanzei/.gitignore").is_file(),
+                                "directory initialization precedes registry persistence and is retained on failure"
+                            );
+                            }
+                        }
                     }
-                    let path = dir.display().to_string();
-                    assert_rejected_unchanged(home, &bytes, || match writer {
-                        "register" => register_project(&dir, Some("New project")).map(|_| ()),
-                        "init" => projects_init(path.clone(), None).map(|_| ()),
-                        "rename" => projects_rename(a.clone(), "Renamed".into()).map(|_| ()),
-                        "add" => projects_add(path.clone()).map(|_| ()),
-                        "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
-                        "select" => projects_select(a.clone()).map(|_| ()),
-                        _ => unreachable!(),
-                    });
-                    if writer == "init" || writer == "add" {
-                        assert!(
-                            dir.join(".kanzei/.gitignore").is_file(),
-                            "directory initialization precedes registry persistence and is retained on failure"
-                        );
-                    }
-                }
-            }
-        });
+                });
+            },
+        );
     }
 
     #[test]
     fn registry_writers_preserve_other_normal_fields_and_allow_first_registration() {
-        with_home("project-controls", |home| {
-            let initial = home.join("initial");
-            std::fs::create_dir(&initial).unwrap();
-            register_project(&initial, Some("First project")).unwrap();
-            assert!(home.join("app.json").is_file());
-            let good = fixture(home);
-            let a = good["projects"][0].as_str().unwrap().to_owned();
-            let b = good["projects"][1].as_str().unwrap().to_owned();
-            for writer in ["register", "init", "rename", "add", "reorder", "select"] {
-                std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
-                let dir = home.join(format!("normal-{writer}"));
-                if writer == "register" || writer == "add" {
-                    std::fs::create_dir(&dir).unwrap();
-                }
-                let path = dir.display().to_string();
-                match writer {
-                    "register" => register_project(&dir, Some("New project")).map(|_| ()),
-                    "init" => projects_init(path, None).map(|_| ()),
-                    "rename" => projects_rename(a.clone(), "Renamed".into()).map(|_| ()),
-                    "add" => projects_add(path).map(|_| ()),
-                    "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
-                    "select" => projects_select(b.clone()).map(|_| ()),
-                    _ => unreachable!(),
-                }
-                .unwrap();
-                let after: serde_json::Value =
-                    serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
-                assert_eq!(after["names"][&b], "Kept B", "{writer}");
-                assert_eq!(after["open_tools"], good["open_tools"], "{writer}");
-                assert_eq!(
-                    after["process_auto_state"], good["process_auto_state"],
-                    "{writer}"
-                );
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "registry_writers_preserve_other_normal_fields_and_allow_first_registration",
+            || {
+                with_home("project-controls", |home| {
+                    let initial = home.join("initial");
+                    std::fs::create_dir(&initial).unwrap();
+                    register_project(&initial, Some("First project")).unwrap();
+                    assert!(home.join("app.json").is_file());
+                    let good = fixture(home);
+                    let a = good["projects"][0].as_str().unwrap().to_owned();
+                    let b = good["projects"][1].as_str().unwrap().to_owned();
+                    for writer in ["register", "init", "rename", "add", "reorder", "select"] {
+                        std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap())
+                            .unwrap();
+                        let dir = home.join(format!("normal-{writer}"));
+                        if writer == "register" || writer == "add" {
+                            std::fs::create_dir(&dir).unwrap();
+                        }
+                        let path = dir.display().to_string();
+                        match writer {
+                            "register" => register_project(&dir, Some("New project")).map(|_| ()),
+                            "init" => projects_init(path, None).map(|_| ()),
+                            "rename" => projects_rename(a.clone(), "Renamed".into()).map(|_| ()),
+                            "add" => projects_add(path).map(|_| ()),
+                            "reorder" => projects_reorder(vec![b.clone(), a.clone()]),
+                            "select" => projects_select(b.clone()).map(|_| ()),
+                            _ => unreachable!(),
+                        }
+                        .unwrap();
+                        let after: serde_json::Value =
+                            serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap())
+                                .unwrap();
+                        assert_eq!(after["names"][&b], "Kept B", "{writer}");
+                        assert_eq!(after["open_tools"], good["open_tools"], "{writer}");
+                        assert_eq!(
+                            after["process_auto_state"], good["process_auto_state"],
+                            "{writer}"
+                        );
+                    }
+                });
+            },
+        );
     }
 }
 
@@ -1135,124 +1153,150 @@ mod export_failure_tests {
 
     #[test]
     fn export_options_accept_real_ui_camel_and_legacy_snake_payloads() {
-        with_home("export-options", |home| {
-            let project = home.join("project");
-            let output = home.join("output");
-            let relative = ".kanzei/project/requirements.md";
-            std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
-            std::fs::write(project.join(relative), b"requirements").unwrap();
-            for payload in [
-                json!({
-                    "projectDir": project.display().to_string(),
-                    "outputDir": output.display().to_string(),
-                    "includeMemory": false,
-                    "includeRequirements": true,
-                    "includeDefects": false,
-                    "includeConfig": false,
-                }),
-                json!({
-                    "project_dir": project.display().to_string(),
-                    "output_dir": output.display().to_string(),
-                    "include_memory": false,
-                    "include_requirements": true,
-                    "include_defects": false,
-                    "include_config": false,
-                }),
-            ] {
-                let parsed: ExportOptions = serde_json::from_value(payload).unwrap();
-                assert_eq!(parsed.project_dir, project.display().to_string());
-                assert_eq!(parsed.output_dir, output.display().to_string());
-                assert!(!parsed.include_memory);
-                assert!(parsed.include_requirements);
-                assert!(!parsed.include_defects);
-                assert!(!parsed.include_config);
-                let result = export_project_data(parsed).unwrap();
-                assert_eq!(result["files"], json!([relative]));
-                assert_eq!(
-                    std::fs::read(exported_path(&result).join(relative)).unwrap(),
-                    b"requirements"
-                );
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "export_options_accept_real_ui_camel_and_legacy_snake_payloads",
+            || {
+                with_home("export-options", |home| {
+                    let project = home.join("project");
+                    let output = home.join("output");
+                    let relative = ".kanzei/project/requirements.md";
+                    std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
+                    std::fs::write(project.join(relative), b"requirements").unwrap();
+                    for payload in [
+                        json!({
+                            "projectDir": project.display().to_string(),
+                            "outputDir": output.display().to_string(),
+                            "includeMemory": false,
+                            "includeRequirements": true,
+                            "includeDefects": false,
+                            "includeConfig": false,
+                        }),
+                        json!({
+                            "project_dir": project.display().to_string(),
+                            "output_dir": output.display().to_string(),
+                            "include_memory": false,
+                            "include_requirements": true,
+                            "include_defects": false,
+                            "include_config": false,
+                        }),
+                    ] {
+                        let parsed: ExportOptions = serde_json::from_value(payload).unwrap();
+                        assert_eq!(parsed.project_dir, project.display().to_string());
+                        assert_eq!(parsed.output_dir, output.display().to_string());
+                        assert!(!parsed.include_memory);
+                        assert!(parsed.include_requirements);
+                        assert!(!parsed.include_defects);
+                        assert!(!parsed.include_config);
+                        let result = export_project_data(parsed).unwrap();
+                        assert_eq!(result["files"], json!([relative]));
+                        assert_eq!(
+                            std::fs::read(exported_path(&result).join(relative)).unwrap(),
+                            b"requirements"
+                        );
+                    }
+                });
+            },
+        );
     }
 
     #[test]
     fn successful_exports_survive_later_export_and_empty_failure() {
-        with_home("export-preserve", |home| {
-            let project = home.join("project");
-            let output = home.join("output");
-            let relative = ".kanzei/project/requirements.md";
-            std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
-            std::fs::write(project.join(relative), b"FIRST_SNAPSHOT").unwrap();
-            let first =
-                exported_path(&export_project_data(options(&project, &output, true)).unwrap());
-            std::fs::write(project.join(relative), b"SECOND_SNAPSHOT").unwrap();
-            let second =
-                exported_path(&export_project_data(options(&project, &output, true)).unwrap());
-            let error = export_project_data(options(&project, &output, false)).unwrap_err();
-            assert_eq!(error, "没有可导出的工作资料");
-            assert_eq!(
-                std::fs::read(first.join(relative)).ok(),
-                Some(b"FIRST_SNAPSHOT".to_vec()),
-                "后续导出或空包清理不能覆盖/删除已成功的第一份正文"
-            );
-            assert_eq!(
-                std::fs::read(second.join(relative)).ok(),
-                Some(b"SECOND_SNAPSHOT".to_vec()),
-                "空包清理不能删除已成功的第二份正文"
-            );
-            assert_ne!(first, second, "每次成功导出必须拥有不同的目录");
-            assert_eq!(std::fs::read_dir(&output).unwrap().count(), 2);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "successful_exports_survive_later_export_and_empty_failure",
+            || {
+                with_home("export-preserve", |home| {
+                    let project = home.join("project");
+                    let output = home.join("output");
+                    let relative = ".kanzei/project/requirements.md";
+                    std::fs::create_dir_all(project.join(".kanzei/project")).unwrap();
+                    std::fs::write(project.join(relative), b"FIRST_SNAPSHOT").unwrap();
+                    let first = exported_path(
+                        &export_project_data(options(&project, &output, true)).unwrap(),
+                    );
+                    std::fs::write(project.join(relative), b"SECOND_SNAPSHOT").unwrap();
+                    let second = exported_path(
+                        &export_project_data(options(&project, &output, true)).unwrap(),
+                    );
+                    let error = export_project_data(options(&project, &output, false)).unwrap_err();
+                    assert_eq!(error, "没有可导出的工作资料");
+                    assert_eq!(
+                        std::fs::read(first.join(relative)).ok(),
+                        Some(b"FIRST_SNAPSHOT".to_vec()),
+                        "后续导出或空包清理不能覆盖/删除已成功的第一份正文"
+                    );
+                    assert_eq!(
+                        std::fs::read(second.join(relative)).ok(),
+                        Some(b"SECOND_SNAPSHOT".to_vec()),
+                        "空包清理不能删除已成功的第二份正文"
+                    );
+                    assert_ne!(first, second, "每次成功导出必须拥有不同的目录");
+                    assert_eq!(std::fs::read_dir(&output).unwrap().count(), 2);
+                });
+            },
+        );
     }
 
     #[test]
     fn fixed_timestamp_reservations_exclusively_own_each_directory() {
-        with_home("export-reserve", |home| {
-            let output = home.join("output");
-            std::fs::create_dir(&output).unwrap();
-            let barrier = Arc::new(Barrier::new(8));
-            let workers = (0..8)
-                .map(|id| {
-                    let output = output.clone();
-                    let barrier = Arc::clone(&barrier);
-                    std::thread::spawn(move || {
-                        barrier.wait();
-                        let reserved = reserve_export_dir(&output, 42).unwrap();
-                        std::fs::write(reserved.join("owner"), id.to_string()).unwrap();
-                        (reserved, id.to_string())
-                    })
-                })
-                .collect::<Vec<_>>();
-            let reserved = workers
-                .into_iter()
-                .map(|worker| worker.join().unwrap())
-                .collect::<Vec<_>>();
-            let unique = reserved
-                .iter()
-                .map(|(path, _)| path)
-                .collect::<HashSet<_>>();
-            assert_eq!(unique.len(), 8, "同一秒并发导出不能复用目录");
-            for (path, owner) in reserved {
-                assert_eq!(std::fs::read_to_string(path.join("owner")).unwrap(), owner);
-            }
-            assert_eq!(std::fs::read_dir(output).unwrap().count(), 8);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "fixed_timestamp_reservations_exclusively_own_each_directory",
+            || {
+                with_home("export-reserve", |home| {
+                    let output = home.join("output");
+                    std::fs::create_dir(&output).unwrap();
+                    let barrier = Arc::new(Barrier::new(8));
+                    let workers = (0..8)
+                        .map(|id| {
+                            let output = output.clone();
+                            let barrier = Arc::clone(&barrier);
+                            std::thread::spawn(move || {
+                                barrier.wait();
+                                let reserved = reserve_export_dir(&output, 42).unwrap();
+                                std::fs::write(reserved.join("owner"), id.to_string()).unwrap();
+                                (reserved, id.to_string())
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    let reserved = workers
+                        .into_iter()
+                        .map(|worker| worker.join().unwrap())
+                        .collect::<Vec<_>>();
+                    let unique = reserved
+                        .iter()
+                        .map(|(path, _)| path)
+                        .collect::<HashSet<_>>();
+                    assert_eq!(unique.len(), 8, "同一秒并发导出不能复用目录");
+                    for (path, owner) in reserved {
+                        assert_eq!(std::fs::read_to_string(path.join("owner")).unwrap(), owner);
+                    }
+                    assert_eq!(std::fs::read_dir(output).unwrap().count(), 8);
+                });
+            },
+        );
     }
 
     #[test]
     fn reservation_skips_existing_paths_and_returns_other_io_errors() {
-        with_home("export-reserve-error", |home| {
-            let occupied = home.join("kanzei-export-42");
-            std::fs::write(&occupied, b"existing-file").unwrap();
-            let reserved = reserve_export_dir(home, 42).unwrap();
-            assert_eq!(reserved, home.join("kanzei-export-42-1"));
-            assert_eq!(std::fs::read(&occupied).unwrap(), b"existing-file");
-            let missing_parent = home.join("missing");
-            let error = reserve_export_dir(&missing_parent, 42).unwrap_err();
-            assert!(error.contains("创建导出包目录失败"));
-            assert!(!missing_parent.exists());
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "reservation_skips_existing_paths_and_returns_other_io_errors",
+            || {
+                with_home("export-reserve-error", |home| {
+                    let occupied = home.join("kanzei-export-42");
+                    std::fs::write(&occupied, b"existing-file").unwrap();
+                    let reserved = reserve_export_dir(home, 42).unwrap();
+                    assert_eq!(reserved, home.join("kanzei-export-42-1"));
+                    assert_eq!(std::fs::read(&occupied).unwrap(), b"existing-file");
+                    let missing_parent = home.join("missing");
+                    let error = reserve_export_dir(&missing_parent, 42).unwrap_err();
+                    assert!(error.contains("创建导出包目录失败"));
+                    assert!(!missing_parent.exists());
+                });
+            },
+        );
     }
 }
 

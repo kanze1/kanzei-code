@@ -8,7 +8,7 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
+use kanzei_memory::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 // R-204:取活调度域独立成模块(scheduling.rs),供 auto_run/CLI/docs/memory 四方统一消费。
 // 本文件保留既有 pub 面(re-export),消费方调用点零改动;行为零变更。
@@ -83,7 +83,8 @@ fn normalize_batch_field(fields: &mut BTreeMap<String, String>) {
     else {
         return;
     };
-    let Some((done, total, note)) = crate::docstore::split_batch_value(&fields[&key]) else {
+    let Some((done, total, note)) = kanzei_memory::docstore::split_batch_value(&fields[&key])
+    else {
         return;
     };
     fields.insert(key, format!("{done}/{total}"));
@@ -877,15 +878,15 @@ impl TrackerTool {
             .iter()
             .find(|(key, _)| **key == "批次" || key.eq_ignore_ascii_case("batches"))?;
         let existing_total = existing
-            .and_then(crate::docstore::declared_batch_progress)
+            .and_then(kanzei_memory::docstore::declared_batch_progress)
             .map(|(_, total)| total);
-        crate::docstore::check_declared_batches(value, existing_total).err()
+        kanzei_memory::docstore::check_declared_batches(value, existing_total).err()
     }
 
     /// D-331:标题不得携带跨 DocKind 状态标记(`[done]`/`[dropped]` 等)——状态的家是
     /// header 方括号(引擎维护),写进标题会渲染成 `[dropped] [fixed]` 双终态污染。
     fn check_title(&self, title: &str) -> Option<String> {
-        if let Some(marker) = crate::docstore::title_status_marker(title) {
+        if let Some(marker) = kanzei_memory::docstore::title_status_marker(title) {
             return Some(format!(
                 "title must not carry a status marker `[{marker}]` — the status lives in the \
                  header bracket (engine-managed); writing it into the title produces \
@@ -893,7 +894,7 @@ impl TrackerTool {
                  from the title."
             ));
         }
-        crate::docstore::invalid_severity_marker(self.kind, title).map(|severity| {
+        kanzei_memory::docstore::invalid_severity_marker(self.kind, title).map(|severity| {
             format!(
                 "title must not carry an invalid severity suffix `({severity})` — defect severity \
                  is a separate engine-managed field and only accepts high | medium | low (D-569)."
@@ -1142,8 +1143,8 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 #[cfg(test)]
 mod tests {
     use super::TrackerTool;
-    use crate::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
     use kanzei_harness::{Tool, ToolCtx};
+    use kanzei_memory::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
     use serde_json::json;
     use std::process::Command;
 
@@ -2903,14 +2904,14 @@ mod tests {
         let tool = TrackerTool {
             tool_name: "idea",
             noun: "idea",
-            kind: &crate::docstore::IDEAS,
+            kind: &kanzei_memory::docstore::IDEAS,
             requires_refs: None,
         };
         let out = tool
             .execute(json!({"action": "add", "title": "支持协议 [RFC]"}), &ctx)
             .await;
         assert!(!out.is_error, "合法标题应被工具接受: {}", out.content);
-        let store = DocStore::open(&dir, &crate::docstore::IDEAS);
+        let store = DocStore::open(&dir, &kanzei_memory::docstore::IDEAS);
         let entries = store.load().unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].title, "支持协议 [RFC]");
@@ -4240,7 +4241,7 @@ mod tests {
     /// priority 与 severity 是两个维度,合法取值必须进 schema 而不是只写在描述里。
     #[test]
     fn schema_gives_real_enums_for_each_document_kind() {
-        use crate::docstore::DEFECTS;
+        use kanzei_memory::docstore::DEFECTS;
         let defects = TrackerTool {
             tool_name: "defect",
             noun: "defect",
@@ -5458,7 +5459,8 @@ mod tests {
     }
 
     /// R-313 B2/B4:文章获取器的“收藏”歧义可登记为 todo，但进入 doing 前必须
-    /// 留下 question 或用户豁免证据；两条放行路径都走真实 Tracker update。
+    /// 留下 question 作答凭证或用户豁免证据；两条放行路径都走真实 Tracker update。
+    /// D-764③收紧为凭证引用:散文式“已通过 question 确认”和模型自己的决定都不放行。
     #[tokio::test]
     async fn r313_pending_core_semantics_block_doing_and_allow_question_or_waiver() {
         let dir = std::env::temp_dir().join(format!(
@@ -5508,20 +5510,46 @@ mod tests {
         );
         assert!(blocked.content.contains("question"), "{}", blocked.content);
 
+        // D-764③:自述式留痕和模型自己的决定都不算用户确认——这正是过去被冒写的形态。
+        for forged in [
+            "已通过 question 确认：先支持知乎站内收藏",
+            "question: 用户确认先支持知乎站内收藏",
+            "Agent decision dec-1ec3ded4ec2dc3c9 已记录：先支持知乎站内收藏",
+            "用户豁免",
+            "用户明确豁免：模型自行判断即可",
+            "用户明确豁免：原话「」",
+            "无需用户豁免，也没有原话",
+            "pending-question:run-9:call-1 尚未回答",
+            "unanswered-question:run-9:call-1",
+        ] {
+            let refused = tool
+                .execute(
+                    json!({
+                        "action": "update",
+                        "id": "R-001",
+                        "status": "doing",
+                        "fields": {"确认记录": forged}
+                    }),
+                    &ctx,
+                )
+                .await;
+            assert!(refused.is_error, "冒写留痕必须被拦: {forged}");
+        }
+
         let questioned = tool
             .execute(
                 json!({
                     "action": "update",
                     "id": "R-001",
                     "status": "doing",
-                    "fields": {"确认记录": "question: 用户确认先支持知乎站内收藏"}
+                    "fields": {"确认记录": "question:run-9:call-1 用户确认先支持知乎站内收藏"}
                 }),
                 &ctx,
             )
             .await;
         assert!(
             !questioned.is_error,
-            "question 证据应放行: {}",
+            "question 作答凭证应放行: {}",
             questioned.content
         );
 
@@ -5554,7 +5582,10 @@ mod tests {
                     "action": "update",
                     "id": "R-002",
                     "status": "doing",
-                    "fields": {"用户豁免": "用户明确豁免：先只支持知乎站内收藏，原话为「先知乎就行」"}
+                    "fields": {
+                        "确认记录": "此前的提问尚未回答",
+                        "用户豁免": "用户明确豁免：先只支持知乎站内收藏，原话为「先知乎就行」"
+                    }
                 }),
                 &ctx,
             )

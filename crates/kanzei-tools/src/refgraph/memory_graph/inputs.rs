@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use kanzei_harness::areas::AreaRegistry;
 
 use super::{GraphInputs, MemoryInput, TrackerInput};
-use crate::memory::MemoryStore;
 use crate::refgraph::mentions::ids_in;
+use kanzei_memory::memory::MemoryStore;
 
 fn display_path(root: &Path, path: &Path) -> String {
     match path.strip_prefix(root) {
@@ -93,14 +93,14 @@ fn linked_tracker_inputs(
     root: &Path,
     memories: &[MemoryInput],
 ) -> anyhow::Result<Vec<TrackerInput>> {
-    use crate::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
+    use kanzei_memory::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
     let wanted: BTreeSet<String> = memories
         .iter()
         .flat_map(|memory| {
             let raw = memory
                 .raw
                 .clone()
-                .unwrap_or_else(|| crate::memory::render_entry(&memory.entry));
+                .unwrap_or_else(|| kanzei_memory::memory::render_entry(&memory.entry));
             ids_in(&raw, "RDA")
                 .into_iter()
                 .map(|mention| mention.id)
@@ -175,7 +175,7 @@ pub fn collect_context_inputs(
         registry: AreaRegistry::scan(code_root),
         ..Default::default()
     };
-    let directory = crate::memory::project_memory_root(project_root);
+    let directory = kanzei_memory::memory::project_memory_root(project_root);
     let files = match std::fs::read_dir(directory) {
         Ok(files) => Some(files),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -188,7 +188,7 @@ pub fn collect_context_inputs(
                 continue;
             }
             let raw = std::fs::read_to_string(&path)?;
-            let entry = crate::memory::parse_entry(&raw);
+            let entry = kanzei_memory::memory::parse_entry(&raw);
             if entry.id.is_empty()
                 || !matches!(entry.status.as_str(), "active" | "candidate" | "shadow")
             {
@@ -286,7 +286,7 @@ pub fn input_fingerprint(root: &Path) -> u64 {
 
 /// Cache only the stores used to build this projection.
 pub fn input_fingerprint_from(root: &Path, stores: &[MemoryStore]) -> u64 {
-    use crate::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
+    use kanzei_memory::docstore::{DocStore, DECISIONS, DEFECTS, REQUIREMENTS};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for store in stores {
         store.root.hash(&mut hasher);

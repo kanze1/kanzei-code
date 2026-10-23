@@ -1,9 +1,8 @@
 //! 桌面 Agent Runtime 运行主链路(R-153 从 main.rs 拆出,R-253 二次拆解)。
 //!
-//! 独立理由:run.rs 承载「运行编排」这一整棵 application service 树——装配、
-//! 事件归约、执行流水线、落库与协调;与编排零耦合的 IPC 已迁至 `crate::commands`,
-//! 输入准入迁至 `run::input`,后续批次按生命周期继续拆(assembly/persistence/
-//! execution/events/coordinator)。本文件最终收敛为 mod 声明与再导出。
+//! run 模块负责运行编排：装配、事件归约、执行流水线、落库与协调。
+//! IPC 准入在 crate::commands，运行输入在 run::input，生命周期实现按
+//! assembly/persistence/execution/events/coordinator 分域；本文件保留模块声明、再导出与共享 helper。
 
 use crate::app_events::AppEvents;
 pub(crate) mod assembly;
@@ -627,7 +626,7 @@ mod assembly_tests {
 
     #[test]
     fn extract_ticket_id_识别r与d条目() {
-        use crate::commands::run::extract_ticket_id;
+        use crate::commands::run::metrics::extract_ticket_id;
         assert_eq!(
             extract_ticket_id("R-202 run_task 拆分"),
             Some("R-202".into())
@@ -646,7 +645,7 @@ mod assembly_tests {
 
     #[test]
     fn ticket_complexity_从文档段落解析() {
-        use crate::commands::run::ticket_complexity;
+        use crate::commands::run::metrics::ticket_complexity;
         let dir = std::env::temp_dir().join(format!(
             "kz-ticket-meta-{}-{}",
             std::process::id(),
@@ -683,7 +682,7 @@ mod assembly_tests {
 
     #[test]
     fn aggregate_run_metrics_按类型与复杂度分组() {
-        use crate::commands::run::aggregate_run_metrics;
+        use crate::commands::run::metrics::aggregate_run_metrics;
         use std::collections::HashMap;
         let rows: Vec<(String, String, u32, u64, u64)> = vec![
             (

@@ -1,4 +1,4 @@
-//! 名字键控、保序、同名 last-wins 的注册表(五类注册表的共同底座)。
+//! 名字键控、保序、同名 last-wins 的注册表，供 agents/tools/skills/context 共用。
 //! 保序=注入提示词的顺序确定,同名替换原位=覆盖不打乱既有顺序。
 
 use std::path::PathBuf;

@@ -569,34 +569,42 @@ mod tests {
     }
     #[test]
     fn enabled_state_is_global_and_explicit_calls_obey_it() {
-        let root = temp();
-        crate::settings::with_kanzei_home(&root, || {
-            save_at(&root, draft(), None).unwrap();
-            let mut system = String::new();
-            append_explicit_instructions(&mut system, "use $sample-check").unwrap();
-            assert!(system.contains("Read references/example.md"));
-            let mut chinese = String::new();
-            append_explicit_instructions(&mut chinese, "请使用$sample-check").unwrap();
-            assert!(chinese.contains("Read references/example.md"));
-            let mut other = String::new();
-            append_explicit_instructions(&mut other, "$sample-check-other").unwrap();
-            assert!(other.is_empty());
-            skills_set_enabled("sample-check".into(), false).unwrap();
-            assert!(append_explicit_instructions(&mut String::new(), "$sample-check").is_err());
-            assert!(
-                !kanzei_harness::markdown::discover_skills(&root.join("project-one"))
-                    .iter()
-                    .any(|s| s.name == "sample-check")
-            );
-            skills_set_enabled("sample-check".into(), true).unwrap();
-            let one = kanzei_harness::markdown::discover_skills(&root.join("project-one"));
-            let two = kanzei_harness::markdown::discover_skills(&root.join("project-two"));
-            assert_eq!(
-                one.iter().map(|s| &s.name).collect::<Vec<_>>(),
-                two.iter().map(|s| &s.name).collect::<Vec<_>>()
-            );
-        });
-        std::fs::remove_dir_all(root).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "enabled_state_is_global_and_explicit_calls_obey_it",
+            || {
+                let root = temp();
+                crate::settings::with_kanzei_home(&root, || {
+                    save_at(&root, draft(), None).unwrap();
+                    let mut system = String::new();
+                    append_explicit_instructions(&mut system, "use $sample-check").unwrap();
+                    assert!(system.contains("Read references/example.md"));
+                    let mut chinese = String::new();
+                    append_explicit_instructions(&mut chinese, "请使用$sample-check").unwrap();
+                    assert!(chinese.contains("Read references/example.md"));
+                    let mut other = String::new();
+                    append_explicit_instructions(&mut other, "$sample-check-other").unwrap();
+                    assert!(other.is_empty());
+                    skills_set_enabled("sample-check".into(), false).unwrap();
+                    assert!(
+                        append_explicit_instructions(&mut String::new(), "$sample-check").is_err()
+                    );
+                    assert!(
+                        !kanzei_harness::markdown::discover_skills(&root.join("project-one"))
+                            .iter()
+                            .any(|s| s.name == "sample-check")
+                    );
+                    skills_set_enabled("sample-check".into(), true).unwrap();
+                    let one = kanzei_harness::markdown::discover_skills(&root.join("project-one"));
+                    let two = kanzei_harness::markdown::discover_skills(&root.join("project-two"));
+                    assert_eq!(
+                        one.iter().map(|s| &s.name).collect::<Vec<_>>(),
+                        two.iter().map(|s| &s.name).collect::<Vec<_>>()
+                    );
+                });
+                std::fs::remove_dir_all(root).unwrap();
+            },
+        );
     }
     #[test]
     fn generated_draft_requires_valid_metadata_and_complete_json() {

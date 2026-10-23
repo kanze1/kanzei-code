@@ -95,7 +95,7 @@ fn telemetry_path(root: &Path) -> PathBuf {
     root.join(CLOSE_TELEMETRY_REL)
 }
 
-fn field<'a>(entry: &'a crate::docstore::Entry, name: &str) -> Option<&'a str> {
+fn field<'a>(entry: &'a kanzei_memory::docstore::Entry, name: &str) -> Option<&'a str> {
     entry
         .fields
         .iter()
@@ -103,7 +103,7 @@ fn field<'a>(entry: &'a crate::docstore::Entry, name: &str) -> Option<&'a str> {
         .map(|(_, value)| value.as_str())
 }
 
-fn batch(entry: &crate::docstore::Entry) -> Option<String> {
+fn batch(entry: &kanzei_memory::docstore::Entry) -> Option<String> {
     field(entry, "批次")
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -123,7 +123,7 @@ fn passed_commands(root: &Path, entry_id: &str) -> Vec<String> {
         .collect()
 }
 
-fn acceptance_reconciled(entry: &crate::docstore::Entry) -> bool {
+fn acceptance_reconciled(entry: &kanzei_memory::docstore::Entry) -> bool {
     let acceptance = field(entry, "验收").unwrap_or_default();
     let progress = field(entry, "进展").unwrap_or_default();
     let clauses: Vec<char> = acceptance
@@ -171,7 +171,7 @@ fn prior_records(root: &Path, entry_id: &str) -> Vec<CloseTelemetry> {
 /// 记录一次成功的 close 收尾链检查。写失败只返回诊断，不影响原 close 事务。
 pub fn record_close(
     root: &Path,
-    entry: &crate::docstore::Entry,
+    entry: &kanzei_memory::docstore::Entry,
     status: &str,
 ) -> Result<CloseTelemetry, String> {
     let commands = passed_commands(root, &entry.id);
@@ -282,8 +282,11 @@ fn tracker_closed_entry_ids(root: &Path, retired: bool) -> BTreeSet<String> {
     } else {
         &["done", "fixed"]
     };
-    for kind in [&crate::docstore::REQUIREMENTS, &crate::docstore::DEFECTS] {
-        let store = crate::docstore::DocStore::open(root, kind);
+    for kind in [
+        &kanzei_memory::docstore::REQUIREMENTS,
+        &kanzei_memory::docstore::DEFECTS,
+    ] {
+        let store = kanzei_memory::docstore::DocStore::open(root, kind);
         if let Ok(entries) = store.load_archive() {
             ids.extend(
                 entries
@@ -377,7 +380,7 @@ pub fn rolling_metrics(root: &Path) -> RollingCloseMetrics {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::docstore::Entry;
+    use kanzei_memory::docstore::Entry;
 
     fn entry(id: &str) -> Entry {
         Entry {

@@ -577,7 +577,8 @@ pub fn config_reference() -> String {
     };
     let limits_desc = |key: &str| -> &str {
         match key {
-            "max_tokens" => " = <u32>  单轮输出上限(默认 4096)",
+            "memory_job_steps" => " = <u32>  记忆整理作业共用步数预算(默认 64)",
+            "max_tokens" => " = <u32>  单轮输出上限(默认 8192)",
             "subagent_max_tokens" => " = <u32>  子代理输出上限(默认 4096)",
             "subagent_timeout_secs" => " = <u64>  子代理超时秒数(默认 900)",
             "context_budget_ratio" => " = <f64 0.0~1.0>  上下文预算比例(默认 0.7)",
@@ -590,9 +591,9 @@ pub fn config_reference() -> String {
             "transport_retries" => " = <u32>  传输重试次数(默认 2)",
             "rate_limit_retries" => " = <u32>  限流重试次数(默认 2)",
             "stream_restarts" => " = <u32>  流重启次数(默认 2)",
-            "compact_buffer_tokens" => " = <u64>  压缩保留缓冲 token(默认 8000)",
-            "prune_protect_tokens" => " = <u64>  裁剪保护 token(默认 2000)",
-            "prune_min_gain_tokens" => " = <u64>  裁剪最小收益 token(默认 512)",
+            "compact_buffer_tokens" => " = <u64>  压缩保留缓冲 token(默认 20000)",
+            "prune_protect_tokens" => " = <u64>  裁剪保护 token(默认 40000)",
+            "prune_min_gain_tokens" => " = <u64>  裁剪最小收益 token(默认 20000)",
             _ => "",
         }
     };
@@ -611,7 +612,7 @@ pub fn config_reference() -> String {
     };
     let profile_desc = |key: &str| -> &str {
         match key {
-            "default" => " = dev | research | readonly(默认 dev)",
+            "default" => " = dev | research | readonly | isolated(默认 dev)",
             _ => "",
         }
     };
@@ -719,7 +720,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     base.permissions.rules.extend(layer.permissions.rules);
     // 三处接线之二:标量键要按 [limits] 的同一套规矩做 overlay —— 项目层写了才覆盖,
     // 没写就保持全局层的值。只加字段不接这一行,项目层设了会静默不生效
-    // (`Limits::barrier_timeout_secs` 就是这么漏的,D-300 已补,穷举守护测试在防复发)。
+    // 全字段层叠测试覆盖 Limits 的每个可选字段，防止只加 schema 却遗漏 overlay。
     if layer.permissions.non_interactive.is_some() {
         base.permissions.non_interactive = layer.permissions.non_interactive;
     }
@@ -732,6 +733,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         };
     }
     overlay!(
+        memory_job_steps,
         max_tokens,
         subagent_max_tokens,
         subagent_timeout_secs,
@@ -1024,6 +1026,132 @@ mod tests {
         assert!(full.embeddings.enabled());
         assert_eq!(full.embeddings.provider.as_deref(), Some("ollama"));
         assert_eq!(full.embeddings.model.as_deref(), Some("nomic-embed-text"));
+    }
+
+    #[test]
+    fn limits_全字段_层叠往返不丢值_且名单穷举() {
+        // No struct update syntax: adding a field must make this fixture incomplete.
+        let limits = Limits {
+            memory_job_steps: Some(23),
+            max_tokens: Some(16384),
+            subagent_max_tokens: Some(8192),
+            subagent_timeout_secs: Some(240),
+            subagent_auto_concurrency: Some(3),
+            subagent_ultra_concurrency: Some(9),
+            subagent_global_concurrency: Some(20),
+            context_budget_ratio: Some(0.65),
+            recent_verbatim_ratio: Some(0.25),
+            max_tasks_per_turn: Some(12),
+            max_parallel_tools: Some(6),
+            transport_retries: Some(3),
+            rate_limit_retries: Some(4),
+            stream_restarts: Some(5),
+            compact_buffer_tokens: Some(9000),
+            prune_protect_tokens: Some(3000),
+            prune_min_gain_tokens: Some(1024),
+        };
+        let all = toml::Value::try_from(&limits).unwrap();
+        let keys: std::collections::BTreeSet<_> =
+            all.as_table().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            LIMITS_KEYS.iter().copied().collect(),
+            "schema must cover every optional field"
+        );
+        let mut raw = toml::Table::new();
+        raw.insert("limits".into(), all.clone());
+        let raw = toml::Value::Table(raw);
+        assert!(unknown_keys(&raw).is_empty());
+        let layer: KanzeiConfig = raw.try_into().unwrap();
+        let mut merged = KanzeiConfig::default();
+        merge(&mut merged, layer);
+        assert_eq!(
+            toml::Value::try_from(&merged.limits).unwrap(),
+            all,
+            "every explicitly configured field must be merged"
+        );
+        merge(&mut merged, KanzeiConfig::default());
+        assert_eq!(
+            toml::Value::try_from(&merged.limits).unwrap(),
+            all,
+            "missing fields must preserve prior values"
+        );
+        for (key, value) in all.as_table().unwrap() {
+            let replacement = match value {
+                toml::Value::Integer(value) => toml::Value::Integer(value + 1),
+                toml::Value::Float(value) => toml::Value::Float(value / 2.0),
+                _ => panic!("add an explicit fixture for limits.{key}"),
+            };
+            let mut one = toml::Table::new();
+            one.insert(key.clone(), replacement.clone());
+            let mut raw = toml::Table::new();
+            raw.insert("limits".into(), toml::Value::Table(one));
+            let layer: KanzeiConfig = toml::Value::Table(raw).try_into().unwrap();
+            let mut expected = all.clone();
+            expected
+                .as_table_mut()
+                .unwrap()
+                .insert(key.clone(), replacement);
+            merge(&mut merged, layer);
+            assert_eq!(
+                toml::Value::try_from(&merged.limits).unwrap(),
+                expected,
+                "limits.{key} must override only its own field"
+            );
+            merged.limits = limits.clone();
+        }
+    }
+
+    #[test]
+    fn config_reference_covers_all_known_keys() {
+        let reference = config_reference();
+        let mut section = String::new();
+        let mut documented =
+            std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+        for raw in reference.lines().filter_map(|line| line.strip_prefix('#')) {
+            let line = raw.trim();
+            if line.starts_with('[') {
+                section = line.trim_matches(['[', ']']).to_owned();
+            } else if raw.starts_with("   ") || line.starts_with("language = ") {
+                let (key, description) = line
+                    .split_once(" = ")
+                    .expect("reference keys require values and descriptions");
+                assert!(!description.trim().is_empty());
+                documented
+                    .entry(section.clone())
+                    .or_default()
+                    .insert(key.to_owned());
+            }
+        }
+        for (section, keys) in [
+            ("models", MODELS_KEYS),
+            ("providers.<名字>", PROVIDER_KEYS),
+            ("limits", LIMITS_KEYS),
+            ("cadence", CADENCE_KEYS),
+            ("profile", PROFILE_KEYS),
+            ("permissions", PERMISSIONS_KEYS),
+            ("permissions.rules", PERMISSION_RULE_KEYS),
+            ("embeddings", EMBEDDINGS_KEYS),
+            ("web", WEB_KEYS),
+        ] {
+            assert_eq!(
+                documented.remove(section).unwrap(),
+                keys.iter().map(|key| (*key).to_owned()).collect(),
+                "{section}"
+            );
+        }
+        assert_eq!(
+            documented.remove("").unwrap(),
+            ["language".to_owned()].into()
+        );
+        assert_eq!(
+            documented.remove("proxy").unwrap(),
+            ["proxy".to_owned()].into()
+        );
+        assert!(
+            documented.is_empty(),
+            "unexpected reference sections: {documented:?}"
+        );
     }
 
     #[test]
@@ -2134,12 +2262,6 @@ effect = "deny"
         assert_eq!(base.permissions.rules.len(), 2);
         assert!(base.providers.contains_key("kimi"));
     }
-
-    // D-300:barrier_timeout_secs 曾同时漏接 overlay 与 unknown_keys 名单——项目层设了
-    // 静默不生效,还被误报「未知配置项」;既有 unknown_keys_schema_matches_struct 对
-    // [limits] 是盲区(None 字段不进序列化)。本测试穷举 Limits 全字段:
-    // ①每个字段都显式出现在 TOML 里(新增字段没进本清单即红,编译期由 serde 字段名驱动);
-    // ②unknown_keys 零告警(名单漏键即红);③merge 后逐字段等于层值(overlay 漏键即红)。
 
     // D-245 验收②:merge_file 必须把 [cadence] 的显式键逐项覆盖进 KanzeiConfig。
     // 此前 merge() 没有 cadence 分支,文件里写了也到不了运行时——config.cadence

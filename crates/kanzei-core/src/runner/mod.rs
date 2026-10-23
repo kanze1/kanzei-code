@@ -142,7 +142,7 @@ pub const MAX_CONTEXT_OVERFLOW_RECOVERIES: u32 = 2;
 /// trim_tail 都救不了,交给被动恢复,别空转)。
 pub(super) const MAX_FUTILE_COMPACTIONS: u32 = 2;
 
-/// R-236 B1:轮末压缩与轮内共用同一份实现(kanzei-app 轮末调用这里)。全仓只允许
+/// 轮末压缩与轮内共用同一份实现；app 轮末经 compact_conversation_with_model 调用。全仓只允许
 /// 这一处「纪要替换历史」——app 层 R-021 的整段替换已删,谁要再添第二套先读 D-181
 /// 与 docs/design/context_compaction.md。
 pub async fn compact_conversation(

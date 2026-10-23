@@ -528,7 +528,7 @@ async fn exhausted_budget_rejects_provider_tool_calls_before_side_effects() {
 
 #[tokio::test]
 async fn request_manifest_records_exact_named_sources_and_final_tool_surface() {
-    use kanzei_core::store::context_manifest::ContextManifest;
+    use kanzei_core::context_manifest::ContextManifest;
     let fixture = Fixture::new("manifest");
     let original = "中文约定：保留原始验证证据。";
     std::fs::write(fixture.0.path().join("conventions.md"), original).unwrap();

@@ -1,5 +1,5 @@
 import { readProjectDocuments, observeProjectDocuments, projectDocumentsView } from "./01-project-resources.js";
-import { renderRequirementDocument } from "./26-requirement-contract.js";
+
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { isGeneralChat } from "./03-general-scope.js";
@@ -13,13 +13,13 @@ import { switchProcess } from "./09-sessions.js";
 import { openProjectSpace, openWorkbenchItem, workbenchProject } from "./12-workbench.js";
 import { kindWord, processName } from "./12-session-tree.js";
 import { fillTemplate } from "./04-structured-parse.js";
-import { backlogTally } from "./12-docs-pages.js";
-import { transitionEntryStatus } from "./11-docs-list.js";
+import "./12-docs-pages.js";
+
 import { sendText, processUpdateQueues } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
-import { renderWorkFocus, node, button } from "./25-softwire-view.js";
+import { node, button } from "./25-softwire-view.js";
 import { executionActivity, sameProject } from "./25-softwire-model.js";
-import { needsRequirementResearch, requirementResearchAction, requirementResearchStatus, requirementStart, registrationFailureDetails, openRequirementResearch } from "./26-requirement-research.js";
+import { needsRequirementResearch, requirementResearchAction, requirementStart, registrationFailureDetails } from "./26-requirement-research.js";
 
 // Project facts and conversation drafts have different lifetimes. A failed read
 // must never become an empty project, and async replies retain their recipient.
@@ -181,44 +181,8 @@ async function registerRequirement(start, retry = null) {
   finally { state.busy = false; if (currentProject === project) { rendered = ""; paint(); } }
 }
 
-function showCapture(kind = "req") {
-  document.dispatchEvent(new CustomEvent("kz:open-work-module", { detail: { project: currentProject, module: "work", capture: kind } }));
-}
-function renderDetail(state, entry) {
-  rail.replaceChildren();
-  rail.append(button("← " + t("需求"), () => { detailId = null; rendered = ""; paint(); }, "ghost"));
-  rail.append(node("small", `${entry.id} · ${localizedDocStatus(entry.status)}`), node("h3", entry.title));
-  if (entry.id.startsWith("R-")) rail.append(renderRequirementDocument(entry));
-  for (const [key, value] of entry.id.startsWith("R-") ? [] : entry.fields || []) {
-    if (!["验收", "外部验收", "阻塞", "原始描述", "范围"].includes(key) || !value) continue;
-    rail.append(node("h4", t(key)), node("p", value, "project-work-fact"));
-  }
-  const actions = node("div", null, "project-work-actions");
-  if (entry.prior_art) {
-    rail.append(node("h4", t(requirementResearchStatus(entry))));
-    if (needsRequirementResearch(entry)) rail.append(node("p", t("先完成调研再实施；需要你回答的问题会出现在「待我处理」。"), "project-work-fact"));
-    if (entry.prior_art.issue) rail.append(node("p", entry.prior_art.issue, "project-work-fact"));
-    if (entry.prior_art.path) actions.append(button(t("查看调研文件"), () => void openRequirementResearch(currentProject, entry).catch(error => toastError(String(error))), "ghost"));
-  }
-  if (!entry.closed && entry.status !== "awaiting_external") actions.prepend(button(t(entry.status === "draft" ? "补充草稿" : needsRequirementResearch(entry) ? requirementResearchAction(entry) : "继续此需求"), () => void continueRequirement(entry), "primary"));
-  if (!entry.closed) {
-    const project = currentProject, kind = entry.id.startsWith("D-") ? "defect" : "req";
-    if (entry.status === "awaiting_external") actions.prepend(button(t("退回开发"), async () => {
-      if (await transitionEntryStatus(entry, kind, kind === "defect" ? "fixing" : "doing", { project })) {
-        if (sameProject(project, currentProject)) { detailId = null; rendered = ""; }
-        await refreshConversationWork(project);
-      }
-    }, "primary"));
-    actions.append(button(t(kind === "defect" ? "不再修复" : "取消需求"), async () => {
-      if (await transitionEntryStatus(entry, kind, kind === "defect" ? "wontfix" : "dropped", { project })) {
-        if (sameProject(project, currentProject)) { detailId = null; rendered = ""; }
-        await refreshConversationWork(project);
-      }
-    }, "ghost"));
-  }
-  actions.append(button(t("完整记录") + " ↗", () => void openWorkbenchItem(currentProject, entry), "ghost"));
-  rail.append(actions);
-}
+
+
 
 // Static context buttons remain stable focus anchors while their work data refreshes.
 function relabel() {

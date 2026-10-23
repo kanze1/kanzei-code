@@ -4,7 +4,7 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 
-use crate::memory::{InboxCheckpoint, MemoryJobProgress, MemoryJobStatus, MemoryStore};
+use kanzei_memory::memory::{InboxCheckpoint, MemoryJobProgress, MemoryJobStatus, MemoryStore};
 pub type JobSnapshot = MemoryJobProgress;
 
 pub(super) struct JobControl {
@@ -23,7 +23,7 @@ pub(super) fn previous_request(
     anyhow::ensure!(
         !request_id.trim().is_empty()
             && request_id.len() <= MAX_REQUEST_ID_BYTES
-            && crate::memory::redact_credentials(request_id) == request_id,
+            && kanzei_memory::memory::redact_credentials(request_id) == request_id,
         "记忆整理请求标识无效"
     );
     let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
@@ -185,7 +185,7 @@ impl JobControl {
         let mut next = current.clone();
         next.status = status;
         if let Some(error) = error {
-            next.error = Some(crate::memory::redact_credentials(error));
+            next.error = Some(kanzei_memory::memory::redact_credentials(error));
         }
         self.persist(&next)?;
         *current = next;
@@ -218,7 +218,7 @@ impl JobControl {
 
     pub fn persistence_failed(&self, error: anyhow::Error) {
         let mut snapshot = self.snapshot.lock().unwrap();
-        snapshot.error = Some(crate::memory::redact_credentials(&format!(
+        snapshot.error = Some(kanzei_memory::memory::redact_credentials(&format!(
             "作业进度保存失败: {error}"
         )));
         snapshot.status = MemoryJobStatus::Failed;
@@ -277,8 +277,8 @@ pub fn snapshot(root: &Path) -> anyhow::Result<Option<JobSnapshot>> {
         return Ok(Some(control.snapshot.lock().unwrap().clone()));
     }
     let mut store = MemoryStore::open(
-        crate::memory::MemoryScope::Project,
-        crate::memory::project_memory_root(root),
+        kanzei_memory::memory::MemoryScope::Project,
+        kanzei_memory::memory::project_memory_root(root),
     );
     store.project_root = Some(root.to_path_buf());
     let Some(mut job) = store

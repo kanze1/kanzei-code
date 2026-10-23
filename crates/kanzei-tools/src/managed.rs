@@ -163,14 +163,14 @@ pub(crate) fn quarantine_and_restore(
 /// 路径,同时罩住活动文件、归档文件与编号账本」、test_record 同源。所以这里只锁
 /// 活动文件,归档/`-archive.md`/账本的写者走的都是同一把锁。
 ///
-/// 对 tracker/tests/conventions/architecture 四族,本清单已完整覆盖;source/finding
-/// 零写入方(见 docs.rs D-296 注释),不入列。`.kanzei/memory/` 下的**动态条目文件**
+/// 清单覆盖托管范围内的 tracker/tests/conventions/architecture；source/finding
+/// 位于 .kanzei/research，不属于此托管范围。`.kanzei/memory/` 下的**动态条目文件**
 /// 创建前无法预锁,由 D-368 的 memory 树锁(见 [`memory_tree_lock_path`])整树罩住。
 fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
     use crate::architecture::ARCHITECTURE_REL;
     use crate::conventions::CONVENTIONS_REL;
-    use crate::docstore::{DECISIONS, DEFECTS, IDEAS, MEMORY, REQUIREMENTS};
     use crate::test_record::TEST_RUNS_REL;
+    use kanzei_memory::docstore::{DECISIONS, DEFECTS, IDEAS, MEMORY, REQUIREMENTS};
     [
         REQUIREMENTS.rel_path,
         DEFECTS.rel_path,
@@ -739,7 +739,7 @@ mod tests {
         let 围栏 = acquire_managed_locks(&root).expect("取围栏");
         let root2 = root.clone();
         let 读到 = std::thread::spawn(move || {
-            crate::docstore::DocStore::open(&root2, &crate::docstore::REQUIREMENTS)
+            kanzei_memory::docstore::DocStore::open(&root2, &kanzei_memory::docstore::REQUIREMENTS)
                 .load()
                 .map(|entries| entries.len())
         })

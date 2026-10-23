@@ -69,7 +69,7 @@ defer(() => {
         const r = await invoke("update_check");
         $("update-result").textContent = updateResultText(r);
         if (r.newer && r.url) toast(`${t("发现新版本")} ${r.latest} — ${t("设置页「检查更新」可一键安装")}`);
-      } catch {}
+      } catch (error) { console.warn("18-startup: optional persisted state unavailable", error); }
     }, 3000);
     // 启动链任一步失败都不能静默中断后半段(否则界面停在初始态,用户看不到任何原因)。
     const runStep = async ([label, step]) => {

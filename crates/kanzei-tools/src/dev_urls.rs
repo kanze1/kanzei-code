@@ -5,7 +5,7 @@
 //! Next 的 `- Local: http://localhost:3000`、`python -m http.server` 的
 //! `http://0.0.0.0:8000/` 等。只认回环与 0.0.0.0(映射成 localhost),局域网地址不列。
 //!
-//! `background` 模块对外私有,这里是它开给预览面板的唯一窄接口。
+//! background 是公开的进程能力模块；这里集中提供预览面板需要的开发服务 URL 投影。
 
 use std::path::Path;
 use std::sync::OnceLock;

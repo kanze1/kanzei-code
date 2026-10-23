@@ -183,7 +183,7 @@ pub(crate) fn persist_round_outcome(
         }
     };
     let harvest = |messages: &[kanzei_llm::Message]| {
-        kanzei_tools::memory::harvest_end_of_run(&ctx.project_root, prompt, messages);
+        kanzei_memory::memory::harvest_end_of_run(&ctx.project_root, prompt, messages);
     };
     let after_success = |episode_id: Option<i64>| {
         let project_dir = ctx.project_root.display().to_string();
@@ -194,10 +194,10 @@ pub(crate) fn persist_round_outcome(
                 Err(error) => tracing::warn!("memory inbox consolidation failed: {error}"),
             }
         });
-        if let Err(error) = kanzei_tools::memory::reconcile_candidates(
+        if let Err(error) = kanzei_memory::memory::reconcile_candidates(
             &ctx.project_root,
             episode_id,
-            kanzei_tools::memory::CANDIDATE_MAX_AGE_DAYS,
+            kanzei_memory::memory::CANDIDATE_MAX_AGE_DAYS,
         ) {
             tracing::warn!(%error, "memory lifecycle reconciliation failed");
         }
@@ -540,7 +540,7 @@ fn persist_runner_surface_if_changed(
     if source == summary.messages {
         return Ok(());
     }
-    let _publication = kanzei_core::store::artifact_liveness::lock_publication(project_root)?;
+    let _publication = kanzei_core::artifact_liveness::lock_publication(project_root)?;
     let sequence = store.latest_event_sequence(session_id)?;
     let current = crate::conversation::project_latest_segment(store, session_id)
         .map_err(kanzei_core::StoreError::InvalidInput)?;
@@ -634,10 +634,8 @@ pub(crate) async fn finalize_round(
         if estimate > budget && conv.len() > 1 {
             // persist_round_outcome has already marked the session idle. Protect
             // archive creation until the replacement surface is durably committed.
-            _publication = Some(
-                kanzei_core::store::artifact_liveness::acquire_publication(&ctx.project_root)
-                    .await?,
-            );
+            _publication =
+                Some(kanzei_core::artifact_liveness::acquire_publication(&ctx.project_root).await?);
             if let Some((cleared, pending)) = prune_round_surface(
                 &ctx.project_root,
                 &mut conv,
@@ -670,7 +668,7 @@ pub(crate) async fn finalize_round(
             );
             let mut compact_traces = Vec::new();
             let mut digest_model =
-                kanzei_tools::run::build_digest_model(config, &deps.proxy, resolved, &deps.route)
+                kanzei_runtime::build_digest_model(config, &deps.proxy, resolved, &deps.route)
                     .await;
             digest_model.archive_root = Some(ctx.project_root.clone());
             let source_surface = compaction
@@ -1698,7 +1696,7 @@ mod tests {
             ..Default::default()
         };
         let before = kanzei_core::estimate_conversation_tokens(&messages);
-        let publication = kanzei_core::store::artifact_liveness::acquire_publication(&root)
+        let publication = kanzei_core::artifact_liveness::acquire_publication(&root)
             .await
             .unwrap();
         let (cleared, pending) =

@@ -12,6 +12,7 @@ import { activePane, promptBox } from "./01-chat-panes.js";
 import { isImeComposing, readJson, writeJson } from "./00-ui-primitives.js";
 import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
+import { setSessionDetails } from "./00-session-state.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
@@ -19,20 +20,15 @@ import {
   attachments,
   setAttachments,
   clearRunPending,
-  ctxTokens,
-  currentAssistant,
   currentProject,
-  currentReasoning,
   ensureChatView,
   ensureNotificationPermission,
-  lastRequest,
   setLastRequest,
   log,
   processItems,
   renderTokens,
   reportPersistentError,
   runControlPending,
-  runTokens,
   running,
   sessionState,
   setRunning,
@@ -45,7 +41,7 @@ import {
   transitionSession,
 } from "./03-shell.js";
 
-import { addMessage, addUserMessage, outputChars, reportError } from "./05-chat-render.js";
+import { addMessage, addUserMessage, reportError } from "./05-chat-render.js";
 import { setOutputChars } from "./05-chat-render.js";
 import { hideAsk } from "./07-events.js";
 import { tasksPanelUserRun } from "./06-agent-panel.js";
@@ -57,7 +53,6 @@ import {
   autoContinueInFlight,
   autoContinueMax,
   autoContinueTimers,
-  autoHint,
   autoPaused,
   autoRounds,
   autoStopAfterRound,
@@ -69,7 +64,7 @@ import {
   currentGoalText,
   lineAgent,
   markAwaitingUser,
-  noActionRounds,
+  nextAutoGeneration,
   releaseAutoContinue,
   renderAutoStatus,
   renderGoalState,
@@ -88,7 +83,7 @@ import {
   takeAwaitingUser,
   workPriorityKeyFor,
 } from "./08-auto.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
 import { collaborationLines, renderLines } from "./20-lines.js";
 import { sync_workspace_visibility, acknowledge_composer_draft, ensure_workspace_process } from "./03-workspaces.js";
@@ -137,8 +132,7 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
   // 引擎在 decide() 已判 Stop(ProfileMismatch) 且计数不 +1;前端不再持有
   // 引擎不知道的续跑否决权(计数与实际轮次不再漂移)。
   cancelAutoContinueTimer(sessionId);
-  const generation = (sessionState(sessionId).auto_generation || 0) + 1;
-  sessionState(sessionId).auto_generation = generation;
+  const generation = nextAutoGeneration(sessionId);
   const timer = setTimeout(async () => {
     const current = autoContinueTimers.get(sessionId);
     if (!current || current.generation !== generation) return;
@@ -205,6 +199,8 @@ export async function sendAutoToSession(prompt, sessionId) {
       attachments: [],
       processId: item.id,
       autonomous: true,
+      // D-764:自动推进轮的枪不是用户按键,归属交给后端在准入点标注,前端不再伪装成用户发言。
+      autoRound: true,
       ...(workItemId ? { workItemId, executionBatch: true } : {}),
       autoAllow: autoAllowEnabled(),
     });
@@ -237,7 +233,8 @@ export function handleBackgroundSessionDone(payload) {
   releaseAutoContinue(sessionId);
   const action = payload.autoAction || { type: "NoContinue" };
   const state = sessionState(sessionId);
-  state.auto_rounds = action.rounds ?? state.auto_rounds ?? 0;
+  const nextRounds = action.rounds ?? state.auto_rounds ?? 0;
+  if (state.auto_rounds !== nextRounds) setSessionDetails(sessionId, { auto_rounds: nextRounds });
   // UI2-0926 #13 复核:与活动线 kz:done 同一口径——本轮不是以「在等你回答」收口,等待标记就过期了。
   if (!(action.type === "Stop" && action.reason === "AwaitingUser") && takeAwaitingUser(sessionId)) refreshParallelTaskProjection(sessionId);
   if (["Continue", "Nudge", "GoalPending"].includes(action.type)) {
@@ -279,7 +276,8 @@ export function handleBackgroundAutoFail(payload) {
   if (!sessionId) return;
   releaseAutoContinue(sessionId);
   const action = payload.autoAction || { type: "NoContinue" };
-  sessionState(sessionId).auto_rounds = action.rounds ?? sessionState(sessionId).auto_rounds ?? 0;
+  const carriedRounds = action.rounds ?? sessionState(sessionId).auto_rounds ?? 0;
+  if (sessionState(sessionId).auto_rounds !== carriedRounds) setSessionDetails(sessionId, { auto_rounds: carriedRounds });
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   const label = item?.label ?? t("对话");
   if (action.type === "RetryAfterFailure") {
@@ -948,8 +946,8 @@ defer(() => {
 defer(() => {
   $("auto-stop-round").checked = false;
 });
-// 启动时等 activeSessionId 就绪后同步所有控件；仅同步 enabled 会让已保存的轮数上限
-// 在后端回落为默认 10，造成展示与实际安全上限不一致。
+// 启动时等 activeSessionId 就绪后同步所有控件，保持持久设置与控件值一致。
+// max_rounds 仅为兼容配置，不再参与自动推进的停止判定。
 defer(() => {
   void syncAutoRunState();
 });
@@ -1064,16 +1062,15 @@ defer(() => {
     }
   });
 });
-// 研究区(来源/发现/report)只在 research 档出现。dev 档下这两条文档线零写入方
-// (提示词里根本没有 source/finding 工具)、零消费者,常驻侧栏就是两个永远的「(空)」:
-// 占着位置,还让人以为功能坏了。语义处置留给 R-221 research 模式重定位,这里先按档位收起。
+// 研究区(来源/发现/report)按 research 档显示；这些文档还可由 CLI 与文档界面读写。
+// 此处只控制当前会话的侧栏布局，不代表文档没有写入方或消费者。
 // 不挂进 syncAutoContinueWithProfile:那个函数中间有早退分支,挂进去会漏调。
 export function syncResearchSectionVisibility() {
   // R-322:门禁强度回显搭同一趟车。三处调用点(冷启动 / 进程回显 / 用户切换)
   // 一次覆盖全,不必再挂第四个监听——挂多了才是漏调的来源。
   // 放在早退之前:research-section 不存在时强度徽标仍要刷新。
-  if (typeof renderHarnessIntensity === "function") renderHarnessIntensity();
-  if (typeof renderGoalState === "function") renderGoalState();
+  renderHarnessIntensity();
+  renderGoalState();
   sync_workspace_visibility();
 }
 export const PROFILE_STORAGE_KEY = "kz-profile";
@@ -1087,7 +1084,7 @@ defer(() => {
 defer(() => {
   syncResearchSectionVisibility();
 });
-// 后端只认 dev/research(决定 agent 选择),dev-auto 是前端的自动推进档位,按进程单独记住,
+// 后端 ProfileKind 为 dev/research/readonly/isolated；dev-auto 是前端推进档位，按进程记住，
 // 否则切换进程回显时自主推进会被静默降级成结伴开发。
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
@@ -1260,14 +1257,15 @@ export function applyAutoStopToSession(sessionId, patch) {
       setAutoStopAfterRound(patch.stopAfterRound);
       $("auto-stop-round").checked = patch.stopAfterRound;
     }
-    void syncAutoRunState(patch);
+    // syncAutoRunState 在没有活动会话时返回 undefined,包一层才能挂上失败上报。
+    Promise.resolve(syncAutoRunState(patch)).catch((error) => toastError(`${t("自动推进状态更新失败")}:${error}`));
   } else {
     // 非当前线:后端状态机也要知道,否则该线下轮 done 仍按旧开关判定。
-    void invoke("auto_state_update", {
+    invoke("auto_state_update", {
       sessionId,
       enabled: patch.enabled,
       stopAfterRound: patch.stopAfterRound,
-    });
+    }).catch((error) => toastError(`${t("自动推进状态更新失败")}:${error}`));
   }
 }
 export function applyAutoUiState(processId) {
@@ -1359,7 +1357,7 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
     armAutoContinue(processId === activeProcessId ? continuePrompt() : DEFAULT_CONTINUE_PROMPT, item.session_id);
   }
   refreshParallelTaskProjection(item.session_id);
-  if (typeof renderLines === "function" && typeof collaborationLines !== "undefined" && collaborationLines.length) {
+  if (typeof collaborationLines !== "undefined" && collaborationLines.length) {
     renderLines(collaborationLines);
   }
   return next;

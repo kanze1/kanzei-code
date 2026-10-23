@@ -1,9 +1,10 @@
 //! 运行指标域(R-155 B2):summarize_* / FailureSignal / RunMetrics / CompletedEntry /
 //! is_git_query。is_git_query 提 pub(crate)(双归属:指标+冗余,R-100 机械闸门)。
 
+use super::redundancy::RedundancyKind;
 use kanzei_llm::{Message, Part};
 
-/// `&summary.messages[prior_len..]`。
+/// 统计本轮工具调用；调用方传 `RunSummary::round_messages`，避免重复累计历史。
 pub fn summarize_tools(messages: &[Message]) -> std::collections::BTreeMap<String, usize> {
     let mut counts = std::collections::BTreeMap::new();
     for message in messages {
@@ -31,10 +32,6 @@ pub struct FailureSignal {
     pub recovered_by: Option<String>,
 }
 
-/// 从本轮轨迹提炼失败信号(R-105 机械触发):失败数据本来就在 messages 里,
-/// 引擎不额外采集,只做一次线性扫描 + 指纹聚合。纯函数,可单测。
-///
-/// 只传本轮切片(`&summary.messages[prior_len..]`),否则会把历史失败重复上报。
 /// 一轮的调用画像(R-099):判断"冗余治理有没有效"所需的最小可比量。
 /// 全部来自本轮消息切片,不含历史——混进 prior 会让基线一路虚高。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -59,11 +56,11 @@ pub struct RunMetrics {
     pub tool_rejections: usize,
     #[serde(default)]
     pub edit_rejections: usize,
-    /// R-100 冗余机械门禁触发计数(就地提醒,不阻断):同一工作树无变化的重复
-    /// git status/diff、无文件变更的重复全量测试、缺陷记录已含路径仍调 task。
-    /// 提醒文本带 `[冗余提醒]` 前缀进入工具结果,这里按前缀归类计数。
+    /// 冗余机械提醒计数：当前生成 Git 查询输出重复、缺陷记录已有路径两类。
+    /// 消费共享类别标记；标记引入前的轨迹按已发布的历史文案读取。
     #[serde(default)]
     pub redundant_git: usize,
+    /// 兼容历史的重复全量测试提醒；当前引擎不生成该类提醒。
     #[serde(default)]
     pub redundant_test: usize,
     #[serde(default)]
@@ -80,13 +77,13 @@ impl RunMetrics {
         }
     }
 
-    /// R-100:三种冗余提醒的总触发次数。
+    /// 冗余提醒总数，包含旧轨迹中的测试提醒。
     pub fn redundant_total(&self) -> usize {
         self.redundant_git + self.redundant_test + self.redundant_task
     }
 }
 
-/// 统计本轮调用画像。传 `&summary.messages[prior_len..]`,不要传全历史。
+/// 统计本轮调用画像。传 `RunSummary::round_messages`，不要传全历史。
 pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
     let mut metrics = RunMetrics::default();
     let mut calls: std::collections::HashMap<String, (String, bool)> =
@@ -124,14 +121,11 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
                     ..
                 } => {
                     if !*is_error {
-                        // R-100:机械提醒以 [冗余提醒] 前缀进入结果文本,按类别计数。
-                        // 只统计本轮切片,不统计历史(历史提醒早已入库,重复统计会虚高)。
-                        if content.contains("[冗余提醒] 工作树与上次") {
-                            metrics.redundant_git += 1;
-                        } else if content.contains("[冗余提醒] 自上次全量测试") {
-                            metrics.redundant_test += 1;
-                        } else if content.contains("[冗余提醒] 缺陷") {
-                            metrics.redundant_task += 1;
+                        match RedundancyKind::from_content(content) {
+                            Some(RedundancyKind::Git) => metrics.redundant_git += 1,
+                            Some(RedundancyKind::Test) => metrics.redundant_test += 1,
+                            Some(RedundancyKind::Task) => metrics.redundant_task += 1,
+                            None => {}
                         }
                         continue;
                     }
@@ -257,6 +251,8 @@ pub fn completed_entry(messages: &[Message]) -> Option<CompletedEntry> {
     })
 }
 
+/// 从本轮轨迹提炼失败信号：线性扫描并按错误指纹聚合。
+/// 调用方传 `RunSummary::round_messages`，避免重复上报历史失败。
 pub fn summarize_failures(messages: &[Message]) -> Vec<FailureSignal> {
     // call_id → (工具名, 目标):ToolResult 只有 call_id,工具名要回溯 ToolCall。
     let mut calls: std::collections::HashMap<String, (String, String)> =
@@ -733,7 +729,7 @@ mod tests {
     #[test]
     fn 本轮统计不含历史_调用方须传切片() {
         // summarize_tools/summarize_failures 都按传入切片统计;
-        // 调用方传 &messages[prior_len..] 才是本轮画像(否则历史被重复计入)。
+        // 本测试用 history.len() 切片验证统计范围；生产调用方传 RunSummary::round_messages。
         let history = vec![
             call("h1", "edit", "path", "old.rs"),
             result("h1", "old_string not found in old.rs", true),

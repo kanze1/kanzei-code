@@ -10,7 +10,7 @@
 //! ```
 //!
 //! 按域切分(R-257 B3):model(文档模型/批次)/ parse(解析)/ render(渲染)/
-//! repository(存储核心)/ archive(归档)/ validation(编号台账·完整性·状态机)。
+//! repository(存储核心)/ archive(归档)/ validation(编号台账·完整性·状态机)/ requirement(需求契约)。
 //! 零外部 API 面变更——顶层再导出保持原公共面。
 
 #[cfg(test)]

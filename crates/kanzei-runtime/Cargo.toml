@@ -1,0 +1,27 @@
+[package]
+name = "kanzei-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLI、桌面与定时任务共用的运行装配"
+
+[package.metadata.kanzei]
+group = "装配"
+
+[dependencies]
+chrono = "0.4"
+kanzei-base.workspace = true
+kanzei-core.workspace = true
+kanzei-harness.workspace = true
+kanzei-llm.workspace = true
+kanzei-memory.workspace = true
+kanzei-tools.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }

@@ -298,7 +298,11 @@ fn resolve_palette(
 
 /// 渲染通道检测(D-392:vega-cli 回退轨已删,只认 vl-convert 官方 CLI)。
 fn detect_renderer() -> Result<Renderer, String> {
-    if let Some(vl_convert) = which_in_path("vl-convert") {
+    detect_renderer_with(which_in_path)
+}
+
+fn detect_renderer_with(find: impl Fn(&str) -> Option<String>) -> Result<Renderer, String> {
+    if let Some(vl_convert) = find("vl-convert") {
         return Ok(Renderer::VlConvert(vl_convert));
     }
     Err("未检测到 Vega-Lite 渲染器。\n\
@@ -623,19 +627,14 @@ mod tests {
     /// 渲染器缺失:给下载指引不崩溃(验收⑤缺依赖诊断)。
     #[test]
     fn 渲染器缺失给指引() {
-        let dir = temp_dir("norenderer");
-        // 合法 spec,但环境无渲染器(用空 PATH 探测不可行,直接验证检测函数)。
-        let err = detect_renderer()
-            .err()
-            .unwrap_or_else(|| "应返回 Err".into());
-        // 若本机装了渲染器则跳过(环境有就不强制缺)。
-        if !err.contains("未检测到") {
-            eprintln!("跳过:本机已有渲染器");
-            std::fs::remove_dir_all(&dir).ok();
-            return;
-        }
-        assert!(err.contains("vl-convert"), "指引要点名 vl-convert: {err}");
-        std::fs::remove_dir_all(&dir).ok();
+        let error = match detect_renderer_with(|_| None) {
+            Err(error) => error,
+            Ok(_) => panic!("absent executable must produce a diagnostic"),
+        };
+        assert!(
+            error.contains("未检测到") && error.contains("vl-convert"),
+            "{error}"
+        );
     }
 
     /// 缺 data 且非 layer:点名缺 data(可修复)。
@@ -656,10 +655,10 @@ mod tests {
     /// spec→PNG 被模型消费(images 通道 + PNG 魔数)+ SVG 真落盘(不再是 chart.json 冒充)。
     /// 无渲染器则跳过(缺失诊断由单测覆盖)。
     #[test]
+    #[ignore = "external: 本机无 vl-convert 渲染器"]
     fn vegalite_spec转png被模型消费() {
         let Ok(renderer) = detect_renderer() else {
-            eprintln!("跳过:本机无 vl-convert 渲染器");
-            return;
+            panic!("required external test dependency missing: 本机无 vl-convert 渲染器");
         };
         let _ = renderer;
         let dir = temp_dir("e2e");
@@ -760,10 +759,10 @@ mod tests {
     /// R-274 批3:matplotlib 轨——本机有 uv 时真实出图被模型消费(验收③检测到路径)。
     /// 脚本用 matplotlib 保存 mpl.png。
     #[test]
+    #[ignore = "external: 本机无 uv"]
     fn matplotlib_有uv时出图被消费() {
         if which_in_path("uv").is_none() {
-            eprintln!("跳过:本机无 uv");
-            return;
+            panic!("required external test dependency missing: 本机无 uv");
         }
         let dir = temp_dir("mpl-uv");
         let script = "import matplotlib\nmatplotlib.use(\"Agg\")\nimport matplotlib.pyplot as plt\n\
@@ -799,10 +798,10 @@ mod tests {
     /// R-274 验收④:matplotlib 轨注入指定色板后,图中系列颜色与色板逐色一致(机械断言)。
     /// 脚本打印 prop_cycle 前 N 色,断言输出包含色板 hex 对应 RGB。
     #[test]
+    #[ignore = "external: 本机无 uv"]
     fn matplotlib_注入色板后系列颜色与色板一致() {
         if which_in_path("uv").is_none() {
-            eprintln!("跳过:本机无 uv");
-            return;
+            panic!("required external test dependency missing: 本机无 uv");
         }
         let dir = temp_dir("mpl-palette");
         let palette = ["#4C72B0".to_string(), "#DD8452".to_string()];
@@ -947,11 +946,11 @@ mod tests {
     /// 注入渲染,图中系列颜色与用户板逐色一致(本机有 uv 时实测;无则跳过)。
     #[serial]
     #[test]
+    #[ignore = "external: 本机无 uv"]
     fn palette_import联通注入渲染() {
         let _palette_isolation = UserPaletteIsolation::new();
         if which_in_path("uv").is_none() {
-            eprintln!("跳过:本机无 uv");
-            return;
+            panic!("required external test dependency missing: 本机无 uv");
         }
         let dir = temp_dir("import-connect");
         let hex = serde_json::json!({

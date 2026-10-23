@@ -172,13 +172,9 @@ Step "Windows CLI + 桌面端编译"
 node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
 if ($LASTEXITCODE -ne 0) { throw "Build inputs changed before packaging" }
 Push-Location "$root\crates\kanzei-app"
-$tauri_log = Join-Path $env:TEMP "kanzei-tauri-build-$hash.log"
 try {
-    cargo tauri build --no-bundle -- -p kanzei -p kanzei-app --timings *> $tauri_log
-    $tauri_exit_code = $LASTEXITCODE
+    $tauri_exit_code = Invoke-ArtifactCommand "cargo" @("tauri", "build", "--no-bundle", "--", "-p", "kanzei", "-p", "kanzei-app", "--timings") $artifactRun "build.log"
 } finally { Pop-Location }
-Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
-Copy-Item -LiteralPath $tauri_log -Destination (Join-Path $artifactRun.evidence "build.log")
 if ($tauri_exit_code -ne 0) { throw "Windows build failed" }
 $sidecar_dir = "$root\crates\kanzei-app\binaries"
 New-Item -ItemType Directory -Force $sidecar_dir | Out-Null
@@ -190,11 +186,8 @@ Set-Content $bundle_config '{"bundle":{"externalBin":["binaries/kz"]}}' -Encodin
 Step "Windows NSIS 安装包组装"
 Push-Location "$root\crates\kanzei-app"
 try {
-    cargo tauri bundle --config $bundle_config --bundles nsis *> $tauri_log
-    $tauri_exit_code = $LASTEXITCODE
+    $tauri_exit_code = Invoke-ArtifactCommand "cargo" @("tauri", "bundle", "--config", $bundle_config, "--bundles", "nsis") $artifactRun "bundle.log"
 } finally { Pop-Location }
-Get-Content $tauri_log | ForEach-Object { Write-Host $_ }
-Copy-Item -LiteralPath $tauri_log -Destination (Join-Path $artifactRun.evidence "bundle.log")
 if ($tauri_exit_code -ne 0) { throw "Windows bundle failed" }
 
 Step "收集安装包产物"
@@ -248,21 +241,18 @@ if ($Publish) {
     # HEAD 上建它,而我们从 dev 发版。实测 build-ecdab96 因此指向了 5dcf469——发布 tag
     # 对不上真正构建的提交,更要命的是上面那段 D-183 区间判据从此一直从 main 起算,
     # 每次发版都把同一批 dev 提交重新数一遍,守卫的精度就没了。
-    $gh_log = Join-Path $env:TEMP "kanzei-gh-release-$hash.log"
     node "$root\scripts\verify-policy.mjs" assert-clean $root $full_hash
     if ($LASTEXITCODE -ne 0) { throw "Build inputs changed before publishing" }
-    gh release create $tag $out --repo kanze1/kanzei-code --target $full_hash --title "kanzei $date ($hash)" --notes-file $notesFile *> $gh_log
-    $gh_exit_code = $LASTEXITCODE
-    Get-Content $gh_log | ForEach-Object { Write-Host $_ }
+    $gh_exit_code = Invoke-ArtifactCommand "gh" @("release", "create", $tag, $out, "--repo", "kanze1/kanzei-code", "--target", $full_hash, "--title", "kanzei $date ($hash)", "--notes-file", $notesFile) $artifactRun "publish.log"
     if ($gh_exit_code -ne 0) { throw "gh release create failed" }
     Write-Host "==> published: https://github.com/kanze1/kanzei-code/releases/tag/$tag" -ForegroundColor Green
     Copy-Item -LiteralPath $notesFile -Destination (Join-Path $artifactRun.evidence "release-notes.md")
     Register-ArtifactRelease $root $full_hash $retainedInstaller "published" $evidence.lifecycle_run_id $artifactRun.id
     # D-656:gh 在远端创建 tag 不会自动更新本地 refs/tags;发布成功后主动补齐,
     # 但补齐失败只告警,不把已成功的远端 release 伪报成发布失败。
-    $fetchOutput = @(git -C $root fetch origin "tag" $tag 2>&1)
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "远端 release 已发布,但本地标签 $tag 未能 fetch: $($fetchOutput -join ' ')"
+    $fetchExitCode = Invoke-ArtifactCommand "git" @("-C", $root, "fetch", "origin", "tag", $tag) $artifactRun "fetch-tag.log"
+    if ($fetchExitCode -ne 0) {
+        Write-Warning "远端 release 已发布,但本地标签 $tag 未能 fetch: 退出码 $fetchExitCode，详见 $($artifactRun.evidence)\fetch-tag.log"
     }
     $localTarget = (git -C $root rev-parse "refs/tags/$tag" 2>$null | Select-Object -First 1)
     if ($localTarget -and $localTarget.Trim() -eq $full_hash) {

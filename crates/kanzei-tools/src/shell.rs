@@ -831,8 +831,7 @@ mod windows_kill_tree_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn kill_tree_让目标进程树真的消失_含孙进程() {
         let Some((mut child, root, grandchild)) = spawn_victim_tree("tree").await else {
-            eprintln!("跳过:本机没有 pwsh/powershell");
-            return;
+            panic!("required test dependency missing: 本机没有 pwsh/powershell");
         };
         assert!(process_alive(root), "测试前提:根进程此刻应在运行");
         assert!(process_alive(grandchild), "测试前提:孙进程此刻应在运行");

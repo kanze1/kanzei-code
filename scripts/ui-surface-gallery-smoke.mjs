@@ -1,4 +1,4 @@
-// UI-0926 #9 弹层样例浏览器冒烟(docs/design/ui_surface_stack.md §7.3),由 ui-lint-smoke.mjs 在 ESLint 之后调用,
+// UI-0926 #9 弹层样例浏览器冒烟(docs/design/ui_surface_stack.md §7.3),由独立 ui_surfaces 门禁执行,
 // 也可单独运行:node scripts/ui-surface-gallery-smoke.mjs。
 //
 // 运行时冒烟是假 DOM:看不到顶层、样式与颜色。这里用无头 Edge(playwright-core channel msedge,
@@ -504,13 +504,16 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
         await drag(c1.left - 3, c1.top + c1.height / 2, c1.left - 83, c1.top + c1.height / 2);
         const c2 = await frameBox("#demo-card");
         if (!near(c2.width, c1.width + 80) || !near(c2.right, c1.right)) fail(`dark/可调卡片:左缘加宽 80 应右缘不动 ${JSON.stringify({ c1, c2 })}`);
-        const titleBox = await frameBox("#demo-card-title");
-        const clickPromise = page.evaluate(() => new Promise((resolve) => {
-          document.querySelector("#demo-card").addEventListener("click", (event) => resolve(event.target.closest(".ask-title") ? "title" : String(event.target.className || event.target.tagName)), { once: true });
-          setTimeout(() => resolve("none"), 800);
-        }));
-        await page.mouse.click(titleBox.left + 10, titleBox.top + titleBox.height / 2);
-        const clicked = await clickPromise;
+        // Install the observer before dispatching input. A timer started before
+        // the CDP click races slow/concurrent browsers and can report no event.
+        await page.evaluate(() => {
+          window.__frameClickTarget = null;
+          document.querySelector("#demo-card").addEventListener("click", event => {
+            window.__frameClickTarget = event.target.closest(".ask-title") ? "title" : String(event.target.className || event.target.tagName);
+          }, { once: true });
+        });
+        await page.locator("#demo-card-title").click();
+        const clicked = await page.evaluate(() => window.__frameClickTarget);
         if (clicked !== "title") fail(`dark/可调卡片:标题上的普通点击 target 应仍在标题内(越过阈值前不捕获指针),实为 ${clicked}`);
         const stray = await page.evaluate(() => document.querySelectorAll(".k-menu .k-frame-edge, .k-popover .k-frame-edge, .k-tooltip .k-frame-edge, .k-toast .k-frame-edge").length);
         if (stray) fail(`dark/可调框:菜单/浮层/提示/toast 里出现了 ${stray} 个调尺寸手柄(它们不是框)`);

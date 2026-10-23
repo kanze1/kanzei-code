@@ -106,6 +106,7 @@ kanzei 为**永久工作**而设计：一次投入的决策、证据与经验要
 | `kanzei-llm` | 多协议 LLM、流式事件、代理与认证适配 |
 | `kanzei-core` | session runner、调度、事件存储、压缩、记忆与执行协调 |
 | `kanzei-tools` | read/write/edit/bash/git/tracker/memory 等内置工具 |
+| `kanzei-runtime` | CLI、桌面与定时任务共用的运行装配、模型配置与子代理运行时 |
 | `kanzei-app` | Tauri 桌面端、项目与开发线管理、更新与安装包 |
 | `kanzei` | `kz` CLI 入口 |
 

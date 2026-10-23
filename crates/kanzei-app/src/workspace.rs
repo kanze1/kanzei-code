@@ -8,7 +8,7 @@ use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use kanzei_core::SessionStore;
-use kanzei_tools::docstore::{self, DocKind, Entry, DEFECTS, REQUIREMENTS};
+use kanzei_memory::docstore::{self, DocKind, Entry, DEFECTS, REQUIREMENTS};
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager};
 
@@ -362,7 +362,7 @@ pub(crate) fn project_summary(
         "current_items": items, "current_items_total": total,
         "counts": {"in_progress": total, "verifying": facts["verifying"], "ready_to_try": facts["ready_to_try"], "decisions": facts["decisions"], "missing_facts": facts["missing_facts"]},
         "recent_progress": facts["recent_progress"], "error": null}).as_object().unwrap().clone());
-    project["content_revision"] = json!(kanzei_core::store::stable_json_hash(&project));
+    project["content_revision"] = json!(kanzei_core::stable_json_hash(&project));
     project["freshness"] = json!("fresh");
     project["observed_at"] = json!(now_ms());
     Ok(project)
@@ -428,7 +428,7 @@ pub(crate) fn details(state: &AppState, prefs: &AppPrefs, project_dir: Option<&s
                 "snapshot":job.snapshot,"log_path":job.log_path,"exit_code":job.exit_code,
                 "updated_at":job.updated_at,"error":job.error,"environment":job.environment})).collect::<Vec<_>>());
             // Detail revisions cover the actual reviewable data, separately from freshness.
-            project["content_revision"] = json!(kanzei_core::store::stable_json_hash(&json!({
+            project["content_revision"] = json!(kanzei_core::stable_json_hash(&json!({
                 "decisions":project["decisions"],"work_units":project["work_units"],
                 "verification_jobs":project["verification_jobs"],"work_acceptances":project["work_acceptances"],"rework":project["rework"]})));
             Ok(project)

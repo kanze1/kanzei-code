@@ -259,7 +259,7 @@ pub(crate) fn metadata(key: &str) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::docstore::Entry;
+    use kanzei_memory::docstore::Entry;
 
     #[test]
     fn field_registry_lists_categories_and_consumers() {

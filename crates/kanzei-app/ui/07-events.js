@@ -52,10 +52,8 @@ import {
   activeSessionId,
   clearRunPending,
   ctxLimit,
-  ctxPending,
   ctxTokens,
   currentProject,
-  currentReasoning,
   log,
   markFirstSignal,
   notifyRunState,
@@ -82,8 +80,6 @@ import {
   chatToolStart,
   clearEmptyState,
   discardStreamResponse,
-  currentReasoningHead,
-  followLatest,
   setFollowLatest,
   outputChars,
   reportError,
@@ -123,7 +119,6 @@ import {
   currentAutoRounds,
   focusPendingQuestion,
   markAwaitingUser,
-  noActionRounds,
   setNoActionRounds,
   releaseAutoContinue,
   renderAutoStatus,
@@ -147,7 +142,7 @@ import { autoAllowEnabled, onLayoutChange, setAutoAllowEnabled } from "./03-layo
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
 import { renderMarkdownInto } from "./04-markdown.js";
 import { fillTemplate, permissionResourceText, stripInternalHandoff } from "./04-structured-parse.js";
-import { pathChip, renderPermissionResource } from "./04-structured.js";
+import { renderPermissionResource } from "./04-structured.js";
 import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
 import { isSubagentSpawn, subagentByKey, subagentKey, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
@@ -237,7 +232,7 @@ defer(() => {
     appendReasoning(e.payload.text);
   });
 });
-// R-037 对话为主:工具活动一律不进主对话区,收束到右侧活动面板。
+// 工具活动同时进入轨迹和主对话内联工具行；task 派发由子代理卡片承载。
 export let lastCompactionSummary = "";
 export let lastCompactionEntry = null;
 
@@ -1368,7 +1363,7 @@ defer(() => {
     // 顺序要紧:先恢复跟随,再补裁。反过来的话 trimLivePane 仍按「用户在读历史」让步,
     // 这次补裁等于没调(实测 pane 仍是 900 条、dropped=0)。
     setFollowLatest(true);
-    if (typeof trimLivePane === "function") trimLivePane(activePane);
+    trimLivePane(activePane);
     scrollBottom(true);
     messages.scrollTo({ top: messages.scrollHeight, behavior: "smooth" });
   });

@@ -10,16 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
-/// D-506:std Mutex 中的 poison 只表示持锁线程曾 panic，不应让后续桌面命令级联 panic。
-pub(crate) trait MutexPoisonExt<T> {
-    fn lock_or_recover(&self) -> std::sync::MutexGuard<'_, T>;
-}
-
-impl<T> MutexPoisonExt<T> for Mutex<T> {
-    fn lock_or_recover(&self) -> std::sync::MutexGuard<'_, T> {
-        self.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-}
+pub(crate) use kanzei_base::sync::MutexPoisonExt;
 
 pub(crate) fn prompt_attachment_parts(
     attachments: Vec<PromptAttachment>,

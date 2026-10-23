@@ -631,9 +631,8 @@ async fn compile_gate(cwd: &Path) -> Result<(), String> {
 ///
 /// 与 compile_gate 同理由:测试记录是自报证据,挡不住「没跑却说跑了」。规则层
 /// (conventions §1.4)写「提交前跑 fmt/clippy」已被自举漏掉三次(D-264 复现 +
-/// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。命令与 CI(ci.yml)
-/// 和发版门禁(scripts/verify.ps1)完全同参数,任何一处增删门禁都要同步——
-/// 守护测试 gate_checklists_align_across_git_verify_and_ci 比对三处清单。
+/// 2026-08-12 第三次复发),第三次复发才确认必须代码强制。参数与 verification registry 对齐；
+/// git 与本机 verify 的参数及清单关系由 gate_checklists_align_across_git_and_local_verify 守护。
 async fn fmt_gate(cwd: &Path) -> Result<(), String> {
     if !cwd.join("Cargo.toml").is_file() {
         return Ok(());
@@ -694,14 +693,10 @@ async fn fmt_gate(cwd: &Path) -> Result<(), String> {
 ///
 /// 实测(碰 kanzei-harness/src/lib.rs 后,rust-lld 链接):
 ///   原 `clippy --all-targets` 37.9s  vs  `check --all-targets` 7.2s + `clippy` 5.0s = 12.2s
-/// 省 25.7s。丢掉的只有**测试代码的 lint**,那份覆盖由 CI(ci.yml,目前只手动触发
-/// workflow_dispatch,push 不会自动跑)的 `cargo clippy --workspace --all-targets`
-/// 全量形态兜住。
-///
-/// 这是刻意的三处分工——提交门禁(此处)与 verify.ps1 走轻量 lint,CI 走全量——
-/// 由守护测试 gate_checklists_align_across_git_verify_and_ci 显式断言,不是漂移。
-/// 代价明写:测试代码的 lint 违规会本地绿、只在 CI(手动触发)红;没人手动跑 CI 时
-/// 就没人拦,改测试代码须自跑 `cargo clippy -p <crate> --all-targets -- -D warnings`。
+/// 省 25.7s。提交门禁(此处)与 verify.ps1 走轻量 lint，其参数由
+/// gate_checklists_align_across_git_and_local_verify 守护。
+/// 本地轻量 lint 不检查测试代码；改测试代码时仍须自跑
+/// `cargo clippy -p <crate> --all-targets -- -D warnings`。
 ///
 /// 2026-08-11 实例(为什么 lint 仍必须全 workspace,不能退成 `-p <改动 crate>`):
 /// 新增集成测试落在 crates/kanzei/tests/,自举只跑了「改动最多的 crate」的定向测试,
@@ -1016,22 +1011,6 @@ async fn commit_body(
     }
 }
 
-/// D-334:finalize 事务化——把「fmt → 相关测试 → test_record → stage → CAS commit」
-/// 收敛为一次机械调用,Agent 不再手动驾驶 Harness 状态机。
-///
-/// 内部顺序(任一失败立即返回该阶段,不留半状态):
-///   1. `fmt_gate`(提交前代码门禁,D-264):fmt 不过先拦,省得 Agent 先 test 再被拦;
-///   2. `clippy_gate`:与 commit 一致的全仓 clippy 硬门禁;
-///   3. 按暂存源码推导相关 crate,构造定向测试命令(无 crate 改动时退化为
-///      `cargo test --workspace` 由调用方显式指定 —— 见参数说明);
-///   4. 跑测试(超时 10 分钟防挂死),失败返回测试输出;
-///   5. `test_record::record_test_run_with_duration` 记 passed(带 source_fingerprint,
-///      与 staged_source_fingerprint 一致,背书「这份源码测过」);
-///   6. `stage`(显式文件,与既有 stage 同语义);
-///   7. CAS commit(消费 stage 的 staged_hash,与既有 commit 同语义)。
-///
-/// 与手工「test→record→stage→commit」的差异:fmt/clippy 在测试**之前**拦,且全部
-/// 在一个调用内完成——Agent 只发一次 finalize,不手动编排每一步。
 /// 引用名校验:只放行分支/标签的常规形态。拒绝 `-` 开头(选项注入)、区间语法
 /// (`..`)、修订运算符(`~`/`^`/`:`)与空白——merge_ff 只该拿到一个干净的名字。
 fn validate_ref(raw: &str) -> Result<String, String> {
@@ -2256,17 +2235,9 @@ prunable gitdir file points to non-existent location
         std::fs::remove_dir_all(root).ok();
     }
 
-    /// D-264 验收② + R-209:git.rs 提交门禁、发版门禁(verify.ps1)与 CI(ci.yml)
-    /// 的**完整检查项集合**机械同步——任一侧增删一步即红(不再只比对 fmt/clippy 两项)。
-    ///
-    /// 口径:verify.ps1 的 `Step-With-Timing "<key>"` 键集合必须等于固定清单
-    /// {fmt, clippy, test, ui_runtime, ui_lint, ipc_event_contract,
-    /// parallel_lines_regression, ui_a11y, ui_i18n, ui_markdown, ui_connectivity, ui_diagram,
-    /// metrics_build, crate_sync, ps1_bom};每个键在 ci.yml 里有对应标记(命令文本或
-    /// smoke 脚本名);smoke 脚本与 npm ci 在两侧同现同隐。
-    /// ui_syntax 已删(P0-2):ESLint 解析错误覆盖 node --check 的全部检查面。
+    /// registry 检查键唯一；本机 verify 委派给 runner，git 的核心门禁参数与 registry 对齐。
     #[test]
-    fn gate_checklists_align_across_git_verify_and_ci() {
+    fn gate_checklists_align_across_git_and_local_verify() {
         // 仓库根:git.rs 在 crates/kanzei-tools/src/,CARGO_MANIFEST_DIR 是
         // crates/kanzei-tools,上溯两级即仓库根。
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2274,7 +2245,6 @@ prunable gitdir file points to non-existent location
             .unwrap()
             .parent()
             .unwrap();
-        let ci = std::fs::read_to_string(repo_root.join(".github/workflows/ci.yml")).unwrap();
         let verify = std::fs::read_to_string(repo_root.join("scripts/verify.ps1")).unwrap();
 
         let registry: serde_json::Value = serde_json::from_str(
@@ -2288,10 +2258,7 @@ prunable gitdir file points to non-existent location
         assert!(verify.contains("verify-policy.mjs classify"));
         assert!(verify.contains("node scripts/verify-runner.mjs"));
         let runner = std::fs::read_to_string(repo_root.join("scripts/verify-runner.mjs")).unwrap();
-        assert!(runner.contains("check.ci_args ?? check.args"));
         assert!(runner.contains("child.stderr.on(\"data\", write)"));
-        assert!(ci.contains("verify.ps1 -Full -Ci"));
-        assert!(ci.contains("npm ci"));
         let this = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/git.rs"),
         )
@@ -2307,17 +2274,6 @@ prunable gitdir file points to non-existent location
             clippy["args"],
             serde_json::json!(["clippy", "--workspace", "--", "-D", "warnings"])
         );
-        assert_eq!(
-            clippy["ci_args"],
-            serde_json::json!([
-                "clippy",
-                "--workspace",
-                "--all-targets",
-                "--",
-                "-D",
-                "warnings"
-            ])
-        );
 
         // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:
         //    旧文案把提交门禁写成 all-targets clippy,弱模型据此误判「提交成功=测试代码
@@ -2328,7 +2284,7 @@ prunable gitdir file points to non-existent location
             "规范 §1.4 必须写出提交门禁的真实 clippy 命令(不含测试目标)"
         );
         assert!(
-            conventions.contains("gate_checklists_align_across_git_verify_and_ci"),
+            conventions.contains("gate_checklists_align_across_git_and_local_verify"),
             "规范 §1.4 引用的守护测试名必须是真实存在的本测试"
         );
         let commit_gate_line = conventions
@@ -2339,102 +2295,20 @@ prunable gitdir file points to non-existent location
             !commit_gate_line.contains("clippy --workspace --all-targets"),
             "规范不得再宣称提交门禁跑 --all-targets clippy: {commit_gate_line}"
         );
-        //    「clippy 四处分工」条款里描述提交门禁的那一子句(到第一个 `;` 为止)同样不得
+        //    「clippy 本机分工」条款里描述提交门禁的那一子句(到第一个 `;` 为止)同样不得
         //    回退成 all-targets。
         let division_line = conventions
             .lines()
-            .find(|line| line.contains("clippy 四处分工"))
-            .expect("规范 §1.4 缺 clippy 四处分工条款");
+            .find(|line| line.contains("clippy 本机分工"))
+            .expect("规范 §1.4 缺 clippy 本机分工条款");
         let commit_clause = division_line
             .split_once("提交门禁与")
             .map(|(_, rest)| rest.split(';').next().unwrap_or(rest))
-            .expect("clippy 四处分工条款须描述提交门禁");
+            .expect("clippy 本机分工条款须描述提交门禁");
         assert!(
             !commit_clause.contains("--all-targets"),
             "分工条款不得宣称提交门禁跑 --all-targets clippy: {commit_clause}"
         );
-
-        //    CI 触发方式双向对齐:ci.yml 带 push 触发时,规范不得写「只手动触发」;
-        //    不带时,规范不得写「每次 push」兜底。块式与流式写法都要认得出来。
-        fn ci_triggers_on_push(ci: &str) -> bool {
-            fn is_push(token: &str) -> bool {
-                token.trim().trim_matches(['"', '\'']) == "push"
-            }
-            let mut lines = ci.lines();
-            while let Some(line) = lines.next() {
-                // 顶层 `on:`(也认带引号的 "on":,YAML 1.1 里裸 on 会被当布尔,有人会加引号)。
-                let Some(rest) = ["on:", "\"on\":", "'on':"]
-                    .iter()
-                    .find_map(|key| line.strip_prefix(key))
-                else {
-                    continue;
-                };
-                let rest = rest.split('#').next().unwrap_or_default().trim();
-                if !rest.is_empty() {
-                    // 流式:`on: push` / `on: [push, pull_request]` / `on: {push: {…}}`。
-                    return rest
-                        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                        .any(|word| word == "push");
-                }
-                // 块式:只看 `on:` 的直接子层(以第一条子行的缩进为准),
-                // 更深层同名键(如 workflow_dispatch 的 inputs.push)不算触发。
-                let mut child_indent = None;
-                for child in lines.by_ref() {
-                    let body = child.trim_start();
-                    if body.is_empty() || body.starts_with('#') {
-                        continue;
-                    }
-                    let indent = child.len() - body.len();
-                    if indent == 0 {
-                        break;
-                    }
-                    if *child_indent.get_or_insert(indent) != indent {
-                        continue;
-                    }
-                    let key = body.strip_prefix("- ").unwrap_or(body);
-                    let key = key.split('#').next().unwrap_or_default();
-                    if is_push(key.split(':').next().unwrap_or_default()) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-            false
-        }
-        for (sample, expected) in [
-            ("on:\n  workflow_dispatch:\n", false),
-            ("on:\n  push:\n    branches: [main]\n", true),
-            ("on:\n  workflow_dispatch:\n  push:\n", true),
-            ("on:\n  - pull_request\n  - push\n", true),
-            ("on: push\n", true),
-            ("on: [pull_request, push]\n", true),
-            ("on: { push: { branches: [main] } }\n", true),
-            ("\"on\": [push]\n", true),
-            ("on: workflow_dispatch\n", false),
-            (
-                "on:\n  workflow_dispatch:\n    inputs:\n      push:\n        type: boolean\n",
-                false,
-            ),
-        ] {
-            assert_eq!(
-                ci_triggers_on_push(sample),
-                expected,
-                "push 触发识别有误: {sample:?}"
-            );
-        }
-        if ci_triggers_on_push(&ci) {
-            for claim in ["只手动触发", "不随 push", "push 不会自动跑"] {
-                assert!(
-                    !conventions.contains(claim),
-                    "ci.yml 已随 push 触发,规范不得再写「{claim}」"
-                );
-            }
-        } else {
-            assert!(
-                !conventions.contains("每次 push"),
-                "ci.yml 不随 push 触发,规范不得宣称 CI 对每次 push 兜底"
-            );
-        }
     }
 
     #[test]

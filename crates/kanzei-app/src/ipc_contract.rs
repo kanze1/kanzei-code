@@ -216,7 +216,7 @@ pub(crate) mod tests {
     }
 
     // ── 分区:记忆图谱 ──
-    /// 记忆图谱夹具:两个 crate 的 workspace + 两条活动记忆(refs/area/共享指纹/subject)+
+    /// 记忆图谱夹具：两个 crate 的 workspace + 一条 active(refs/area)与一条 candidate(共享指纹/subject)+
     /// 一条归档记忆 + 一条需求 + 一篇设计文档。节点按 id 排序,首元素是 M-001(记忆节点,
     /// 各可空字段都有值),所以契约里记下的是字段真实类型而不是 "nullable"。
     pub(crate) fn memory_graph_fixture_project() -> std::path::PathBuf {
@@ -273,7 +273,7 @@ pub(crate) mod tests {
     #[test]
     fn memory_graph_形状与ipc契约一致() {
         let root = memory_graph_fixture_project();
-        let stores = [kanzei_tools::memory::MemoryStore::project(&root)];
+        let stores = [kanzei_memory::memory::MemoryStore::project(&root)];
         let value = crate::memory::memory_graph_with(&root, &stores);
         assert_eq!(value["nodes"][0]["id"], "M-001", "取样首元素应是记忆节点");
         check_contract(

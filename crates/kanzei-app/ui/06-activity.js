@@ -3,14 +3,13 @@ import { resourceIcon } from "./04-resource-types.js";
 import { escapeHtml } from "./04-markdown.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { messages, renderingBackground } from "./01-chat-panes.js";
+import { renderingBackground } from "./01-chat-panes.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
   currentProject,
   processItems,
-  running,
   sessionState,
   setStatus,
   statusRunning,
@@ -26,7 +25,7 @@ import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.
 import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { decorateFileCard, extractToolImages } from "./24-preview.js";
 

@@ -14,12 +14,12 @@ import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { discardSessionPane } from "./01-chat-panes.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
-import { currentProject, activeProcessId, navigate_view, toast } from "./03-shell.js";
-import { fillTemplate } from "./04-structured-parse.js";
+import { currentProject, activeProcessId, toast } from "./03-shell.js";
+import "./04-structured-parse.js";
 import { openProjectModelsDialog } from "./08-project-models.js";
 import {
   closeParallelProcess, lastProjectPrefs, processRunning, projectDisplayName, refreshProcesses, removeProject,
-  renameProject, renderProjects, shortProjectPath, switchProcess,
+  renameProject, renderProjects, shortProjectPath,
 } from "./09-sessions.js";
 import {
   activateRow, buildRows, closedOpen, dropClosedSessions, dropRemoteSessions, forgetSessionPrefs, invalidateSessionTree, kindWord,

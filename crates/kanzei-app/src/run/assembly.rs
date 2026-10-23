@@ -44,7 +44,7 @@ pub(crate) struct RoundRequest {
     // 仍是主根,两者不同——发现式取根在那时会拐进 worktree 里的 .kanzei 分支副本。
     pub(crate) main_root: PathBuf,
     pub(crate) session_id: String,
-    pub(crate) execution_owner: Arc<kanzei_core::store::session_execution::SessionExecutionGuard>,
+    pub(crate) execution_owner: Arc<kanzei_core::session_execution::SessionExecutionGuard>,
     pub(crate) delivery: kanzei_core::Delivery,
     pub(crate) promoted_input: Option<kanzei_core::AdmittedInput>,
     pub(crate) process_id: String,
@@ -288,8 +288,8 @@ pub(crate) async fn assemble_run(
         .with_session_id(request.session_id.clone())
         .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
     ctx.project_workflow = project_workflow;
-    // R-256:RunnerConfig 构造与 CLI 共用 kanzei_tools::run::build_runner_config(对照表 #12)。
-    let mut runner_config = kanzei_tools::run::build_runner_config(
+    // R-256:RunnerConfig 构造与 CLI 共用 kanzei_runtime::build_runner_config(对照表 #12)。
+    let mut runner_config = kanzei_runtime::build_runner_config(
         &resolved,
         &config,
         mode.reasoning_override.as_deref(),
@@ -302,7 +302,7 @@ pub(crate) async fn assemble_run(
         Some(halt_token.clone()),
     );
     runner_config.digest_model =
-        Some(kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await);
+        Some(kanzei_runtime::build_digest_model(&config, &proxy, &resolved, &route).await);
     runner_config.digest_model.as_mut().unwrap().archive_root = Some(rctx.project_root.clone());
     // R-322:门禁强度按 agent 取默认值。build_runner_config 是 CLI/桌面共用的
     // 构造器,它给的是保守默认(Autonomous = 引入前行为);桌面端知道当前 agent,
@@ -788,10 +788,10 @@ pub(crate) fn build_run_harness(
     block_tracker_writes: bool,
     collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
 ) -> kanzei_harness::Harness {
-    // R-256 批4:与 CLI 共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点);
+    // R-256 批4:与 CLI 共用 kanzei_runtime::build_harness(对照表 #5 公共部分单点);
     // FrontendTools 在 Markdown 前(middle),TrackerWritePolicy/Collaboration 在
     // Config 后(tail),顺序与原来逐字节一致。
-    kanzei_tools::run::build_harness(
+    kanzei_runtime::build_harness(
         profile,
         |harness| {
             harness.add(crate::harness_ext::FrontendToolsComponent);
@@ -863,7 +863,7 @@ mod startup_tests {
         handles: RuntimeHandles,
         deps: RuntimeDeps,
         mode: RunMode,
-        owner: Option<Arc<kanzei_core::store::session_execution::SessionExecutionGuard>>,
+        owner: Option<Arc<kanzei_core::session_execution::SessionExecutionGuard>>,
         halt: kanzei_core::CancellationToken,
         requests: Arc<AtomicUsize>,
         server: tokio::task::JoinHandle<()>,
@@ -880,7 +880,7 @@ mod startup_tests {
                 .create_session("ses", root.to_str().unwrap(), None)
                 .unwrap();
             let owner =
-                Arc::new(kanzei_core::store::session_execution::try_acquire(&path, "ses").unwrap());
+                Arc::new(kanzei_core::session_execution::try_acquire(&path, "ses").unwrap());
             let runtime = Arc::new(crate::SessionRuntime::default());
             let halt = kanzei_core::CancellationToken::new();
             *runtime.halt.lock_or_recover() = Some(halt.clone());
@@ -1214,7 +1214,7 @@ mod startup_tests {
             drop(self.owner.take());
             tokio::time::timeout(std::time::Duration::from_secs(2), async {
                 loop {
-                    match kanzei_core::store::session_execution::try_acquire(&self.path, "ses") {
+                    match kanzei_core::session_execution::try_acquire(&self.path, "ses") {
                         Ok(owner) => break drop(owner),
                         Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                             // An aborted weak-flush task may still be dropping
@@ -1604,7 +1604,7 @@ mod tests {
         config.models.reasoning = Some("high".into());
         config.fill_defaults(); // primary=codex:gpt-5.6-luna → Fast mode 内置开启
         let resolved = config.resolve_model("primary").unwrap();
-        let runner = kanzei_tools::run::build_runner_config(
+        let runner = kanzei_runtime::build_runner_config(
             &resolved,
             &config,
             None,
@@ -1619,7 +1619,7 @@ mod tests {
         assert_eq!(payload["profile"], "dev");
         assert_eq!(payload["agent"], "dev");
         // 本线覆盖成 xhigh:载荷报的是覆盖后的实际档位,不是配置默认档。
-        let runner = kanzei_tools::run::build_runner_config(
+        let runner = kanzei_runtime::build_runner_config(
             &resolved,
             &config,
             Some("xhigh"),

@@ -3,7 +3,7 @@ import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, activeSessionId, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
+import { currentProject, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
 import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
 import { lastWorkspaceSnapshot, refreshWorkspace } from "./12-docs-pages.js";

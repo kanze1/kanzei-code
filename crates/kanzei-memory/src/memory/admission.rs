@@ -128,7 +128,7 @@ impl MemoryAdmission {
 
     /// 同指纹判重:同 scope 内 active/candidate 共享同一失败指纹时,无论标题/category
     /// 是否变化都返回既有条目。指纹是失败信号的主键,允许重复落盘会把一次复发扩成
-    /// 多条候选并破坏后续 recurrence 计数；deprecated/invalid 已不在 load_all 范围。
+    /// 多条候选并破坏后续 recurrence 计数；此处仅将 active/candidate 纳入冲突判定。
     pub(crate) fn find_fingerprint_conflict<'a>(
         entries: &'a [(PathBuf, MemoryEntry)],
         fingerprints: &[String],

@@ -73,7 +73,7 @@ pub(crate) async fn stop_owned(
 pub(crate) fn directory() -> PathBuf {
     // Separate portable builds/profiles cannot silently borrow another version's runtime.
     let exe = std::env::current_exe().unwrap_or_default();
-    let key = kanzei_core::store::stable_json_hash(&json!(exe)).replace(':', "-");
+    let key = kanzei_core::stable_json_hash(&json!(exe)).replace(':', "-");
     kanzei_harness::kanzei_home()
         .unwrap_or_else(|| std::env::temp_dir().join("kanzei-home"))
         .join("runtime")

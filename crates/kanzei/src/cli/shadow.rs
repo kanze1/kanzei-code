@@ -3,7 +3,8 @@
 //! 只读诊断命令:对项目 state.db 的 `session.shadow_compared` 事件做达标统计,
 //! 按「未知差异=0、typed_write_errors=0」口径(验收⑤)输出 ShadowVerdictStats。
 //! 不写任何数据,不改运行态;`--mismatches` 列出每条 equal=false 的差异明细
-//! (类别:failed_turn / empty_legacy / stale_snapshot / unknown),供审计归因。
+//! (类别：failed_turn / empty_legacy / stale_snapshot / compacted_snapshot)，供审计归因。
+//! 缺少类别字段的旧事件显示 unknown；它不是分类器产生的类别。
 
 use std::path::PathBuf;
 

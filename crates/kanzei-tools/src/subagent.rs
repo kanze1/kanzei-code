@@ -1,9 +1,9 @@
 //! 子代理组件(R-004/R-012):task 工具派生的只读探索代理。
-//! 快照只含 read/glob/grep——写/命令/联网在代码层面就不存在,无需权限弹窗。
+//! 只读快照含 read/glob/grep/files/symbols 与 git；git 仅放行只读 action，写动作的 Ask 在子代理内拒绝。
 //!
 //! R-176:新增**可写子代理档位** `WritableSubagentBase`。它是独立组件,不是给
 //! 只读档位加工具——只读白名单是审计资产,构造后与执行前各复核一次(验收⑦)。
-//! 可写档位装配 read/glob/grep/edit/write/bash/git,**写工具的权限不预设 Allow**:
+//! 可写档位装配 read/glob/grep/edit/insert/write/bash/git，**写工具的权限不预设 Allow**:
 //! 由 harness 权限规则裁决(用户 deny 就拒绝),只有只读工具保留 Allow。写子代理
 //! 必须自己 `acquire_writer_lease`(B2),不得继承主代理租约、不得绕过协调器。
 

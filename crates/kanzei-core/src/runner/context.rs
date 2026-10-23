@@ -1,7 +1,7 @@
 //! 上下文预算域(R-155 B4):预算估算与校准(budgeted_tokens/estimate_prompt_tokens/
 //! update_calibration)、trim_tail、纪要渲染与质量校验(render_for_digest/
-//! digest_plausible/extract_file_names/clip)、周期盘点(is_budget_checkpoint)。
-//! is_text_user_message 三归属(compact_with_digest/trim_tail/drive),提 pub(super);
+//! digest_acceptable/extract_file_names/clip)、周期盘点(is_budget_checkpoint)。
+//! is_text_user_message 由上下文裁剪与 compaction 共用，保持 pub(super);
 //! MAX_FUTILE_COMPACTIONS 留 mod.rs(pub(super))。
 
 use crate::runner::compaction::dropped_trace;

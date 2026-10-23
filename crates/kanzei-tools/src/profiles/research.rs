@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use kanzei_harness::{rule, Effect, HarnessDraft, ResolveCtx};
 
-use crate::docstore::{DocStore, DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
 use crate::tracker::{ResearchTrackerTool, TrackerTool};
+use kanzei_memory::docstore::{DocStore, DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
 
 /// Research 档位的工具面与回流工具注册。
 ///
@@ -66,12 +66,14 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
         }),
     );
 
-    draft
-        .tools
-        .insert("memory_search", Arc::new(crate::memory::MemorySearchTool));
-    draft
-        .tools
-        .insert("memory_note", Arc::new(crate::memory::MemoryNoteTool));
+    draft.tools.insert(
+        "memory_search",
+        Arc::new(kanzei_memory::memory::MemorySearchTool),
+    );
+    draft.tools.insert(
+        "memory_note",
+        Arc::new(kanzei_memory::memory::MemoryNoteTool),
+    );
 
     draft.tools.insert(
         "req",
@@ -286,7 +288,7 @@ fn research_topics(project_root: &Path) -> anyhow::Result<Vec<String>> {
 /// 失去归属；500 条预算在全部 scope 间共享，不会随 topic 数量无界膨胀。
 fn research_index_of(
     ctx: &ResolveCtx,
-    kind: &'static crate::docstore::DocKind,
+    kind: &'static kanzei_memory::docstore::DocKind,
     label: &str,
 ) -> anyhow::Result<Option<String>> {
     const INDEX_LIMIT: usize = 500;
@@ -351,7 +353,7 @@ fn research_index_of(
 /// 文档索引:非终态条目一行一个,预算封顶。
 pub(crate) fn index_of(
     ctx: &ResolveCtx,
-    kind: &'static crate::docstore::DocKind,
+    kind: &'static kanzei_memory::docstore::DocKind,
     label: &str,
 ) -> anyhow::Result<Option<String>> {
     if matches!(kind.prefix, "S" | "F") {
@@ -363,7 +365,7 @@ pub(crate) fn index_of(
     if entries.is_empty() {
         return Ok(None);
     }
-    let open: Vec<&crate::docstore::Entry> = entries
+    let open: Vec<&kanzei_memory::docstore::Entry> = entries
         .iter()
         .filter(|e| !kind.terminal.contains(&e.status.as_str()))
         .collect();
@@ -408,8 +410,8 @@ pub(crate) fn index_of(
 #[cfg(test)]
 mod tests {
     use super::index_of;
-    use crate::docstore::{DocStore, Entry, FINDINGS, SOURCES};
     use kanzei_harness::{KanzeiConfig, ProfileKind, ResolveCtx};
+    use kanzei_memory::docstore::{DocStore, Entry, FINDINGS, SOURCES};
     use std::path::PathBuf;
     use std::sync::Arc;
 

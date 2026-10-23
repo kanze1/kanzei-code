@@ -1,10 +1,10 @@
 //! 并行开发子系统(R-254 批1,由 processes.rs 拆分)。
 //!
-//! 独立理由:并行开发子系统总入口原来是 1562 行单文件,按变更理由切成四个正交域:
+//! 并行开发子系统由原单文件拆出，现按职责分域：
 //! [`registry`](registry)(进程注册与持久化:p{n} 编号/查重/state.db 恢复)、
 //! [`lifecycle`](lifecycle)(进程生命周期与 IPC 命令:建线/改线/关线/列表)、
 //! [`workspace`](workspace)(工作树生命周期/合并/收割/写租约)、
-//! [`gate`](gate)(集成门禁:fmt/clippy/test/ui-smoke)。改合并策略不必读懂
+//! [`gate`](gate)(集成门禁:fmt/clippy/test/ui-smoke)、naming(对话类型、命名与排序)。改合并策略不必读懂
 //! 进程编号,改门禁步骤不必读懂关线顺序(照 files_view.rs 模式)。
 //!
 //! 模块头硬不变式(原 processes.rs L3-18,由 D-367 类型化站岗):
@@ -42,7 +42,7 @@ pub(crate) use workspace::{
 };
 
 // R-177 验收⑦:processes.rs 在 F4 之前零测试(既无 mod tests 也无 #[test])。
-// 真测试在同级 worktree_tests.rs,经 #[path] 挂载本模块,`super::` 指向本 mod。
+// 真测试在上级 src/worktree_tests.rs，经 #[path] 挂载本模块，`super::` 指向本 mod。
 #[cfg(test)]
 #[path = "../worktree_tests.rs"]
 mod tests;

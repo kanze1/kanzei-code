@@ -8974,7 +8974,6 @@
 - 复现: Codex 对照调查 C01：停止后父 shell 已退出，子进程仍存活并写出 CHILD_RAN_AFTER_CANCEL；探针见 output/codex-changelog-audit-20261017/probe.rs。
 - 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
 - 标签: 后端
-- 根因: runner 丢弃工具 future，kill_on_drop 只回收父 shell，跳过进程树击杀和文件围栏收尾。
 - 验收: ①串行和并行取消均等待工具拥有的进程树结束；②取消后子进程不能继续写入；③取消路径完成托管文档与跨树围栏检查并保留已完成结果；④直接丢弃前台工具 future 也触发所属进程树清理。
 - 优先级: P1
 - 进展: ①串行和并行 runner 等待资源清理，crates/kanzei-core/src/runner/drive/execution_tests.rs:189、197 均通过；②子进程结束且没有迟到写入，crates/kanzei-tools/src/bash/lifecycle_tests.rs:83 与原探针复测通过；③同一回归恢复托管文件，已完成结果由 execution_tests.rs:197 保留；④丢弃调用方也完成清理，crates/kanzei-tools/src/bash/lifecycle_tests.rs:88 通过。源码 db04445e；verify.ps1 -Full 74项全绿，workspace 2553通过、7忽略。
@@ -8987,7 +8986,6 @@
 - 复现: Codex 对照调查 C02：起始 /allowed 为 Allow，重定向 /private 为 Deny，仍收到目标请求并返回 DENIED_TARGET_MARKER。
 - 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
 - 标签: 后端
-- 根因: fetch_web_response 仅比较目标 host，工具执行后的跳转没有经过完整资源权限边界。
 - 验收: ①每次跳转目标在发请求前经过完整权限检查；②明确 Deny 目标收到零请求；③未知或需批准的目标交回显式工具调用，不沿用起点授权；④允许的普通抓取与来源记录保持正确。
 - 优先级: P1
 - 进展: ①逐跳用完整资源规则验权，crates/kanzei-tools/src/webfetch.rs:544；②Deny目标零请求，crates/kanzei-tools/src/webfetch.rs:1178 真实回环服务回归及原探针通过；③Ask目标也在请求前拦截并要求显式工具调用，同测试 webfetch.rs:1178 通过；④允许跳转、来源记录与缓存工作正常，crates/kanzei-tools/src/webfetch.rs:1023，并验证策略变更后缓存不能绕过拒绝。源码 db04445e；Full 74项全绿，workspace 2553通过。
@@ -9000,7 +8998,6 @@
 - 复现: Codex 对照调查 C03：独立观察确认父 shell 在两秒超时前已退出、子进程仍持管道，BashTool 等到 2000ms 后错误返回 timeout。
 - 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
 - 标签: 后端
-- 根因: bash capture 先 join 两路读流至 EOF，再 child.wait，把命令生命周期和后代输出管道生命周期绑定。
 - 验收: ①父命令退出后及时返回真实退出码；②不因后代持管道误报超时；③父命令已产出输出不丢失且读任务完成回收；④前台转后台保留单次执行、已有输出和原超时期限。
 - 优先级: P2
 - 进展: ①返回父命令真实退出码0，crates/kanzei-tools/src/bash/lifecycle_tests.rs:93；②子进程原本持管道30秒，父命令约1.4秒返回且没有假超时，原探针复测与同回归 lifecycle_tests.rs:93 通过；③128KiB输出、stdout/stderr尾部完整，进程树和读流结束后立即删除目录，lifecycle_tests.rs:93；④转后台保留一次执行、已有输出和原期限，crates/kanzei-tools/src/bash.rs:935、940 均通过。源码 db04445e；Full 74项全绿，workspace 2553通过。
@@ -9013,7 +9010,6 @@
 - 复现: Codex 对照调查 C04：head\\r\\nold\\r\\ntail\\r\\n 中将 old 替换为 old\\nextra，工具成功但出现混合换行。
 - 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
 - 标签: 后端
-- 根因: 写回 CRLF 还原依赖 ending_note 非空，精确匹配分支绕过换行风格处理。
 - 验收: ①精确匹配、换行归一匹配和插入共用一致写回换行策略；②CRLF 文件新增多行后仍为 CRLF；③LF 文件保持 LF；④包含 CRLF 的输入不产生双 CR。
 - 优先级: P2
 - 进展: ①精确匹配、归一匹配与insert共用写回策略，crates/kanzei-tools/src/edit.rs:620；②CRLF原文件加入多行后仍全为CRLF，crates/kanzei-tools/src/edit.rs:1353；③LF原文件保持LF，同测试 edit.rs:1353；④CRLF输入不重复添加CR，同测试 edit.rs:1353。原始精确锚点探针也确认 mixed_line_endings=false。源码 db04445e；Full 74项全绿，workspace 2553通过。
@@ -9026,13 +9022,30 @@
 - 复现: Codex 对照调查 C05：本地 HTTP 429 返回 Retry-After:60，LlmClient 回调安排 30 秒后重试。
 - 来源: 2026-10-17 用户要求登记并修复；Codex 更新日志对照调查，五项已本地复现。
 - 标签: 后端
-- 根因: client.rs 在等待与最终错误两个出口均使用 seconds.min(30)，把本地退避限制施加给服务端最早重试时间。
 - 验收: ①Retry-After:60 不被缩短；②合法 HTTP-date 与秒数语义一致；③无效或缺失头仍使用有界本地退避；④最终错误保留服务端等待信息，流内限流存在等待信息时也不丢失。
 - 优先级: P2
 - 进展: ①Retry-After:60实际客户端回调安排60秒，crates/kanzei-llm/src/client.rs:371 及原探针复测通过；②秒数和三种HTTP-date正确解析，crates/kanzei-llm/src/error.rs:168；③缺失和无效头仍走有界本地退避，client.rs:371；④最终HTTP错误保留等待值，error.rs:82；四种协议流内等待信息保留，crates/kanzei-llm/src/protocol/mod.rs:111，长退避可立即停止由 execution_tests.rs:205 证实。源码 db04445e；Full 74项全绿，workspace 2553通过。
 - observed_head: db04445efd6a7831bd20bd745eae2ea682c16a5f
 - observed_worktree_hash: fnv1a64:b6253f626de30553
 - recorded_at: 1792231036038
+
+## D-592 上下文预算检查信 bytes/4 估算不锚定真实 usage,本地小窗口模型压缩零触发直至撞 400 [fixed] (high)
+- refs: D-203 D-206 R-219 R-236
+- 复现: 2026-08-20 现场:llama-local(qwen3.8-27b,llama-server n_ctx=65536)鞭挞 D-568 任务,真实请求 69889 tokens 撞 provider 400(exceed_context_size_error),全程主动压缩零触发。判定链 context_budget.rs:51 用 bytes/4 估算(context.rs:130)×校准因子与触发线比大小,三重系统性偏低叠加:①bytes/4 对中文(UTF-8 3字节/字实际≈1~1.5 token/字)、代码、llama.cpp jinja 模板渲染的工具 schema 膨胀,合计偏低>2.1×(69889 真实 vs 触发线 32768 未达);②校准单步比值 clamp [0.5,2.0](context.rs:165),系统性偏差≥2× 时数学上限封死追不上,EMA 0.7/0.3 收敛慢且每 run 重置 1.0(assembly.rs:195),恢复大历史的新对话首步最脆;③compaction_budget=limit−max(max_tokens,buffer)(context.rs:92),全局 max_tokens=32768 吃掉 65536 窗口一半。usage 回读链路本身是通的(openai.rs:110 include_usage,drive.rs:609 拿真实 prompt_tokens),但只喂校准 EMA,预算比大小不直接用——真实值在手边,决策看估算
+- 影响: 本地小窗口 provider 跑长任务必然在压缩触发前撞墙 400,自主推进直接致命中断;窗口越小、内容越偏中文/代码,撞墙越早;98304 窗口同样防不住(偏差>1.5× 即穿)
+- 来源: 2026-08-20 用户实测反馈『快摸到上限了还是没压缩』,主会话诊断
+- 标签: 核心
+- 边界: 历史侧 Part::Reasoning 剪枝(openai 协议 build_body openai.rs:83-91 从不回传,drive.rs:582 却存进历史虚增估算)只能与本条①同批落地——单独剪会让估算更小、压缩触发更晚,加重症状;Qwen 官方口径『多轮剥离 thinking 但多步工具调用期间保留』的质量权衡(llama-server --reasoning-preserve)不在本条,另行评估
+- 验收: ①预算检查锚定上一步真实 prompt_tokens(last_input_tokens 已在手)+本步新增内容估算增量,bytes/4 全量估算只做冷启动兜底;②校准按 provider 持久化或冷启动用保守初值,消除每 run 重置 1.0 的首步裸奔;③compaction_budget 对小窗口自适应,max_tokens 不得吃掉固定一半窗口;④回归:模拟估算偏低 2 倍场景压缩在撞墙前触发;⑤llama-local 真实长任务(多步工具循环读大文件)实测不再 400
+- 优先级: P1
+- 批次: 3/3
+- 进展: B3 已落地并提交 `2871fee7`（D-592 B3 修正协议感知上下文预算），提交文件与预期一致。实现与证据逐条对账：① `crates/kanzei-core/src/runner/drive/context_budget.rs:54-61` 用 `last_input_tokens + max(current_estimated - last_estimated, 0)` 锚定上一步真实 usage，冷启动才走完整估算×校准；`drive.rs:500-507` 用实际 `route.kind` 记录与 wire 请求一致的原始估算；B1 回归 `T-1786922726566`。② `context.rs:16-21` 提供保守冷启动校准 2.0，`drive/assembly.rs:195-198` 消费该值，`T-1786922726568` 通过；本条已明确采用冷启动保守初值，不新增 provider 持久化真源。③ `context.rs:99-107` 将 max_tokens 与 buffer reserve 各限制在 context_limit/3，保留 context_limit/4 封底，`T-1786922726568` 覆盖 16k/32k/65k。④ `context.rs:125-155` 与 `drive/context_budget.rs:54-61,98-107` 按 ProtocolKind 对齐估算、预算检查和 trim_tail；OpenAI Chat 不计实际 builder 丢弃的 Reasoning，Responses 保留；回归 `context.rs:530-551`、`T-1786922726569`（223 passed），并由 B1 的 `T-1786922726566` 覆盖低估增量触发链。⑤ 验收降级：原文要求 llama-local 真实长任务多步工具循环不再 400→本批未执行真实 provider 长任务，原因是当前环境没有可安全接管的用户 llama-local 实测窗口；代码级预算链已验证，但该现场证据仍由用户/后续真实窗口执行。workspace 门禁 `T-1786922726570`：fmt/check 通过，clippy 被 D-603 `manager.rs:644,653` 的既有 &PathBuf 问题阻断；D-592 代码未混入该无关修复。下一步：由用户提供或释放可安全接管的 llama-local 实测窗口，执行多步工具循环读大文件并记录真实请求不再 400；在此之前保持 fixing。 2026-10-04 维护核对：保留上述实现与本地证据，按用户新要求转为待外部验收。真实现场尚未通过；本条不占开发名额、不阻塞其他开发。待测事项见外部验收字段。
+- observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
+- observed_worktree_hash: fnv1a64:cafc4773a6bc95ae
+- recorded_at: 1791055325573
+- 停车:
+- 外部验收: llama-local / llama-server 小窗口真实长任务：多步工具循环读取大文件时先压缩，不再触发 exceed_context_size_error / 400。
+- 用户验收: 2026-10-18 19:00 用户手动确认 → fixed
 
 ## D-568 记忆 INDEX 描述串号污染:M-014/M-015 描述抄错条目,毒化 FTS 检索 [wontfix] (medium)
 - 复杂度: 小
@@ -9078,3 +9091,33 @@
 - refs: R-364
 - 优先级: P2
 - 关闭原因: 2026-10-20 用户授权清理旧缺陷。原条记录的是一次历史 insert 锚点误用，没有独立产品复现和验收；草稿锚点或工具参数错误按现行 dev_system.md 直接修正并留执行记录，不维持永久产品缺陷。原事件保留归档。
+
+## D-764 自动续跑提示被当成用户授权:R-366 写入不存在的确认记录并挂用户阻塞 [fixed] (medium)
+- 复杂度: 中
+- 复现: session_events seq 10634 循环请求用户批准 B1 冻结方案;seq 10645 唯一的 user 消息是自动续跑提示「继续推进,规则按系统提示执行。」;seq 10654 循环据此自述「仅批准该冻结方案,B2-B4 不在授权范围」,随后在 R-366 写入「确认记录: 此前用户确认仅授权 B1」并以「解除条件:用户」阻塞 B2;压缩纪要把 work next 锁定改写成了用户指令
+- 影响: tracker 出现冒用用户名义的记录;用户最看重的 P1 回退被一个从未设下的授权门卡住;同样的逻辑可能放行真正需要确认的动作
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 核心
+- 验收: ①自动续跑与 nudge 消息在模型上下文中带「自动」标记,不能被当作对 question 或方案请求的答复;②压缩纪要的用户指令清单只收用户原话;③tracker 写入声称「用户确认/授权」时须引用已作答 question 的 call_id 或真实用户消息;④规范写明:从用户已审阅的设计文档登记且带裁决的条目视为方案已确认,分批实施不需逐批授权
+- refs: R-366 R-322 docs/design/bootstrap_quality_audit.md
+- 优先级: P1
+- 进展: 批次: 1/1；① crates/kanzei-harness/src/auto_run.rs:173、crates/kanzei-app/src/commands/run.rs:470 在准入时标注自动轮；auto_run 41 passed、engine_gun 1 passed，日志 output/session-handoff-repair/auto-run.log、engine-attribution.log。② crates/kanzei-core/src/runner/compaction.rs:55 排除引擎续跑与系统通知；compaction 23 passed，日志 compaction.log。③ crates/kanzei-core/src/runner/drive/question.rs:36 区分待答标识与作答凭证，pending/取消不产生作答凭证，真实作答保留 User answer 首行；question 6 passed、question_ref 3 passed、tracker 核心语义回归 1 passed，日志 question-after.log、question-ref-after.log、semantic-after.log；crates/kanzei-tools/src/tracker/validation.rs:160 拒绝无原话的豁免与嵌入式假凭证。门禁按 R-354 校验本条目引用形态，不宣称存在性或防伪证明。④ .kanzei/project/conventions.md:18 已通过 ConventionsTool.patch + expected_hash 写入已审阅设计与用户裁决的实施授权规则，工具日志 conventions-authorization.log；UI runtime 139源/3446 invoke/11视图/0错误，日志 ui-runtime.log。源码和账本尚未提交，最终统一验证另见 output/session-handoff-repair/。
+- 验收对账: 批次: 1/1；① crates/kanzei-harness/src/auto_run.rs:173、crates/kanzei-app/src/commands/run.rs:470 在准入时标注自动轮；auto_run 41 passed、engine_gun 1 passed，日志 output/session-handoff-repair/auto-run.log、engine-attribution.log。② crates/kanzei-core/src/runner/compaction.rs:55 排除引擎续跑与系统通知；compaction 23 passed，日志 compaction.log。③ crates/kanzei-core/src/runner/drive/question.rs:36 区分待答标识与作答凭证，pending/取消不产生作答凭证，真实作答保留 User answer 首行；question 6 passed、question_ref 3 passed、tracker 核心语义回归 1 passed，日志 question-after.log、question-ref-after.log、semantic-after.log；crates/kanzei-tools/src/tracker/validation.rs:160 拒绝无原话的豁免与嵌入式假凭证。门禁按 R-354 校验本条目引用形态，不宣称存在性或防伪证明。④ .kanzei/project/conventions.md:18 已通过 ConventionsTool.patch + expected_hash 写入已审阅设计与用户裁决的实施授权规则，工具日志 conventions-authorization.log；UI runtime 139源/3446 invoke/11视图/0错误，日志 ui-runtime.log。源码和账本尚未提交，最终统一验证另见 output/session-handoff-repair/。
+- observed_head: ea4f15600aa43424d8db179a1dcf4d9018330548
+- observed_worktree_hash: fnv1a64:fb24ff5610d7b0e8
+- recorded_at: 1792656210433
+
+## D-766 发版 verify 在未提交的 .kanzei 索引上通过,已提交树的时效门禁实际是红的 [fixed] (medium)
+- 复杂度: 小
+- 复现: build-d4e230d8 提交了 docs/design/oc-*.md 与 research_library.md,但对应架构索引行留在工作副本未提交;verify.ps1 的干净判定只看 crates/scripts/.github/Cargo.*,时效门禁读的是工作副本;2026-09-26 在 ec5dc41f 干净工作树跑 verify -Full,crate_sync 的设计时效门禁失败(index 56 条 vs 磁盘 63 篇)
+- 影响: 发版证据与发布提交的真实状态不一致,已提交树过不了自己的门禁
+- 来源: 波次质量审计 2026-09-26(d4e230d8..ec5dc41f,四路只读审计 + 逐条对抗核验)
+- 标签: 发布
+- 验收: ①verify/package 对 .kanzei/project/architecture 与 docs/design 的未提交改动视为不干净,或门禁读取 HEAD 内容;②回归测试覆盖「索引行未提交」场景
+- refs: docs/design/bootstrap_quality_audit.md
+- 优先级: P2
+- 进展: 批次: 1/1；① scripts/check-design-freshness.mjs:141 固定一次 HEAD 的提交身份后，使用 ls-tree/show 读取该提交的正文、架构索引与 tracker；scripts/verify-policy.mjs:27 将 .kanzei/project 列入验证和打包输入。已修正真实账本 ID+标题+[状态] 解析、中文状态边界及吞掉 Git 读取错误的问题。② scripts/check-design-freshness.mjs:230 在真实临时 Git 仓库覆盖正文已提交/索引未提交、未提交 tracker 和正文不能掩盖 HEAD 冲突、未跟踪文档不混入 HEAD；scripts/verify-policy-smoke.mjs:145 验证未跟踪项目资产拒绝签发干净回执。check-design-freshness --self-test 与当前 HEAD 门禁均通过，日志 output/session-handoff-repair/freshness-after.log；scripts/verification-checks.json:203 已把自测接入统一门禁，后续每次 verify 均会运行。源码/账本尚未提交，未宣称已通过 release Full。
+- 验收对账: 批次: 1/1；① scripts/check-design-freshness.mjs:141 固定一次 HEAD 的提交身份后，使用 ls-tree/show 读取该提交的正文、架构索引与 tracker；scripts/verify-policy.mjs:27 将 .kanzei/project 列入验证和打包输入。已修正真实账本 ID+标题+[状态] 解析、中文状态边界及吞掉 Git 读取错误的问题。② scripts/check-design-freshness.mjs:230 在真实临时 Git 仓库覆盖正文已提交/索引未提交、未提交 tracker 和正文不能掩盖 HEAD 冲突、未跟踪文档不混入 HEAD；scripts/verify-policy-smoke.mjs:145 验证未跟踪项目资产拒绝签发干净回执。check-design-freshness --self-test 与当前 HEAD 门禁均通过，日志 output/session-handoff-repair/freshness-after.log；scripts/verification-checks.json:203 已把自测接入统一门禁，后续每次 verify 均会运行。源码/账本尚未提交，未宣称已通过 release Full。
+- observed_head: ea4f15600aa43424d8db179a1dcf4d9018330548
+- observed_worktree_hash: fnv1a64:8d5f35734d516d09
+- recorded_at: 1792656304645

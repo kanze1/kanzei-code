@@ -10,7 +10,7 @@ use rusqlite::{params, OptionalExtension};
 use super::{SessionStore, StoreError};
 
 impl SessionStore {
-    /// 插入/更新一个已配对设备。幂等:同 device_id 覆盖 token/name/paired_at。
+    /// 插入/更新一个已配对设备。幂等：同 device_id 覆盖 token/name/paired_at_ms。
     pub fn upsert_mobile_device(
         &self,
         device_id: &str,
@@ -93,7 +93,7 @@ mod tests {
             .upsert_mobile_device("dev-2", "tok-b", "手机B", 200)
             .unwrap();
 
-        // 列表:两台,按 paired_at 升序。
+        // 列表：两台，按 paired_at_ms 升序。
         let list = store.list_mobile_devices().unwrap();
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].0, "dev-1");
@@ -126,7 +126,7 @@ mod tests {
         assert_eq!(list[0].0, "dev-2");
     }
 
-    /// D-386:upsert 幂等——同 device_id 覆盖 token/name/paired_at,不产生重复行。
+    /// upsert 幂等：同 device_id 覆盖 token/name/paired_at_ms，不产生重复行。
     #[test]
     fn 设备upsert幂等_同id覆盖() {
         let store = store();

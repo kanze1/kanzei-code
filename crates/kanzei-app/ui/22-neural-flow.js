@@ -17,7 +17,7 @@ export async function setComplexVisuals(value, { persist = true } = {}) {
   if ($("set-visuals-enabled")) $("set-visuals-enabled").checked = enabled;
   for (const id of ["backdrop-settings"]) $(id)?.classList.toggle("hidden", !enabled);
   if (persist) {
-    try { localStorage.setItem("kanzei.visuals.enabled", String(enabled)); } catch {}
+    try { localStorage.setItem("kanzei.visuals.enabled", String(enabled)); } catch (error) { console.warn("22-neural-flow: optional persisted state unavailable", error); }
     void uiPrefsSave({ ui_layout: { modules: { visuals: enabled } } });
   }
   if (!enabled) {
@@ -41,7 +41,7 @@ defer(() => {
   document.addEventListener("kz:backdrop-settings", () => { if (!enabled) document.documentElement.dataset.backdrop = "off"; });
   $("set-visuals-enabled")?.addEventListener("change", event => { void setComplexVisuals(event.target.checked); });
   let cached = false;
-  try { cached = localStorage.getItem("kanzei.visuals.enabled") === "true"; } catch {}
+  try { cached = localStorage.getItem("kanzei.visuals.enabled") === "true"; } catch (error) { console.warn("22-neural-flow: optional persisted state unavailable", error); }
   void setComplexVisuals(false, { persist: false });
   const initial = generation;
   void uiPrefsLoad().then(prefs => {

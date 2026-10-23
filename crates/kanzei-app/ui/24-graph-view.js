@@ -5,7 +5,7 @@
 // docs/design/memory_knowledge_graph.md §7 与 doc_reference_graph.md)。
 //
 // 约定:
-// - 懒加载:第一次打开图谱才 fetch vendor 文件;用 CommonJS 垫片执行——17-files.js 加载的 Monaco
+// - 懒加载：首次打开图谱才 fetch vendor 文件；CommonJS 垫片兼容 17-files-editor.js 加载的 Monaco
 //   loader 定义了全局 define.amd,普通 <script> 会让 UMD 走 AMD 分支,window.ForceGraph 永远拿不到。
 // - 颜色只从 --graph-* token 读(getComputedStyle),主题切换(kz:theme)重读后重画;脚本里不写字面量颜色。
 // - 关闭库自带的浮动提示(nodeLabel 返回空串):悬停信息写进页面状态栏,不另起浮层(弹层只走 00-surface.js)。

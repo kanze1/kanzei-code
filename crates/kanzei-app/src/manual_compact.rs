@@ -79,10 +79,10 @@ pub(crate) async fn conversation_compact(
         .await
         .map_err(|e| e.to_string())?;
     let client = kanzei_llm::LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let mut model = kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await;
+    let mut model = kanzei_runtime::build_digest_model(&config, &proxy, &resolved, &route).await;
     model.archive_root = Some(root.clone());
     model.focus = focus.filter(|value| !value.trim().is_empty());
-    let _publication = kanzei_core::store::artifact_liveness::acquire_publication(&root)
+    let _publication = kanzei_core::artifact_liveness::acquire_publication(&root)
         .await
         .map_err(|e| e.to_string())?;
     let mut traces = Vec::new();

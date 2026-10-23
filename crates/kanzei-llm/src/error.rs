@@ -34,6 +34,18 @@ pub enum LlmError {
     Protocol(String),
     #[error("invalid configuration: {0}")]
     Config(String),
+    #[error("credential I/O at {}: {source}", path.display())]
+    CredentialIo {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("credential JSON at {}: {source}", path.display())]
+    CredentialJson {
+        path: std::path::PathBuf,
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 fn error_chain_message(error: &(dyn std::error::Error + 'static)) -> String {

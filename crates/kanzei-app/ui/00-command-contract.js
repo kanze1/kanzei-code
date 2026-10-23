@@ -695,6 +695,7 @@ export const commandParameters = {
     "agent": false,
     "attachments": false,
     "autoAllow": false,
+    "autoRound": false,
     "autonomous": false,
     "delivery": false,
     "executionBatch": false,

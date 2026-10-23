@@ -1,9 +1,9 @@
-import { defer } from "./00-dom.js";
+import "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { readJson, writeJson } from "./00-ui-primitives.js";
 import { localizeDynamic } from "./02-i18n.js";
 import { navigate_view } from "./03-shell.js";
-import { state } from "./08-compose.js";
+import "./08-compose.js";
 import { prefKey } from "./08-models.js";
 import { clearJumpReveal } from "./11-docs-list.js";
 import { DOC_FILTER_DEFAULTS, docFilterTargets, documentFilters } from "./12-docs-pages.js";

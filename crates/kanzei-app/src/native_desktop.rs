@@ -617,7 +617,7 @@ pub(crate) struct DesktopTool {
 }
 impl DesktopTool {
     fn plan_key(input: &Value, ctx: &ToolCtx) -> String {
-        kanzei_core::store::stable_json_hash(&json!([
+        kanzei_core::stable_json_hash(&json!([
             ctx.project_root,
             ctx.process_id,
             ctx.run_id,

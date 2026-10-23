@@ -1,7 +1,7 @@
 //! 当前裁决随每次模型请求刷新，不追加进历史。
 use super::WorkItemSummary;
-use crate::docstore::{DocKind, Entry};
 use kanzei_harness::{Component, HarnessDraft, ProfileKind, ResolveCtx};
+use kanzei_memory::docstore::{DocKind, Entry};
 
 /// Facts are supplied by the engine; the model only writes semantic milestone handoffs.
 pub(super) fn recent_test_evidence(

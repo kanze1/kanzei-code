@@ -32,7 +32,7 @@ pub(crate) fn persist(window: &AppEvents, id: u64, pending: &PendingAsk) -> Resu
     )
 }
 pub(crate) fn projection(mut payload: Value) -> Value {
-    let revision = kanzei_core::store::stable_json_hash(&payload);
+    let revision = kanzei_core::stable_json_hash(&payload);
     payload["revision"] = json!(revision);
     payload
 }

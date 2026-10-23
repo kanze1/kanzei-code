@@ -15,7 +15,7 @@
 ///
 /// `task` 在列,但它的语义与其余成员不同,别照字面理解:**派子代理本身不算进展,
 /// 子代理干的活算**。调用方在轮末必须把子代理内部用过的工具名并进画像再传进来
-/// (桌面端见 run.rs 的 subagent_round_tool / subagent_tools),否则「整轮把活派出去」
+/// (桌面端见 run/mod.rs 的 subagent_round_tool 与 run/coordinator.rs 的 subagent_tools)，否则「整轮把活派出去」
 /// 会只剩一个 task 留在画像里、被判空转——第一轮 Nudge、第二轮 Stop(NoAction),
 /// 越守规矩地委派越快自停(D-361 现场)。上卷之后语义才自洽:子代理真干了活,
 /// 画像里就有它调的 edit/bash;子代理也空手而归,画像里仍只有 task,刹车照旧生效。
@@ -133,7 +133,7 @@ pub enum AutoRunAction {
     GoalPending,
 }
 
-/// 取活顺序(与 `work_priority_guidance` 同源)。
+/// 取活顺序。桌面输入由 app::auto_run::work_priority_enum 解析，执行提示由 tools::work 构造。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkPriority {
     RequirementFirst,
@@ -162,6 +162,22 @@ pub struct NudgeFacts {
     pub queues: Vec<String>,
     /// 等用户拍板的活动条目 id(阻塞字段指向用户)。
     pub user_blocked: Vec<String>,
+}
+
+/// D-764:自动续跑轮的归属前缀。
+///
+/// 引擎发明的续跑/nudge 文本过去走和用户按键**完全相同**的准入链,以 `Role::User`
+/// 原样进上下文;压缩纪要又按「全部非工具用户消息」收「用户指令清单」,于是模型把
+/// 引擎的话读成用户批准,甚至在 tracker 里写下冒用用户名义的确认记录。归属必须在
+/// 投递点就写进内容本身——实时上下文、压缩纪要、会话回放和界面气泡看的是同一份文字。
+pub const ENGINE_ROUND_MARKER: &str = "Kanzei 引擎自动续跑（非用户新指令，不构成用户授权或确认）：";
+
+/// 给引擎投递的续跑文本加归属前缀。已标记的原样返回:事件重放或二次投递不得叠第二层前缀。
+pub fn mark_engine_round(prompt: &str) -> String {
+    if prompt.starts_with(ENGINE_ROUND_MARKER) {
+        return prompt.to_owned();
+    }
+    format!("{ENGINE_ROUND_MARKER}{prompt}")
 }
 
 /// 无动作时追加的具体推进指令(自主档才会发)。引擎生成后作为用户消息注入。
@@ -280,8 +296,9 @@ impl AutoRunState {
     ///   → stop_after_round → round_failure
     /// 完成声明段(核对范围和目标,局部交付继续):
     ///   → completion
-    /// 任务判断段(仅 Autonomous 档借给引擎):
-    ///   → no_action/Nudge → zero_output → verify_round → Continue
+    /// 等待用户段：awaiting_user 优先于目标与任务推进判断。
+    /// 目标段：goal_active → 状态签名/无动作预算 → GoalPending。
+    /// 普通推进段：no_action/Nudge(由强度决定) → zero_output → Continue
     ///
     /// `max_rounds` 保留用于兼容旧配置和状态投影,不再作为连续鞭挞的硬上限。
     /// ```
@@ -539,7 +556,7 @@ pub struct AutoRunCtx<'a> {
     pub backlog: BacklogStatus,
     /// 用户拒绝/手动停止(前端 kz:done 的 halted 字段)。
     pub halted: bool,
-    /// R-322:本轮门禁强度。决定引擎是否行使 Nudge / 验收核查等**任务判断**权。
+    /// 本轮门禁强度，决定引擎是否介入无动作 Nudge、冗余提醒与队列停止判断。
     pub intensity: HarnessIntensity,
     /// 已由调用方核对当前请求/目标身份的完成范围。局部事项和批次只记进度。
     pub completion: Option<crate::handoff::HandoffScope>,
@@ -1055,6 +1072,27 @@ mod tests {
         assert_eq!(AutoRunState::new(0).max_rounds, 1);
         assert_eq!(AutoRunState::new(500).max_rounds, 100);
         assert_eq!(AutoRunState::new(10).max_rounds, 10);
+    }
+
+    /// D-764:引擎投递的续跑文本必须自证归属,且重放不得叠第二层前缀。
+    #[test]
+    fn engine_round_marker_标明非用户指令且幂等() {
+        let marked = mark_engine_round("继续推进,规则按系统提示执行。");
+        assert!(marked.starts_with(ENGINE_ROUND_MARKER), "{marked}");
+        assert!(marked.contains("非用户新指令"), "{marked}");
+        assert!(marked.contains("不构成用户授权"), "{marked}");
+        assert!(
+            marked.ends_with("继续推进,规则按系统提示执行。"),
+            "{marked}"
+        );
+
+        let replayed = mark_engine_round(&marked);
+        assert_eq!(replayed, marked, "二次投递不得重复加前缀");
+        assert_eq!(
+            replayed.matches(ENGINE_ROUND_MARKER).count(),
+            1,
+            "{replayed}"
+        );
     }
 
     /// UI2-0926 #13:文案只取项目真实状态——不写不存在的文件名,不再说「不要再做可行性判断」,

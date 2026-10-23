@@ -4,9 +4,9 @@ use kanzei_harness::{Tool, ToolCtx};
 use serde_json::json;
 
 use super::{entry_status, EntryPriorArtStatus, PriorArtStatus};
-use crate::docstore::{DocStore, Entry, DEFECTS, REQUIREMENTS};
 use crate::tracker::TrackerTool;
 use crate::work::WorkTool;
+use kanzei_memory::docstore::{DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 struct Fixture {
     root: PathBuf,

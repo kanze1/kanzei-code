@@ -92,7 +92,7 @@
 - [identity: validated_design; last_verified_commit: d374cb9f] [`monolith_decomposition.md`](../../../docs/design/monolith_decomposition.md)：巨石拆解方案——app/main.rs、ui/main.js、core/runner.rs、core/store.rs 分文件拆解(R-153~R-156,A-008)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`monolith_decomposition_round2.md`](../../../docs/design/monolith_decomposition_round2.md)：第二轮巨石拆解计划(R-253~R-258 的符号级批次地基)。
 - [identity: validated_design; last_verified_commit: 1aed3e83] [`parallel_lines_ui.md`](../../../docs/design/parallel_lines_ui.md)：多线协作可见性——协作上下文、并列线路状态、文件冲突预警及收活流程(R-184/R-185/R-222 done)。
-- [identity: validated_design; last_verified_commit: d374cb9f] [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(R-059 dropped、R-270/R-271 done，R-288 真机 E3 仍在范围)。
+- [identity: validated_design; last_verified_commit: d374cb9f] [`r059_mobile_agent_communication.md`](../../../docs/design/r059_mobile_agent_communication.md)：主代理/子代理消息与通知演进设计(R-059 dropped、R-270/R-271 done；R-288 因放弃 Android 开发已 dropped，没有真机 E3 验收结论)。
 - [identity: validated_design; last_verified_commit: d374cb9f] [`r108_ai_design_decision_records.md`](../../../docs/design/r108_ai_design_decision_records.md)：设计记录规范的真实示例(R-108 done)。
 - [identity: validated_design; last_verified_commit: 8ed3256f] [`r310_repo_map_design.md`](../../../docs/design/r310_repo_map_design.md)：代码地图形态与 token 成本对比——symbols 实时按需查询胜出(R-310 B3 done)。
 - [identity: validated_design; last_verified_commit: 9d784f21] [`workspace_information_architecture.md`](../../../docs/design/workspace_information_architecture.md)：开发与研究独立空间、课题绑定会话及研究页面；源码、分层回归和完整 verify 已通过，原生桌面关键交互验收仍待执行(R-360/D-742)。

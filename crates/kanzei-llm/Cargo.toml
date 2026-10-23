@@ -26,6 +26,7 @@ dirs.workspace = true
 httpdate = "1.0.3"
 
 [dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }
 kanzei-harness = { path = "../kanzei-harness" }
 
 [target.'cfg(windows)'.dependencies]

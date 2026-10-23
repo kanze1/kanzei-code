@@ -18,20 +18,14 @@ import { confirmDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import {
-  activeLineBusy,
   activeProcessId,
   activeSessionId,
-  ctxTokens,
-  currentAssistant,
   currentProject,
-  currentReasoning,
   ensureChatView,
   log,
   processItems,
   renderTokens,
-  running,
   sessionState,
-  setStatus,
   syncNewChatEnabled,
   toast,
   toastError,
@@ -46,9 +40,7 @@ import {
   applyRecoveredToolDurations,
   buildReasoningBlock,
   buildToolBlock,
-  currentReasoningHead,
   fillToolBlock,
-  followLatest,
   mergeAdjacentToolGroups,
   mountToolBlock,
   noteProgrammaticScroll,
@@ -71,10 +63,10 @@ import {
 } from "./05-subagents.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
-import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts, switchProcess } from "./09-sessions.js";
+import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts } from "./09-sessions.js";
 import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
-import { refreshDocs } from "./14-docs-actions.js";
-import { forProject } from "./20-lines.js";
+import "./14-docs-actions.js";
+import "./20-lines.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
 
 // R-053 快速记录(记需求/记缺陷)的表单随入口迁到需求页「＋ 新建」菜单:见 14-docs-quick.js。
@@ -753,7 +745,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
   // D-355:refreshProcesses 按项目键控(单飞去项目化),这里 await 到的是**当前项目**
   // 自己的列表刷新 Promise——A 的 process_list 在途时切到 B,等到的就是 B 的列表,
   // B 的 activeProcessId 就绪后 conversation_get 才带着 B 的 projectDir/processId 发出。
-  if (!activeProcessId && typeof refreshProcesses === "function") await refreshProcesses();
+  if (!activeProcessId) await refreshProcesses();
   if (generation !== conversationLoadGeneration || !currentProject || !activeProcessId) return;
   // R-267:D-356 的「快照 + 补齐」整套退役。
   //

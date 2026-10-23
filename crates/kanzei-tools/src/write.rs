@@ -106,8 +106,8 @@ fn record_worktree_write_log(ctx: &ToolCtx, path: &Path, content: &[u8]) -> std:
     if ctx.run_id.is_none() || ctx.project_root.as_os_str().is_empty() {
         return Ok(());
     }
-    let root = kanzei_core::store::file_checkpoint_tree_root(&ctx.cwd, &ctx.project_root)
-        .canonicalize()?;
+    let root =
+        kanzei_core::file_checkpoint_tree_root(&ctx.cwd, &ctx.project_root).canonicalize()?;
     let path = path.canonicalize()?;
     // 只为本工作树内的文件提供归因凭据；工具允许的树外文件不属于这本日志。
     let Ok(relative) = path.strip_prefix(&root) else {
@@ -173,7 +173,7 @@ pub(crate) async fn file_checkpointed_write(
             .filter(|_| !ctx.project_root.as_os_str().is_empty())
         {
             Some(run_id) => file_checkpointed_write_blocking_with_guard(
-                kanzei_core::store::SessionStore::open,
+                kanzei_core::SessionStore::open,
                 &ctx.project_root,
                 &ctx.cwd,
                 run_id,
@@ -199,9 +199,7 @@ pub(crate) async fn file_checkpointed_write(
 /// `open_store` 可注入(测试用它模拟 state.db 打开失败),其余与生产路径完全一致。
 #[cfg(test)]
 fn file_checkpointed_write_blocking_with(
-    open_store: impl Fn(
-        &Path,
-    ) -> Result<kanzei_core::store::SessionStore, kanzei_core::store::StoreError>,
+    open_store: impl Fn(&Path) -> Result<kanzei_core::SessionStore, kanzei_core::StoreError>,
     project_root: &Path,
     cwd: &Path,
     run_id: &str,
@@ -223,9 +221,7 @@ fn file_checkpointed_write_blocking_with(
 
 #[allow(clippy::too_many_arguments)]
 fn file_checkpointed_write_blocking_with_guard(
-    open_store: impl Fn(
-        &Path,
-    ) -> Result<kanzei_core::store::SessionStore, kanzei_core::store::StoreError>,
+    open_store: impl Fn(&Path) -> Result<kanzei_core::SessionStore, kanzei_core::StoreError>,
     project_root: &Path,
     cwd: &Path,
     run_id: &str,
@@ -235,15 +231,15 @@ fn file_checkpointed_write_blocking_with_guard(
     check: impl FnMut() -> std::io::Result<()>,
 ) -> std::io::Result<()> {
     // 审计 17:tree_root 记代码树根(不是 ctx.cwd),rel_path 由 store 按树根现算。
-    let tree_root = kanzei_core::store::file_checkpoint_tree_root(cwd, project_root);
-    let target = kanzei_core::store::FileCheckpointTarget {
+    let tree_root = kanzei_core::file_checkpoint_tree_root(cwd, project_root);
+    let target = kanzei_core::FileCheckpointTarget {
         project_root,
         run_id,
         process_id,
         tree_root: &tree_root,
         abs_path: path,
     };
-    let state_path = kanzei_core::store::project_state_path(project_root);
+    let state_path = kanzei_core::project_state_path(project_root);
     let store = match open_store(&state_path) {
         Ok(store) => Some(store),
         Err(error) => {
@@ -257,7 +253,7 @@ fn file_checkpointed_write_blocking_with_guard(
         }
     };
     if let Some(store) = &store {
-        if let Err(error) = kanzei_core::store::capture_file_preimage_in(store, &target) {
+        if let Err(error) = kanzei_core::capture_file_preimage_in(store, &target) {
             tracing::warn!(
                 error = %error,
                 run_id = %run_id,
@@ -286,7 +282,7 @@ fn file_checkpointed_write_blocking_with_guard(
             }
         },
     };
-    if let Err(error) = kanzei_core::store::record_file_postimage_in(&store, &target, bytes) {
+    if let Err(error) = kanzei_core::record_file_postimage_in(&store, &target, bytes) {
         tracing::warn!(
             error = %error,
             run_id = %run_id,
@@ -625,8 +621,8 @@ mod tests {
             )
             .await;
         assert!(!output.is_error, "{output:?}");
-        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&root)).unwrap();
-        let key = kanzei_core::store::file_checkpoint_path_key(&root.join("created.txt"));
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+        let key = kanzei_core::file_checkpoint_path_key(&root.join("created.txt"));
         let (pre_exists, blob, pre_bytes): (i64, Option<String>, i64) = db
             .query_row(
                 "SELECT pre_exists, pre_blob, pre_bytes FROM file_checkpoints
@@ -781,9 +777,9 @@ mod tests {
         assert!(!output.is_error, "{output:?}");
         assert_eq!(std::fs::read_to_string(&absolute).unwrap(), "x");
 
-        let state = kanzei_core::store::project_state_path(&root);
+        let state = kanzei_core::project_state_path(&root);
         // 审计 18:前像与后像共用一次 open。
-        assert_eq!(kanzei_core::store::store_open_count(&state), 1);
+        assert_eq!(kanzei_core::store_open_count(&state), 1);
         let db = rusqlite::Connection::open(&state).unwrap();
         let (tree_root, rel_path, pre_exists): (String, String, i64) = db
             .query_row(
@@ -829,7 +825,7 @@ mod tests {
             assert!(!output.is_error, "{output:?}");
         }
 
-        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&root)).unwrap();
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
         let rows: Vec<(i64, Option<String>, i64, Option<String>)> = db
             .prepare(
                 "SELECT pre_exists, pre_blob, pre_bytes, post_hash
@@ -847,7 +843,7 @@ mod tests {
             vec![(
                 1,
                 None,
-                kanzei_core::store::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
+                kanzei_core::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
                 Some(sha256_hex(b"second write"))
             )],
             "第一次写入的内容绝不能被记成前像"
@@ -859,7 +855,7 @@ mod tests {
     type CheckpointRow = (i64, Option<String>, i64, Option<String>);
 
     fn checkpoint_rows(root: &std::path::Path, run_id: &str) -> Vec<CheckpointRow> {
-        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(root)).unwrap();
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(root)).unwrap();
         let rows = db
             .prepare(
                 "SELECT pre_exists, pre_blob, pre_bytes, post_hash
@@ -879,7 +875,7 @@ mod tests {
     /// 哨兵行;同 run 之后的触碰不得把这次写出的中间态补采成前像。
     #[tokio::test]
     async fn 写前打开库失败时落盘后重开一次占哨兵行且不补采中间态() {
-        use kanzei_core::store::{SessionStore, StoreError};
+        use kanzei_core::{SessionStore, StoreError};
         use kanzei_harness::Tool;
         use std::cell::Cell;
 
@@ -914,7 +910,7 @@ mod tests {
             vec![(
                 1,
                 None,
-                kanzei_core::store::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
+                kanzei_core::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
                 Some(sha256_hex(b"first write"))
             )]
         );
@@ -938,7 +934,7 @@ mod tests {
             vec![(
                 1,
                 None,
-                kanzei_core::store::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
+                kanzei_core::FILE_CHECKPOINT_UNKNOWN_PRE_BYTES,
                 Some(sha256_hex(b"second write"))
             )],
             "第一次写入的内容绝不能被记成前像"
@@ -970,7 +966,7 @@ mod tests {
             std::fs::read_to_string(&unavailable_path).unwrap(),
             "written"
         );
-        assert!(!kanzei_core::store::project_state_path(&unavailable).exists());
+        assert!(!kanzei_core::project_state_path(&unavailable).exists());
         std::fs::remove_dir_all(&unavailable).ok();
     }
 
@@ -1002,7 +998,7 @@ mod tests {
             assert!(!output.is_error, "{output:?}");
         }
 
-        let db = rusqlite::Connection::open(kanzei_core::store::project_state_path(&root)).unwrap();
+        let db = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
         let rel_path = |run_id: &str| -> String {
             db.query_row(
                 "SELECT rel_path FROM file_checkpoints WHERE run_id = ?1",

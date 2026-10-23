@@ -81,7 +81,7 @@ export function toolResultSplit(content, isError) {
 // ---------- parts ----------
 const txt = (value) => ({ k: "text", v: String(value) });
 const code = (value) => ({ k: "code", v: String(value) });
-const num = (value) => ({ k: "num", v: formatCount(value) });
+
 const add = (value) => ({ k: "add", v: `+${formatCount(value)}` });
 const del = (value) => ({ k: "del", v: `−${formatCount(value)}` });
 const SEPARATOR = " · ";
@@ -577,7 +577,9 @@ function summarizeQuestion(s) {
     const label = decision.status === "decided" ? t("自主决定") : decision.status === "needs_input" ? t("待补充事实") : t("模型决策中");
     return { groups: [`${label}: ${clipText(cleanInline(decision.resolution?.answer || decision.question, s.roots), 60)}`], key: "question" };
   }
-  const answer = s.text.match(/^User answer: ([\s\S]*)$/m)?.[1];
+  // D-764③:作答结果除答案行还带引擎签发的凭证行,摘要只认答案那一行;
+  // 旧写法 [\s\S]* 会把凭证整段吞进「用户回答」气泡里。
+  const answer = s.text.match(/^User answer: ([^\n]*)/m)?.[1];
   if (answer === undefined) return null;
   return { groups: [fillTemplate(t("用户回答: {answer}"), { answer: clipText(cleanInline(answer, s.roots), 60) })], key: "question" };
 }

@@ -1,9 +1,9 @@
 //! 决策复核应用服务：原会话返工队列 + 显式范围的用户偏好。
-use kanzei_core::store::decisions::{
+use kanzei_core::decisions::{
     DecisionRecord, DecisionStatus, PreferenceScope, ReviewAction, ReviewDecision,
     PREFERENCE_APPLIED_EVENT,
 };
-use kanzei_tools::memory::{AddOutcome, MemoryStore};
+use kanzei_memory::memory::{AddOutcome, MemoryStore};
 use std::path::Path;
 
 #[tauri::command(async)]
@@ -164,7 +164,7 @@ pub(crate) fn work_delivery_accept(
     project_dir: String,
     unit_id: String,
     source_sequence: i64,
-) -> Result<kanzei_core::store::decisions::WorkAcceptance, String> {
+) -> Result<kanzei_core::decisions::WorkAcceptance, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
@@ -231,8 +231,7 @@ fn sync_preference(root: &Path, decision: &DecisionRecord) -> anyhow::Result<Opt
     std::fs::create_dir_all(&memory.root)?;
     let _guard =
         kanzei_tools::atomic_file::lock_exclusive(&memory.root.join("decision-preferences"))?;
-    let subject =
-        kanzei_core::store::decisions::decision_id("preference", "question", &decision.question);
+    let subject = kanzei_core::decisions::decision_id("preference", "question", &decision.question);
     let marker = format!("decision-review:{}:{}", decision.id, review.request_id);
     let body = format!(
         "{}\n\n适用情境：{}\n用户显式选择范围：{:?}\n决策来源：{}\n复核标记：{}\n复核时间：{}",
@@ -291,7 +290,7 @@ fn sync_preference(root: &Path, decision: &DecisionRecord) -> anyhow::Result<Opt
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kanzei_core::store::decisions::{AgentDecision, DecisionResolution};
+    use kanzei_core::decisions::{AgentDecision, DecisionResolution};
     #[test]
     fn review_uses_original_session_and_user_scope_with_retry() {
         let root = std::env::temp_dir().join(format!(

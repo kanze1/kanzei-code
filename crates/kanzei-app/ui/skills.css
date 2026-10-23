@@ -3,25 +3,25 @@
 #view-skills { min-height: 0; overflow: hidden; }
 #skills-scroll { height: 100%; overflow: auto; padding: 40px 40px 48px; }
 .skills-page-header { display: flex; justify-content: space-between; gap: 24px; margin: 0 auto 28px; max-width: 1030px; align-items: center; margin-bottom: 30px; }
-.skills-page-header h1 { margin: 0 0 8px; font-size: 25px; font-weight: 550; letter-spacing: -.6px; }
+.skills-page-header h1 { margin: 0 0 var(--sp-4); font-size: 25px; font-weight: 550; letter-spacing: -.6px; }
 .skills-page-header p { margin: 0; line-height: 1.6; font-size: 13px; color: var(--dim); }
-.skills-page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.skills-page-actions { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
 .skills-page-actions button { white-space: nowrap; font-size: 12px; border-radius: 7px; min-height: 33px; box-shadow: none; }
-.skills-library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: auto; border-bottom: 1px solid var(--border); max-width: 1030px; padding-bottom: 18px; border-bottom-color: var(--border-soft); }
-#skills-filters { display: flex; flex-wrap: wrap; gap: 4px; }
-#skills-filters button { border-color: transparent; font-size: 12px; padding-inline: 12px; border-radius: 6px; }
+.skills-library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); margin: auto; border-bottom: 1px solid var(--border); max-width: 1030px; padding-bottom: 18px; border-bottom-color: var(--border-soft); }
+#skills-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+#skills-filters button { border-color: transparent; font-size: 12px; padding-inline: var(--sp-5); border-radius: 6px; }
 #skills-filters [aria-pressed="true"] { background: var(--surface-selected); color: var(--fg-strong); }
-#skills-search { min-width: 120px; width: 260px; border-color: var(--border); font-size: 12px; border-radius: 7px; padding: 8px 11px; }
+#skills-search { min-width: 120px; width: 260px; border-color: var(--border); font-size: 12px; border-radius: 7px; padding: var(--sp-4) 11px; }
 #skills-search, #skills-editor-form :is(input:not([type="checkbox"]), textarea), #skills-generation textarea { padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--chat-bg); color: var(--fg); font: inherit; font-size: var(--fs-13); }
 #skills-search:focus-visible, #skills-editor-form :is(input, textarea):focus-visible, #skills-generation textarea:focus-visible { outline: 2px solid var(--accent-soft); border-color: var(--accent-text); }
 #skills-editor-form :is(input, textarea):read-only { color: var(--dim); }
-#skills-status { margin: 14px auto; min-height: 20px; overflow-wrap: anywhere; max-width: 1030px; font-size: 11px; margin-top: 15px; margin-bottom: 8px; }
+#skills-status { margin: 14px auto; min-height: 20px; overflow-wrap: anywhere; max-width: 1030px; font-size: 11px; margin-top: 15px; margin-bottom: var(--sp-4); }
 .skills-library-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 32px; margin: auto; align-items: start; max-width: 1030px; }
 .skills-library-layout:has(.skills-editor:not([hidden])) { grid-template-columns: minmax(260px, 1fr) minmax(320px, 1fr); }
 #skills-library-list { min-width: 0; }
-.skill-library-row { display: flex; align-items: center; border-bottom: 1px solid var(--border-soft); padding: 17px 4px; gap: 20px; border-bottom-color: var(--border-soft); }
+.skill-library-row { display: flex; align-items: center; border-bottom: 1px solid var(--border-soft); padding: 17px var(--sp-2); gap: 20px; border-bottom-color: var(--border-soft); }
 .skill-library-row:hover, .skill-library-row.selected { background: var(--surface-hover); }
-.skill-library-details { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
+.skill-library-details { flex: 1; display: flex; flex-direction: column; gap: var(--sp-4); min-width: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; }
 .skill-library-details:hover { background: transparent; }
 .skill-library-headline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
 .skill-library-headline strong { overflow-wrap: anywhere; font-size: 14px; font-weight: 550; }
@@ -36,36 +36,35 @@
 .skill-switch input:focus-visible + span { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 .skill-switch input:disabled + span { opacity: .5; }
 .skills-editor { min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); }
-.skills-editor[hidden], .skills-editor [hidden] { display: none !important; }
-.skills-editor > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.skills-editor > header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-6); margin-bottom: 20px; }
 .skills-editor h2 { font-size: var(--fs-18); font-weight: 550; margin: 0; }
-#skills-editor-form { display: flex; flex-direction: column; gap: 8px; }
-#skills-editor-form > label:not(.skill-option), #skills-generation > label { font-size: var(--fs-12); font-weight: 550; margin-top: 12px; }
+#skills-editor-form { display: flex; flex-direction: column; gap: var(--sp-4); }
+#skills-editor-form > label:not(.skill-option), #skills-generation > label { font-size: var(--fs-12); font-weight: 550; margin-top: var(--sp-5); }
 #skills-editor-form :is(input:not([type="checkbox"]), textarea), #skills-generation textarea { width: 100%; box-sizing: border-box; resize: vertical; }
 #skills-editor-form textarea { line-height: 1.7; }
 #skill-instructions { font-family: var(--mono); font-size: var(--fs-12); min-height: 210px; }
-.skill-option { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: var(--fs-12); }
+.skill-option { display: flex; align-items: center; gap: var(--sp-4); margin-top: var(--sp-5); font-size: var(--fs-12); }
 .skill-option input { accent-color: var(--accent-text); }
-#skills-generation { display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: 6px; }
+#skills-generation { display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--border); padding-bottom: 18px; margin-bottom: var(--sp-3); }
 #skills-generation > button { align-self: flex-start; }
 #skills-generation small { font-size: var(--fs-11); line-height: 1.6; }
 #skills-editor-source { font-size: var(--fs-11); line-height: 1.6; overflow-wrap: anywhere; }
-#skills-editor-form > footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#skills-editor-form > footer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: var(--sp-4); margin-top: var(--sp-5); }
 .skills-error { color: var(--danger, #d85b5b); font-size: var(--fs-12); line-height: 1.6; overflow-wrap: anywhere; }
-.skills-empty { padding: 36px 12px; font-size: var(--fs-13); }
+.skills-empty { padding: 36px var(--sp-5); font-size: var(--fs-13); }
 @media (max-width: 1080px) {
   .skills-page-header { align-items: flex-start; flex-direction: column; gap: 18px; }
   .skills-library-layout:has(.skills-editor:not([hidden])) { grid-template-columns: minmax(0, 1fr); }
   .skills-editor { grid-row: 1; }
 }
 @media (max-width: 600px) {
-  #skills-scroll { padding: 22px 16px 36px; }
+  #skills-scroll { padding: 22px var(--sp-6) 36px; }
   .skills-page-header h1 { font-size: var(--fs-25); }
-  .skills-page-actions { gap: 6px; }
+  .skills-page-actions { gap: var(--sp-3); }
   .skills-library-toolbar { flex-wrap: wrap; }
   #skills-search { width: 100%; }
-  .skill-library-row { padding: 18px 4px; gap: 16px; }
-  .skills-editor { padding: 16px; }
+  .skill-library-row { padding: 18px var(--sp-2); gap: var(--sp-6); }
+  .skills-editor { padding: var(--sp-6); }
 }
 @media (prefers-reduced-motion: reduce) { .skill-switch-track::after { transition: none; } }
 

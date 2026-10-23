@@ -200,7 +200,7 @@ mod tests {
             crate::BaseComponent.contribute(&mut draft, &ctx).unwrap();
             crate::DevProfile.contribute(&mut draft, &ctx).unwrap();
             crate::ResearchProfile.contribute(&mut draft, &ctx).unwrap();
-            crate::memory::MemoryManagerComponent
+            kanzei_memory::memory::MemoryManagerComponent
                 .contribute(&mut draft, &ctx)
                 .unwrap();
             names.extend(draft.tools.names().map(str::to_string));

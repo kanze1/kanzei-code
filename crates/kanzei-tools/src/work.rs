@@ -12,11 +12,11 @@ use kanzei_harness::auto_run::WorkPriority;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 use crate::tracker::{
     dependency_states_from_documents, schedule_for_display_with_states, DependencyStates,
     ScheduledEntry,
 };
+use kanzei_memory::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -483,7 +483,7 @@ pub fn progress_anchor_fields(cwd: &std::path::Path) -> BTreeMap<String, String>
 fn future_legacy_date(entry: &Entry) -> Option<String> {
     let progress = field(entry, "进展")?;
     let bytes = progress.as_bytes();
-    let today = crate::memory::today();
+    let today = kanzei_memory::memory::today();
     for start in 0..bytes.len().saturating_sub(9) {
         let candidate = &bytes[start..start + 10];
         if candidate[4] == b'-'
@@ -1362,9 +1362,9 @@ pub use tool::WorkTool;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::docstore::Entry;
     use crate::tracker::DependencyStates;
     use kanzei_harness::{Tool, ToolCtx};
+    use kanzei_memory::docstore::Entry;
     use serde_json::json;
 
     fn entry(id: &str, status: &str) -> Entry {

@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 mod context;
 
 use crate::files::{annotation_target, load_annotations, valid_directory_notes, AnnotationStore};
-use crate::memory::MemoryEntry;
 use crate::refgraph::memory_graph::{build_graph, collect_context_inputs, GraphInputs};
+use kanzei_memory::memory::MemoryEntry;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct KnowledgeLink {

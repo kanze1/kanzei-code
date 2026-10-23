@@ -2,8 +2,8 @@
 //! dependents_map 的语义测试从 tracker.rs `tests` 下沉到本文件,调度逻辑可单独审计。
 
 use super::scheduling::{backlog_status, coupling_signals, dependents_map, dispatch_verdict};
-use crate::docstore::{DocStore, Entry, REQUIREMENTS};
 use kanzei_harness::ToolCtx;
+use kanzei_memory::docstore::{DocStore, Entry, REQUIREMENTS};
 
 fn entry(id: &str) -> Entry {
     Entry {
@@ -214,7 +214,7 @@ fn backlog_status_三态判定_桌面端与_cli共用同一实现() {
     DocStore::open(root, &REQUIREMENTS)
         .save(&[blocked])
         .unwrap();
-    DocStore::open(root, &crate::docstore::DEFECTS)
+    DocStore::open(root, &kanzei_memory::docstore::DEFECTS)
         .save(&[])
         .unwrap();
     assert!(matches!(backlog_status(root), BacklogStatus::AllBlocked));
@@ -225,7 +225,7 @@ fn backlog_status_三态判定_桌面端与_cli共用同一实现() {
     assert!(matches!(backlog_status(root), BacklogStatus::Workable));
     // ③ 无活动条目 → Empty。
     DocStore::open(root, &REQUIREMENTS).save(&[]).unwrap();
-    DocStore::open(root, &crate::docstore::DEFECTS)
+    DocStore::open(root, &kanzei_memory::docstore::DEFECTS)
         .save(&[])
         .unwrap();
     assert!(matches!(backlog_status(root), BacklogStatus::Empty));

@@ -1,6 +1,6 @@
 # Kanzei 当前实现与文档口径
 
-核对日期：2026-10-20。实现基线：`df452a2cb79055ef7ce9b28a68bf989ba058fc23`，本页包含本轮文档与需求清理。发布和本机安装状态分别读取对应提交的发布回执，不由本页推定。
+合同导航更新于 2026-10-22。实现以当前源码和 Cargo 清单为准；验证与发布状态读取绑定到相应提交的机器回执，本页不替代执行证据。
 
 ## 当前产品与运行合同
 
@@ -21,3 +21,5 @@ Skills 由全局 catalog 提供，启用技能正文按需读取；项目目录�
 2026-10-03 至 10-04 的 WB1–WB6 逐文件审查属于截至点记录，见 [WB6 报告](reviews/file-audit-2026-10-03/WB6-delivery-activity.md) 与 [工作区验收](reviews/2026-10-04-ui-information-architecture/production-acceptance.md)。其中的文件数、下一包、待合并分支和安装进度不描述今天的排期。
 
 本轮清理范围和验证结果见 [约束与需求清理记录](reports/2026-10-20-constraints-and-backlog-cleanup.md)。真实链路、安装发布和研究收益分别按专题证据记录。
+
+运行装配由 `kanzei-runtime` 统一提供，CLI 与桌面直接依赖 `kanzei-memory`。`kanzei-tools` 提供能力，core 的存储实现模块不对外开放。贡献、测试隔离和历史保留规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。

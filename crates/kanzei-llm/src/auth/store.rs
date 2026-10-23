@@ -25,9 +25,11 @@ pub fn commit(
     next: &Value,
     disk_is_fresher: impl Fn(&Value, &Value) -> bool,
 ) -> Result<Value, LlmError> {
-    let _lock = atomic_file::lock_exclusive(path)
-        .map_err(|e| LlmError::Config(format!("lock {}: {e}", path.display())))?;
-    if let Some(disk) = read_json(path) {
+    let _lock = atomic_file::lock_exclusive(path).map_err(|source| LlmError::CredentialIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    if let Some(disk) = read_json(path)? {
         if disk_is_fresher(&disk, next) {
             tracing::info!(
                 path = %path.display(),
@@ -36,16 +38,35 @@ pub fn commit(
             return Ok(disk);
         }
     }
-    let serialized = serde_json::to_string_pretty(next)
-        .map_err(|e| LlmError::Config(format!("serialize {}: {e}", path.display())))?;
-    atomic_file::write_atomic(path, &serialized)
-        .map_err(|e| LlmError::Config(format!("原子替换 {} 失败: {e}", path.display())))?;
+    let serialized =
+        serde_json::to_string_pretty(next).map_err(|source| LlmError::CredentialJson {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    atomic_file::write_atomic(path, &serialized).map_err(|source| LlmError::CredentialIo {
+        path: path.to_path_buf(),
+        source,
+    })?;
     Ok(next.clone())
 }
 
-fn read_json(path: &Path) -> Option<Value> {
-    let text = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+fn read_json(path: &Path) -> Result<Option<Value>, LlmError> {
+    let text = match std::fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(LlmError::CredentialIo {
+                path: path.to_path_buf(),
+                source: error,
+            })
+        }
+    };
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|source| LlmError::CredentialJson {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 /// 按 RFC3339 字段比较新旧(Codex 的 last_refresh)。
@@ -102,19 +123,43 @@ mod tests {
     }
 
     #[test]
-    fn 磁盘上是半截_json_时照常写入不被卡住() {
-        // 旧版 truncate-then-write 崩溃留下的残骸:读不出来就当没有,直接以我们这份为准。
+    fn 无法解析的凭据必须保留且拒绝覆盖() {
         let path = temp_file("corrupt");
         std::fs::write(&path, "{\"access_tok").unwrap();
         let mine = json!({ "access_token": "recovered" });
 
-        let written = commit(&path, &mine, |_, _| false).unwrap();
-
-        assert_eq!(written["access_token"], "recovered");
-        let on_disk: Value =
-            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(on_disk["access_token"], "recovered");
+        assert!(commit(&path, &mine, |_, _| false).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{\"access_tok");
         std::fs::remove_dir_all(path.parent().unwrap()).ok();
+    }
+
+    #[test]
+    fn 不存在与不可读的凭据不能混淆() {
+        let directory = kanzei_base::test_support::TestDir::new("kz-credentials-read-");
+        let path = directory.join("auth.json");
+        assert_eq!(read_json(&path).unwrap(), None);
+        std::fs::create_dir(&path).unwrap();
+        assert!(read_json(&path).is_err());
+        assert!(commit(&path, &json!({"access_token":"stale"}), |_, _| false).is_err());
+        assert!(path.is_dir());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn 共享冲突不得覆盖并发刷新的凭据() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let directory = kanzei_base::test_support::TestDir::new("kz-credentials-sharing-");
+        let path = directory.join("auth.json");
+        let fresh = json!({"access_token":"fresh"}).to_string();
+        std::fs::write(&path, &fresh).unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+        assert!(commit(&path, &json!({"access_token":"stale"}), |_, _| false).is_err());
+        drop(held);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), fresh);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use super::quick_req_with_coordinator;
 use kanzei_core::orchestration::MemoryCoordinator;
-use kanzei_tools::docstore::{DocStore, REQUIREMENTS};
+use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -208,7 +208,7 @@ async fn core_capture_is_saved_and_visible_before_research_or_model_fallback() {
     let entries = DocStore::open(&root, &REQUIREMENTS).load().unwrap();
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].status, "draft");
-    let spec = kanzei_tools::docstore::requirement::RequirementSpec::from_entry(&entries[0])
+    let spec = kanzei_memory::docstore::requirement::RequirementSpec::from_entry(&entries[0])
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -257,7 +257,7 @@ async fn compound_capture_returns_all_ids_with_one_shared_verbatim_source() {
     let specs: Vec<_> = entries
         .iter()
         .map(|e| {
-            kanzei_tools::docstore::requirement::RequirementSpec::from_entry(e)
+            kanzei_memory::docstore::requirement::RequirementSpec::from_entry(e)
                 .unwrap()
                 .unwrap()
         })

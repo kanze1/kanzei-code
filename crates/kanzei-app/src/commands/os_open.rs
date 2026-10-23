@@ -693,29 +693,45 @@ mod prefs_failure_tests {
 
     #[test]
     fn tool_writer_keeps_failed_read_bytes() {
-        with_home("tools", |home| {
-            let good = fixture(home);
-            for (_, bytes) in damaged_inputs(&good) {
-                assert_rejected_unchanged(home, &bytes, || open_tools_save(replacement_tools()));
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "tool_writer_keeps_failed_read_bytes",
+            || {
+                with_home("tools", |home| {
+                    let good = fixture(home);
+                    for (_, bytes) in damaged_inputs(&good) {
+                        assert_rejected_unchanged(home, &bytes, || {
+                            open_tools_save(replacement_tools())
+                        });
+                    }
+                });
+            },
+        );
     }
 
     #[test]
     fn tool_writer_preserves_normal_fields_and_initializes_not_found() {
-        with_home("tool-controls", |home| {
-            open_tools_save(replacement_tools()).unwrap();
-            assert!(home.join("app.json").is_file());
-            let good = fixture(home);
-            std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
-            open_tools_save(replacement_tools()).unwrap();
-            let after: serde_json::Value =
-                serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
-            assert_eq!(after["open_tools"][0]["id"], "changed");
-            for field in ["projects", "names", "theme", "process_auto_state"] {
-                assert_eq!(after[field], good[field], "{field}");
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "tool_writer_preserves_normal_fields_and_initializes_not_found",
+            || {
+                with_home("tool-controls", |home| {
+                    open_tools_save(replacement_tools()).unwrap();
+                    assert!(home.join("app.json").is_file());
+                    let good = fixture(home);
+                    std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap())
+                        .unwrap();
+                    open_tools_save(replacement_tools()).unwrap();
+                    let after: serde_json::Value =
+                        serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap())
+                            .unwrap();
+                    assert_eq!(after["open_tools"][0]["id"], "changed");
+                    for field in ["projects", "names", "theme", "process_auto_state"] {
+                        assert_eq!(after[field], good[field], "{field}");
+                    }
+                });
+            },
+        );
     }
 }
 

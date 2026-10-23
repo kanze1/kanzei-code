@@ -12,9 +12,8 @@ use super::mobile_json_response;
 /// 分发,不另起服务)。
 ///
 /// D-390:serve 根由调用方传入——发布版 = tauri resource 解包目录
-/// (tauri.conf.json `bundle.resources` 配置 `mobile-pwa/**`),开发/测试 =
-/// 源码 `crates/kanzei-app/mobile-pwa`。不再依赖编译期常量(安装版
-/// CARGO_MANIFEST_DIR 目录不存在,serve 空目录必然 404)。
+/// (tauri.conf.json 的 bundle.resources 以 mobile-pwa 映射条目随包分发)。
+/// resolve_pwa_root 优先解析发布资源，开发/测试回落 CARGO_MANIFEST_DIR/mobile-pwa。
 ///
 /// 路径安全:请求路径经 strip_prefix('/') 后直接 join 到 pwa_root(mobile-pwa 目录
 /// 本身)——PWA 页面内相对引用(如 `app.js`/`style.css`)即 `/<文件名>`;
@@ -75,7 +74,7 @@ pub(super) fn serve_pwa(stream: &mut TcpStream, path: &str, pwa_root: &Path) -> 
 }
 
 /// D-390:解析 PWA 静态资源根。发布版 = tauri resource 解包目录(tauri.conf.json
-/// `bundle.resources` 配置 `mobile-pwa/**`);开发/测试回退源码目录
+/// bundle.resources 的 mobile-pwa 映射条目)；开发/测试回退源码目录
 /// (cargo run / cargo test 的 CARGO_MANIFEST_DIR 均有效)。
 pub(super) fn resolve_pwa_root(app: &tauri::AppHandle) -> PathBuf {
     use tauri::Manager;

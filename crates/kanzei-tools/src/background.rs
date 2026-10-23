@@ -10,6 +10,7 @@
 //! 与 **启动瞬间的托管基线**。没有身份就无法把异步写入归因到某次运行,没有基线就
 //! 无法判断托管树的变化是不是这个进程造成的——两者是后台围栏的地基。
 
+use kanzei_base::sync::MutexPoisonExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -67,7 +68,7 @@ pub(crate) use registration::{register_captured, CapturedOutput};
 
 #[cfg(test)]
 pub(crate) fn prune_finished_process_for_test(id: &str) -> bool {
-    let mut registered = registry().lock().unwrap();
+    let mut registered = registry().lock_or_recover();
     let Some(process) = registered.get(id).cloned() else {
         return false;
     };
@@ -110,7 +111,7 @@ impl GuardCompletion {
         }
         .boxed()
         .shared();
-        *self.task.lock().unwrap() = GuardTask::Running(completion);
+        *self.task.lock_or_recover() = GuardTask::Running(completion);
         self.ready.notify_waiters();
     }
     async fn wait(&self) -> Result<(), String> {
@@ -119,7 +120,7 @@ impl GuardCompletion {
             tokio::pin!(notified);
             notified.as_mut().enable();
             let completion = {
-                match &*self.task.lock().unwrap() {
+                match &*self.task.lock_or_recover() {
                     GuardTask::NotRequired | GuardTask::Recovered => return Ok(()),
                     GuardTask::Pending => None,
                     GuardTask::Running(completion) => Some(completion.clone()),
@@ -133,7 +134,7 @@ impl GuardCompletion {
     }
     fn completed(&self) -> Result<Result<(), String>, String> {
         let completion = {
-            match &*self.task.lock().unwrap() {
+            match &*self.task.lock_or_recover() {
                 GuardTask::NotRequired | GuardTask::Recovered => return Ok(Ok(())),
                 GuardTask::Pending => return Err("后台文件守卫尚未登记完成".into()),
                 GuardTask::Running(completion) => completion.clone(),
@@ -144,7 +145,7 @@ impl GuardCompletion {
             .ok_or_else(|| "后台文件守卫仍在收尾".into())
     }
     fn restore_succeeded(&self) -> bool {
-        let completion = match &*self.task.lock().unwrap() {
+        let completion = match &*self.task.lock_or_recover() {
             GuardTask::Recovered => return true,
             GuardTask::Running(completion) => completion.clone(),
             GuardTask::NotRequired | GuardTask::Pending => return false,
@@ -152,7 +153,7 @@ impl GuardCompletion {
         matches!(completion.now_or_never(), Some(Ok(())))
     }
     fn record_recovery(&self) {
-        *self.task.lock().unwrap() = GuardTask::Recovered;
+        *self.task.lock_or_recover() = GuardTask::Recovered;
     }
 }
 
@@ -246,13 +247,13 @@ impl BackgroundProcess {
         Ok(())
     }
     pub fn is_running(&self) -> bool {
-        self.exit.lock().unwrap().is_none()
+        self.exit.lock_or_recover().is_none()
     }
 
     /// 终止树已被确认收敛时立即写入终态。等待任务稍后回收 Child 句柄，不能让
     /// 这段调度延迟把已杀进程继续暴露成 running。
     pub(crate) fn mark_terminated(&self) {
-        let mut exit = self.exit.lock().unwrap();
+        let mut exit = self.exit.lock_or_recover();
         if exit.is_none() {
             *exit = Some(None);
         }
@@ -261,37 +262,37 @@ impl BackgroundProcess {
     /// 测试观察基线；生产对账和更新在持有该锁时一起完成。
     #[cfg(test)]
     pub(crate) fn baseline(&self) -> ManagedSnapshot {
-        self.baseline.lock().unwrap().clone()
+        self.baseline.lock_or_recover().clone()
     }
 
     pub(crate) fn record_breach(&self, record: BreachRecord) {
-        self.breaches.lock().unwrap().push(record);
+        self.breaches.lock_or_recover().push(record);
     }
 
     pub fn breaches(&self) -> Vec<BreachRecord> {
-        self.breaches.lock().unwrap().clone()
+        self.breaches.lock_or_recover().clone()
     }
 
     pub fn exit_code(&self) -> Option<Option<i32>> {
-        *self.exit.lock().unwrap()
+        *self.exit.lock_or_recover()
     }
 
     /// 当前已捕获的输出(stdout 与 stderr 合并,按到达顺序)。
     pub fn output(&self) -> String {
-        let buf = self.output.lock().unwrap();
+        let buf = self.output.lock_or_recover();
         String::from_utf8_lossy(&buf).into_owned()
     }
 
     /// persistent 服务的日志尾部(内存有界,磁盘文件保留完整追加记录)。非 persistent 服务
     /// 仍走 output(内存 256K 丢头留尾)。
     pub fn full_log(&self) -> String {
-        let buf = self.full_output.lock().unwrap();
+        let buf = self.full_output.lock_or_recover();
         String::from_utf8_lossy(&buf).into_owned()
     }
 
     /// Cursor is an absolute byte position, even after the bounded buffer drops its head.
     pub fn output_since(&self, cursor: u64) -> (u64, String, bool) {
-        let bytes = self.output.lock().unwrap();
+        let bytes = self.output.lock_or_recover();
         let total = self.output_total.load(Ordering::SeqCst);
         let floor = total.saturating_sub(bytes.len() as u64);
         let start = cursor.saturating_sub(floor).min(bytes.len() as u64) as usize;
@@ -1100,8 +1101,7 @@ pub(crate) mod tests {
             exit_completion: GuardCompletion::new(false),
         });
         registry()
-            .lock()
-            .unwrap()
+            .lock_or_recover()
             .insert(process.id.clone(), process.clone());
         process
     }
@@ -1140,8 +1140,8 @@ pub(crate) mod tests {
                 "legitimate project A write"
             );
         }
-        registry().lock().unwrap().remove(&owner.id);
-        registry().lock().unwrap().remove(&foreign.id);
+        registry().lock_or_recover().remove(&owner.id);
+        registry().lock_or_recover().remove(&foreign.id);
         std::fs::remove_dir_all(root).unwrap();
         std::fs::remove_dir_all(other).unwrap();
     }
@@ -1176,7 +1176,7 @@ pub(crate) mod tests {
         drop(second);
         assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
         assert!(reconcile(&process, false).await.is_none());
-        registry().lock().unwrap().remove(&process.id);
+        registry().lock_or_recover().remove(&process.id);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1214,7 +1214,7 @@ pub(crate) mod tests {
 
         assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
         assert!(reconcile(&process, false).await.is_none());
-        registry().lock().unwrap().remove(&process.id);
+        registry().lock_or_recover().remove(&process.id);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1231,7 +1231,7 @@ pub(crate) mod tests {
         lifecycle::set_before_reconcile_hook(Some(Arc::new(move |id| {
             if id == expected_process {
                 ready_tx.send(()).unwrap();
-                resume_rx.lock().unwrap().recv().unwrap();
+                resume_rx.lock_or_recover().recv().unwrap();
             }
         })));
         struct ResetHook;
@@ -1267,7 +1267,7 @@ pub(crate) mod tests {
             "completed legitimate write"
         );
         assert_eq!(process.baseline(), ManagedSnapshot::capture(&root));
-        registry().lock().unwrap().remove(&process.id);
+        registry().lock_or_recover().remove(&process.id);
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -1467,7 +1467,7 @@ pub(crate) mod tests {
         assert!(!truncated.load(Ordering::SeqCst));
         append_bounded(&buf, &truncated, b"TAIL");
         assert!(truncated.load(Ordering::SeqCst));
-        let got = buf.lock().unwrap();
+        let got = buf.lock_or_recover();
         assert_eq!(got.len(), MAX_BACKGROUND_OUTPUT);
         // 保留的是尾部
         assert!(got.ends_with(b"TAIL"));
@@ -1603,92 +1603,104 @@ pub(crate) mod tests {
     async fn background_跨轮和并行查询不清理其他owner_停止才回收() {
         let _guard = fence_guard();
         let root = temp_managed_project("persist");
-        // 两个进程都登记到 run-A;run-B 收尾时,persistent 必须留下、默认必须被杀。
-        let persist_id = crate::bash::BashTool::default()
-            .execute(
-                serde_json::json!({ "command": "sleep 5", "background": true, "persistent": true }),
-                &ctx_for(&root, "run-A"),
-            )
-            .await;
-        assert!(
-            !persist_id.is_error,
-            "persistent 后台启动失败: {}",
-            persist_id.content
-        );
-        let persist_id = persist_id
-            .content
-            .lines()
-            .find_map(|line| line.strip_prefix("process_id: "))
-            .expect("应有 process_id")
-            .trim()
-            .to_string();
+        let result = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
+            // 两个进程都登记到 run-A;run-B 收尾时,persistent 必须留下、默认必须被杀。
+            let persist_id = crate::bash::BashTool::default()
+                .execute(
+                    serde_json::json!({ "command": "node -e \"require('net').createServer().listen(0, '127.0.0.1')\"", "background": true, "persistent": true }),
+                    &ctx_for(&root, "run-A"),
+                )
+                .await;
+            assert!(
+                !persist_id.is_error,
+                "persistent 后台启动失败: {}",
+                persist_id.content
+            );
+            let persist_id = persist_id
+                .content
+                .lines()
+                .find_map(|line| line.strip_prefix("process_id: "))
+                .expect("应有 process_id")
+                .trim()
+                .to_string();
 
-        let default_id = crate::bash::BashTool::default()
-            .execute(
-                serde_json::json!({ "command": "sleep 5", "background": true }),
-                &ctx_for(&root, "run-A"),
-            )
-            .await;
-        assert!(
-            !default_id.is_error,
-            "默认后台启动失败: {}",
-            default_id.content
-        );
-        let default_id = default_id
-            .content
-            .lines()
-            .find_map(|line| line.strip_prefix("process_id: "))
-            .expect("应有 process_id")
-            .trim()
-            .to_string();
+            let default_id = crate::bash::BashTool::default()
+                .execute(
+                    serde_json::json!({ "command": "node -e \"require('net').createServer().listen(0, '127.0.0.1')\"", "background": true }),
+                    &ctx_for(&root, "run-A"),
+                )
+                .await;
+            assert!(
+                !default_id.is_error,
+                "默认后台启动失败: {}",
+                default_id.content
+            );
+            let default_id = default_id
+                .content
+                .lines()
+                .find_map(|line| line.strip_prefix("process_id: "))
+                .expect("应有 process_id")
+                .trim()
+                .to_string();
 
-        // 两个都在跑。
-        assert!(
-            get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
-            "persistent 应在跑"
-        );
-        assert!(
-            get(&default_id).map(|p| p.is_running()).unwrap_or(false),
-            "默认应在跑"
-        );
+            // 两个都在跑。
+            assert!(
+                get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
+                "persistent 应在跑"
+            );
+            assert!(
+                get(&default_id).map(|p| p.is_running()).unwrap_or(false),
+                "默认应在跑"
+            );
 
-        // run-B 收尾(run-A 是 foreign owner):persistent 存活,默认被收。
-        let observed = crate::process::ProcessTool
-            .execute(
-                serde_json::json!({"action":"list"}),
-                &ctx_for(&root, "run-B"),
+            // run-B 收尾(run-A 是 foreign owner):persistent 存活,默认被收。
+            let observed = crate::process::ProcessTool
+                .execute(
+                    serde_json::json!({"action":"list"}),
+                    &ctx_for(&root, "run-B"),
+                )
+                .await;
+            assert!(!observed.is_error);
+            assert!(
+                get(&default_id).unwrap().is_running(),
+                "另一个运行查询不能终止原任务"
+            );
+            let command = crate::bash::BashTool::default()
+                .execute(
+                    serde_json::json!({"command":"echo other-owner"}),
+                    &ctx_for(&root, "run-B"),
+                )
+                .await;
+            assert!(!command.is_error);
+            assert!(
+                get(&default_id).unwrap().is_running(),
+                "另一个运行执行命令不能终止原任务"
+            );
+            let finished = kill_project(&root).await;
+            assert_eq!(finished, 1, "只应收掉默认档位那一个: {finished}");
+            assert!(
+                get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
+                "persistent 长驻服务在 owner run 结束后仍应存活"
+            );
+            // 默认档位已退出(收尾杀掉了)——exit 标志由异步 wait 任务设置,轮询等待。
+            let gone = wait_until(
+                || get(&default_id).map(|p| !p.is_running()).unwrap_or(true),
+                3000,
             )
             .await;
-        assert!(!observed.is_error);
-        assert!(
-            get(&default_id).unwrap().is_running(),
-            "另一个运行查询不能终止原任务"
-        );
-        let command = crate::bash::BashTool::default()
-            .execute(
-                serde_json::json!({"command":"echo other-owner"}),
-                &ctx_for(&root, "run-B"),
-            )
-            .await;
-        assert!(!command.is_error);
-        assert!(
-            get(&default_id).unwrap().is_running(),
-            "另一个运行执行命令不能终止原任务"
-        );
-        let finished = kill_project(&root).await;
-        assert_eq!(finished, 1, "只应收掉默认档位那一个: {finished}");
-        assert!(
-            get(&persist_id).map(|p| p.is_running()).unwrap_or(false),
-            "persistent 长驻服务在 owner run 结束后仍应存活"
-        );
-        // 默认档位已退出(收尾杀掉了)——exit 标志由异步 wait 任务设置,轮询等待。
-        let gone = wait_until(
-            || get(&default_id).map(|p| !p.is_running()).unwrap_or(true),
-            3000,
-        )
-        .await;
-        assert!(gone, "默认档位应在 owner run 收尾时被收掉");
-        std::fs::remove_dir_all(&root).ok();
+            assert!(gone, "默认档位应在 owner run 收尾时被收掉");
+        })).await;
+        // A persistent fixture must be stopped explicitly, including after an assertion panic.
+        // Runtime shutdown cannot finish while its output readers still own a live child.
+        for process in list(&root) {
+            stop_result(&process.id)
+                .await
+                .expect("reclaim test-owned background process");
+        }
+        std::fs::remove_dir_all(&root).unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
     }
 
     /// R-180 验收③:persistent 服务日志落盘——输出超 256 KiB 不丢头,进程退出后
@@ -2089,7 +2101,7 @@ pub(crate) mod tests {
         let guarded_id = id.clone();
         set_final_guard_hook(Some(Arc::new(move |seen| {
             if seen == guarded_id {
-                if let Some(held) = held.lock().unwrap().take() {
+                if let Some(held) = held.lock_or_recover().take() {
                     let _ = entered_tx.send(());
                     tokio::task::block_in_place(|| {
                         let _ = held.recv();
@@ -2281,7 +2293,7 @@ pub(crate) mod tests {
         let guarded_id = id.clone();
         set_final_guard_hook(Some(Arc::new(move |seen| {
             if seen == guarded_id {
-                if let Some(held) = held.lock().unwrap().take() {
+                if let Some(held) = held.lock_or_recover().take() {
                     let _ = entered_tx.send(());
                     tokio::task::block_in_place(|| {
                         let _ = held.recv();

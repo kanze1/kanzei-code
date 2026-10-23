@@ -23,7 +23,13 @@ function Stop-ArtifactRun([string]$Root, $Run, [bool]$Succeeded) {
         $result = & node (Join-Path $Root "scripts/artifact-lifecycle.mjs") finish $Run.id $state
         if ($LASTEXITCODE -ne 0) { throw "Artifact environment cleanup failed; retained details are in $($Run.evidence)" }
     } finally {
-        foreach ($name in $Run.previous_environment.Keys) { [Environment]::SetEnvironmentVariable($name, $Run.previous_environment[$name]) }
+        foreach ($name in $Run.previous_environment.Keys) {
+            $original = $Run.previous_environment[$name]
+            # PowerShell coerces $null to an empty string for this .NET overload.
+            # New runtimes preserve empty variables, so pass an explicit null to remove them.
+            if ($null -eq $original) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+            else { [Environment]::SetEnvironmentVariable($name, $original) }
+        }
     }
 }
 function Invoke-ArtifactCommand([string]$Program, [string[]]$Arguments, $Run, [string]$LogName = "command.log") {

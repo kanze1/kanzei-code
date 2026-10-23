@@ -530,55 +530,62 @@ pub(crate) mod failure_tests {
 
     #[test]
     fn overlapping_project_and_ui_transactions_preserve_both_preference_domains() {
-        with_home("concurrent-replacement", |home| {
-            let initial = fixture(home);
-            std::fs::write(home.join("app.json"), serde_json::to_vec(&initial).unwrap()).unwrap();
-            let project = initial["projects"][0].as_str().unwrap().to_string();
-            let barrier = std::sync::Barrier::new(8);
-            std::thread::scope(|scope| {
-                for worker in 0..8 {
-                    let project = project.clone();
-                    let barrier = &barrier;
-                    scope.spawn(move || {
-                        barrier.wait();
-                        for revision in 0..32 {
-                            if worker % 2 == 0 {
-                                crate::projects::projects_rename(
-                                    project.clone(),
-                                    format!("Renamed-{worker}-{revision}"),
-                                )
-                                .unwrap();
-                            } else {
-                                ui_prefs_set(
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    Some(
-                                        json!({format!("worker-{worker}"): {"revision": revision}}),
-                                    ),
-                                    None,
-                                )
-                                .unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "overlapping_project_and_ui_transactions_preserve_both_preference_domains",
+            || {
+                with_home("concurrent-replacement", |home| {
+                    let initial = fixture(home);
+                    std::fs::write(home.join("app.json"), serde_json::to_vec(&initial).unwrap())
+                        .unwrap();
+                    let project = initial["projects"][0].as_str().unwrap().to_string();
+                    let barrier = std::sync::Barrier::new(8);
+                    std::thread::scope(|scope| {
+                        for worker in 0..8 {
+                            let project = project.clone();
+                            let barrier = &barrier;
+                            scope.spawn(move || {
+                            barrier.wait();
+                            for revision in 0..32 {
+                                if worker % 2 == 0 {
+                                    crate::projects::projects_rename(
+                                        project.clone(),
+                                        format!("Renamed-{worker}-{revision}"),
+                                    )
+                                    .unwrap();
+                                } else {
+                                    ui_prefs_set(
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        Some(
+                                            json!({format!("worker-{worker}"): {"revision": revision}}),
+                                        ),
+                                        None,
+                                    )
+                                    .unwrap();
+                                }
                             }
+                        });
                         }
                     });
-                }
-            });
-            let saved = load_prefs_for_write().unwrap();
-            assert_eq!(
-                serde_json::to_value(&saved.projects).unwrap(),
-                initial["projects"]
-            );
-            assert!(saved.names[&project].starts_with("Renamed-"));
-            assert_eq!(saved.theme.as_deref(), Some("dark"));
-            for worker in [1, 3, 5, 7] {
-                assert_eq!(saved.ui_layout[format!("worker-{worker}")]["revision"], 31);
-            }
-        });
+                    let saved = load_prefs_for_write().unwrap();
+                    assert_eq!(
+                        serde_json::to_value(&saved.projects).unwrap(),
+                        initial["projects"]
+                    );
+                    assert!(saved.names[&project].starts_with("Renamed-"));
+                    assert_eq!(saved.theme.as_deref(), Some("dark"));
+                    for worker in [1, 3, 5, 7] {
+                        assert_eq!(saved.ui_layout[format!("worker-{worker}")]["revision"], 31);
+                    }
+                });
+            },
+        );
     }
 
     pub(crate) fn damaged_inputs(good: &Value) -> Vec<(&'static str, Vec<u8>)> {
@@ -651,54 +658,80 @@ pub(crate) mod failure_tests {
 
     #[test]
     fn ui_setter_keeps_invalid_utf8_original_bytes() {
-        rejected_theme("utf8");
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "ui_setter_keeps_invalid_utf8_original_bytes",
+            || rejected_theme("utf8"),
+        );
     }
 
     #[test]
     fn ui_setter_keeps_invalid_json_original_bytes() {
-        rejected_theme("json");
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "ui_setter_keeps_invalid_json_original_bytes",
+            || rejected_theme("json"),
+        );
     }
 
     #[test]
     fn ui_setter_keeps_invalid_typed_field_original_bytes() {
-        rejected_theme("typed");
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "ui_setter_keeps_invalid_typed_field_original_bytes",
+            || rejected_theme("typed"),
+        );
     }
 
     #[test]
     fn ui_setter_initializes_not_found_and_preserves_normal_unrelated_fields() {
-        with_home("controls", |home| {
-            assert!(!home.join("app.json").exists());
-            save_theme().unwrap();
-            assert_eq!(
-                load_prefs_for_write().unwrap().theme.as_deref(),
-                Some("light")
-            );
-            let good = fixture(home);
-            std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap()).unwrap();
-            save_theme().unwrap();
-            let after: Value =
-                serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap()).unwrap();
-            assert_eq!(after["theme"], "light");
-            for field in [
-                "projects",
-                "names",
-                "open_tools",
-                "work_priority",
-                "process_auto_state",
-            ] {
-                assert_eq!(after[field], good[field], "{field}");
-            }
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "ui_setter_initializes_not_found_and_preserves_normal_unrelated_fields",
+            || {
+                with_home("controls", |home| {
+                    assert!(!home.join("app.json").exists());
+                    save_theme().unwrap();
+                    assert_eq!(
+                        load_prefs_for_write().unwrap().theme.as_deref(),
+                        Some("light")
+                    );
+                    let good = fixture(home);
+                    std::fs::write(home.join("app.json"), serde_json::to_vec(&good).unwrap())
+                        .unwrap();
+                    save_theme().unwrap();
+                    let after: Value =
+                        serde_json::from_slice(&std::fs::read(home.join("app.json")).unwrap())
+                            .unwrap();
+                    assert_eq!(after["theme"], "light");
+                    for field in [
+                        "projects",
+                        "names",
+                        "open_tools",
+                        "work_priority",
+                        "process_auto_state",
+                    ] {
+                        assert_eq!(after[field], good[field], "{field}");
+                    }
+                });
+            },
+        );
     }
 
     #[test]
     fn ui_setter_refuses_io_read_failure_before_attempting_replacement() {
-        with_home("io", |home| {
-            std::fs::create_dir(home.join("app.json")).unwrap();
-            let error = save_theme().unwrap_err();
-            assert!(error.contains("读取偏好文件"), "{error}");
-            assert!(home.join("app.json").is_dir());
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "ui_setter_refuses_io_read_failure_before_attempting_replacement",
+            || {
+                with_home("io", |home| {
+                    std::fs::create_dir(home.join("app.json")).unwrap();
+                    let error = save_theme().unwrap_err();
+                    assert!(error.contains("读取偏好文件"), "{error}");
+                    assert!(home.join("app.json").is_dir());
+                });
+            },
+        );
     }
 }
 
@@ -724,95 +757,117 @@ mod run_control_delta_tests {
 
     #[test]
     fn real_setter_preserves_independent_project_priority_deltas() {
-        with_home("a7-priority", |_| {
-            save_controls(
-                Some(json!({"A": "defect-first", "B": "defect-first"})),
-                Some(json!({"p|A": {"enabled": true, "mode": "dev-pair"}})),
-            );
-            let a = ui_prefs_get();
-            let b = ui_prefs_get();
-            assert_eq!(a, b, "two windows start from the same snapshot");
-            save_controls(Some(json!({"A": "requirement-first"})), None);
-            save_controls(Some(json!({"B": "requirement-first"})), None);
-            save_controls(Some(json!({})), Some(json!({})));
-            let restored = ui_prefs_get();
-            assert_eq!(restored["work_priority"]["A"], "requirement-first");
-            assert_eq!(restored["work_priority"]["B"], "requirement-first");
-            assert_eq!(restored["process_auto_state"], a["process_auto_state"]);
-            let raw: Value = serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
-            assert_eq!(raw["work_priority"], restored["work_priority"]);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "real_setter_preserves_independent_project_priority_deltas",
+            || {
+                with_home("a7-priority", |_| {
+                    save_controls(
+                        Some(json!({"A": "defect-first", "B": "defect-first"})),
+                        Some(json!({"p|A": {"enabled": true, "mode": "dev-pair"}})),
+                    );
+                    let a = ui_prefs_get();
+                    let b = ui_prefs_get();
+                    assert_eq!(a, b, "two windows start from the same snapshot");
+                    save_controls(Some(json!({"A": "requirement-first"})), None);
+                    save_controls(Some(json!({"B": "requirement-first"})), None);
+                    save_controls(Some(json!({})), Some(json!({})));
+                    let restored = ui_prefs_get();
+                    assert_eq!(restored["work_priority"]["A"], "requirement-first");
+                    assert_eq!(restored["work_priority"]["B"], "requirement-first");
+                    assert_eq!(restored["process_auto_state"], a["process_auto_state"]);
+                    let raw: Value =
+                        serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
+                    assert_eq!(raw["work_priority"], restored["work_priority"]);
+                });
+            },
+        );
     }
 
     #[test]
     fn real_setter_preserves_process_fields_and_only_explicit_retirement_deletes() {
-        with_home("a7-process", |_| {
-            save_controls(
-                Some(json!({"A": "requirement-first"})),
-                Some(json!({
-                    "p|A": {"enabled": true, "paused": false, "stopAfterRound": false, "maxRounds": 7, "mode": "dev-pair"},
-                    "p|B": {"enabled": false, "maxRounds": 9},
-                    "p|C": {"enabled": true, "mode": "dev-auto"}
-                })),
-            );
-            let a = ui_prefs_get();
-            let b = ui_prefs_get();
-            assert_eq!(a, b);
-            save_controls(None, Some(json!({"p|A": {"paused": true}})));
-            save_controls(
-                None,
-                Some(json!({"p|A": {"enabled": false}, "p|B": {"enabled": true}})),
-            );
-            save_controls(None, Some(json!({"p|B": null})));
-            save_controls(None, Some(json!({})));
-            let restored = ui_prefs_get();
-            assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
-            assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
-            assert_eq!(
-                restored["process_auto_state"]["p|A"]["stopAfterRound"],
-                false
-            );
-            assert_eq!(restored["process_auto_state"]["p|A"]["maxRounds"], 7);
-            assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
-            assert!(!restored["process_auto_state"]
-                .as_object()
-                .unwrap()
-                .contains_key("p|B"));
-            assert_eq!(
-                restored["process_auto_state"]["p|C"],
-                a["process_auto_state"]["p|C"]
-            );
-            assert_eq!(restored["work_priority"], a["work_priority"]);
-            let raw: Value = serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
-            assert_eq!(raw["process_auto_state"], restored["process_auto_state"]);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "real_setter_preserves_process_fields_and_only_explicit_retirement_deletes",
+            || {
+                with_home("a7-process", |_| {
+                    save_controls(
+                        Some(json!({"A": "requirement-first"})),
+                        Some(json!({
+                            "p|A": {"enabled": true, "paused": false, "stopAfterRound": false, "maxRounds": 7, "mode": "dev-pair"},
+                            "p|B": {"enabled": false, "maxRounds": 9},
+                            "p|C": {"enabled": true, "mode": "dev-auto"}
+                        })),
+                    );
+                    let a = ui_prefs_get();
+                    let b = ui_prefs_get();
+                    assert_eq!(a, b);
+                    save_controls(None, Some(json!({"p|A": {"paused": true}})));
+                    save_controls(
+                        None,
+                        Some(json!({"p|A": {"enabled": false}, "p|B": {"enabled": true}})),
+                    );
+                    save_controls(None, Some(json!({"p|B": null})));
+                    save_controls(None, Some(json!({})));
+                    let restored = ui_prefs_get();
+                    assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
+                    assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
+                    assert_eq!(
+                        restored["process_auto_state"]["p|A"]["stopAfterRound"],
+                        false
+                    );
+                    assert_eq!(restored["process_auto_state"]["p|A"]["maxRounds"], 7);
+                    assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
+                    assert!(!restored["process_auto_state"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key("p|B"));
+                    assert_eq!(
+                        restored["process_auto_state"]["p|C"],
+                        a["process_auto_state"]["p|C"]
+                    );
+                    assert_eq!(restored["work_priority"], a["work_priority"]);
+                    let raw: Value =
+                        serde_json::from_slice(&std::fs::read(prefs_path()).unwrap()).unwrap();
+                    assert_eq!(raw["process_auto_state"], restored["process_auto_state"]);
+                });
+            },
+        );
     }
 
     #[test]
     fn real_concurrent_setters_merge_distinct_fields_under_the_existing_write_guard() {
-        with_home("a7-concurrent", |_| {
-            save_controls(
-                None,
-                Some(json!({"p|A": {"enabled": true, "paused": false, "mode": "dev-pair"}})),
-            );
-            let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-            std::thread::scope(|scope| {
-                for patch in [
-                    json!({"p|A": {"paused": true}}),
-                    json!({"p|A": {"enabled": false}}),
-                ] {
-                    let barrier = barrier.clone();
-                    scope.spawn(move || {
-                        barrier.wait();
-                        save_controls(None, Some(patch));
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "real_concurrent_setters_merge_distinct_fields_under_the_existing_write_guard",
+            || {
+                with_home("a7-concurrent", |_| {
+                    save_controls(
+                        None,
+                        Some(
+                            json!({"p|A": {"enabled": true, "paused": false, "mode": "dev-pair"}}),
+                        ),
+                    );
+                    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+                    std::thread::scope(|scope| {
+                        for patch in [
+                            json!({"p|A": {"paused": true}}),
+                            json!({"p|A": {"enabled": false}}),
+                        ] {
+                            let barrier = barrier.clone();
+                            scope.spawn(move || {
+                                barrier.wait();
+                                save_controls(None, Some(patch));
+                            });
+                        }
                     });
-                }
-            });
-            let restored = ui_prefs_get();
-            assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
-            assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
-            assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
-        });
+                    let restored = ui_prefs_get();
+                    assert_eq!(restored["process_auto_state"]["p|A"]["enabled"], false);
+                    assert_eq!(restored["process_auto_state"]["p|A"]["paused"], true);
+                    assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
+                });
+            },
+        );
     }
 }
 
@@ -853,97 +908,111 @@ mod workspace_state_tests {
 
     #[test]
     fn independent_windows_preserve_projects_through_real_prefs_set_and_reload() {
-        with_home("projects", || {
-            ui_prefs_set(
-                Some("dark".into()),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(json!({"splits": {"sidebar": 320}})),
-                None,
-            )
-            .unwrap();
-            save_workspace(json!({
-                "project-A": {"dev": {"view": "chat", "process_id": "d|A"}},
-                "project-B": {"dev": {"view": "chat", "process_id": "d|B"}}
-            }));
-            // Two windows read the same snapshot, then send only their own changes.
-            let a = ui_prefs_get();
-            let b = ui_prefs_get();
-            assert_eq!(a["workspace_state"], b["workspace_state"]);
-            save_workspace(json!({"project-A": {"dev": {"view": "lines"}}}));
-            save_workspace(json!({"project-B": {"dev": {"view": "arch"}}}));
-            let restored = ui_prefs_get();
-            assert_eq!(
-                restored["workspace_state"]["project-A"]["dev"]["view"],
-                "lines"
-            );
-            assert_eq!(
-                restored["workspace_state"]["project-B"]["dev"]["view"],
-                "arch"
-            );
-            assert_eq!(
-                restored["workspace_state"]["project-A"]["dev"]["process_id"],
-                "d|A"
-            );
-            assert_eq!(
-                restored["workspace_state"]["project-B"]["dev"]["process_id"],
-                "d|B"
-            );
-            assert_eq!(restored["theme"], "dark");
-            assert_eq!(restored["ui_layout"]["splits"]["sidebar"], 320);
-            let raw: Value =
-                serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap()).unwrap();
-            assert_eq!(raw["workspace_state"], restored["workspace_state"]);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "independent_windows_preserve_projects_through_real_prefs_set_and_reload",
+            || {
+                with_home("projects", || {
+                    ui_prefs_set(
+                        Some("dark".into()),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(json!({"splits": {"sidebar": 320}})),
+                        None,
+                    )
+                    .unwrap();
+                    save_workspace(json!({
+                        "project-A": {"dev": {"view": "chat", "process_id": "d|A"}},
+                        "project-B": {"dev": {"view": "chat", "process_id": "d|B"}}
+                    }));
+                    // Two windows read the same snapshot, then send only their own changes.
+                    let a = ui_prefs_get();
+                    let b = ui_prefs_get();
+                    assert_eq!(a["workspace_state"], b["workspace_state"]);
+                    save_workspace(json!({"project-A": {"dev": {"view": "lines"}}}));
+                    save_workspace(json!({"project-B": {"dev": {"view": "arch"}}}));
+                    let restored = ui_prefs_get();
+                    assert_eq!(
+                        restored["workspace_state"]["project-A"]["dev"]["view"],
+                        "lines"
+                    );
+                    assert_eq!(
+                        restored["workspace_state"]["project-B"]["dev"]["view"],
+                        "arch"
+                    );
+                    assert_eq!(
+                        restored["workspace_state"]["project-A"]["dev"]["process_id"],
+                        "d|A"
+                    );
+                    assert_eq!(
+                        restored["workspace_state"]["project-B"]["dev"]["process_id"],
+                        "d|B"
+                    );
+                    assert_eq!(restored["theme"], "dark");
+                    assert_eq!(restored["ui_layout"]["splits"]["sidebar"], 320);
+                    let raw: Value =
+                        serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap())
+                            .unwrap();
+                    assert_eq!(raw["workspace_state"], restored["workspace_state"]);
+                });
+            },
+        );
     }
 
     #[test]
     fn independent_windows_preserve_topics_fields_and_null_through_real_prefs_set() {
-        with_home("topics", || {
-            save_workspace(json!({"@research-library": {
-                "space": "dev", "research": {"category": "research", "process_id": "p|old"},
-                "topic_states": {"origin": {"page": "overview"}}
-            }}));
-            let a = ui_prefs_get();
-            let b = ui_prefs_get();
-            assert_eq!(a["workspace_state"], b["workspace_state"]);
-            save_workspace(json!({"@research-library": {
-                "research": {"topic_id": "alpha", "page": "writing", "process_id": null},
-                "topic_states": {"alpha": {"page": "writing", "process_id": null}}
-            }}));
-            save_workspace(json!({"@research-library": {
-                "research": {"topic_id": "beta", "page": "reading", "process_id": null},
-                "topic_states": {"beta": {"page": "reading", "process_id": null}}
-            }}));
-            save_workspace(
-                json!({"@research-library": {"topic_states": {"alpha": {"view": "chat"}}}}),
-            );
-            let restored = ui_prefs_get();
-            let library = &restored["workspace_state"]["@research-library"];
-            assert_eq!(library["topic_states"]["origin"]["page"], "overview");
-            assert_eq!(library["topic_states"]["alpha"]["page"], "writing");
-            assert_eq!(library["topic_states"]["alpha"]["view"], "chat");
-            assert_eq!(library["topic_states"]["beta"]["page"], "reading");
-            assert_eq!(library["research"]["category"], "research");
-            assert_eq!(library["research"]["process_id"], Value::Null);
-            assert_eq!(library["topic_states"]["alpha"]["process_id"], Value::Null);
-            assert!(library["research"]
-                .as_object()
-                .unwrap()
-                .contains_key("process_id"));
-            assert!(library["topic_states"]["alpha"]
-                .as_object()
-                .unwrap()
-                .contains_key("process_id"));
-            assert_eq!(library["space"], "dev");
-            let raw: Value =
-                serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap()).unwrap();
-            assert_eq!(raw["workspace_state"], restored["workspace_state"]);
-        });
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "independent_windows_preserve_topics_fields_and_null_through_real_prefs_set",
+            || {
+                with_home("topics", || {
+                    save_workspace(json!({"@research-library": {
+                        "space": "dev", "research": {"category": "research", "process_id": "p|old"},
+                        "topic_states": {"origin": {"page": "overview"}}
+                    }}));
+                    let a = ui_prefs_get();
+                    let b = ui_prefs_get();
+                    assert_eq!(a["workspace_state"], b["workspace_state"]);
+                    save_workspace(json!({"@research-library": {
+                        "research": {"topic_id": "alpha", "page": "writing", "process_id": null},
+                        "topic_states": {"alpha": {"page": "writing", "process_id": null}}
+                    }}));
+                    save_workspace(json!({"@research-library": {
+                        "research": {"topic_id": "beta", "page": "reading", "process_id": null},
+                        "topic_states": {"beta": {"page": "reading", "process_id": null}}
+                    }}));
+                    save_workspace(
+                        json!({"@research-library": {"topic_states": {"alpha": {"view": "chat"}}}}),
+                    );
+                    let restored = ui_prefs_get();
+                    let library = &restored["workspace_state"]["@research-library"];
+                    assert_eq!(library["topic_states"]["origin"]["page"], "overview");
+                    assert_eq!(library["topic_states"]["alpha"]["page"], "writing");
+                    assert_eq!(library["topic_states"]["alpha"]["view"], "chat");
+                    assert_eq!(library["topic_states"]["beta"]["page"], "reading");
+                    assert_eq!(library["research"]["category"], "research");
+                    assert_eq!(library["research"]["process_id"], Value::Null);
+                    assert_eq!(library["topic_states"]["alpha"]["process_id"], Value::Null);
+                    assert!(library["research"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key("process_id"));
+                    assert!(library["topic_states"]["alpha"]
+                        .as_object()
+                        .unwrap()
+                        .contains_key("process_id"));
+                    assert_eq!(library["space"], "dev");
+                    let raw: Value =
+                        serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap())
+                            .unwrap();
+                    assert_eq!(raw["workspace_state"], restored["workspace_state"]);
+                });
+            },
+        );
     }
 }
 

@@ -10,9 +10,9 @@ use kanzei_harness::{Tool, ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::docstore::{DocStore, FINDINGS, SOURCES};
 use crate::research_plan::{load_plan, PlanStatus};
 use crate::tracker::ResearchTrackerTool;
+use kanzei_memory::docstore::{DocStore, FINDINGS, SOURCES};
 
 const LOOP_FILE: &str = "loop.json";
 const MAX_SUMMARY_CHARS: usize = 4_000;

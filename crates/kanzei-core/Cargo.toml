@@ -30,5 +30,6 @@ async-trait.workspace = true
 base64.workspace = true
 
 [dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }
 async-trait.workspace = true
 tempfile.workspace = true

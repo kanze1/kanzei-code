@@ -16,12 +16,6 @@ pub(crate) fn normalized_text_hash(content: &str) -> String {
     content_hash(content.replace("\r\n", "\n").as_bytes())
 }
 
-/// R-203:memory/、docstore、embed、replay_eval 拆入 kanzei-memory crate,经再导出
-/// 保持 `kanzei_tools::{memory,docstore,embed,replay_eval}` 全部调用点零改动。
-pub use kanzei_memory::docstore;
-pub use kanzei_memory::embed;
-pub use kanzei_memory::memory;
-pub use kanzei_memory::replay_eval;
 pub mod background;
 mod base;
 pub mod bash;
@@ -92,7 +86,6 @@ pub mod research_write;
 mod search_walk;
 mod web_content;
 pub use read::pdf_to_text;
-pub mod run;
 mod shell;
 pub mod team;
 pub mod test_record;
@@ -123,7 +116,7 @@ pub use git::observe as git_observe;
 pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
     frontend_inspection_guidance, prompt_tool_mentions, prompt_tool_search_selects, DevProfile,
-    GeneralChatProfile, ReadonlyProfile, ResearchProfile, DEV_DEFERRED_TOOLS,
+    GeneralChatProfile, IsolatedProfile, ReadonlyProfile, ResearchProfile, DEV_DEFERRED_TOOLS,
 };
 pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};

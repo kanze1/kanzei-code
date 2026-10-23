@@ -770,7 +770,6 @@ mod tests {
         assert_eq!(body["store"], false);
     }
 
-    /// 思考强度→reasoning.effort;关闭时保留既有 summary=auto 且不带 effort。
     #[test]
     fn hosted_tool_declaration_and_history_are_channel_scoped() {
         let raw = json!({
@@ -862,6 +861,7 @@ mod tests {
         );
     }
 
+    /// 思考强度并入 reasoning.effort；off 保留模型默认，none 按支持能力显式请求无思考。
     #[test]
     fn reasoning_effort_merges_into_reasoning_object() {
         let base = |effort| LlmRequest {

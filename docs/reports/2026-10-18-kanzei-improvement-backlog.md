@@ -6,6 +6,21 @@
 
 当前两份来源文档都标注 2026-10-21，而本次会话审计发生在 2026-10-18；保留原文件名，日期事实纳入 RUN-04 纠正。本清单整理需求和验收条件，未实施功能，也未执行记忆清理。
 
+## 2026-10-22 状态复核
+
+下文保留 10 月 18 日的原始观察与验收条件，不再把已经实现的路径当成当前缺口。交接报告列出的 8 项有以下实现和可执行回归；本轮执行结果统一保存在 `output/session-handoff-repair/`。其余条目保留原状态，本表不替代 tracker。
+
+| 编号 | 当前实现与回归锚点 |
+| --- | --- |
+| RUN-02 | 已修复整轮持有写资格：`crates/kanzei-app/src/run/assembly.rs` 的 `dev_run_can_reach_provider_while_another_run_owns_the_mutation_slot` 在另一运行持写资格时实际到达 mock provider。实际变更仍由工具执行路径取得写资格。 |
+| RUN-03 | 已修复持久结果与实时终态冲突：`crates/kanzei-app/src/run/persistence.rs` 的 `durable_outcome_*` 用例覆盖成功、失败、停止及持久化失败后的发布顺序。真实安装版现场复现与本地回归分别记录。 |
+| SEC-01 | 已接通统一敏感文件权限：`crates/kanzei-harness/src/permission/{sensitivity,filesystem}.rs`；`crates/kanzei-core/src/runner/drive/execution_tests.rs` 的 `credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_user_consent` 验证 auto_allow/宽规则不放行、逐文件真实授权可放行。 |
+| SEC-03 | 已在执行前拒绝越过步数预算的工具调用：`crates/kanzei-core/tests/context_assembly.rs` 的 `exhausted_budget_rejects_provider_tool_calls_before_side_effects` 使用仍返回工具调用的 mock provider，并核对副作用文件不存在。 |
+| SEC-07 | 已在子代理准入与最终执行路径强制只读：`crates/kanzei-core/src/runner/drive/execution_tests.rs` 的 `readonly_child_boundary_rejects_an_incorrectly_constructed_snapshot` 和串行/并行执行用例。 |
+| WEB-01 | 已按显式后端路由：`crates/kanzei-tools/src/websearch.rs` 的 `explicit_duckduckgo_never_contacts_codex`、`explicit_codex_failure_never_contacts_duckduckgo` 通过真实本地 HTTP endpoint 检查。 |
+| WEB-04 | 已区分 challenge、页面形状失配与正常零结果：同文件 `a_changed_html_layout_is_not_evidence_of_zero_search_results`、`each_query_attempt_is_explicit_and_captcha_is_not_empty_success`。 |
+| WEB-05 | 已阻止 JS 空壳、登录页、挑战页冒充已读正文，并保留原始响应、正文状态和浏览器/原始 API 后续路径：`crates/kanzei-tools/src/web_content.rs`、`webfetch.rs` 的 `unreadable_html_is_not_evidence_and_numbered_preview_resumes_from_cache`。上述用例不代表真实受限站点已取到正文。 |
+
 ## 已有能力与实际缺口
 
 ### 浏览器填表已有基础

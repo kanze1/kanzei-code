@@ -185,7 +185,7 @@ fn list_library(home: &Path, projects: &[String]) -> Result<serde_json::Value, S
                 .filter(|dir| dir.path().is_dir())
             {
                 let name = dir.file_name().to_string_lossy().into_owned();
-                if kanzei_tools::docstore::DocStore::validate_topic(&name).is_err() {
+                if kanzei_memory::docstore::DocStore::validate_topic(&name).is_err() {
                     continue;
                 }
                 let metadata = crate::research_topics::topic_path(&root, &name).and_then(|path| {
@@ -233,7 +233,7 @@ pub(crate) fn research_library_list() -> Result<serde_json::Value, String> {
 }
 
 fn create_entry(home: &Path, topic: &str, title: &str) -> Result<ResearchEntry, String> {
-    kanzei_tools::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
+    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
     if title.trim().is_empty() || title.trim().chars().count() > 200 {
         return Err("课题名称应为 1 到 200 个字符".into());
     }

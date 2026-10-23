@@ -19,14 +19,14 @@
 //!
 //! # 快照策略(现状,不是承诺)
 //!
-//! 执行前后各拍一次其它线树的**全文件内容**(受限镜像)逐路径比对:内容不同 → 记为
-//! 变化并留证;内容相同(`touch` 之类)→ 不算越界。**mtime/len 粗筛尚未实现**
-//! (D-397 在册):当前每条前台 bash 对每棵其它线树做两次全量读,大仓下开销可观。
+//! 执行前保留受限内容镜像及元数据，执行后先按 mtime/len 粗筛；
+//! 元数据变化且保有内容镜像时再回读比较，纯 touch 不记为内容变化。
+//! 仅有 Fingerprint 的超限文件无法二次比内容，元数据变化即报告。
 //!
 //! # 性能与安全边界
 //!
-//! - 单文件镜像上限 4 MiB、单树文件数上限 2000(与托管文档同口径):超限时只记
-//!   `None`,该文件的变化检测不出来(D-396 在册,语义待收敛);
+//! - 单文件镜像上限 4 MiB、单树文件数上限 2000；超出内容预算时只保留
+//!   Fingerprint(len/mtime)，可检测元数据变化，但没有可供内容核验或隔离的原始字节;
 //! - 非 git 仓库 / `git worktree list` 失败:返回空快照,**不阻塞 bash**(不是所有
 //!   bash 都跑在 git 仓里,更没有其它线可保护——此时保护面就是空集);
 //! - 运行态与派生产物不入镜像:`.kanzei`(活 SQLite)、`target`、`node_modules`、
@@ -553,7 +553,7 @@ pub(crate) fn enforce_other_trees_with_command(
         let mut tree_changes = BTreeMap::new();
         for (rel, before_image) in before_files {
             match after_files.get(rel) {
-                // 执行后不存在:被删。回滚 = 写回执行前内容(超限无法回滚,保持删除并报告)。
+                // 执行后不存在：记录删除，报告并隔离可用的执行前内容，不回写文件。
                 None => {
                     tree_changes.insert(rel.clone(), (before_image.clone(), None));
                 }

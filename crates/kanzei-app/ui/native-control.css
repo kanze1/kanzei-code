@@ -1,22 +1,21 @@
 .native-control-surface { margin:0;background:transparent;color:#f1f5f4;font:13px/1.45 "Segoe UI","Microsoft YaHei",sans-serif;overflow:hidden;color-scheme:dark }
-.native-control-surface [hidden],.native-control[hidden],.native-control-highlight[hidden] { display:none !important }
 .native-control { --native-accent:#74ddc0;color:inherit;font-size:12px;line-height:1.45 }
-.native-control-floating { box-sizing:border-box;margin:4px;padding:14px 16px 10px;border:1px solid #74ddc052;border-radius:14px;background:#172522f7;box-shadow:0 3px 12px #0005;animation:native-control-enter 150ms ease-out;max-height:calc(100vh - 8px);overflow:auto }
+.native-control-floating { box-sizing:border-box;margin:var(--sp-2);padding:14px var(--sp-6) 10px;border:1px solid #74ddc052;border-radius:14px;background:#172522f7;box-shadow:0 3px 12px #0005;animation:native-control-enter 150ms ease-out;max-height:calc(100vh - 8px);overflow:auto }
 .native-control-heading { display:flex;align-items:center;gap:11px;min-width:0 }
-.native-control-identity { display:flex;flex:1;flex-direction:column;gap:2px;min-width:0 }
+.native-control-identity { display:flex;flex:1;flex-direction:column;gap:var(--sp-1);min-width:0 }
 .native-control-identity strong { font-size:13px;font-weight:600;letter-spacing:.02em }
 .native-control-target { overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted,#b3c6be);font-size:11px }
 .native-control-dot { flex:none;width:8px;height:8px;border-radius:50%;background:var(--native-accent);box-shadow:0 0 0 4px #74ddc015 }
 .native-control[data-phase="running"] .native-control-dot { animation:native-control-breathe 1.6s ease-in-out infinite }
 .native-control[data-phase="stopping"] .native-control-dot { background:#ecc079;animation:native-control-breathe .8s ease-in-out infinite }
 .native-control[data-phase="stop_failed"] .native-control-dot { background:#ef9c90 }
-.native-control-stop { flex:none;display:flex;align-items:center;gap:8px;min-height:34px;padding:7px 10px;border:1px solid #d5ece343;border-radius:7px;background:#eef6f00d;color:inherit;font:inherit;cursor:pointer }
+.native-control-stop { flex:none;display:flex;align-items:center;gap:var(--sp-4);min-height:34px;padding:7px 10px;border:1px solid #d5ece343;border-radius:7px;background:#eef6f00d;color:inherit;font:inherit;cursor:pointer }
 .native-control-stop:hover { background:#eef6f01c;border-color:#d5ece377 }
 .native-control-stop:focus-visible { outline:2px solid var(--native-accent);outline-offset:3px }
 .native-control-stop:disabled { opacity:.6;cursor:wait }
-.native-control-stop kbd { font:10px "Segoe UI",sans-serif;opacity:.75;border-left:1px solid #d5ece343;padding-left:8px }
-.native-control-trace { list-style:none;margin:10px 0 0 4px;padding:0 0 0 14px;border-left:1px solid #b8d3c52b;max-height:210px;overflow:auto }
-.native-control-step { position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:3px 0;font-size:11px }
+.native-control-stop kbd { font:10px "Segoe UI",sans-serif;opacity:.75;border-left:1px solid #d5ece343;padding-left:var(--sp-4)  }
+.native-control-trace { list-style:none;margin:10px 0 0 var(--sp-2);padding:0 0 0 14px;border-left:1px solid #b8d3c52b;max-height:210px;overflow:auto }
+.native-control-step { position:relative;display:flex;align-items:baseline;justify-content:space-between;gap:var(--sp-5);padding:3px 0;font-size:11px }
 .native-control-step::before { content:"";position:absolute;left:-17px;top:9px;width:5px;height:5px;border-radius:50%;background:#839c90 }
 .native-control-step[data-status="executing"]::before { background:var(--native-accent);animation:native-control-breathe 1s ease-in-out infinite }
 .native-control-step[data-status="failed"]::before { background:#ef9c90 }
@@ -26,7 +25,7 @@
 .native-control-result { flex:none;color:var(--muted,#a8bdb3);font-size:10px }
 .native-control-details { margin:7px 0 0 19px }
 .native-control-details summary { width:fit-content;color:var(--muted,#a8bdb3);font-size:11px;cursor:pointer }
-.native-control-error { margin:8px 0 0;color:#ffc3b9;font-size:11px;overflow-wrap:anywhere }
+.native-control-error { margin:var(--sp-4) 0 0;color:#ffc3b9;font-size:11px;overflow-wrap:anywhere }
 .native-control-inline { padding:10px 0;border-top:1px solid var(--border,#748e8040) }
 .native-control-inline .native-control-identity strong { font-size:12px }
 .native-control-inline .native-control-stop { min-height:30px }

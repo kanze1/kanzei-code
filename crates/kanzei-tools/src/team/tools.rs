@@ -65,7 +65,7 @@ impl Component for TeamTools {
                 let Some(content) = read_role_memory(&team, &job)? else { return Ok(None); };
                 Ok(Some(format!(
                     "Role-local cached observations (verify against current source; these are not user preferences):\n{}",
-                    ToolOutput::ok(crate::memory::redact_credentials(&content).lines().take(200).collect::<Vec<_>>().join("\n"))
+                    ToolOutput::ok(kanzei_memory::memory::redact_credentials(&content).lines().take(200).collect::<Vec<_>>().join("\n"))
                         .with_external_source(kanzei_harness::ExternalSourceKind::File, path.to_string_lossy())
                         .model_content()
                 )))
@@ -279,7 +279,7 @@ impl Tool for Memory {
             let old = read_role_memory(&self.team, &job)?.unwrap_or_default();
             let revision = format!("{:x}", Sha256::digest(old.as_bytes()));
             if let Some(content) = input["content"].as_str() {
-                crate::memory::reject_credentials(content)?;
+                kanzei_memory::memory::reject_credentials(content)?;
                 if content.len() > 64 * 1024 {
                     anyhow::bail!("记忆最多 64 KiB，请先压缩整理");
                 }
@@ -295,7 +295,7 @@ impl Tool for Memory {
                 );
             }
             Ok(
-                json!({"path":path,"revision":revision,"content":crate::memory::redact_credentials(&old)}),
+                json!({"path":path,"revision":revision,"content":kanzei_memory::memory::redact_credentials(&old)}),
             )
         })();
         match result {

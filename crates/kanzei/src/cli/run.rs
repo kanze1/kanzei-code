@@ -6,7 +6,7 @@
 //!
 //! 危险点(搬迁纪律):取根走 `main_project_root` 唯一通道(D-194/R-182);prompt 真源
 //! 解析与 flag 剥除在 mod.rs(`resolve_run_prompt`/`parse_run_args`);RunnerConfig 与
-//! 子代理运行时构造共用 kanzei_tools::run(对照表 #12/#16),CLI 传 None/None。
+//! 子代理运行时构造共用 kanzei-runtime；CLI 不提供桌面仲裁、取消或续跑转录接口。
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -214,9 +214,9 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     };
 
     // 装配顺序即覆盖顺序:内置 → profile → 用户 markdown → 用户 toml(用户永远最后、永远赢)。
-    // R-256 批4:与桌面共用 kanzei_tools::run::build_harness(对照表 #5 公共部分单点),
+    // R-256 批4:与桌面共用 kanzei_runtime::build_harness(对照表 #5 公共部分单点),
     // CLI 独有 Readonly 经 middle 注入(顺序与原来一致:Research 后、Markdown 前)。
-    let mut harness = kanzei_tools::run::build_harness(
+    let mut harness = kanzei_runtime::build_harness(
         profile,
         |harness| {
             harness.add(ReadonlyProfile);
@@ -278,12 +278,12 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             "cli".into(),
         );
     ctx.project_workflow = agent.name == "dev";
-    // R-256:RunnerConfig 构造与桌面共用 kanzei_tools::run::build_runner_config(对照表 #12)。
+    // R-256:RunnerConfig 构造与桌面共用 kanzei_runtime::build_runner_config(对照表 #12)。
     ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator::new(
         std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
     ));
     // CLI 无 reasoning 覆盖；--autonomous 复用 App 自主决策协议，不更改工具权限。
-    let mut runner_config = kanzei_tools::run::build_runner_config(
+    let mut runner_config = kanzei_runtime::build_runner_config(
         &resolved,
         &config,
         None,
@@ -301,13 +301,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         kanzei_harness::HarnessIntensity::Paired
     };
     runner_config.digest_model =
-        Some(kanzei_tools::run::build_digest_model(&config, &proxy, &resolved, &route).await);
+        Some(kanzei_runtime::build_digest_model(&config, &proxy, &resolved, &route).await);
     runner_config.digest_model.as_mut().unwrap().archive_root = Some(project_root.clone());
 
     let session_id = kanzei_core::project_session_id(&ctx.project_root);
     ctx.session_id = Some(session_id.clone());
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
-    let execution_owner = Arc::new(kanzei_core::store::session_execution::try_acquire(
+    let execution_owner = Arc::new(kanzei_core::session_execution::try_acquire(
         &state_path,
         &session_id,
     )?);
@@ -391,10 +391,10 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         super::parse_allowlist(&allow),
     );
 
-    // task 子代理运行时:R-256 与桌面共用 kanzei_tools::run::build_subagent_runtime(对照表
-    // #16);CLI 单运行不参与共享仲裁(R-171 批6)、无前端停止按钮(R-174),传 None/None。
+    // task 子代理运行时:R-256 与桌面共用 kanzei_runtime::build_subagent_runtime(对照表
+    // #16)；CLI 不参与桌面共享仲裁、前端停止或子代理转录续跑，四个可选接口均不提供。
     let subagent_rt = if subagents_enabled {
-        kanzei_tools::run::build_subagent_runtime(
+        kanzei_runtime::build_subagent_runtime(
             &rctx, &config, &proxy, &resolved, &route, None, None, None, None,
         )
         .await?
@@ -406,12 +406,11 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
     // CLI 的 `kz run` 一律是用户显式发起的一轮,prompt 就是真实检索键(非自动轮)。
-    let memory_hints = kanzei_tools::memory::prompt_hints_for_run(
+    let memory_hints = kanzei_memory::memory::prompt_hints_for_run(
         &ctx.project_root,
         &prompt,
-        false,
         // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-        kanzei_tools::embed::embedder_from_config(&config)
+        kanzei_memory::embed::embedder_from_config(&config)
             .ok()
             .flatten(),
         ctx.run_id.as_deref(),

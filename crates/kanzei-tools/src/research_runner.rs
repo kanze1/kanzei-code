@@ -17,8 +17,8 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use crate::docstore::DocStore;
 use crate::research_environment::{load_environment, ResearchEnvironment};
+use kanzei_memory::docstore::DocStore;
 
 const DEFAULT_MAX_DURATION_MS: u64 = 60 * 60 * 1000;
 const METRIC_COALESCE_WINDOW_MS: i64 = 1_000;
@@ -319,7 +319,7 @@ impl Tool for ResearchRunnerTool {
     }
 
     fn description(&self) -> String {
-        r#"研究实验专用执行器：run 通过 local 或系统 ssh 客户端执行命令。指标须逐行输出 @@kanzei {"t":"metric","name":"score","value":0.5}（Python print(..., flush=True)），name 必须与 MVP metric 完全一致，value 为有限数值；同名指标保留最后值，各方法宜分开运行或使用不同 name。heartbeat 输出 @@kanzei {"t":"heartbeat"}。普通 stdout/stderr 和格式错误的回调保留在 terminal_log；get 回读 metrics_last/callback_stats。事件、环境、参数和产物写入 state.db 与 explorations/<E-id>/<result-id>/。AUTO 使用 prepare_compute 返回的 Python 和工作目录。Windows local 命令使用 cmd，带空格的程序/参数用双引号，不用 PowerShell 的 &。research 档 bash 不可用。"#.into()
+        r#"研究实验专用执行器：run 通过 local 或系统 ssh 客户端执行命令。指标须逐行输出 {callback_prefix}{"t":"metric","name":"score","value":0.5}（Python print(..., flush=True)），name 必须与 MVP metric 完全一致，value 为有限数值；同名指标保留最后值，各方法宜分开运行或使用不同 name。heartbeat 输出 {callback_prefix}{"t":"heartbeat"}。普通 stdout/stderr 和格式错误的回调保留在 terminal_log；get 回读 metrics_last/callback_stats。事件、环境、参数和产物写入 state.db 与 explorations/<E-id>/<result-id>/。AUTO 使用 prepare_compute 返回的 Python 和工作目录。Windows local 命令使用 cmd，带空格的程序/参数用双引号，不用 PowerShell 的 &。research 档 bash 不可用。"#.replace("{callback_prefix}", kanzei_core::CALLBACK_PREFIX)
     }
 
     fn input_schema(&self) -> Value {

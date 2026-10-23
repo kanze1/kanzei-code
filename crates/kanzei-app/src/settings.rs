@@ -955,12 +955,13 @@ pub async fn provider_test(
 fn _state_type_marker(_: Option<State<'_, AppState>>) {}
 
 /// 测试里临时把 `KANZEI_HOME` 指到临时目录(全局配置与 `~/.kanzei/agents` 都跟它走)。
-/// 环境变量是进程级的,cargo test 又并行跑:改它的测试一律经这里串行,否则两个测试
-/// 会互相把对方的 home 换掉,或把 KANZEI_HOME 恢复成对方已删掉的临时目录。
+/// 调用方必须通过 test_support::isolated_test 运行；互斥锁不能隔离未持锁的读者。
 #[cfg(test)]
 pub(crate) fn with_kanzei_home<R>(home: &Path, f: impl FnOnce() -> R) -> R {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    assert!(
+        kanzei_base::test_support::is_isolated_test(),
+        "home mutation requires a process-isolated test"
+    );
     let old_home = std::env::var_os("KANZEI_HOME");
     std::env::set_var("KANZEI_HOME", home);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
@@ -1033,44 +1034,50 @@ mod tests {
 
     #[test]
     fn settings_save_rejects_model_of_removed_provider_without_committing() {
-        let home = 临时配置("removed-provider").with_extension("home");
-        std::fs::create_dir_all(&home).unwrap();
-        let path = home.join("kanzei.toml");
-        let original = "[models]\nprimary = 'removed:model'\n[providers.removed]\nprotocol = 'openai'\nbase_url = 'http://removed'\n[providers.kept]\nprotocol = 'openai'\nbase_url = 'http://kept'\n";
-        std::fs::write(&path, original).unwrap();
-        with_kanzei_home(&home, || {
-            let providers = || {
-                vec![ProviderPayload {
-                    name: "kept".into(),
-                    protocol: "openai".into(),
-                    base_url: "http://kept".into(),
-                    api_key_env: None,
-                    api_key: None,
-                    auth: None,
-                    context_limit: None,
-                }]
-            };
-            for role in ["primary", "fast", "compact"] {
-                let mut payload = 空载荷(providers());
-                match role {
-                    "primary" => payload.primary = "removed:model".into(),
-                    "fast" => payload.fast = "removed:model".into(),
-                    _ => payload.compact = "removed:model".into(),
-                }
-                let error = settings_save(payload).unwrap_err();
-                assert!(error.contains("removed:model") && error.contains(role));
-                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
-            }
-            let mut payload = 空载荷(providers());
-            payload.primary = "kept:model".into();
-            settings_save(payload).unwrap();
-            let mut saved: kanzei_harness::KanzeiConfig =
-                toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            assert!(!saved.providers.contains_key("removed"));
-            saved.fill_defaults();
-            assert!(saved.resolve_model("kept:model").is_ok());
-        });
-        std::fs::remove_dir_all(home).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "settings_save_rejects_model_of_removed_provider_without_committing",
+            || {
+                let home = 临时配置("removed-provider").with_extension("home");
+                std::fs::create_dir_all(&home).unwrap();
+                let path = home.join("kanzei.toml");
+                let original = "[models]\nprimary = 'removed:model'\n[providers.removed]\nprotocol = 'openai'\nbase_url = 'http://removed'\n[providers.kept]\nprotocol = 'openai'\nbase_url = 'http://kept'\n";
+                std::fs::write(&path, original).unwrap();
+                with_kanzei_home(&home, || {
+                    let providers = || {
+                        vec![ProviderPayload {
+                            name: "kept".into(),
+                            protocol: "openai".into(),
+                            base_url: "http://kept".into(),
+                            api_key_env: None,
+                            api_key: None,
+                            auth: None,
+                            context_limit: None,
+                        }]
+                    };
+                    for role in ["primary", "fast", "compact"] {
+                        let mut payload = 空载荷(providers());
+                        match role {
+                            "primary" => payload.primary = "removed:model".into(),
+                            "fast" => payload.fast = "removed:model".into(),
+                            _ => payload.compact = "removed:model".into(),
+                        }
+                        let error = settings_save(payload).unwrap_err();
+                        assert!(error.contains("removed:model") && error.contains(role));
+                        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+                    }
+                    let mut payload = 空载荷(providers());
+                    payload.primary = "kept:model".into();
+                    settings_save(payload).unwrap();
+                    let mut saved: kanzei_harness::KanzeiConfig =
+                        toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                    assert!(!saved.providers.contains_key("removed"));
+                    saved.fill_defaults();
+                    assert!(saved.resolve_model("kept:model").is_ok());
+                });
+                std::fs::remove_dir_all(home).unwrap();
+            },
+        );
     }
 
     #[test]
@@ -1125,36 +1132,44 @@ mod tests {
 
     #[test]
     fn remembered_permissions_are_user_owned_and_stale_deletion_is_rejected() {
-        let home = 临时配置("trust-permissions").with_extension("home");
-        let project = home.join("project");
-        std::fs::create_dir_all(&project).unwrap();
-        with_kanzei_home(&home, || {
-            kanzei_harness::project_trust::remember_permission(&project, "bash", "A").unwrap();
-            kanzei_harness::project_trust::remember_permission(&project, "bash", "B").unwrap();
-            let dir = project.display().to_string();
-            assert_eq!(
-                permission_rules_get(dir.clone()).unwrap()["rules"]
-                    .as_array()
-                    .unwrap()
-                    .len(),
-                2
-            );
-            permission_rule_delete(dir.clone(), 0, allow("A")).unwrap();
-            assert!(permission_rule_delete(dir.clone(), 0, allow("A")).is_err());
-            assert_eq!(
-                permission_rules_get(dir.clone()).unwrap()["rules"][0]["resource"],
-                "B"
-            );
-            permission_rule_delete(dir.clone(), 0, allow("B")).unwrap();
-            assert!(permission_rules_get(dir).unwrap()["rules"]
-                .as_array()
-                .unwrap()
-                .is_empty());
-            assert!(!project.join(".kanzei/kanzei.toml").exists());
-            std::fs::write(home.join("project-trust.json"), "invalid JSON").unwrap();
-            assert!(permission_rules_get(project.display().to_string()).is_err());
-        });
-        std::fs::remove_dir_all(home).unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "remembered_permissions_are_user_owned_and_stale_deletion_is_rejected",
+            || {
+                let home = 临时配置("trust-permissions").with_extension("home");
+                let project = home.join("project");
+                std::fs::create_dir_all(&project).unwrap();
+                with_kanzei_home(&home, || {
+                    kanzei_harness::project_trust::remember_permission(&project, "bash", "A")
+                        .unwrap();
+                    kanzei_harness::project_trust::remember_permission(&project, "bash", "B")
+                        .unwrap();
+                    let dir = project.display().to_string();
+                    assert_eq!(
+                        permission_rules_get(dir.clone()).unwrap()["rules"]
+                            .as_array()
+                            .unwrap()
+                            .len(),
+                        2
+                    );
+                    permission_rule_delete(dir.clone(), 0, allow("A")).unwrap();
+                    assert!(permission_rule_delete(dir.clone(), 0, allow("A")).is_err());
+                    assert_eq!(
+                        permission_rules_get(dir.clone()).unwrap()["rules"][0]["resource"],
+                        "B"
+                    );
+                    permission_rule_delete(dir.clone(), 0, allow("B")).unwrap();
+                    assert!(permission_rules_get(dir).unwrap()["rules"]
+                        .as_array()
+                        .unwrap()
+                        .is_empty());
+                    assert!(!project.join(".kanzei/kanzei.toml").exists());
+                    std::fs::write(home.join("project-trust.json"), "invalid JSON").unwrap();
+                    assert!(permission_rules_get(project.display().to_string()).is_err());
+                });
+                std::fs::remove_dir_all(home).unwrap();
+            },
+        );
     }
     #[test]
     fn 运行上限只写填了的键_留空的键从配置里移除() {
@@ -1522,46 +1537,52 @@ mod tests {
 
     #[test]
     fn settings_get合并项目provider并标注来源() {
-        let home = std::env::temp_dir().join(format!(
-            "kanzei-settings-home-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let project = home.join("project");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        std::fs::write(
-            home.join("kanzei.toml"),
-            "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            project.join(".kanzei/kanzei.toml"),
-            "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
-        )
-        .unwrap();
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "settings_get合并项目provider并标注来源",
+            || {
+                let home = std::env::temp_dir().join(format!(
+                    "kanzei-settings-home-{}",
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+                let project = home.join("project");
+                std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+                std::fs::write(
+                home.join("kanzei.toml"),
+                "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
+            )
+            .unwrap();
+                std::fs::write(
+                    project.join(".kanzei/kanzei.toml"),
+                    "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
+                )
+                .unwrap();
 
-        let value = with_kanzei_home(&home, || {
-            assert!(!provider_sources(Some(&project), &home.join("kanzei.toml"))
-                .contains_key("llama-local"));
-            let sources = kanzei_harness::project_trust::status(&project).unwrap();
-            kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
-            settings_get(Some(project.display().to_string()))
-        });
-        let providers = value["providers"].as_array().unwrap();
-        let source = |name: &str| {
-            providers
-                .iter()
-                .find(|provider| provider["name"] == name)
-                .and_then(|provider| provider["source"].as_str())
-        };
-        assert_eq!(source("global-only"), Some("global"));
-        assert_eq!(source("llama-local"), Some("project"));
-        assert_eq!(source("codex"), Some("builtin"));
-        assert_eq!(source("claude"), None);
-        assert_eq!(source("anthropic"), None);
-        std::fs::remove_dir_all(home).ok();
+                let value = with_kanzei_home(&home, || {
+                    assert!(!provider_sources(Some(&project), &home.join("kanzei.toml"))
+                        .contains_key("llama-local"));
+                    let sources = kanzei_harness::project_trust::status(&project).unwrap();
+                    kanzei_harness::project_trust::approve(&project, &sources.fingerprint).unwrap();
+                    settings_get(Some(project.display().to_string()))
+                });
+                let providers = value["providers"].as_array().unwrap();
+                let source = |name: &str| {
+                    providers
+                        .iter()
+                        .find(|provider| provider["name"] == name)
+                        .and_then(|provider| provider["source"].as_str())
+                };
+                assert_eq!(source("global-only"), Some("global"));
+                assert_eq!(source("llama-local"), Some("project"));
+                assert_eq!(source("codex"), Some("builtin"));
+                assert_eq!(source("claude"), None);
+                assert_eq!(source("anthropic"), None);
+                std::fs::remove_dir_all(home).ok();
+            },
+        );
     }
 
     /// UI-0926 #3:设置页只写全局,校验基线也只看全局(全局文件 + 内置 + 表单 provider)。
@@ -1569,42 +1590,48 @@ mod tests {
     /// - 只在项目文件里定义的 provider 不能让**全局** primary 通过——换到别的项目它就解析不了。
     #[test]
     fn validate_model_roles_uses_global_baseline() {
-        let home = std::env::temp_dir().join(format!(
-            "kanzei-settings-global-baseline-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let project = home.join("project");
-        std::fs::create_dir_all(project.join(".kanzei")).unwrap();
-        let global_path = home.join("kanzei.toml");
-        std::fs::write(
-            &global_path,
-            "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            project.join(".kanzei/kanzei.toml"),
-            "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
-        )
-        .unwrap();
-
-        let (global_result, project_result) = with_kanzei_home(&home, || {
-            let mut global_provider = 空载荷(vec![]);
-            global_provider.primary = "global-only:7b".into();
-            let mut project_provider = 空载荷(vec![]);
-            project_provider.primary = "llama-local:7b".into();
-            (
-                settings_save(global_provider),
-                settings_save(project_provider),
+        kanzei_base::test_support::isolated_test(
+            module_path!(),
+            "validate_model_roles_uses_global_baseline",
+            || {
+                let home = std::env::temp_dir().join(format!(
+                    "kanzei-settings-global-baseline-{}",
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos()
+                ));
+                let project = home.join("project");
+                std::fs::create_dir_all(project.join(".kanzei")).unwrap();
+                let global_path = home.join("kanzei.toml");
+                std::fs::write(
+                &global_path,
+                "[providers.global-only]\nprotocol = \"openai\"\nbase_url = \"http://global\"\n",
             )
-        });
-        global_result.expect("全局文件里配了的 provider,表单清单没带也必须能通过");
-        let error =
-            project_result.expect_err("只在项目文件里定义的 provider 不能让全局 primary 通过");
-        assert!(error.contains("llama-local"), "报错要点名那个模型:{error}");
-        std::fs::remove_dir_all(home).ok();
+            .unwrap();
+                std::fs::write(
+                    project.join(".kanzei/kanzei.toml"),
+                    "[providers.llama-local]\nprotocol = \"openai\"\nbase_url = \"http://llama\"\n",
+                )
+                .unwrap();
+
+                let (global_result, project_result) = with_kanzei_home(&home, || {
+                    let mut global_provider = 空载荷(vec![]);
+                    global_provider.primary = "global-only:7b".into();
+                    let mut project_provider = 空载荷(vec![]);
+                    project_provider.primary = "llama-local:7b".into();
+                    (
+                        settings_save(global_provider),
+                        settings_save(project_provider),
+                    )
+                });
+                global_result.expect("全局文件里配了的 provider,表单清单没带也必须能通过");
+                let error = project_result
+                    .expect_err("只在项目文件里定义的 provider 不能让全局 primary 通过");
+                assert!(error.contains("llama-local"), "报错要点名那个模型:{error}");
+                std::fs::remove_dir_all(home).ok();
+            },
+        );
     }
 
     #[test]

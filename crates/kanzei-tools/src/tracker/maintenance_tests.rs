@@ -1,6 +1,6 @@
 use super::TrackerTool;
-use crate::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 use kanzei_harness::{Tool, ToolCtx, ToolOutcome};
+use kanzei_memory::docstore::{DocKind, DocStore, Entry, DEFECTS, REQUIREMENTS};
 use serde_json::json;
 
 fn fixture(

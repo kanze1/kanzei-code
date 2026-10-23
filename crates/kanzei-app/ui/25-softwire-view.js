@@ -1,4 +1,4 @@
-import { moduleNames, laneNames, receiptLabel, latestSentence, plainText, visibleReply, interactionKind, usageSeries, usageSummary, sparkPoints, sparkPath, formatCount } from "./25-softwire-model.js";
+import { laneNames, receiptLabel, latestSentence, plainText, visibleReply, interactionKind, usageSeries, usageSummary, sparkPoints, sparkPath, formatCount } from "./25-softwire-model.js";
 import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { needsRequirementResearch, requirementResearchStatus } from "./26-requirement-research.js";

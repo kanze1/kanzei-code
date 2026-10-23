@@ -353,7 +353,7 @@ async fn bash_command_body(
 
     // R-186 跨树保护:命令窗口内不得改动**其它线的工作树**(串台防护——A 线的命令
     // 跑进 B 线的树、把人家未提交的活覆盖了)。前台 bash 执行前拍其它线树镜像,
-    // 执行后对账回滚;非 git 目录快照为空,静默放行。后台任务不在此列:命令已脱离
+    // 执行后对账、归因并隔离留证，不自动回滚；非 git 目录无跨树快照。后台任务不在此列：命令已脱离
     // 本 run,由后台守卫按自己的生命周期对账(bash_body 的 background 分支)。
     let other_trees_before = crate::cross_tree::capture_other_trees_for_owner(
         &ctx.project_root,
@@ -1415,8 +1415,9 @@ mod tests {
     async fn timeout_actually_terminates_the_process_tree() {
         let shell = super::detected_shell();
         if !matches!(shell.name, "pwsh" | "powershell") {
-            eprintln!("跳过:本测试需要 pwsh/powershell 才能回传孙进程 pid");
-            return;
+            panic!(
+                "required test dependency missing: 本测试需要 pwsh/powershell 才能回传孙进程 pid"
+            );
         }
         let root = temp_project("timeout-tree");
         let marker = root.join("pids.txt");

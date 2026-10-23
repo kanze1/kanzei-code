@@ -96,35 +96,51 @@ fn pending_ask_payload_carries_question_multiple() {
 
 #[test]
 fn permanent_permissions_live_in_user_registry_and_failed_storage_does_not_grant() {
-    let root = std::env::temp_dir().join(format!(
-        "kz-app-permissions-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    ));
-    std::fs::create_dir_all(&root).unwrap();
-    let home = root.join("user-home");
-    crate::settings::with_kanzei_home(&home, || {
-        let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
-        assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
-        assert_eq!(path, home.join("project-trust.json"));
-        let dir = root.display().to_string();
-        crate::commands::run::permission_rule_add(dir.clone(), "bash".into(), "git log".into())
-            .unwrap();
-        let rules = crate::settings::permission_rules_get(dir.clone()).unwrap();
-        assert_eq!(rules["rules"][0]["resource"], "git status");
-        assert_eq!(rules["rules"][1]["resource"], "git log");
-        assert!(!root.join(".kanzei/kanzei.toml").exists());
-        assert!(
-            crate::commands::run::permission_rule_add(dir.clone(), " ".into(), "x".into()).is_err()
-        );
-        assert!(crate::commands::run::permission_rule_add(dir, "bash".into(), "".into()).is_err());
-        std::fs::write(path, "invalid JSON").unwrap();
-        assert!(persist_always_allow(&root, "bash", "git diff").is_err());
-    });
-    std::fs::remove_dir_all(root).unwrap();
+    kanzei_base::test_support::isolated_test(
+        module_path!(),
+        "permanent_permissions_live_in_user_registry_and_failed_storage_does_not_grant",
+        || {
+            let root = std::env::temp_dir().join(format!(
+                "kz-app-permissions-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&root).unwrap();
+            let home = root.join("user-home");
+            crate::settings::with_kanzei_home(&home, || {
+                let (reply, path) = persist_always_allow(&root, "bash", "git status").unwrap();
+                assert_eq!(reply, kanzei_core::AskReply::AlwaysAllow);
+                assert_eq!(path, home.join("project-trust.json"));
+                let dir = root.display().to_string();
+                crate::commands::run::permission_rule_add(
+                    dir.clone(),
+                    "bash".into(),
+                    "git log".into(),
+                )
+                .unwrap();
+                let rules = crate::settings::permission_rules_get(dir.clone()).unwrap();
+                assert_eq!(rules["rules"][0]["resource"], "git status");
+                assert_eq!(rules["rules"][1]["resource"], "git log");
+                assert!(!root.join(".kanzei/kanzei.toml").exists());
+                assert!(crate::commands::run::permission_rule_add(
+                    dir.clone(),
+                    " ".into(),
+                    "x".into()
+                )
+                .is_err());
+                assert!(
+                    crate::commands::run::permission_rule_add(dir, "bash".into(), "".into())
+                        .is_err()
+                );
+                std::fs::write(path, "invalid JSON").unwrap();
+                assert!(persist_always_allow(&root, "bash", "git diff").is_err());
+            });
+            std::fs::remove_dir_all(root).unwrap();
+        },
+    );
 }
 #[test]
 fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {

@@ -8,8 +8,8 @@ use super::{
     run_git, source_endorsement_fingerprint, stage, with_git_diagnostics,
 };
 
-/// D-334:finalize 事务化——把「fmt → 相关测试 → test_record → stage → CAS commit」
-/// 收敛为一次机械调用,Agent 不再手动驾驶 Harness 状态机。
+/// 项目交付事务：有 Rust 输入时并行执行 fmt/clippy，两者通过后跑定向测试，
+/// 记录带指纹的结果，再 stage 与 CAS commit。非项目工作流沿用直接 stage/commit 路径。
 pub(crate) async fn finalize(
     ctx: &ToolCtx,
     files: Vec<String>,

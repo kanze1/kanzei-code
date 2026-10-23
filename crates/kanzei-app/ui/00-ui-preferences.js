@@ -2,8 +2,7 @@ import { invoke } from "./00-ipc.js";
 // D-404:关键 UI 偏好后端持久化通道。WebView2 localStorage 在本机数据文件缺失
 // (EBWebView\Default\Local Storage\leveldb 无 .ldb/.log,重启即丢),theme/鞭挞
 // 等偏好经 ui_prefs_get/ui_prefs_set 存 ~/.kanzei/app.json;localStorage 仅作
-// 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败静默——偏好丢失可接受,
-// 不该打断当前操作。
+// 旧值兼容(读时先本地后后端,写时双写)。uiPrefsSave 失败不打断当前操作,只进诊断控制台。
 export let uiPrefsCache = null;
 let uiPrefsQueue = Promise.resolve();
 function queueUiPrefs(operation) {
@@ -90,7 +89,9 @@ export async function uiPrefsSave(patch) {
       await invoke("ui_prefs_set", snapshot);
       if (uiPrefsCache) uiPrefsCache = mergeUiPrefsPatch(uiPrefsCache, snapshot);
     });
-  } catch {
-    /* 写入失败静默:下次启动回退 localStorage 旧值 */
+  } catch (error) {
+    // D-404 的「静默」只到不打断当前操作为止:偏好写入失败必须进诊断控制台,
+    // 否则用户以为存过、下次启动值凭空回到旧的了,现场一个字都不剩。
+    console.warn("ui_prefs_set 失败,本次偏好未落到后端:", String(error));
   }
 }

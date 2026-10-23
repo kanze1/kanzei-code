@@ -435,6 +435,34 @@ fn 同文档导航只认主帧并更新地址() {
 }
 
 #[test]
+fn preview_geometry_matches_shared_frontend_contract() {
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../fixtures/preview-geometry.json")).unwrap();
+    for case in cases.as_array().unwrap() {
+        let host: Rect = serde_json::from_value(case["host"].clone()).unwrap();
+        let preset = DevicePreset::parse(case["preset"].as_str().unwrap()).unwrap();
+        let (rect, zoom) = fit_device(host, preset);
+        let expected = &case["expected"];
+        for (key, actual) in [
+            ("x", rect.x),
+            ("y", rect.y),
+            ("w", rect.w),
+            ("h", rect.h),
+            ("scale", zoom),
+        ] {
+            assert!(
+                (actual - expected[key].as_f64().unwrap()).abs() < 1e-9,
+                "{}.{}: {} != {}",
+                case["name"],
+                key,
+                actual,
+                expected[key]
+            );
+        }
+    }
+}
+
+#[test]
 fn fit_device_铺满_缩放居中_不超过1且有下限() {
     let host = Rect {
         x: 100.0,

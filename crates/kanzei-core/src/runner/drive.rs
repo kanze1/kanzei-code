@@ -1275,7 +1275,7 @@ enum ToolRunOutcome {
     Stopped,
 }
 
-/// R-202 批5:普通工具执行段——并行预检(can_parallel_tools)与 wave/串行两条
+/// 普通工具执行段：并行预检(prepare_parallel_tool_calls)与 wave/串行两条
 /// 执行路径的整体抽离。
 ///
 /// 行为与原内联段逐字节对齐(行为零变更):

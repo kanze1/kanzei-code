@@ -366,7 +366,7 @@ pub(crate) fn delivery_manage(
     // File operations use the durable receipt's scope and version, never a UI path.
     let _owner = if matches!(action.as_str(), "trash" | "restore_file") {
         Some(
-            kanzei_core::store::session_execution::try_acquire(&project_state_path(&root), session)
+            kanzei_core::session_execution::try_acquire(&project_state_path(&root), session)
                 .map_err(|e| format!("原对话正在运行，请停止后再整理文件：{e}"))?,
         )
     } else {
@@ -569,11 +569,9 @@ mod tests {
         let receipt = f.receipt(&file);
         let id = receipt["id"].as_str().unwrap().to_string();
         assert!(delivery_manage(shown(&unrelated.0), id.clone(), "trash".into()).is_err());
-        let guard = kanzei_core::store::session_execution::try_acquire(
-            &project_state_path(&f.0),
-            "delivery-test",
-        )
-        .unwrap();
+        let guard =
+            kanzei_core::session_execution::try_acquire(&project_state_path(&f.0), "delivery-test")
+                .unwrap();
         assert!(delivery_manage(shown(&f.0), id.clone(), "trash".into()).is_err());
         assert!(file.exists());
         drop(guard);

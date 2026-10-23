@@ -1,4 +1,5 @@
 //! A separate, project-owned conversation with the existing memory manager tools.
+use kanzei_memory::memory::{manager_agent, render_entry, MemoryManagerComponent, MemoryStore};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -15,7 +16,6 @@ use kanzei_llm::{LlmClient, Message, ProxyConfig};
 use kanzei_tools::{
     atomic_file::{lock_exclusive, write_atomic_cas},
     content_hash,
-    memory::{manager_agent, render_entry, MemoryManagerComponent, MemoryStore},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

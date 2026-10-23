@@ -201,7 +201,7 @@ impl ToolCtx {
     /// R-141:缺省回退到 `cwd` 而非 `project_root`。显式主根绑定后,同一项目的
     /// N 棵 worktree 的 `project_root` 完全相同,拿它当工具锁键会把互不相干的
     /// 两棵树串死。锁键的真源是工具真实作用的那棵树——bash 用
-    /// `ctx.cwd.join(workdir)` 定执行目录,git 用 `ensure_repository(&ctx.cwd)`。
+    /// `ctx.cwd.join(workdir)` 定执行目录，git/tool.rs 的 repository_state 校验 ctx.cwd 所属仓库。
     /// 跨进程写仲裁是另一把键,见 [`ToolCtx::project_write_key`]。
     pub fn worktree_concurrency_key(&self) -> String {
         let key = self

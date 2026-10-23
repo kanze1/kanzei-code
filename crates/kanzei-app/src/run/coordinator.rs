@@ -251,7 +251,7 @@ pub(crate) async fn run_task(
         }),
     );
     let mut subagent_rt = if subagent_mode.enabled() {
-        kanzei_tools::run::build_subagent_runtime(
+        kanzei_runtime::build_subagent_runtime(
             &deps.rctx,
             &deps.config,
             &deps.proxy,
@@ -524,7 +524,7 @@ pub(crate) async fn run_task(
     );
     // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
     let progress_signature = if crate::general_chat::is_general_root(&deps.project_root) {
-        kanzei_core::store::stable_json_hash(&summary.round_messages)
+        kanzei_core::stable_json_hash(&summary.round_messages)
     } else if deps.profile == kanzei_harness::ProfileKind::Research {
         crate::research_auto::progress_signature(&deps.project_root, deps.research_topic.as_deref())
     } else {

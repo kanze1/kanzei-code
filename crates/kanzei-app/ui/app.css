@@ -17,3 +17,10 @@
 @import url("surface.css") layer(surface);
 
 @import url("project-knowledge.css") layer(app);
+
+/* hidden 是真隐藏。UA 的 [hidden]{display:none} 是 normal,任何作者规则都盖得住,
+   所以过去 26 处 `[hidden]{display:none}` 散在 8 张视图表里当补丁。这条放 base 层:
+   important 的层序是反的,base 的 important 赢过 app/surface 里任何 important
+   (层序优先于特异性),一处顶替全部。必须写在所有 @import 之后:@import 出现在
+   普通规则之后会被整条丢弃,全套样式表静默失效。 */
+@layer base { [hidden] { display: none !important; } }

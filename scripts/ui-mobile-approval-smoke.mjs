@@ -172,6 +172,14 @@ const server = http.createServer(async (request, response) => {
       jsonResponse(response, 200, { pending: snapshot, count: snapshot.length });
       return;
     }
+    if (request.method === "GET" && url.pathname === "/v1/sessions") {
+      jsonResponse(response, 200, { sessions: [
+        { session_id: "conversation", label: "甲", kind: "conversation", running: false },
+        { session_id: "discussion", label: "乙", kind: "discussion", running: true },
+        { session_id: "research", label: "丙", kind: "research", running: false },
+      ] });
+      return;
+    }
     if (request.method === "POST" && url.pathname === "/v1/approval/answer") {
       const payload = JSON.parse(await requestBody(request));
       answers.push(payload);
@@ -237,6 +245,9 @@ try {
   page.on("pageerror", (error) => pageErrors.push(String(error)));
   await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
   await page.locator('#approval-list .question[data-ask-id="21"]').waitFor();
+  await page.locator('#thread-id option[value="research"]').waitFor({ state: "attached" });
+  assert.deepEqual(await page.locator("#thread-id option").allTextContents(), ["甲 · 对话", "乙 · 讨论 · 运行中", "丙 · 研究"]);
+  assert.equal(await page.evaluate(() => globalThis.sessionOptionText({label:"研究 2",kind:"research"})), "研究 2", "generated labels must not repeat their type");
   // UI-0926 #8:通知行「字形 · 身份 · 摘要 · 时间」,不再是 `[序号] agent_status_changed — 摘要`;子代理行缩进。
   const notice = await page.evaluate(() => {
     const today = new Date();
@@ -400,8 +411,18 @@ try {
   // 显式取消由 answers[3] 精确约束为 {id:25, cancel:true}、不带 reply。
   assert(answers.filter((answer) => [21, 22, 23, 25, 27, 28].includes(answer.id))
     .every((answer) => !["allow", "deny"].includes(answer.reply)), "question 不能提交 allow/deny");
+  const englishContext = await browser.newContext({ locale: "en-US" });
+  await englishContext.addInitScript(() => localStorage.setItem("kanzei_device", JSON.stringify({
+    device_id: "mobile-smoke-device", token: "mobile-smoke-token",
+  })));
+  const englishPage = await englishContext.newPage();
+  englishPage.on("pageerror", (error) => pageErrors.push(String(error)));
+  await englishPage.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+  await englishPage.locator('#thread-id option[value="research"]').waitFor({ state: "attached" });
+  assert.deepEqual(await englishPage.locator("#thread-id option").allTextContents(), ["甲 · conversation", "乙 · discussion · running", "丙 · research"]);
+  await englishContext.close();
   assert.deepEqual(pageErrors, [], `PWA page errors: ${pageErrors.join(" | ")}`);
-  console.log("PASS: question options, free text, multi-select survive polling, explicit cancel, literal cancel answer, no double submit, permission buttons, slow polls still apply");
+  console.log("PASS: bilingual session types, question options, free text, multi-select survive polling, explicit cancel, literal cancel answer, no double submit, permission buttons, slow polls still apply");
 } finally {
   await context.close();
   await browser.close();

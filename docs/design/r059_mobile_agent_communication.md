@@ -1,10 +1,11 @@
 # R-059 移动端子代理通信与通知设计
 
 - 身份：validated_design
-- 状态：部分交付；R-059 已 dropped，R-270/R-271 已完成，R-288 保留为 Android 真机 E3 验收
+- 状态：部分交付；R-059 已 dropped，R-270/R-271 已完成，R-288 因放弃 Android 开发已 dropped；没有 Android 真机 E3 验收结论
 - 日期：2026-08-16
 - 最近核验提交：f81c2ff（桥接）/49b65e2（PWA）
-- 关联需求：R-059 (dropped) R-270 (done) R-271 (done) R-288 (todo)
+- 关联需求：R-059 (dropped) R-270 (done) R-271 (done) R-288 (dropped)
+- 状态核对：2026-10-22，按需求归档账本同步 R-288 关闭原因；不将放弃验收视为验证通过。
 
 > 实施前输入（2026-08-08）：原文“进行中”及“待确认”表述已被 §0 的用户定调覆盖；历史反馈、旧决策与协议草案保留供追溯。
 
@@ -28,7 +29,7 @@
 
 - R-270 已交付 LAN 可切换、默认回环、每设备配对/撤销、SSE cursor 补发、approval 通道、PWA serve 与通知桥；最终权限门禁仍在 runner/harness。
 - R-271 已交付 Android Chrome 优先的原生 JS PWA：配对、通知流、发消息、approval、manifest、service worker 与通知列表窗口化。
-- R-059 已 dropped；本设计的剩余真实设备边界由 R-288 单独承接：Android 真机在同一 LAN 上完成配对、通知、消息与证据留存。
+- R-059 已 dropped；原由 R-288 承接的 Android 真机配对、通知、消息与证据留存验收，因用户放弃 Android 开发已 dropped。本设计保留已交付协议说明，不再将设备验收列为待办，也没有真实设备验收通过的证据。
 - 公网监听、TLS、自研推送协议、iOS 专属适配和远程 shell/write 仍不在范围；R-270 的 LAN 与 approval 交付不改变这些安全边界。
 
 ## 2. 产品对象与关系

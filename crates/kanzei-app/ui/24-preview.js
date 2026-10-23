@@ -1,7 +1,7 @@
 // UI2-0926 #8 网页预览停靠面板(docs/design/preview_pane.md §前端;用户原话「网页渲染的工具有吗？对标GPT的」)。
 //
 // 面板本体是 Tauri 子 webview(原生窗口,后端 preview_* 命令),这里只管它周围的 HTML:
-//   · 开关与持久化(ui_layout.preview:open/recent/device/scheme/preserve_log/console_open,宽度走 splits.preview);
+//   · 开关与持久化(ui_layout.preview:open/recent_by_project/device/scheme/preserve_log/console_open,宽度走 splits.preview);
 //   · 地址栏规范化(5173 / :3000/x / localhost:8080 / https / 项目路径)、后退/前进/刷新/停止、设备与深浅色;
 //   · 位置同步:#preview-host 的矩形(CSS px = Tauri 逻辑像素,应用不缩放)经 preview_set_bounds 交给后端,
 //     ResizeObserver(占位框/对话视图/主区)+ 窗口尺寸 + 侧栏开合都会触发,按帧合并;
@@ -135,15 +135,17 @@ export function displayUrl(url) {
   if (m) return t("(代码片段)");
   return text;
 }
-/// 设备模式的摆位(与后端 fit_device 同一口径):scale = min(1, 宽比, 高比),居中。fill 或未知预设 = 整个占位框。
+/// 与后端 fit_device 共用几何契约：缩放夹到 [0.25, 1]，裁到宿主边界后居中。
+/// fill 或未知预设占满宿主；设备模式遇空宿主时两维都归零。
 export function fitDevice(host, preset) {
   const box = { x: Number(host?.x) || 0, y: Number(host?.y) || 0, w: Math.max(0, Number(host?.w) || 0), h: Math.max(0, Number(host?.h) || 0) };
   const size = PREVIEW_DEVICES[preset];
-  if (!size || !box.w || !box.h) return { ...box, scale: 1 };
+  if (!size) return { ...box, scale: 1 };
+  if (!box.w || !box.h) return { ...box, w: 0, h: 0, scale: 1 };
   const [dw, dh] = size;
-  const scale = Math.min(1, box.w / dw, box.h / dh);
-  const w = dw * scale;
-  const h = dh * scale;
+  const scale = Math.max(0.25, Math.min(1, box.w / dw, box.h / dh));
+  const w = Math.min(box.w, dw * scale);
+  const h = Math.min(box.h, dh * scale);
   return { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h, scale };
 }
 /// 预览栏宽度(与 style.css 的 clamp(360px, var(--kz-split-preview, 48%), max(360px, 100% - 420px)) 同一口径);

@@ -5,6 +5,8 @@ import path from "node:path";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import http from "node:http";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { ArtifactStore, sameProcess, containsPath, withTask, spawnOwned, withCacheLocks } from "./artifact-lifecycle.mjs";
 import { planLegacy, applyLegacy } from "./reclaim-legacy-artifacts.mjs";
 
@@ -125,6 +127,22 @@ try {
   }),/injected task failure/);
   check(!fs.existsSync(failureEnvironment)&&!ownedServer.listening&&(ownedChild.exitCode!==null||ownedChild.signalCode!==null),"Thrown tasks close real servers, wait for owned child exit and reclaim the environment in finally");
   if(process.platform==="win32"){
+    const nativeFixture=path.join(root,"native-output.mjs"),nativeRunner=path.join(root,"native-command.ps1");
+    fs.writeFileSync(nativeFixture,'console.log("stdout evidence"); console.error("stderr evidence"); process.exitCode = Number(process.argv[2]);');
+    fs.writeFileSync(nativeRunner,`param([string]$Helper, [string]$Node, [string]$Fixture, [string]$Evidence, [int]$Code)
+$ErrorActionPreference = "Stop"
+. $Helper
+$run = [pscustomobject]@{ evidence = $Evidence }
+$actual = Invoke-ArtifactCommand $Node @($Fixture, "$Code") $run "native-$Code.log"
+if ($actual -ne $Code) { throw "Expected exit $Code, received $actual" }
+`);
+    for(const code of [0,7]){
+      const result=spawnSync("powershell.exe",["-NoProfile","-File",nativeRunner,"-Helper",fileURLToPath(new URL("./artifact-lifecycle.ps1",import.meta.url)),"-Node",process.execPath,"-Fixture",nativeFixture,"-Evidence",root,"-Code",String(code)],{encoding:"utf8",windowsHide:true});
+      assert.equal(result.status,0,`${result.stdout}\n${result.stderr}`);
+      const log=fs.readFileSync(path.join(root,`native-${code}.log`)),receipt=JSON.parse(fs.readFileSync(path.join(root,`native-${code}.log.json`),"utf8"));
+      check(log.includes("stdout evidence")&&log.includes("stderr evidence"),`PowerShell 5.1 preserves both output streams for native exit ${code}`);
+      check(receipt.exit_code===code&&receipt.log_sha256===createHash("sha256").update(log).digest("hex"),`Native exit ${code} and original log hash determine the command receipt`);
+    }
     let privateWorker,privateEnvironment;
     await withTask({root,suite:"private-process",kind:"test"},async task=>{
       privateEnvironment=task.environment;const executable=path.join(task.environment,"fixture-worker.exe");

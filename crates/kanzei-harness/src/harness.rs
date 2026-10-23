@@ -1,4 +1,4 @@
-//! Harness 装配:组件 → 草稿(五注册表)→ 不可变快照。
+//! Harness 装配：组件 → 草稿(四类注册表与权限规则)→ 不可变快照。
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;

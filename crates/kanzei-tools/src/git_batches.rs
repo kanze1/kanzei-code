@@ -34,7 +34,7 @@ pub fn completed_batches_for_entries(
 
 /// D-377:提交标题缓存,键是**解析出来的 HEAD sha**。
 ///
-/// `git log HEAD --format=%s` 扫全history(本仓 1,527 条),实测 73~107ms,而它挂在
+/// 引入缓存时，`git log HEAD --format=%s` 扫 1,527 条历史实测 73~107ms；该历史测量用于解释缓存动机。它挂在
 /// `docs_snapshot` 上——文档面板每次刷新、每轮 `kz:done`、每次勾选都要付一遍。
 /// Windows 上单是 spawn 一个 git 进程就 ~45ms,所以缓存必须做到「命中时一个进程都不起」:
 /// 键取自直接读 `.git/HEAD` 与它指向的 ref 文件(纯文件读,微秒级),sha 没变则历史没变。
