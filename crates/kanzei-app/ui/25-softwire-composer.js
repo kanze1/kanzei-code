@@ -78,7 +78,7 @@ export function createComposer(actions) {
     completed.lastChild.textContent = t("返回工作");
     stop.hidden = !target.running || Boolean(target.interactionId);
     runSlot.hidden = Boolean(target.interactionId) || Boolean(target.child);
-    add.hidden = Boolean(target.interactionId);
+    add.disabled = Boolean(target.busy || target.readOnly || target.completed);
     send.disabled = Boolean(target.busy || target.readOnly || target.completed);
     send.setAttribute("aria-label", fillTemplate(t("发给 {name}"), { name: target.label }));
     send.title = fillTemplate(t("发给 {name}"), { name: target.label }) + " · Enter";
@@ -226,6 +226,10 @@ export function createComposer(actions) {
     },
     insert(text) { input.value += (input.value ? "\n" : "") + text; input.focus(); persist(); },
     replace(text) { input.value = text; persist(); },
+    restore(draft) {
+      input.value = draft.text;
+      setAttachments(draft.attachments || []); renderAttachments(); persist();
+    },
     rebind(previous, next) {
       persist();
       const before = JSON.parse(composerDraftKey(previous)), after = JSON.parse(composerDraftKey(next));

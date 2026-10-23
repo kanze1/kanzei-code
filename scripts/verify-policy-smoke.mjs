@@ -24,6 +24,9 @@ assert(contextStyle.includes("context_inspection"));
 for (const unrelated of ["ui_backdrop", "ui_surfaces", "ui_math_browser", "artifact_lifecycle", "metrics_build", "ipc_signatures", "verify_policy"]) assert(!contextStyle.includes(unrelated), `context styles do not trigger ${unrelated}`);
 assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math_browser"));
 assert(selectedKeys("scripts/ui-math-browser-smoke.mjs").includes("ui_math_browser"), "editing a test always selects itself");
+for (const file of ["crates/kanzei-app/ui/26-work-map.js", "crates/kanzei-app/ui/work-map.css", "crates/kanzei-app/ui/26-work-tree.js", "scripts/ui-work-map-smoke.mjs"]) {
+  assert(selectedKeys(file).includes("ui_work_map"), "the integrated goal map remains in scoped and full verification");
+}
 for (const file of ["resource", "markdown", "i18n", "tool-summary", "structured-render", "delivery", "side-policy", "experience"]) {
   assert(selectedKeys("scripts/tests/browser-contracts/" + file + ".mjs").includes("ui_browser_contracts"), "each browser domain selects its containing suite");
 }

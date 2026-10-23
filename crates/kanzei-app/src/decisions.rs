@@ -181,9 +181,17 @@ pub(crate) fn work_delivery_accept(
 fn save_decision_review(
     project_dir: String,
     decision_id: String,
-    review: ReviewDecision,
+    mut review: ReviewDecision,
+    attachments: Option<Vec<crate::PromptAttachment>>,
 ) -> Result<serde_json::Value, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
+    if review.action == ReviewAction::Accept && attachments.as_ref().is_some_and(|a| !a.is_empty())
+    {
+        return Err("带附件的反馈需要作为具体回复提交".into());
+    }
+    review.feedback =
+        crate::attachments::reply_text(&root, &review.feedback, attachments.unwrap_or_default())
+            .map_err(|e| e.to_string())?;
     let _guard = kanzei_tools::atomic_file::lock_exclusive(&root.join(".kanzei/decision-reviews"))
         .map_err(|e| e.to_string())?;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
@@ -291,6 +299,79 @@ fn sync_preference(root: &Path, decision: &DecisionRecord) -> anyhow::Result<Opt
 mod tests {
     use super::*;
     use kanzei_core::decisions::{AgentDecision, DecisionResolution};
+
+    #[test]
+    fn attachment_only_fact_reply_is_saved_once_in_the_original_conversation() {
+        let directory = kanzei_base::test_support::TestDir::new("fact-reply-files");
+        let root = crate::normalized_project_root(&directory);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let journal = kanzei_core::project_session_id(&root);
+        let project = root.display().to_string();
+        store.create_session(&journal, &project, None).unwrap();
+        store.create_session("owner", &project, None).unwrap();
+        let decision = store
+            .record_agent_decision(
+                &journal,
+                AgentDecision {
+                    project: &project,
+                    session_id: "owner",
+                    process_id: Some("p1"),
+                    run_id: "run-files",
+                    call_id: "question-files",
+                    question: "请提供需求图",
+                    options: vec![],
+                    work_unit_id: None,
+                    resolution: None,
+                    missing_fact: Some("缺少需求图".into()),
+                },
+            )
+            .unwrap();
+        let review = ReviewDecision {
+            request_id: "attachment-answer".into(),
+            expected_revision: decision.revision,
+            action: ReviewAction::Correct,
+            feedback: String::new(),
+            scope: PreferenceScope::Once,
+        };
+        let file = crate::PromptAttachment {
+            file_name: "facts.txt".into(),
+            media_type: "text/plain".into(),
+            data: "ZXZpZGVuY2U=".into(),
+        };
+        let first = save_decision_review(
+            project.clone(),
+            decision.id.clone(),
+            review.clone(),
+            Some(vec![file.clone()]),
+        )
+        .unwrap();
+        let again = save_decision_review(
+            project.clone(),
+            decision.id.clone(),
+            review.clone(),
+            Some(vec![file.clone()]),
+        )
+        .unwrap();
+        assert_eq!(first, again);
+        let pending = store.list_pending_inputs("owner").unwrap();
+        assert_eq!(pending.len(), 1);
+        let feedback = first["decision"]["review"]["feedback"].as_str().unwrap();
+        assert!(pending[0].prompt.contains(feedback));
+        let refs: serde_json::Value =
+            serde_json::from_str(feedback.lines().last().unwrap()).unwrap();
+        assert!(std::fs::read_to_string(refs[0]["path"].as_str().unwrap())
+            .unwrap()
+            .contains("evidence"));
+        assert!(store.list_pending_inputs(&journal).unwrap().is_empty());
+        let changed = crate::PromptAttachment {
+            data: "Y2hhbmdlZA==".into(),
+            ..file
+        };
+        assert!(save_decision_review(project, decision.id, review, Some(vec![changed])).is_err());
+        assert_eq!(store.list_pending_inputs("owner").unwrap().len(), 1);
+    }
+
     #[test]
     fn review_uses_original_session_and_user_scope_with_retry() {
         let root = std::env::temp_dir().join(format!(
@@ -339,7 +420,8 @@ mod tests {
             scope: PreferenceScope::Once,
         };
         let result =
-            save_decision_review(project.clone(), decision.id.clone(), review.clone()).unwrap();
+            save_decision_review(project.clone(), decision.id.clone(), review.clone(), None)
+                .unwrap();
         assert!(result["decision"]["review"]["preference_id"].is_null());
         assert!(MemoryStore::project(&root).load_all().is_empty());
         let review = ReviewDecision {
@@ -349,9 +431,11 @@ mod tests {
             ..review
         };
         let result =
-            save_decision_review(project.clone(), decision.id.clone(), review.clone()).unwrap();
+            save_decision_review(project.clone(), decision.id.clone(), review.clone(), None)
+                .unwrap();
         assert!(result["preference_error"].is_null(), "{result}");
-        let repeated = save_decision_review(project.clone(), decision.id.clone(), review).unwrap();
+        let repeated =
+            save_decision_review(project.clone(), decision.id.clone(), review, None).unwrap();
         assert_eq!(repeated, result);
         crate::ipc_contract::tests::check_contract(
             "decision_review",
@@ -533,8 +617,9 @@ pub(crate) fn decision_review(
     decision_id: String,
     review: ReviewDecision,
     agent: Option<String>,
+    attachments: Option<Vec<crate::PromptAttachment>>,
 ) -> Result<serde_json::Value, String> {
-    let mut result = save_decision_review(project_dir.clone(), decision_id, review)?;
+    let mut result = save_decision_review(project_dir.clone(), decision_id, review, attachments)?;
     let decision: DecisionRecord =
         serde_json::from_value(result["decision"].clone()).map_err(|e| e.to_string())?;
     if let Some(input_id) = decision

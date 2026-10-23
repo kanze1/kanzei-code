@@ -27,3 +27,6 @@ tracing.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
+
+[dev-dependencies]
+kanzei-base = { workspace = true, features = ["test-support"] }

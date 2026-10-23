@@ -8,7 +8,7 @@ const dispositionLabels = { retain: "继续沿用", revise: "已修订", reverif
 export const workReviewPending = unit => Boolean(unit.review && !unit.review.resolution);
 export const workIsCurrent = unit => unit.status !== "superseded" && !["reverify", "replace", "retire"].includes(unit.review?.resolution?.decision?.disposition);
 export const workResultCurrent = unit => unit.status === "done" && workIsCurrent(unit) && !workReviewPending(unit);
-const reviewStatus = unit => workReviewPending(unit) ? t("方向待复核") : !workIsCurrent(unit) && unit.review?.resolution ? t(dispositionLabels[unit.review.resolution.decision.disposition]) : null;
+export const reviewStatus = unit => workReviewPending(unit) ? t("方向待复核") : !workIsCurrent(unit) && unit.review?.resolution ? t(dispositionLabels[unit.review.resolution.decision.disposition]) : null;
 
 function text(tag, className, content) {
   const element = document.createElement(tag);

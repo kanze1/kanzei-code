@@ -556,26 +556,27 @@ async function sendReply(state, capture) {
   const message = structuredClone(state.interaction), key = message.key;
   if (sending.has(key) || replies.get(key)?.done) return;
   const previous = replies.get(key);
-  const requestId = previous?.text === capture.text ? previous.requestId : crypto.randomUUID();
-  const result = { requestId, text: capture.text, status: "sending", done: false, error: "" };
+  const content = JSON.stringify([message.revision, capture.text, capture.attachments]);
+  const requestId = previous?.content === content ? previous.requestId : crypto.randomUUID();
+  const result = { requestId, content, text: capture.text, status: "sending", done: false, error: "" };
   replies.set(key, result); sending.add(key); paint();
   try {
-    if (capture.attachments.length) throw new Error(t("这类事项只能回复文字；附件与草稿已保留。"));
     if (message.kind === "question") {
       await invoke("softwire_answer_question", { projectDir: message.project, sessionId: message.sessionId, id: message.id,
-        expectedRevision: String(message.revision), requestId, reply: capture.text });
+        expectedRevision: String(message.revision), requestId, reply: capture.text, attachments: capture.attachments });
       noteQuestionReply(message.sessionId, message.id);
       result.status = "delivered";
     } else if (message.kind === "decision") {
       if (isLegacyReviewPlaceholder(message, capture.text)) throw new Error(t("这条消息需要具体回答，请选择选项或补充说明。"));
-      const action = interactionKind(message) === "decision" && [("本次通过"), t("本次通过")].includes(capture.text.trim()) ? "accept" : "correct";
+      const action = !capture.attachments.length && interactionKind(message) === "decision" && [("本次通过"), t("本次通过")].includes(capture.text.trim()) ? "accept" : "correct";
       const project = projectDetails.get(message.project);
       const response = await invoke("decision_review", { projectDir: message.project, decisionId: message.id,
+        attachments: capture.attachments,
         agent: lineAgent(project?.lines?.find(line => line.session_id === message.sessionId)).agent,
         review: { request_id: requestId, expected_revision: message.revision, action, feedback: action === "accept" ? "" : capture.text, scope: "once" } });
       if (response.delivery?.error) throw new Error(t("回复已保存，恢复执行失败：") + response.delivery.error);
       result.status = action === "accept" ? "reviewed" : response.delivery?.status === "started" ? "resumed" : response.delivery?.status === "consumed" ? "delivered" : "queued";
-    } else if (["验收通过", t("验收通过")].includes(capture.text.trim())) {
+    } else if (!capture.attachments.length && ["验收通过", t("验收通过")].includes(capture.text.trim())) {
       await invoke("work_delivery_accept", { projectDir: message.project, unitId: message.id, sourceSequence: message.revision });
       result.status = "reviewed";
     } else {
@@ -609,10 +610,10 @@ async function refreshInteraction() {
   if (current !== state || state.interaction !== previous) return;
   const latest = allMessages().find(m => m.kind === previous.kind && m.id === previous.id && sameProject(m.project, previous.project) && m.sessionId === previous.sessionId);
   if (!latest) { toast(t("这条事项已处理或已结束，草稿仍保留。")); return; }
-  // Keep the user's text when explicitly rebasing onto the displayed revision.
-  const draft = composer.value();
+  // Keep the complete draft when explicitly rebasing onto the displayed revision.
+  const draft = composer.capture();
   state.interaction = structuredClone(latest); paint(true);
-  composer.replace(draft);
+  composer.restore(draft);
 }
 function adoptRecipient(state, previous, next) {
   if (previous.processId === next.processId && previous.sessionId === next.sessionId) return;
