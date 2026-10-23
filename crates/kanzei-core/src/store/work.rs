@@ -12,7 +12,7 @@ use super::{now_ms, SessionStore, StoreError};
 mod graph;
 pub use graph::{WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkNodeType};
 
-pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 3;
+pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 4;
 pub const MAX_WORK_OBJECTIVE_CHARS: usize = 1_000;
 pub const MAX_WORK_LIST_ITEMS: usize = 32;
 pub const MAX_WORK_ITEM_CHARS: usize = 2_000;
@@ -55,6 +55,8 @@ pub struct WorkUnitSpec {
     pub scope: Vec<String>,
     #[serde(default)]
     pub dependencies: Vec<String>,
+    /// May be empty while planning; required before execution or verification.
+    #[serde(default)]
     pub acceptance: Vec<String>,
     #[serde(default)]
     pub verification: Vec<String>,
@@ -233,8 +235,8 @@ fn validate_spec(spec: &WorkUnitSpec) -> Result<(), StoreError> {
             "work unit objective 超过 {MAX_WORK_OBJECTIVE_CHARS} 字符预算"
         )));
     }
-    if spec.acceptance.is_empty() || spec.acceptance.iter().any(|item| item.trim().is_empty()) {
-        return Err(invalid("work unit 至少需要一条非空 acceptance"));
+    if spec.acceptance.iter().any(|item| item.trim().is_empty()) {
+        return Err(invalid("work unit acceptance 不能包含空白条款"));
     }
     if spec.base_revision.trim().is_empty() {
         return Err(invalid("work unit base_revision 不能为空"));
@@ -400,6 +402,9 @@ fn apply_fact(
                 return Err(invalid(
                     "只有 ready/active 节点可以修订；先处理当前验证或阻塞",
                 ));
+            }
+            if projection.status == WorkUnitStatus::Active && spec.acceptance.is_empty() {
+                return Err(invalid("执行中的节点不能移除全部完成条件"));
             }
             projection.objective = spec.objective.clone();
             projection.scope = spec.scope.clone();

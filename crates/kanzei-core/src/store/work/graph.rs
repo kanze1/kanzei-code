@@ -255,7 +255,10 @@ impl WorkProjection {
         }
         result.step = if !result.blockers.is_empty() {
             WorkNodeStep::Wait
-        } else if !self.node.questions.is_empty() || !result.uncovered.is_empty() {
+        } else if self.acceptance.is_empty()
+            || !self.node.questions.is_empty()
+            || !result.uncovered.is_empty()
+        {
             WorkNodeStep::Plan
         } else if children.is_empty() {
             WorkNodeStep::Execute
@@ -391,6 +394,16 @@ pub(super) fn validate_action(
             | WorkFact::VerificationStarted
             | WorkFact::VerificationQueued { .. }
             | WorkFact::Completed
+    ) && node.acceptance.is_empty()
+    {
+        return Err(invalid("先用 refine 明确完成条件，再执行或验收节点"));
+    }
+    if matches!(
+        fact,
+        WorkFact::Claimed { .. }
+            | WorkFact::VerificationStarted
+            | WorkFact::VerificationQueued { .. }
+            | WorkFact::Completed
     ) && !readiness.blockers.is_empty()
     {
         return Err(invalid(readiness.blockers.join("；")));
@@ -445,6 +458,11 @@ impl SessionStore {
         let tx = self.connection.unchecked_transaction()?;
         let mut graph = read_graph(&tx)?;
         let parent = observed(&graph, id, expected_sequence)?.clone();
+        if parent.acceptance.is_empty() {
+            return Err(invalid(
+                "先用 refine 明确父目标的完成条件，再拆分覆盖这些条件的子工作",
+            ));
+        }
         let blockers = parent.planning_blockers(&graph);
         if !blockers.is_empty() {
             return Err(invalid(blockers.join("；")));

@@ -56,7 +56,8 @@ use serde_json::Value;
 // v29: recovery evidence carries its verification contract; legacy rows remain unverified.
 // v30: recursive work contracts and events; older clients must not schedule parents as leaves.
 // v31: extensible node types and implementation kind; older clients cannot decode these contracts.
-const SCHEMA_VERSION: i64 = 31;
+// v32: draft work may omit acceptance; older clients must not execute or close it.
+const SCHEMA_VERSION: i64 = 32;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;

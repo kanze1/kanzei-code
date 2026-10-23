@@ -3282,8 +3282,8 @@ assert(storage.get("kz-auto-max") === "3", "旧 auto_max 配置应继续保留�
 assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
 assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
 assert(
-  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-badge')?.textContent.includes("W 0/1 · 开发中"),
-  "work_units_v1 需求未渲染执行单元进度徽标",
+  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-badge')?.textContent.includes("0 已验证节点 · 开发中"),
+  "work_units_v1 需求未渲染验证节点计数与执行状态",
 );
 assert(
   document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("同步 IPC 契约"),
@@ -3291,9 +3291,9 @@ assert(
 );
 assert(
   document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("事件底座已落地") &&
-    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("记忆来源: M-001") &&
-    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("验证方法: cargo test"),
-  "Work Unit 卡片未呈现实质进展、记忆来源或验证结果",
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] [data-section="basis"]')?.textContent.includes("M-001") &&
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] [data-section="outcome"]')?.textContent.includes("cargo test"),
+  "Work Unit 详情未保留实质进展及可展开的来源、验证依据",
 );
 // R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
 // (验收③);删空 textarea 回落极简默认,且极简默认不含任何引擎规则文本(验收①)。

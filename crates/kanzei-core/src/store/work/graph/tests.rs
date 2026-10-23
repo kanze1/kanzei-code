@@ -1,6 +1,116 @@
 use super::*;
 
 #[test]
+fn draft_contracts_persist_but_cannot_execute_until_refined() {
+    let store = SessionStore::open_in_memory().unwrap();
+    let mut raw = serde_json::to_value(spec(1, None, WorkNodeKind::Goal)).unwrap();
+    raw.as_object_mut().unwrap().remove("acceptance");
+    let draft = store
+        .create_work_unit(serde_json::from_value(raw).unwrap())
+        .unwrap();
+    assert_eq!(draft.readiness(&[draft.clone()]).step, WorkNodeStep::Plan);
+    let events = store.list_work_events(&draft.unit_id).unwrap();
+    for fact in [
+        WorkFact::Claimed { claimed_by: None },
+        WorkFact::VerificationStarted,
+        WorkFact::VerificationQueued {
+            job_id: "job".into(),
+            snapshot_fingerprint: "snapshot".into(),
+        },
+        WorkFact::Completed,
+    ] {
+        let error = store.append_work_fact(&draft.unit_id, fact).unwrap_err();
+        assert!(error.to_string().contains("完成条件"));
+        assert_eq!(store.list_work_events(&draft.unit_id).unwrap(), events);
+    }
+    assert!(store
+        .decompose_work_unit(
+            &draft.unit_id,
+            draft.source_sequence,
+            "too early",
+            vec![spec(2, Some(&draft.unit_id), WorkNodeKind::Research)]
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("完成条件"));
+    let mut contract = draft.spec();
+    contract.acceptance = vec!["works".into()];
+    let planned = store
+        .refine_work_unit(contract, draft.source_sequence, "define outcome")
+        .unwrap();
+    let mut child = spec(2, Some(&planned.unit_id), WorkNodeKind::Research);
+    child.acceptance.clear();
+    let child = store
+        .decompose_work_unit(
+            &planned.unit_id,
+            planned.source_sequence,
+            "identify research",
+            vec![child],
+        )
+        .unwrap()
+        .remove(0);
+    assert_eq!(
+        child.readiness(&store.list_work_units(None).unwrap()).step,
+        WorkNodeStep::Plan
+    );
+    let mut contract = child.spec();
+    contract.acceptance = vec!["works".into()];
+    let ready = store
+        .refine_work_unit(contract, child.source_sequence, "define research result")
+        .unwrap();
+    claim(&store, &ready.unit_id);
+    let active = store.get_work_unit(&ready.unit_id).unwrap().unwrap();
+    let mut empty = active.spec();
+    empty.acceptance.clear();
+    assert!(store
+        .refine_work_unit(empty, active.source_sequence, "erase criteria")
+        .is_err());
+    store
+        .append_work_fact(&ready.unit_id, WorkFact::VerificationStarted)
+        .unwrap();
+    assert!(
+        store
+            .append_work_fact(&ready.unit_id, WorkFact::Completed)
+            .is_err(),
+        "criteria still require evidence"
+    );
+    let restored = project_work_events(&store.list_work_events(&ready.unit_id).unwrap()).unwrap();
+    assert_eq!(restored.acceptance, vec!["works"]);
+    assert_eq!(restored.status, WorkUnitStatus::Verifying);
+}
+
+#[test]
+fn draft_contract_schema_upgrade_preserves_history_and_backs_up_v31() {
+    let dir = kanzei_base::test_support::TestDir::new("work-drafts-upgrade-");
+    let path = dir.join("state.sqlite");
+    let events;
+    {
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_work_unit(spec(1, None, WorkNodeKind::Goal))
+            .unwrap();
+        events = store.list_work_events("R-1/W1").unwrap();
+        store.connection.execute_batch("UPDATE work_surfaces SET projection_json=json_set(projection_json,'$.format_version',3); UPDATE schema_meta SET value='31' WHERE key='schema_version';").unwrap();
+    }
+    let store = SessionStore::open(&path).unwrap();
+    assert!(store.backup_path(31).unwrap().is_file());
+    assert_eq!(store.list_work_events("R-1/W1").unwrap(), events);
+    let mut draft = spec(2, None, WorkNodeKind::Goal);
+    draft.acceptance.clear();
+    store.create_work_unit(draft).unwrap();
+    drop(store);
+    let store = SessionStore::open(&path).unwrap();
+    let draft = store.get_work_unit("R-1/W2").unwrap().unwrap();
+    assert_eq!(
+        draft.readiness(&store.list_work_units(None).unwrap()).step,
+        WorkNodeStep::Plan
+    );
+    assert!(store
+        .append_work_fact(&draft.unit_id, WorkFact::Claimed { claimed_by: None })
+        .is_err());
+}
+
+#[test]
 fn custom_type_schema_upgrade_backs_up_v30_without_rewriting_events() {
     let dir = kanzei_base::test_support::TestDir::new("work-types-upgrade-");
     let path = dir.join("state.sqlite");
@@ -425,7 +535,7 @@ fn recursive_schema_upgrade_preserves_legacy_events_and_creates_downgrade_backup
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "31");
+    assert_eq!(version, "32");
     assert!(store.backup_path(29).unwrap().is_file());
     let legacy = store.get_work_unit("R-1/W1").unwrap().unwrap();
     assert_eq!(legacy.node, WorkNodeContract::default());

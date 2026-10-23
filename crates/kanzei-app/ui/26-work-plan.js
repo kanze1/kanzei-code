@@ -53,7 +53,12 @@ export function openWorkPlan({ project, unit, units }) {
     const kind = field(row, "节点类型", "select");
     for (const [value, label] of Object.entries(kindLabels)) kind.append(new Option(t(label), value));
     kind.value = "requirement";
-    const custom = field(row, "扩展类型", "select", false);
+    const acceptance = field(row, "完成条件，可稍后补充", "textarea", false);
+    const coverage = el("div", "", "work-plan-coverage"), covers = renderCoverage(coverage);
+    row.append(coverage);
+    const advanced = el("details", "", "work-plan-advanced");
+    advanced.append(el("summary", t("更多设置")));
+    const custom = field(advanced, "扩展类型", "select", false);
     custom.append(new Option(t("使用基础类型"), ""));
     for (const [value, node] of types) custom.append(new Option(node.custom_type.name, value));
     custom.append(new Option(t("声明新类型"), "__new__"));
@@ -67,12 +72,10 @@ export function openWorkPlan({ project, unit, units }) {
       const existing = types.get(custom.value);
       kind.disabled = Boolean(existing); if (existing) kind.value = existing.kind;
     };
-    row.append(definition);
-    const acceptance = field(row, "验收标准，每行一条", "textarea");
-    const verification = field(row, "验证方法", "textarea");
-    const coverage = el("div", "", "work-plan-coverage"), covers = renderCoverage(coverage);
-    row.append(coverage);
-    const dependencies = field(row, "依赖结果", "select", false); dependencies.multiple = true;
+    advanced.append(definition);
+    const verification = field(advanced, "验证方法", "textarea", false);
+    const dependencies = field(advanced, "依赖结果", "select", false); dependencies.multiple = true;
+    row.append(advanced);
     const remove = el("button", t("移除子节点"), "ghost"); remove.type = "button";
     const item = { key, row, objective, kind, custom, name, description, deliverable, acceptance, verification, coverage, covers, dependencies };
     remove.onclick = () => { rows.splice(rows.indexOf(item), 1); row.remove(); refreshDependencies(); };
@@ -89,6 +92,10 @@ export function openWorkPlan({ project, unit, units }) {
     }
   }
   list.addEventListener("change", event => { if (rows.some(row => row.objective === event.target)) refreshDependencies(); });
+  form.addEventListener("invalid", event => {
+    const details = event.target.closest("details");
+    if (details) details.open = true;
+  }, true);
   const add = el("button", t("添加子节点"), "ghost"); add.type = "button"; add.onclick = addChild;
   const error = el("p", "", "work-plan-error"); error.setAttribute("role", "alert");
   const actions = el("div", "", "work-plan-actions");

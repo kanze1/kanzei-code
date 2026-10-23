@@ -901,7 +901,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     units.className = "work-unit-details";
     units.open = prior ? prior.unitsOpen : true;
     const summary = document.createElement("summary");
-    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.unit_id} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.objective} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
     const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workTree, {
       planningBlockers: entry.work_planning_blockers,
       onDecompose: async unit => {
@@ -1256,8 +1256,8 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
       const unitBadge = document.createElement("span");
       unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;
-      unitBadge.textContent = `W ${terminal}/${workUnits.length}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-      unitBadge.title = `${t("执行单元")}: ${workUnits.map((unit) => `${unit.unit_id}[${localizedStatusWord(unit.status, "unit")}]`).join(" · ")}`;
+      unitBadge.textContent = `${terminal} ${t("已验证节点")}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+      unitBadge.title = current ? current.objective : t("目标树");
       placeFlag(unitBadge);
     }
     // 复杂度(R-051):行 tooltip 文字 + 单页右端一列;体量不画成色带(cx-* 钩子类随色带一起删了)。

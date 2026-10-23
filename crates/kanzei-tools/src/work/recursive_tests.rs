@@ -2,6 +2,81 @@ use super::*;
 use kanzei_harness::{Tool, ToolCtx};
 
 #[tokio::test]
+async fn draft_goal_uses_system_identity_and_requires_criteria_before_execution() {
+    let root = kanzei_base::test_support::TestDir::new("work-draft-tools-");
+    for args in [
+        vec!["init", "--quiet"],
+        vec![
+            "-c",
+            "user.name=Kanzei Test",
+            "-c",
+            "user.email=test@example.com",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "--quiet",
+            "--allow-empty",
+            "-m",
+            "source baseline",
+        ],
+    ] {
+        let output = std::process::Command::new("git")
+            .current_dir(&root)
+            .args(&args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let docs = DocStore::open(&root, &REQUIREMENTS);
+    docs.save(&[Entry {
+        id: "R-001".into(),
+        title: "personal agent".into(),
+        status: "todo".into(),
+        severity: None,
+        fields: vec![
+            ("执行模型".into(), "work_units_v1".into()),
+            ("目标".into(), "personal agent".into()),
+        ],
+    }])
+    .unwrap();
+    DocStore::open(&root, &DEFECTS).save(&[]).unwrap();
+    let ctx =
+        ToolCtx::new(root.clone(), root.clone()).with_work_priority(WorkPriority::RequirementFirst);
+    let goal = ok(&ctx, json!({"action":"create_unit","requirement_id":"R-001","objective":"personal agent","node":{"kind":"goal"}})).await;
+    assert_eq!(goal["acceptance"], json!([]));
+    assert!(!goal["base_revision"].as_str().unwrap().is_empty());
+    assert_eq!(
+        selection(&ctx).work_unit_context.unwrap().readiness.step,
+        kanzei_core::WorkNodeStep::Plan
+    );
+    let rejected = WorkTool
+        .execute(json!({"action":"claim","id":goal["unit_id"]}), &ctx)
+        .await;
+    assert!(rejected.is_error);
+    assert!(
+        rejected.content.contains("完成条件"),
+        "{}",
+        rejected.content
+    );
+    assert_eq!(docs.load().unwrap()[0].status, "todo");
+    let full = ok(&ctx, json!({"action":"get_unit","id":goal["unit_id"]})).await;
+    assert_eq!(full["unit"]["source_sequence"], goal["source_sequence"]);
+    let mut contract = full["contract"].clone();
+    contract["acceptance"] = json!(["works"]);
+    let ready = ok(&ctx, json!({"action":"refine","id":goal["unit_id"],"expected_sequence":goal["source_sequence"],"reason":"define observable result","refinement":contract})).await;
+    let split = ok(&ctx, json!({"action":"decompose","id":goal["unit_id"],"expected_sequence":ready["source_sequence"],"reason":"identify missing research","children":[{"key":"research","objective":"compare memory options","node":{"kind":"research","covers":["works"]}}]})).await;
+    assert_eq!(split["children"][0]["acceptance"], json!([]));
+    assert_eq!(
+        selection(&ctx).work_unit_context.unwrap().readiness.step,
+        kanzei_core::WorkNodeStep::Plan
+    );
+}
+
+#[tokio::test]
 async fn planning_is_available_before_prior_art_but_type_names_cannot_bypass_execution() {
     let root = kanzei_base::test_support::TestDir::new("work-plan-gates-");
     let docs = DocStore::open(&root, &REQUIREMENTS);

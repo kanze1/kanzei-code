@@ -82,6 +82,7 @@ struct WorkChildInput {
     scope: Vec<String>,
     #[serde(default)]
     dependencies: Vec<String>,
+    #[serde(default)]
     acceptance: Vec<String>,
     #[serde(default)]
     verification: Vec<String>,
@@ -258,11 +259,6 @@ fn execute_work_unit_action(
             return Some(ToolOutput::needs_correction(
                 "WORK_OUTCOME_NOT_PLANNABLE",
                 reason,
-            ));
-        }
-        if input.acceptance.is_empty() {
-            return Some(ToolOutput::error(
-                "`acceptance` 至少需要一条可逐项登记证据的验收标准",
             ));
         }
         let existing = match store.list_work_units(Some(requirement_id)) {
@@ -736,7 +732,10 @@ impl Tool for WorkTool {
          custom types are vocabulary only, never tool permissions or acceptance exemptions. \
          Planning decompose/refine does not require claim or prior-art completion; use it to resolve missing knowledge, \
          while implementation claim retains all execution gates. \
-         questions and explanation. Use decompose(id,expected_sequence,reason,children) atomically; \
+         acceptance may be omitted while capturing a goal or planning a child; missing criteria produce plan readiness, \
+         never executable or verified work. Use refine to define acceptance before claim or before splitting that node. \
+         questions, explanation, sources and verification methods are optional knowledge, not a form to fill with placeholders. \
+         Use decompose(id,expected_sequence,reason,children) atomically; \
          each child declares node.covers from the parent acceptance and a local key; @key dependencies refer to siblings. \
          Use refine with expected_sequence and the full refinement contract after new evidence. \
          graph shows readiness; parents wait for children and require their own integration evidence. \

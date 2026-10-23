@@ -11,45 +11,65 @@ function text(tag, className, content) {
   return element;
 }
 
-function workUnitCard(unit, readiness) {
-  const card = document.createElement("article");
-  card.className = `work-unit-card ${unit.status}`;
-  const head = document.createElement("div");
-  head.className = "work-unit-head";
-  head.append(text("code", "", unit.unit_id), text("span", "work-unit-status", localizedStatusWord(unit.status, "unit")));
-  card.append(head, text("div", "work-unit-objective", unit.objective));
-  const meta = (label, content, state = "") => {
-    if (content) card.append(text("div", `work-unit-meta ${state}`, `${t(label)}: ${content}`));
+/** Human detail is a projection of recorded facts; execution contracts stay in the store. */
+function workUnitCard(unit, readiness, nodes, expanded) {
+  const card = text("article", `work-unit-card ${unit.status}`, "");
+  const node = unit.node || {}, checkpoint = unit.last_checkpoint || {};
+  const nameReferences = value => value.replace(/R-\d+\/W\d+/g, id => nodes.get(id)?.objective || id);
+  const meta = (parent, label, content, state = "") => {
+    if (!content) return;
+    const row = text("div", `work-unit-meta ${state}`, "");
+    row.append(text("span", "work-meta-label", t(label)), text("span", "work-meta-value", content));
+    parent.append(row);
   };
-  const node = unit.node || {};
-  if (node.custom_type) {
-    meta("类型定义", node.custom_type.description);
-    meta("预期产物", node.custom_type.deliverable);
+  const section = (key, label) => {
+    const details = text("details", "work-inspector-section", "");
+    details.dataset.section = key;
+    details.open = expanded.get(`${unit.unit_id}:${key}`) || false;
+    details.append(text("summary", "", t(label)));
+    details.ontoggle = () => expanded.set(`${unit.unit_id}:${key}`, details.open);
+    card.append(details); return details;
+  };
+  const terminal = ["done", "superseded"].includes(unit.status);
+  const status = !terminal && ["plan", "wait", "integrate"].includes(readiness?.step)
+    ? t(stepLabels[readiness.step]) : localizedStatusWord(unit.status, "unit");
+  meta(card, "当前情况", status);
+  meta(card, checkpoint.summary ? "实质进展" : "当前理解", checkpoint.summary || node.explanation);
+  if (!terminal) {
+    const blockers = [...new Set([...(readiness?.blockers || []), unit.blocked_reason].filter(Boolean))];
+    meta(card, "阻塞原因", blockers.map(nameReferences).join("\n"), "blocked");
+    if (!(unit.acceptance || []).length) meta(card, "下一步", t("先明确完成条件，再开始执行"));
+    else if (readiness?.step !== "wait") meta(card, "下一步", checkpoint.next_action);
   }
-  if (readiness) meta("下一步", t(stepLabels[readiness.step] || readiness.step));
-  meta("当前理解", node.explanation);
-  for (const question of node.questions || []) meta("未决问题", question, "blocked");
-  meta("支撑父级验收", (node.covers || []).join("；"));
-  meta("依赖结果", (unit.dependencies || []).join(" · "));
-  for (const blocker of readiness?.blockers || []) meta("阻塞原因", blocker, "blocked");
-  for (const criterion of readiness?.uncovered || []) meta("尚未覆盖", criterion, "blocked");
-  const checkpoint = unit.last_checkpoint || {};
-  meta("实质进展", checkpoint.summary);
-  meta("决策记录", (checkpoint.decisions || []).join("；"));
-  meta("记忆来源", (checkpoint.retrieval_refs || []).join(", ") || t("未记录"));
-  meta("验证方法", (unit.verification || []).join("；") || t("未声明"));
-  if (!readiness) meta("阻塞原因", unit.blocked_reason, "blocked");
-  meta("下一步", checkpoint.next_action);
-  const evidence = unit.evidence || [];
-  const acceptance = unit.acceptance || [];
-  meta("验收证据", `${evidence.length}/${acceptance.length}`);
-  for (const criterion of acceptance) {
-    const proof = evidence.find(item => item.criterion === criterion);
-    meta(proof ? "已记录证据" : "待验证", criterion);
-    if (proof) meta("证据引用", (proof.evidence_refs || []).join(" · "));
+  meta(card, "结束原因", unit.terminal_reason);
+  meta(card, "预期产物", node.custom_type?.deliverable);
+  if (node.questions?.length) {
+    const questions = section("questions", "待澄清的问题");
+    // An unresolved research question does not imply a request for human input.
+    for (const question of node.questions) questions.append(text("p", "work-inspector-note", question));
   }
-  meta("来源", (node.source_refs || []).join(" · "));
-  if (unit.terminal_reason) meta("结束原因", unit.terminal_reason);
+  const acceptance = unit.acceptance || [], evidence = unit.evidence || [];
+  if (acceptance.length) {
+    const outcome = section("outcome", "完成条件与结果");
+    for (const criterion of acceptance) {
+      const refs = [...new Set(evidence.filter(proof => proof.criterion === criterion).flatMap(proof => proof.evidence_refs || []))];
+      meta(outcome, refs.length ? "已记录证据" : "待验证", criterion);
+      if (refs.length) meta(outcome, "证据引用", refs.join(" · "));
+    }
+    for (const criterion of readiness?.uncovered || []) meta(outcome, "尚未覆盖", criterion);
+    meta(outcome, "验证方法", (unit.verification || []).join("；"));
+  }
+  if (node.source_refs?.length || checkpoint.decisions?.length || checkpoint.retrieval_refs?.length) {
+    const basis = section("basis", "研究与依据");
+    meta(basis, "决策记录", (checkpoint.decisions || []).join("；"));
+    meta(basis, "来源", (node.source_refs || []).join(" · "));
+    meta(basis, "记忆来源", (checkpoint.retrieval_refs || []).join(" · "));
+  }
+  const record = section("record", "节点记录");
+  meta(record, "节点编号", unit.unit_id);
+  if (unit.source_sequence != null) meta(record, "记录版本", String(unit.source_sequence));
+  meta(record, "类型定义", node.custom_type?.description);
+  meta(record, "支撑父级验收", (node.covers || []).join("；"));
   return card;
 }
 
@@ -59,6 +79,19 @@ export function captureWorkTreeState(root) { return root?.captureState?.() || nu
 export function renderWorkTree(units, readiness = {}, prior = null, options = {}) {
   const root = text("section", "work-tree-workspace", "");
   const toolbar = text("div", "work-tree-toolbar", "");
+  let view = prior?.view || (window.innerWidth < 850 ? "outline" : "map");
+  root.dataset.view = view;
+  const views = text("div", "work-tree-views", "");
+  for (const [value, label] of [["map", "目标地图"], ["outline", "大纲"]]) {
+    const button = text("button", "ghost", t(label)); button.type = "button";
+    button.setAttribute("aria-pressed", String(view === value));
+    button.onclick = () => {
+      view = value; root.dataset.view = value;
+      for (const control of views.children) control.setAttribute("aria-pressed", String(control === button));
+    };
+    views.append(button);
+  }
+  toolbar.append(views);
   const search = document.createElement("input");
   search.type = "search"; search.placeholder = t("搜索节点，保留目标路径");
   search.setAttribute("aria-label", t("搜索节点")); search.value = prior?.query || "";
@@ -75,6 +108,7 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
   const scope = nodes.has(prior?.scope) ? prior.scope : null;
   const elements = new Map(), groups = new Map();
   const open = new Map(prior?.open || []);
+  const detailOpen = new Map(prior?.detailOpen || []);
   let selected = nodes.has(prior?.selected) ? prior.selected : (units.find(unit => unit.status === "active") || units[0])?.unit_id;
   let focused = nodes.has(prior?.focused) ? prior.focused : selected;
   const ids = new Set(units.map(unit => unit.unit_id));
@@ -102,6 +136,7 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
     selected = id;
     for (const [key, el] of elements) el.setAttribute("aria-selected", String(key === id));
     const unit = nodes.get(id);
+    inspector.dataset.kind = unit.node?.kind || "requirement";
     inspector.replaceChildren(text("h4", "work-tree-inspector-title", unit.objective));
     const actions = text("div", "work-tree-actions", "");
     if (children.get(id)?.length && id !== scope) {
@@ -112,18 +147,18 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
       const split = text("button", "ghost work-node-split", t("裂变需求"));
       split.type = "button";
       const blockers = options.planningBlockers?.[id];
-      split.disabled = !blockers || blockers.length > 0;
-      const reason = blockers?.join("；") || (!blockers ? t("正在读取操作条件") : "");
+      const missingCriteria = !(unit.acceptance || []).length;
+      split.disabled = !blockers || blockers.length > 0 || missingCriteria;
+      const reason = blockers?.join("；") || (!blockers ? t("正在读取操作条件") : missingCriteria ? t("先明确完成条件，再拆分子工作") : "");
       split.title = reason;
       split.onclick = () => options.onDecompose(unit, split);
       actions.append(split);
-      if (reason) actions.append(text("small", "dim", reason));
     }
     if (options.onStart && ["execute", "integrate"].includes(readiness[id]?.step)) {
       const start = text("button", "ghost work-node-start", t("推进此节点"));
       start.type = "button"; start.onclick = () => options.onStart(unit); actions.append(start);
     }
-    inspector.append(actions, workUnitCard(unit, readiness[id]));
+    inspector.append(actions, workUnitCard(unit, readiness[id], nodes, detailOpen));
     for (const dependency of unit.dependencies || []) {
       if (!nodes.has(dependency)) continue;
       const link = text("button", "ghost work-node-reference", `${t("查看依赖")} · ${nodes.get(dependency).objective}`);
@@ -172,6 +207,7 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
     branch.dataset.workNodeId = unit.unit_id;
     branch.setAttribute("role", "treeitem"); branch.setAttribute("aria-level", String(depth));
     branch.dataset.kind = unit.node?.kind || "requirement";
+    branch.dataset.status = unit.status;
     elements.set(unit.unit_id, branch);
     if (!open.has(unit.unit_id)) open.set(unit.unit_id, !["done", "superseded"].includes(unit.status));
     if (prior?.known && !prior.known.has(unit.unit_id)) branch.classList.add("work-node-new");
@@ -185,7 +221,10 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
     const status = ["wait", "plan", "integrate"].includes(step) ? t(stepLabels[step]) : localizedStatusWord(unit.status, "unit");
     branch.setAttribute("aria-label", `${unit.objective} · ${status}`);
     const glyph = text("span", "work-tree-glyph", kindGlyphs[unit.node?.kind] || "◇"); glyph.setAttribute("aria-hidden", "true");
-    summary.append(caret, glyph, text("span", "work-tree-kind", unit.node?.custom_type?.name || t(kindLabels[unit.node?.kind || "requirement"])), text("span", "work-tree-title", unit.objective), text("span", "work-unit-status", status));
+    const kind = text("span", "work-tree-kind", unit.node?.custom_type?.name || t(kindLabels[unit.node?.kind || "requirement"]));
+    kind.title = t(kindLabels[unit.node?.kind || "requirement"]);
+    summary.append(caret, glyph, kind, text("span", "work-tree-title", unit.objective),
+      text("span", "work-unit-status", status));
     if (descendants.length) summary.append(text("small", "work-tree-count", String(descendants.length)));
     summary.onclick = () => { select(unit.unit_id); focus(unit.unit_id); };
     branch.addEventListener("focus", () => { focused = unit.unit_id; });
@@ -222,10 +261,11 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
   if (!elements.has(focused)) focused = selected;
   search.oninput = display;
   display(); if (selected) select(selected);
-  root.captureState = () => ({ open: new Map(open), selected, focused, scope, known: ids, query: search.value,
-    scrollTop: tree.scrollTop, restoreFocus: tree.contains(document.activeElement) });
+  root.captureState = () => ({ detailOpen: new Map(detailOpen), open: new Map(open), selected, focused, scope, known: ids, query: search.value, view,
+    scrollTop: tree.scrollTop, scrollLeft: tree.scrollLeft, restoreFocus: tree.contains(document.activeElement) });
   requestAnimationFrame(() => {
     tree.scrollTop = prior?.scrollTop || 0;
+    tree.scrollLeft = prior?.scrollLeft || 0;
     if (prior?.restoreFocus && root.isConnected) focus(focused);
   });
   return root;
