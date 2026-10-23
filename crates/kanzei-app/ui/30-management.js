@@ -14,6 +14,7 @@ import { renderTrackerFields } from "./04-structured.js";
 import { deliveryState, loadDeliveredFiles, onDeliveriesChanged } from "./06-deliveries.js";
 import { renderFileCard } from "./06-activity.js";
 import { batchCells, dependencyLayers, runtimeSummary } from "./30-workspace-model.js";
+import { renderWorkMap } from "./26-work-map.js";
 
 const projects = new Map();
 let mounted = null;
@@ -24,7 +25,8 @@ const allEntries = state => [...(documentsView(state)?.requirements || []), ...(
 const numberText = value => typeof value === "number" ? value.toLocaleString(languageIsEnglish() ? "en-US" : "zh-CN") : value;
 function stateFor(project) {
   if (!projects.has(project)) {
-    const state = { project, tab: layoutPref("management", project) || "req", query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
+    const workView = layoutPref("management-work-view", project);
+    const state = { project, tab: layoutPref("management", project) || "req", workView: ["map", "list"].includes(workView) ? workView : "list", workMap: {}, query: "", filter: "open", detail: null, details: new Map(), archives: new Map(), docs: null, snapshot: null, error: "", root: null, signature: "", arch: null, stats: null, mapFocus: null, period: "7", session: "" };
     projects.set(project, state);
   }
   return projects.get(project);
@@ -193,9 +195,10 @@ function renderList(state) {
     const docs = documentsView(state);
     const entries = (state.tab === "req" ? docs?.requirements : docs?.defects) || [];
     const query = state.query.toLocaleLowerCase();
-    const rows = entries.filter(entry => `${entry.id} ${entry.title}`.toLocaleLowerCase().includes(query) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
+    const rows = entries.filter(entry => `${entry.id} ${entry.title} ${(entry.work_units || []).map(unit => `${unit.unit_id} ${unit.objective}`).join(" ")}`.toLocaleLowerCase().includes(query) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
     count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
-    for (const entry of rows) {
+    if (state.workView === "map" && rows.length) list.append(renderWorkMap(rows, docs, state.workMap, entry => void openManagementItem(state.project, entry)));
+    for (const entry of state.workView === "list" ? rows : []) {
       const row = action("", () => void openManagementItem(state.project, entry), "management-row"); row.dataset.workId = entry.id;
       const identity = el("div", null, "management-identity"), meta = el("small", null, "dim");
       meta.append(el("span", entry.id, "management-id"), document.createTextNode(` · ${localizedDocStatus(entry.status)}`));
@@ -216,7 +219,14 @@ function renderList(state) {
     if (await openProjectSpace(state.project, "documents")) $(`documents-tab-${kind}`)?.click();
   } }]));
   more.setAttribute("aria-label", t("更多"));
-  tools.append(search, filter, refreshAction(state), create, more);
+  const views = el("div", null, "management-work-views");
+  for (const [key, zh, en] of [["map", "目标地图", "Goal map"], ["list", "列表", "List"]]) {
+    const control = action(languageIsEnglish() ? en : zh, () => {
+      state.workView = key; setLayoutPref("management-work-view", state.project, key); render(state, true);
+    });
+    control.dataset.managementWorkView = key; control.setAttribute("aria-pressed", String(state.workView === key)); views.append(control);
+  }
+  tools.append(search, views, filter, refreshAction(state), create, more);
   state.body.append(tools);
   state.body.append(count, list, archives); fill();
 }
