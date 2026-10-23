@@ -1858,7 +1858,7 @@ const docEntry = (id, title, status, extra = {}) => ({
   id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: ["done"],
   severity: null, complexity: null, batches: { done: 0, total: 1 },
   blocked: false, block_reasons: [], claimed_by: null, dependencies: [], dependents: [],
-  execution_model: null, work_units: [], work_readiness: {}, prior_art: null, requirement: id.startsWith("R-") ? { format: 1 } : null,
+  execution_model: null, work_units: [], work_readiness: {}, work_planning_blockers: {}, prior_art: null, requirement: id.startsWith("R-") ? { format: 1 } : null,
   ...extra,
 });
 const smokeWorkUnit = {
@@ -12639,8 +12639,8 @@ const docsB = {
       `#4 更早的进展应收进「更早进展 N」折叠区:${older?.querySelector("summary")?.textContent}`);
     assert(read?.querySelector(".tf-engine") && !fieldRow("observed_head") && !fieldRow("recorded_at"), "#4 引擎字段应收进「引擎记录」折叠区,不单独成行");
     const units = detail?.querySelector(".work-unit-details");
-    assert(units && !units.open && units.querySelector("summary")?.textContent.startsWith("目标树 · 0 已验证节点") && units.querySelector(".work-unit-card"),
-      "#4 执行单元应默认折叠,summary 一行说清进度");
+    assert(units && units.open && units.querySelector("summary")?.textContent.startsWith("目标树 · 0 已验证节点") && units.querySelector(".work-unit-card"),
+      "#4 目标树应默认展开,summary 一行说清已验证节点数量");
 
     // ③ 详情头的状态流转仍走 docs_update(硬门禁同一套 nextStatuses)。
     const beforeStatus = invokeArgs.length;

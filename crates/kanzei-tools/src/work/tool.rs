@@ -124,7 +124,36 @@ fn open_work_store(project_root: &std::path::Path) -> Result<SessionStore, Strin
         .map_err(|error| format!("cannot open work unit store: {error}"))
 }
 
-fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutput> {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PlanActor {
+    Agent,
+    User,
+}
+
+fn outcome_plan_blocker(outcome: Option<&Entry>) -> Option<&'static str> {
+    (!outcome.is_some_and(|entry| {
+        uses_work_units(entry) && matches!(entry.status.as_str(), "draft" | "todo" | "doing")
+    }))
+    .then_some("父需求已暂停、结束或不在活动队列")
+}
+
+fn plan_owner_blocker(
+    unit: &kanzei_core::WorkProjection,
+    actor: PlanActor,
+    owner: Option<String>,
+) -> Option<&'static str> {
+    (matches!(
+        unit.status,
+        WorkUnitStatus::Active | WorkUnitStatus::Verifying
+    ) && (actor == PlanActor::User || unit.claimed_by != owner))
+        .then_some("节点已有执行者，请先由执行者结束当前工作或释放节点，再修改计划")
+}
+
+fn execute_work_unit_action(
+    input: &WorkInput,
+    ctx: &ToolCtx,
+    actor: PlanActor,
+) -> Option<ToolOutput> {
     let is_unit_claim =
         input.action == "claim" && input.id.as_deref().is_some_and(|id| id.contains("/W"));
     if !is_unit_claim && !UNIT_ACTIONS.contains(&input.action.as_str()) {
@@ -153,7 +182,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
                         Err(error) => return Some(ToolOutput::error(error.to_string())),
                     };
                     pretty(
-                        json!({"nodes": units.iter().map(|unit| json!({"unit": unit, "readiness": unit.readiness(&all)})).collect::<Vec<_>>()}),
+                        json!({"nodes": units.iter().map(|unit| json!({"unit": unit, "readiness": unit.readiness(&all), "planning_blockers": unit.planning_blockers(&all)})).collect::<Vec<_>>()}),
                     )
                 }
                 Ok(units) => pretty(units),
@@ -225,6 +254,12 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
                 "{requirement_id} 未设置 `执行模型: work_units_v1`，不能创建 Work Unit"
             )));
         }
+        if let Some(reason) = outcome_plan_blocker(Some(outcome)) {
+            return Some(ToolOutput::needs_correction(
+                "WORK_OUTCOME_NOT_PLANNABLE",
+                reason,
+            ));
+        }
         if input.acceptance.is_empty() {
             return Some(ToolOutput::error(
                 "`acceptance` 至少需要一条可逐项登记证据的验收标准",
@@ -276,15 +311,29 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     };
 
     if matches!(input.action.as_str(), "decompose" | "refine") {
-        if matches!(
-            current.status,
-            WorkUnitStatus::Active | WorkUnitStatus::Verifying
-        ) && current.claimed_by != line_identity(&ctx.cwd, &ctx.project_root)
-        {
+        let req_store = DocStore::open(&ctx.project_root, &REQUIREMENTS);
+        let _doc_lock = match req_store.lock() {
+            Ok(lock) => lock,
+            Err(error) => return Some(ToolOutput::error(error.to_string())),
+        };
+        let requirements = match req_store.load() {
+            Ok(entries) => entries,
+            Err(error) => return Some(ToolOutput::error(error.to_string())),
+        };
+        if let Some(reason) = outcome_plan_blocker(
+            requirements
+                .iter()
+                .find(|entry| entry.id == current.requirement_id),
+        ) {
             return Some(ToolOutput::needs_correction(
-                "WORK_OWNER_MISMATCH",
-                "先通过 claim 并提供接管理由，不能修改其他执行线正在推进的计划",
+                "WORK_OUTCOME_NOT_PLANNABLE",
+                reason,
             ));
+        }
+        if let Some(reason) =
+            plan_owner_blocker(&current, actor, line_identity(&ctx.cwd, &ctx.project_root))
+        {
+            return Some(ToolOutput::needs_correction("WORK_OWNER_MISMATCH", reason));
         }
         return Some(execute_plan_change(input, &store, &current));
     }
@@ -645,6 +694,33 @@ fn execute_plan_change(
 
 pub struct WorkTool;
 
+impl WorkTool {
+    /// UI hints and actual commits use the same domain/ownership/outcome rules.
+    pub fn user_plan_blockers(
+        unit: &kanzei_core::WorkProjection,
+        all: &[kanzei_core::WorkProjection],
+        outcome: Option<&Entry>,
+    ) -> Vec<String> {
+        let mut blockers = unit.planning_blockers(all);
+        blockers.extend(outcome_plan_blocker(outcome).map(str::to_owned));
+        blockers.extend(plan_owner_blocker(unit, PlanActor::User, None).map(str::to_owned));
+        blockers
+    }
+
+    /// Explicit user planning shares the agent transaction and cannot claim work,
+    /// forge ownership, broaden tool grants or complete a node.
+    pub fn decompose_from_user(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let input: WorkInput = match crate::parse_input(self, input) {
+            Ok(input) => input,
+            Err(output) => return output,
+        };
+        if input.action != "decompose" {
+            return ToolOutput::error("用户裂变入口只接受 decompose");
+        }
+        execute_work_unit_action(&input, ctx, PlanActor::User).expect("decompose is a unit action")
+    }
+}
+
 #[async_trait]
 impl Tool for WorkTool {
     fn name(&self) -> &'static str {
@@ -655,7 +731,11 @@ impl Tool for WorkTool {
         "Resolve the authoritative work decision. Legacy requirements/defects keep next/claim; \
          requirements opting into `work_units_v1` use create_unit, claim, checkpoint, block, \
          unblock, verify, evidence, complete and supersede over append-only events. \
-         Recursive work uses node.kind (goal/requirement/defect/research/design/documentation/verification), \
+         Recursive work uses node.kind (goal/requirement/implementation/defect/research/design/documentation/verification), \
+         and optional node.custom_type={name,description,deliverable}. Read graph and reuse project type definitions; \
+         custom types are vocabulary only, never tool permissions or acceptance exemptions. \
+         Planning decompose/refine does not require claim or prior-art completion; use it to resolve missing knowledge, \
+         while implementation claim retains all execution gates. \
          questions and explanation. Use decompose(id,expected_sequence,reason,children) atomically; \
          each child declares node.covers from the parent acceptance and a local key; @key dependencies refer to siblings. \
          Use refine with expected_sequence and the full refinement contract after new evidence. \
@@ -859,7 +939,7 @@ impl Tool for WorkTool {
                 }
             }
         }
-        if let Some(output) = execute_work_unit_action(&input, ctx) {
+        if let Some(output) = execute_work_unit_action(&input, ctx, PlanActor::Agent) {
             return output;
         }
         if input.action == "reconcile" {

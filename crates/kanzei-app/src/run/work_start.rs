@@ -6,16 +6,19 @@ use kanzei_harness::{Tool, ToolCtx};
 use serde_json::json;
 
 pub(crate) fn validate_requested_item(id: &str) -> Result<(), String> {
-    let valid = id
+    let (outcome, node) = id
+        .split_once("/W")
+        .map_or((id, None), |(root, node)| (root, Some(node)));
+    let digits = |value: &str| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit());
+    let valid = outcome
         .strip_prefix("R-")
         .or_else(|| id.strip_prefix("D-"))
-        .is_some_and(|number| {
-            !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit())
-        });
+        .is_some_and(digits)
+        && node.is_none_or(|number| outcome.starts_with("R-") && digits(number));
     if valid {
         Ok(())
     } else {
-        Err("需求编号必须是 R-xxx 或 D-xxx".into())
+        Err("工作编号必须是 R-xxx、D-xxx 或 R-xxx/Wn".into())
     }
 }
 
@@ -51,6 +54,80 @@ pub(crate) async fn claim_requested_work(
 mod tests {
     use super::*;
     use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
+
+    #[tokio::test]
+    async fn explicit_node_start_never_falls_back_to_another_node() {
+        let root = kanzei_base::test_support::TestDir::new("ui-node-start-");
+        DocStore::open(&root, &REQUIREMENTS)
+            .save(&[kanzei_memory::docstore::Entry {
+                id: "R-001".into(),
+                title: "Goal".into(),
+                status: "todo".into(),
+                severity: None,
+                fields: vec![
+                    ("执行模型".into(), "work_units_v1".into()),
+                    ("目标".into(), "goal".into()),
+                ],
+            }])
+            .unwrap();
+        let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .create_session("s", &root.display().to_string(), None)
+            .unwrap();
+        let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf()).with_session_id("s".into());
+        for n in 1..=2 {
+            store
+                .create_work_unit(kanzei_core::WorkUnitSpec {
+                    unit_id: format!("R-001/W{n}"),
+                    requirement_id: "R-001".into(),
+                    objective: format!("work {n}"),
+                    scope: vec![],
+                    dependencies: vec![],
+                    acceptance: vec!["works".into()],
+                    verification: vec![],
+                    base_revision: "fixture".into(),
+                    node: Default::default(),
+                })
+                .unwrap();
+        }
+        store
+            .append_work_fact(
+                "R-001/W2",
+                kanzei_core::WorkFact::Blocked {
+                    reason: "external dependency".into(),
+                },
+            )
+            .unwrap();
+        assert!(claim_requested_work(&ctx, "R-001/W2", &mut |_| {})
+            .await
+            .is_err());
+        assert_eq!(
+            store.get_work_unit("R-001/W1").unwrap().unwrap().status,
+            kanzei_core::WorkUnitStatus::Ready
+        );
+        store
+            .append_work_fact(
+                "R-001/W2",
+                kanzei_core::WorkFact::Unblocked {
+                    reason: "available".into(),
+                },
+            )
+            .unwrap();
+        claim_requested_work(&ctx, "R-001/W2", &mut |_| {})
+            .await
+            .unwrap();
+        assert_eq!(
+            store.get_work_unit("R-001/W2").unwrap().unwrap().status,
+            kanzei_core::WorkUnitStatus::Active
+        );
+        assert_eq!(
+            store.get_work_unit("R-001/W1").unwrap().unwrap().status,
+            kanzei_core::WorkUnitStatus::Ready
+        );
+        for bad in ["R-001/W", "D-001/W2", "R-001/W2/W3", "R-001/W-1"] {
+            assert!(validate_requested_item(bad).is_err());
+        }
+    }
 
     #[tokio::test]
     async fn start_claims_real_item_but_never_bypasses_discovery_gates() {

@@ -10,9 +10,9 @@ use serde::{Deserialize, Serialize};
 use super::{now_ms, SessionStore, StoreError};
 
 mod graph;
-pub use graph::{WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep};
+pub use graph::{WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkNodeType};
 
-pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 2;
+pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 3;
 pub const MAX_WORK_OBJECTIVE_CHARS: usize = 1_000;
 pub const MAX_WORK_LIST_ITEMS: usize = 32;
 pub const MAX_WORK_ITEM_CHARS: usize = 2_000;
@@ -717,6 +717,7 @@ impl SessionStore {
         let fact = WorkFact::Created { spec: spec.clone() };
         let event = append_event_tx(&tx, &spec.unit_id, &spec.requirement_id, &fact)?;
         let projection = apply_fact(None, &event)?;
+        graph::validate_parent(&projection, &graph::read_graph(&tx)?)?;
         upsert_surface_tx(&tx, &projection)?;
         tx.commit()?;
         Ok(projection)

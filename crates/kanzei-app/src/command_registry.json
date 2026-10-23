@@ -546,6 +546,10 @@
     "host": "service"
   },
   {
+    "path": "docs::work_nodes::work_node_decompose",
+    "host": "service"
+  },
+  {
     "path": "docs::webfetch_preview",
     "host": "service"
   },

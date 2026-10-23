@@ -50,9 +50,10 @@ pub use store::{
     SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageBackupReport,
     StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent, StoredInput,
     StoredProcess, StoredWorkEvent, TypedSessionWriter, WorkCheckpoint, WorkEvidence, WorkFact,
-    WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkProjection, WorkUnitSpec,
-    WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS,
-    MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT, WORK_PROJECTION_FORMAT_VERSION,
+    WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkNodeType, WorkProjection,
+    WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS,
+    MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT,
+    WORK_PROJECTION_FORMAT_VERSION,
 };
 
 // Public domain services. The SQLite implementation stays private.

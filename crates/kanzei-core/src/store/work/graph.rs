@@ -10,6 +10,7 @@ pub enum WorkNodeKind {
     Goal,
     #[default]
     Requirement,
+    Implementation,
     Defect,
     Research,
     Design,
@@ -17,11 +18,23 @@ pub enum WorkNodeKind {
     Verification,
 }
 
+/// A project vocabulary entry, not an authority or a tool grant.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct WorkNodeType {
+    pub name: String,
+    pub description: String,
+    pub deliverable: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkNodeContract {
     #[serde(default)]
     pub kind: WorkNodeKind,
+    /// Reuse an existing project definition before declaring a new subtype.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_type: Option<WorkNodeType>,
     #[serde(default)]
     pub parent_id: Option<String>,
     /// Exact criteria from the immediate parent which this result supports.
@@ -53,6 +66,21 @@ pub struct WorkNodeReadiness {
 }
 
 pub(super) fn validate_node(node: &WorkNodeContract) -> Result<(), StoreError> {
+    if let Some(kind) = &node.custom_type {
+        for (label, value) in [
+            ("type name", &kind.name),
+            ("type description", &kind.description),
+            ("type deliverable", &kind.deliverable),
+        ] {
+            validate_bounded_text(value, label)?;
+            if value.trim() != value {
+                return Err(invalid("扩展类型字段不能含首尾空白"));
+            }
+        }
+        if kind.name.chars().count() > 40 {
+            return Err(invalid("扩展类型名称最多 40 个字符"));
+        }
+    }
     if let Some(parent) = &node.parent_id {
         validate_bounded_text(parent, "parent_id")?;
         if node.covers.is_empty() {
@@ -84,6 +112,58 @@ pub(super) fn validate_node(node: &WorkNodeContract) -> Result<(), StoreError> {
 }
 
 impl WorkProjection {
+    /// Planning may resolve missing research/dependencies, but cannot mutate a
+    /// suspended branch or race an executor. Callers additionally enforce ownership.
+    pub fn planning_blockers(&self, all: &[WorkProjection]) -> Vec<String> {
+        let mut blockers = Vec::new();
+        if !matches!(self.status, WorkUnitStatus::Ready | WorkUnitStatus::Active) {
+            blockers.push(format!("节点状态 {} 不允许修改计划", self.status.as_str()));
+        }
+        if self
+            .background_verification
+            .as_ref()
+            .is_some_and(|job| job.pending)
+        {
+            blockers.push("后台验证尚未结束".into());
+        }
+        let mut current = self;
+        let mut seen = BTreeSet::new();
+        while let Some(id) = &current.node.parent_id {
+            if !seen.insert(id) {
+                blockers.push("节点归属存在循环".into());
+                break;
+            }
+            let Some(parent) = all.iter().find(|node| node.unit_id == *id) else {
+                blockers.push(format!("父节点不存在: {id}"));
+                break;
+            };
+            if parent.status.is_terminal() || parent.status == WorkUnitStatus::Blocked {
+                blockers.push(format!("祖先 {id} 已暂停或结束"));
+            }
+            current = parent;
+        }
+        let mut descendants = vec![self.unit_id.as_str()];
+        let mut visited = BTreeSet::new();
+        while let Some(id) = descendants.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            for child in all
+                .iter()
+                .filter(|node| node.node.parent_id.as_deref() == Some(id))
+            {
+                if matches!(
+                    child.status,
+                    WorkUnitStatus::Active | WorkUnitStatus::Verifying
+                ) {
+                    blockers.push(format!("子节点正在执行或验证: {}", child.unit_id));
+                }
+                descendants.push(&child.unit_id);
+            }
+        }
+        blockers
+    }
+
     pub fn spec(&self) -> WorkUnitSpec {
         WorkUnitSpec {
             unit_id: self.unit_id.clone(),
@@ -196,7 +276,26 @@ pub(super) fn read_graph(tx: &Transaction<'_>) -> Result<Vec<WorkProjection>, St
         .collect()
 }
 
-fn validate_parent(node: &WorkProjection, all: &[WorkProjection]) -> Result<(), StoreError> {
+pub(super) fn validate_parent(
+    node: &WorkProjection,
+    all: &[WorkProjection],
+) -> Result<(), StoreError> {
+    if let Some(kind) = &node.node.custom_type {
+        if all
+            .iter()
+            .filter(|other| other.unit_id != node.unit_id)
+            .any(|other| {
+                other.node.custom_type.as_ref().is_some_and(|existing| {
+                    existing.name.to_lowercase() == kind.name.to_lowercase()
+                        && (existing != kind || other.node.kind != node.node.kind)
+                })
+            })
+        {
+            return Err(invalid(
+                "项目中已有同名扩展类型，请复用其基础类型、定义和产物",
+            ));
+        }
+    }
     if let Some(id) = &node.node.parent_id {
         let parent = all
             .iter()
@@ -346,6 +445,10 @@ impl SessionStore {
         let tx = self.connection.unchecked_transaction()?;
         let mut graph = read_graph(&tx)?;
         let parent = observed(&graph, id, expected_sequence)?.clone();
+        let blockers = parent.planning_blockers(&graph);
+        if !blockers.is_empty() {
+            return Err(invalid(blockers.join("；")));
+        }
         if children.is_empty() || children.len() > MAX_WORK_LIST_ITEMS {
             return Err(invalid("拆分必须包含 1 到节点预算上限数量的子节点"));
         }
@@ -393,6 +496,10 @@ impl SessionStore {
         let tx = self.connection.unchecked_transaction()?;
         let mut graph = read_graph(&tx)?;
         let current = observed(&graph, &spec.unit_id, expected_sequence)?.clone();
+        let blockers = current.planning_blockers(&graph);
+        if !blockers.is_empty() {
+            return Err(invalid(blockers.join("；")));
+        }
         if graph
             .iter()
             .any(|n| n.node.parent_id.as_deref() == Some(&spec.unit_id) && !n.status.is_terminal())

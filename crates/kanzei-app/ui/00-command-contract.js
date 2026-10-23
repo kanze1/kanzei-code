@@ -866,6 +866,13 @@ export const commandParameters = {
     "sourceSequence": true,
     "unitId": true
   },
+  "work_node_decompose": {
+    "children": true,
+    "expectedSequence": true,
+    "id": true,
+    "projectDir": true,
+    "reason": true
+  },
   "workspace_overview": {},
   "workspace_snapshot": {
     "projectDir": false

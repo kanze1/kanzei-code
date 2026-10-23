@@ -92,8 +92,9 @@
         "severity": "string",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "work_readiness": {}
+        "work_planning_blockers": {},
+        "work_readiness": {},
+        "work_units": "array"
       }
     ],
     "findings": "array",
@@ -126,8 +127,9 @@
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "work_readiness": {}
+        "work_planning_blockers": {},
+        "work_readiness": {},
+        "work_units": "array"
       }
     ],
     "incident_metrics": {
@@ -228,8 +230,9 @@
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array",
-        "work_readiness": {}
+        "work_planning_blockers": {},
+        "work_readiness": {},
+        "work_units": "array"
       }
     ],
     "research_topics": "array",

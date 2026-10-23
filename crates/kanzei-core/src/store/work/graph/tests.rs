@@ -1,5 +1,136 @@
 use super::*;
 
+#[test]
+fn custom_type_schema_upgrade_backs_up_v30_without_rewriting_events() {
+    let dir = kanzei_base::test_support::TestDir::new("work-types-upgrade-");
+    let path = dir.join("state.sqlite");
+    let original;
+    {
+        let store = SessionStore::open(&path).unwrap();
+        store
+            .create_work_unit(spec(1, None, WorkNodeKind::Research))
+            .unwrap();
+        original = store.list_work_events("R-1/W1").unwrap();
+        store.connection.execute_batch("UPDATE work_surfaces SET projection_json=json_set(projection_json,'$.format_version',2); UPDATE schema_meta SET value='30' WHERE key='schema_version';").unwrap();
+    }
+    let store = SessionStore::open(&path).unwrap();
+    assert!(store.backup_path(30).unwrap().is_file());
+    assert_eq!(store.list_work_events("R-1/W1").unwrap(), original);
+    let root = store.get_work_unit("R-1/W1").unwrap().unwrap();
+    assert!(root.node.custom_type.is_none());
+    store
+        .decompose_work_unit(
+            &root.unit_id,
+            root.source_sequence,
+            "new implementation kind",
+            vec![spec(2, Some(&root.unit_id), WorkNodeKind::Implementation)],
+        )
+        .unwrap();
+    drop(store);
+    let store = SessionStore::open(&path).unwrap();
+    assert_eq!(
+        store.get_work_unit("R-1/W2").unwrap().unwrap().node.kind,
+        WorkNodeKind::Implementation
+    );
+}
+
+#[test]
+fn custom_types_are_project_vocabulary_and_never_change_readiness() {
+    let store = SessionStore::open_in_memory().unwrap();
+    let root = store
+        .create_work_unit(spec(1, None, WorkNodeKind::Goal))
+        .unwrap();
+    let mut research = spec(2, Some(&root.unit_id), WorkNodeKind::Research);
+    research.node.custom_type = Some(WorkNodeType {
+        name: "性能分析".into(),
+        description: "测量真实瓶颈".into(),
+        deliverable: "性能报告".into(),
+    });
+    research.node.questions.push("baseline?".into());
+    store
+        .decompose_work_unit(
+            &root.unit_id,
+            root.source_sequence,
+            "research first",
+            vec![research.clone()],
+        )
+        .unwrap();
+    let node = store.get_work_unit("R-1/W2").unwrap().unwrap();
+    assert_eq!(
+        node.readiness(&store.list_work_units(None).unwrap()).step,
+        WorkNodeStep::Plan
+    );
+    claim(&store, &node.unit_id);
+    assert!(store
+        .append_work_fact(&node.unit_id, WorkFact::VerificationStarted)
+        .is_err());
+    let mut conflict = spec(3, None, WorkNodeKind::Implementation);
+    conflict.node.custom_type = research.node.custom_type.clone();
+    assert!(
+        store.create_work_unit(conflict).is_err(),
+        "a type name cannot silently change its base kind"
+    );
+    let restored = project_work_events(&store.list_work_events(&node.unit_id).unwrap()).unwrap();
+    assert_eq!(restored.node.custom_type, research.node.custom_type);
+    assert!(serde_json::from_value::<WorkNodeContract>(serde_json::json!({"custom_type":{"name":"test","description":"test","deliverable":"test","permissions":["write:*"]}})).is_err());
+}
+
+#[test]
+fn planning_can_resolve_dependencies_but_cannot_mutate_suspended_or_running_branches() {
+    let store = SessionStore::open_in_memory().unwrap();
+    store
+        .create_work_unit(spec(1, None, WorkNodeKind::Research))
+        .unwrap();
+    let mut goal = spec(2, None, WorkNodeKind::Goal);
+    goal.dependencies.push("R-1/W1".into());
+    let root = store.create_work_unit(goal).unwrap();
+    store
+        .decompose_work_unit(
+            &root.unit_id,
+            root.source_sequence,
+            "identify missing research",
+            vec![spec(3, Some(&root.unit_id), WorkNodeKind::Research)],
+        )
+        .unwrap();
+    store
+        .append_work_fact(
+            &root.unit_id,
+            WorkFact::Blocked {
+                reason: "paused by owner".into(),
+            },
+        )
+        .unwrap();
+    let child = store.get_work_unit("R-1/W3").unwrap().unwrap();
+    assert!(store
+        .decompose_work_unit(
+            &child.unit_id,
+            child.source_sequence,
+            "invalid",
+            vec![spec(4, Some(&child.unit_id), WorkNodeKind::Design)]
+        )
+        .is_err());
+    assert!(store.get_work_unit("R-1/W4").unwrap().is_none());
+    store
+        .append_work_fact(
+            &root.unit_id,
+            WorkFact::Unblocked {
+                reason: "resume".into(),
+            },
+        )
+        .unwrap();
+    finish(&store, "R-1/W1");
+    claim(&store, &child.unit_id);
+    let root = store.get_work_unit(&root.unit_id).unwrap().unwrap();
+    assert!(store
+        .decompose_work_unit(
+            &root.unit_id,
+            root.source_sequence,
+            "race an executor",
+            vec![spec(4, Some(&root.unit_id), WorkNodeKind::Design)]
+        )
+        .is_err());
+}
+
 fn spec(n: usize, parent: Option<&str>, kind: WorkNodeKind) -> WorkUnitSpec {
     WorkUnitSpec {
         unit_id: format!("R-1/W{n}"),
@@ -294,7 +425,7 @@ fn recursive_schema_upgrade_preserves_legacy_events_and_creates_downgrade_backup
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "30");
+    assert_eq!(version, "31");
     assert!(store.backup_path(29).unwrap().is_file());
     let legacy = store.get_work_unit("R-1/W1").unwrap().unwrap();
     assert_eq!(legacy.node, WorkNodeContract::default());

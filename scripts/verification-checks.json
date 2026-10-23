@@ -773,6 +773,7 @@
       "crates/kanzei-app/ui/22-*.js",
       "crates/kanzei-app/ui/07-events.js",
       "crates/kanzei-app/ui/26-work-tree.js",
+      "crates/kanzei-app/ui/26-work-plan.js",
       "crates/kanzei-app/ui/11-docs-list.js",
       "crates/kanzei-app/ui/style.css",
       "scripts/ui-browser-contracts-smoke.mjs",

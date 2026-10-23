@@ -488,7 +488,7 @@ async function submitOutgoing(record, draft) {
   return accepted;
 }
 
-export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId = null, delivery: requestedDelivery = null, composerDraft = null } = {}) {
+export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId, delivery: requestedDelivery = null, composerDraft = null } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
   if (!await runtimeEventsReady()) { toastError(t("事件订阅失败")); return false; }
@@ -537,7 +537,9 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
   // A running conversation receives a message. A pending work choice belongs to
   // the next execution request, and must not turn a question into a new batch.
-  if (!workItemId && selectedAgent().agent === "dev" && !recipient.running) {
+  // An explicit null means a planning/research request with no execution claim.
+  // Only an omitted binding inherits the work picker's selection.
+  if (workItemId === undefined && selectedAgent().agent === "dev" && !recipient.running) {
     const project = currentProject, process = activeProcessId;
     try {
       workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);
@@ -545,6 +547,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       if (workItemId) executionBatch = true;
     } catch (error) { toastError(String(error)); return; }
   }
+  workItemId ??= null;
   if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
   const delivery = workItemId ? "queue" : requestedDelivery || $("delivery-select").value;
   if (!auto) void ensureNotificationPermission();

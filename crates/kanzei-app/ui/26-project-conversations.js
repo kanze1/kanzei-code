@@ -118,8 +118,16 @@ async function returnToSelectedConversation(project = currentProject) {
 }
 
 export async function continueRequirement(entry) {
-  const project = currentProject;
-  const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id);
+  return startSelectedWork(entry, currentProject, requirementStart(entry));
+}
+
+export async function continueWorkNode(entry, unit, project) {
+  if (project !== currentProject || unit.requirement_id !== entry.id) return;
+  return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}。先读取此节点和依赖结果，按其验收契约推进。`, executionBatch: true, workItemId: unit.unit_id });
+}
+
+async function startSelectedWork(entry, project, request) {
+  const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id || (request.workItemId && line.current_item_id === request.workItemId));
   const main = selected_workspace_process();
   // Existing independent work retains its owner; opening a card never steals it.
   if (owner && owner.id !== main?.id) {
@@ -135,9 +143,9 @@ export async function continueRequirement(entry) {
     catch { return; }
     if (currentProject !== project || activeProcessId !== target.id) return;
   }
-  const { prompt, ...options } = requirementStart(entry);
+  const { prompt, ...options } = request;
   await sendText(prompt, options);
-  if (needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));
+  if (!request.workItemId && needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));
   detailId = null; rendered = ""; paint();
 }
 

@@ -1,6 +1,42 @@
 use super::*;
 use kanzei_harness::{Tool, ToolCtx};
 
+#[tokio::test]
+async fn planning_is_available_before_prior_art_but_type_names_cannot_bypass_execution() {
+    let root = kanzei_base::test_support::TestDir::new("work-plan-gates-");
+    let docs = DocStore::open(&root, &REQUIREMENTS);
+    docs.save(&[Entry {
+        id: "R-001".into(),
+        title: "goal".into(),
+        status: "todo".into(),
+        severity: None,
+        fields: vec![
+            ("执行模型".into(), "work_units_v1".into()),
+            ("目标".into(), "goal".into()),
+            ("先行调研".into(), "missing-prior-art.md".into()),
+        ],
+    }])
+    .unwrap();
+    let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+    let goal = ok(&ctx, json!({"action":"create_unit","requirement_id":"R-001","objective":"goal","acceptance":["works"],"base_revision":"fixture"})).await;
+    let split = ok(&ctx, json!({"action":"decompose","id":goal["unit_id"],"expected_sequence":goal["source_sequence"],"reason":"resolve prerequisites without starting implementation","children":[{
+        "key":"research","objective":"resolve prior art","acceptance":["report"],"node":{"kind":"research","covers":["works"],"custom_type":{"name":"性能分析","description":"measure","deliverable":"report"}}
+    }]})).await;
+    let claim = WorkTool
+        .execute(
+            json!({"action":"claim","id":split["ids"]["research"]}),
+            &ctx,
+        )
+        .await;
+    assert_eq!(claim.code.as_deref(), Some("PRIOR_ART_REQUIRED"));
+    let mut entries = docs.load().unwrap();
+    entries[0].status = "blocked".into();
+    docs.save(&entries).unwrap();
+    let node = split["children"][0].clone();
+    let rejected = WorkTool.execute(json!({"action":"decompose","id":node["unit_id"],"expected_sequence":node["source_sequence"],"reason":"should reject","children":[{"key":"x","objective":"x","acceptance":["x"],"node":{"covers":["report"]}}]}), &ctx).await;
+    assert_eq!(rejected.code.as_deref(), Some("WORK_OUTCOME_NOT_PLANNABLE"));
+}
+
 async fn ok(ctx: &ToolCtx, input: serde_json::Value) -> serde_json::Value {
     let output = WorkTool.execute(input, ctx).await;
     assert!(!output.is_error, "{}", output.content);
