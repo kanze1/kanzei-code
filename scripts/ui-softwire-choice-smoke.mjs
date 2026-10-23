@@ -59,11 +59,64 @@ try {
     && await options.nth(1).getAttribute("aria-label") === "取消", "Model options remain source-faithful in English UI");
   check(await options.nth(1).getAttribute("aria-pressed") === "true"
     && await options.nth(0).getAttribute("aria-pressed") === "false", "Single-choice selected state follows canonical draft values");
+  await page.evaluate(async () => {
+    const { addFiles } = await import("/08-compose-runtime.js");
+    await addFiles([new File([Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6kAAAAABJRU5ErkJggg=="), c => c.charCodeAt(0))], "reply.png", { type: "image/png" })]);
+  });
+  await page.locator("#attachments .attachment-name").filter({ hasText: "reply.png" }).waitFor();
+  check(await page.locator(".sw-add").isVisible(), "Question replies expose the attachment picker");
   await page.locator("#send").click(); await settle();
   const replies = await page.evaluate(() => window.__choice.replies);
   check(replies.length === 1 && replies[0].reply === draft && replies[0].projectDir === identity.project
     && replies[0].sessionId === identity.session && replies[0].id === 9701
     && replies[0].expectedRevision === "choice-v1", "Actual IPC sends the original option and explanation once to the original question");
+  check(replies[0].attachments?.[0]?.file_name === "reply.png" && replies[0].attachments[0].data.length > 0,
+    "A question reply delivers its image together with the exact answer");
+  await page.evaluate(() => {
+    window.__choice.questions = [{ id: 9702, projectDir: window.__choice.snapshot.projects[0].path,
+      sessionId: "attachment-owner", revision: "files-v1", question: "Attachment retry", background: true, options: [] }];
+    window.__choice.attempts = [];
+    window.__choice.fail = true;
+    window.__kzPreview.setCommand("softwire_answer_question", args => {
+      window.__choice.attempts.push(structuredClone(args));
+      if (window.__choice.fail) throw new Error("question_changed: test reply failure");
+      window.__choice.questions = [];
+      return { ...args, status: "delivered" };
+    });
+  });
+  await page.locator("#workbench-attention").click(); await settle();
+  await page.locator("#sw-refresh").click(); await settle();
+  await page.locator(".sw-inbox-row").filter({ hasText: "Attachment retry" }).click();
+  await page.evaluate(async file => {
+    (await import("/03-shell.js")).setAttachments([file]);
+    (await import("/08-compose-runtime.js")).renderAttachments();
+  }, replies[0].attachments[0]);
+  await page.locator("#send").click(); await settle();
+  check(await page.locator("#prompt").inputValue() === "" && await page.locator("#attachments .attachment-name").innerText() === "reply.png",
+    "An image-only reply failure keeps the complete attachment draft");
+  await page.locator("#send").click(); await settle();
+  check(await page.evaluate(() => window.__choice.attempts.length === 2
+    && window.__choice.attempts[0].requestId === window.__choice.attempts[1].requestId),
+  "Retrying unchanged text and attachment reuses the request identity");
+  await page.evaluate(async () => {
+    const shell = await import("/03-shell.js");
+    shell.setAttachments([{ ...shell.attachments[0], data: btoa("replacement image bytes") }]);
+    (await import("/08-compose-runtime.js")).renderAttachments();
+  });
+  await page.locator("#send").click(); await settle();
+  check(await page.evaluate(() => window.__choice.attempts[2].requestId !== window.__choice.attempts[1].requestId),
+    "Changing only attachment bytes creates a new request identity");
+  await page.evaluate(() => { window.__choice.questions[0].revision = "files-v2"; });
+  await page.getByRole("button", { name: "View latest item" }).click(); await settle();
+  check(await page.locator("#attachments .attachment-name").innerText() === "reply.png",
+    "Refreshing the question revision preserves attachments as well as text");
+  await page.evaluate(() => { window.__choice.fail = false; });
+  await page.locator("#send").click(); await settle();
+  check(await page.evaluate(() => {
+    const last = window.__choice.attempts.at(-1);
+    return last.expectedRevision === "files-v2" && last.sessionId === "attachment-owner"
+      && last.reply === "" && last.attachments[0].data === btoa("replacement image bytes");
+  }), "The refreshed image-only reply reaches the original question with the retained bytes");
   // Render the same production view directly to isolate its built-in action contract.
   const builtin = await page.evaluate(async () => {
     const { renderInteraction } = await import("/25-softwire-view.js");

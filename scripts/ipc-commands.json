@@ -521,6 +521,10 @@
         "required": false,
         "type": "Option < String >"
       },
+      "attachments": {
+        "required": false,
+        "type": "Option < Vec < crate :: PromptAttachment > >"
+      },
       "decisionId": {
         "required": true,
         "type": "String"
@@ -2962,6 +2966,10 @@
   "softwire_answer_question": {
     "host": "service",
     "parameters": {
+      "attachments": {
+        "required": false,
+        "type": "Option < Vec < crate :: PromptAttachment > >"
+      },
       "expectedRevision": {
         "required": true,
         "type": "String"

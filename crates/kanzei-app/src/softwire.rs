@@ -145,8 +145,9 @@ pub(crate) async fn softwire_answer_question(
     expected_revision: String,
     request_id: String,
     reply: String,
+    attachments: Option<Vec<crate::PromptAttachment>>,
 ) -> Result<Value, String> {
-    if reply.trim().is_empty()
+    if (reply.trim().is_empty() && attachments.as_ref().is_none_or(Vec::is_empty))
         || reply.chars().count() > 8000
         || request_id.is_empty()
         || request_id.len() > 128
@@ -154,6 +155,8 @@ pub(crate) async fn softwire_answer_question(
         return Err("question_invalid_reply: 回复不能为空，且须在 8000 字以内".into());
     }
     let root = crate::normalized_project_root(Path::new(&project_dir));
+    let reply = crate::attachments::reply_text(&root, &reply, attachments.unwrap_or_default())
+        .map_err(|e| e.to_string())?;
     let reply = Reply {
         project: &root,
         session: &session_id,
@@ -353,5 +356,68 @@ mod tests {
             .unwrap_err()
             .contains("未送达"));
         assert!(receipts.is_empty());
+    }
+
+    #[test]
+    fn reply_attachments_reach_live_and_durable_answers_and_participate_in_deduplication() {
+        let directory = kanzei_base::test_support::TestDir::new("question-attachments");
+        let root = crate::normalized_project_root(&directory);
+        let (ask, mut receiver) = pending(&root);
+        let revision = question(7, &ask).unwrap()["revision"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        kanzei_harness::pending_question::save(
+            &root,
+            &json!({
+                "payload":{"id":7,"sessionId":"a"},"state":"pending","callback_id":"callback"
+            }),
+        )
+        .unwrap();
+        let text = crate::attachments::reply_text(
+            &root,
+            "看图",
+            vec![crate::PromptAttachment {
+                file_name: "notes.txt".into(),
+                media_type: "text/plain".into(),
+                data: "ZXZpZGVuY2U=".into(),
+            }],
+        )
+        .unwrap();
+        let mut asks = HashMap::from([(7, ask)]);
+        let mut receipts = ReceiptCache::new();
+        let mut reply = Reply {
+            project: &root,
+            session: "a",
+            id: 7,
+            revision: &revision,
+            request_id: "files",
+            text: &text,
+        };
+        let receipt = deliver_question(&mut asks, &mut receipts, &reply).unwrap();
+        assert!(
+            matches!(receiver.try_recv().unwrap(), kanzei_core::AskResponse::Answer(answer) if answer == text)
+        );
+        let reopened = kanzei_harness::pending_question::get(&root, 7).unwrap();
+        assert_eq!(reopened["reply"], text);
+        assert_eq!(
+            receipt,
+            deliver_question(&mut asks, &mut receipts, &reply).unwrap()
+        );
+        let changed = crate::attachments::reply_text(
+            &root,
+            "看图",
+            vec![crate::PromptAttachment {
+                file_name: "notes.txt".into(),
+                media_type: "text/plain".into(),
+                data: "Y2hhbmdlZA==".into(),
+            }],
+        )
+        .unwrap();
+        reply.text = &changed;
+        assert!(deliver_question(&mut asks, &mut receipts, &reply)
+            .unwrap_err()
+            .contains("request_conflict"));
+        assert!(kanzei_harness::pending_question::answer(&root, 7, &changed, "files").is_err());
     }
 }

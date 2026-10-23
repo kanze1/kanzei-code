@@ -13220,3 +13220,45 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 2700 passed, 0 failed, 10 ignored。随后 cargo clippy --locked --offline --workspace --all-targets -- -D warnings 与 cargo fmt --all -- --check 均通过。日志 output/constraints-cleanup-20261020/integration-workspace-tests.log、integration-clippy.log、integration-fmt.log。仅本地 Windows 源码验证，未替换桌面运行时。
 - 收尾: 1792434696
 - 源码指纹: v2 crates/kanzei-app/src/prefs.rs@5fc0c2deb061,crates/kanzei-base/cargo.toml@26dec07264bb,crates/kanzei-base/src/atomic_file.rs@a9ef2334a133,crates/kanzei-base/src/atomic_file/lock.rs@2ffb06752170,crates/kanzei-base/src/atomic_file/lock/directory.rs@872b7ca956a4,crates/kanzei-base/src/atomic_file/lock_tests.rs@808abb175622,crates/kanzei-base/src/lib.rs@7661c69717ec,crates/kanzei-base/src/path_form.rs@d29ff4f7e077,crates/kanzei-harness/Cargo.toml@3c74bb592513,crates/kanzei-harness/src/permission/filesystem.rs@2fedc25be78c,crates/kanzei-harness/src/permission/scoped_file.rs@1a65d5fa8758,crates/kanzei-memory/src/docstore/parse.rs@cf6ca7795304,crates/kanzei-memory/src/memory/migration.rs@87d4a3c848c4,crates/kanzei-memory/src/memory/store.rs@4f12f90cadbe,crates/kanzei-tools/Cargo.toml@ea7d8787545d,crates/kanzei-tools/src/edit.rs@733eb9b70855,crates/kanzei-tools/src/managed.rs@44f9f0c5f597,crates/kanzei-tools/src/write.rs@39b218bd7cc6
+
+## T-1786922727161 两项集成：图片回复生产ESM Edge回归 [failed]
+- 命令: node scripts/ui-softwire-choice-smoke.mjs
+- 时长: 5.0s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727161.json; 仅背书该命令的验证范围
+- 收尾: 1792791842
+- 源码指纹: v2 crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d
+
+## T-1786922727162 两项集成：Rust reply/attachment/旧decision兼容 [failed]
+- 命令: cargo test -p kanzei-app reply_; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app attachment_; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app review_uses_original_session_and_user_scope_with_retry; exit $LASTEXITCODE
+- 时长: 93.9s
+- 摘要: 自动执行结果: failed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727162.json; 仅背书该命令的验证范围
+- 收尾: 1792791941
+- 源码指纹: v2 crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d
+
+## T-1786922727163 两项集成：图片回复生产ESM Edge回归（补齐附件按钮） [failed]
+- 命令: node scripts/ui-softwire-choice-smoke.mjs
+- 时长: 5.1s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727163.json; 仅背书该命令的验证范围
+- 收尾: 1792791976
+- 源码指纹: v2 crates/kanzei-app/gen/schemas/desktop-schema.json@328664596978,crates/kanzei-app/gen/schemas/windows-schema.json@328664596978,crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d
+
+## T-1786922727164 图片回复：Edge生产ESM及附件/重试/刷新回归 [failed]
+- 命令: node scripts/ui-softwire-choice-smoke.mjs
+- 时长: 16.3s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727164.json; 仅背书该命令的验证范围
+- 收尾: 1792792072
+- 源码指纹: v2 crates/kanzei-app/gen/schemas/desktop-schema.json@328664596978,crates/kanzei-app/gen/schemas/windows-schema.json@328664596978,crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ipc-commands.json@9cb9768f1223,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d
+
+## T-1786922727165 图片回复：完整定向回归（补齐IPC/按钮/restore） [passed]
+- 命令: node scripts/ui-softwire-choice-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app reply_; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app attachment_; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app decisions::tests; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app softwire::tests; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; cargo test -p kanzei-app attachments::tests; exit $LASTEXITCODE
+- 时长: 28.1s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727165.json; 仅背书该命令的验证范围
+- 收尾: 1792792114
+- 源码指纹: v2 crates/kanzei-app/gen/schemas/desktop-schema.json@328664596978,crates/kanzei-app/gen/schemas/windows-schema.json@328664596978,crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ipc-commands.json@9cb9768f1223,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d
+
+## T-1786922727166 图片回复：all-targets严格Clippy、IPC清单及ESLint [passed]
+- 命令: cargo clippy -p kanzei-app --all-targets -- -D warnings; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/ipc-arguments-smoke.mjs; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node scripts/sync-ipc-contract.mjs --check; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; npx --no-install eslint crates/kanzei-app/ui/25-softwire.js crates/kanzei-app/ui/25-softwire-composer.js crates/kanzei-app/ui/00-command-contract.js scripts/ui-softwire-choice-smoke.mjs; exit $LASTEXITCODE
+- 时长: 41.8s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727166.json; 仅背书该命令的验证范围
+- 收尾: 1792792161
+- 源码指纹: v2 crates/kanzei-app/gen/schemas/desktop-schema.json@328664596978,crates/kanzei-app/gen/schemas/windows-schema.json@328664596978,crates/kanzei-app/src/attachments.rs@ff0d7e753fb3,crates/kanzei-app/src/decisions.rs@07de74617609,crates/kanzei-app/src/softwire.rs@0441d4c96f27,scripts/ipc-commands.json@9cb9768f1223,scripts/ui-softwire-choice-smoke.mjs@349aad0a287d

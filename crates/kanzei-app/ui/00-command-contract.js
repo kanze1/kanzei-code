@@ -137,6 +137,7 @@ export const commandParameters = {
   },
   "decision_review": {
     "agent": false,
+    "attachments": false,
     "decisionId": true,
     "projectDir": true,
     "review": true
@@ -766,6 +767,7 @@ export const commandParameters = {
     "name": true
   },
   "softwire_answer_question": {
+    "attachments": false,
     "expectedRevision": true,
     "id": true,
     "projectDir": true,
