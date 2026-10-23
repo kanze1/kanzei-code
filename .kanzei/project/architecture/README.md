@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 172f4f02] [`recursive_goal_development.md`](../../../docs/design/recursive_goal_development.md)：长期维护与开发模式、递归工作节点、依赖、证据与逐层验收；提交号锚定实现，完整门禁以最终发布回执为准。
+
 - [identity: live_design; last_verified_commit: df452a2c] [`current_contracts.md`](../../../docs/design/current_contracts.md)：当前规则来源、专题所有权、历史退役和依赖边界；只导航现行合同，不增加实施范围。
 
 - [identity: live_design; last_verified_commit: b97f8a2e] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步邮箱、前台终端移交、会话所有权与完成回调契约。实现已随 build-46e2e63a 及后续 build-b97f8a2e 发布，并于 2026-10-17 合入 dev；正文保留 2026-10-07 原生验收记录，本次整理未重跑原生验收。

@@ -1,6 +1,51 @@
 //! Work graph context and durable progress projection.
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct WorkContextNode {
+    pub id: String,
+    pub kind: kanzei_core::WorkNodeKind,
+    pub objective: String,
+    pub scope: Vec<String>,
+    pub acceptance: Vec<String>,
+    pub explanation: String,
+    pub source_refs: Vec<String>,
+    pub evidence: Vec<kanzei_core::WorkEvidence>,
+    pub status: WorkUnitStatus,
+}
+
+fn context_node(node: &WorkProjection) -> WorkContextNode {
+    WorkContextNode {
+        id: node.unit_id.clone(),
+        kind: node.node.kind,
+        objective: node.objective.clone(),
+        scope: node.scope.clone(),
+        acceptance: node.acceptance.clone(),
+        explanation: node.node.explanation.clone(),
+        source_refs: node.node.source_refs.clone(),
+        evidence: node.evidence.clone(),
+        status: node.status,
+    }
+}
+
+pub(super) fn work_required_results(
+    node: &WorkProjection,
+    all: &[WorkProjection],
+) -> Vec<WorkContextNode> {
+    let mut dependencies = BTreeSet::new();
+    let ancestors = work_node_ancestors(node, all);
+    for contract in std::iter::once(node).chain(
+        all.iter()
+            .filter(|unit| ancestors.iter().any(|ancestor| ancestor.id == unit.unit_id)),
+    ) {
+        dependencies.extend(contract.dependencies.iter());
+    }
+    all.iter()
+        .filter(|unit| dependencies.contains(&unit.unit_id))
+        .map(context_node)
+        .collect()
+}
+
 pub(super) fn work_node_summary(node: &WorkProjection) -> WorkItemSummary {
     WorkItemSummary {
         id: node.unit_id.clone(),
@@ -14,7 +59,7 @@ pub(super) fn work_node_summary(node: &WorkProjection) -> WorkItemSummary {
 pub(super) fn work_node_ancestors(
     node: &WorkProjection,
     all: &[WorkProjection],
-) -> Vec<WorkItemSummary> {
+) -> Vec<WorkContextNode> {
     let mut ancestors = Vec::new();
     let mut parent_id = node.node.parent_id.as_deref();
     let mut visited = BTreeSet::new();
@@ -25,7 +70,7 @@ pub(super) fn work_node_ancestors(
         let Some(parent) = all.iter().find(|node| node.unit_id == id) else {
             break;
         };
-        ancestors.push(work_node_summary(parent));
+        ancestors.push(context_node(parent));
         parent_id = parent.node.parent_id.as_deref();
     }
     ancestors

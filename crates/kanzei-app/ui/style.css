@@ -757,7 +757,8 @@ body { background: var(--bg); color: var(--fg); font-family: var(--sans); overfl
   transition: rotate var(--motion-fast) ease;
 }
 [aria-expanded="true"] > .kz-chev { rotate: 180deg; }
-select.kz-ctl { padding: 0 8px 0 var(--ctl-px); gap: var(--sp-3); field-sizing: content; }
+/* 原生选择器的文字行盒需容纳中文字体度量；沿用正文行高，避免单倍行高在分数缩放下偏移。 */
+select.kz-ctl { padding: 0 8px 0 var(--ctl-px); gap: var(--sp-3); field-sizing: content; line-height: 1.5; }
 
 /* 上下文带:项目 · 分支 ………… N 个文件 +a −d ⌄(卡片顶部通栏,下方细分隔线)。
    带与展开的文件清单用负外边距抵掉 composer 的左右内边距通栏到卡片边缘;选择器写成 #composer > #id(2,0,0),

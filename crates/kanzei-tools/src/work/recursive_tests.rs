@@ -84,7 +84,14 @@ async fn recursive_tool_pipeline_selects_frontier_and_returns_to_parent_acceptan
         kanzei_core::WorkNodeStep::Integrate
     );
     complete(&ctx, "R-001/W2").await;
-    assert_eq!(selection(&ctx).id, "R-001/W3");
+    let implementation = selection(&ctx).work_unit_context.unwrap();
+    assert_eq!(implementation.unit.unit_id, "R-001/W3");
+    assert_eq!(implementation.ancestors[0].acceptance, vec!["works"]);
+    assert_eq!(implementation.required_results[0].id, "R-001/W2");
+    assert_eq!(
+        implementation.required_results[0].evidence[0].evidence_refs,
+        vec!["proof.txt"]
+    );
     complete(&ctx, "R-001/W3").await;
     let parent = selection(&ctx);
     assert_eq!(parent.id, "R-001/W1");

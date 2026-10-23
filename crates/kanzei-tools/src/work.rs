@@ -95,7 +95,8 @@ pub struct WorkUnitContext {
     pub outcome: WorkOutcomeContext,
     pub unit: WorkProjection,
     pub readiness: kanzei_core::WorkNodeReadiness,
-    pub ancestors: Vec<WorkItemSummary>,
+    pub ancestors: Vec<WorkContextNode>,
+    pub required_results: Vec<WorkContextNode>,
     pub children: Vec<WorkItemSummary>,
 }
 
@@ -694,6 +695,7 @@ fn work_unit_item(
             unit: projection.clone(),
             readiness: projection.readiness(all),
             ancestors: work_node_ancestors(projection, all),
+            required_results: graph::work_required_results(projection, all),
             children: all
                 .iter()
                 .filter(|node| node.node.parent_id.as_deref() == Some(&projection.unit_id))
@@ -1341,7 +1343,7 @@ fn resolve_work_state(
 
 mod context;
 mod graph;
-pub use graph::progress_snapshot;
+pub use graph::{progress_snapshot, WorkContextNode};
 use graph::{work_node_ancestors, work_node_summary};
 pub(crate) mod evidence;
 pub(crate) mod log;

@@ -85,11 +85,12 @@ pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_js
                 "current_task": {
                     "unit_id": unit["unit_id"], "objective": unit["objective"],
                     "scope": unit["scope"], "status": unit["status"],
-                    "dependencies": unit["dependencies"]
-                    ,"node": unit["node"], "source_sequence": unit["source_sequence"],
+                    "dependencies": unit["dependencies"],
+                    "node": unit["node"], "source_sequence": unit["source_sequence"],
                     "readiness": selected["work_unit_context"]["readiness"],
                     "ancestors": selected["work_unit_context"]["ancestors"],
-                    "children": selected["work_unit_context"]["children"]
+                    "children": selected["work_unit_context"]["children"],
+                    "required_results": selected["work_unit_context"]["required_results"]
                 },
                 "substantive_progress": {
                     "summary": checkpoint_or_empty.get("summary").cloned().unwrap_or(json!("")),
