@@ -402,7 +402,11 @@ pub(crate) async fn run_task(
                         crate::auto_run::progress_signature(&deps.project_root)
                     };
                     let ctx = kanzei_harness::auto_run::AutoRunCtx {
-                        backlog: crate::auto_run::backlog_status(&deps.project_root),
+                        backlog: crate::auto_run::backlog_status(
+                            &ctx_cwd,
+                            &deps.project_root,
+                            crate::auto_run::work_priority_enum(deps.work_priority),
+                        ),
                         halted: false,
                         steps: 0,
                         tools: &[],
@@ -494,7 +498,11 @@ pub(crate) async fn run_task(
     let backlog = if crate::general_chat::is_general_root(&deps.project_root) {
         kanzei_harness::auto_run::BacklogStatus::Unknown
     } else {
-        crate::auto_run::backlog_status(&deps.project_root)
+        crate::auto_run::backlog_status(
+            &ctx_cwd,
+            &deps.project_root,
+            crate::auto_run::work_priority_enum(deps.work_priority),
+        )
     };
     // D-361:主轮画像 + 本轮子代理内部用过的工具。两者合并后,「委派」按子代理
     // 实际干了什么判定;子代理确实什么也没干时,合并后仍只有 task,空转判定照旧

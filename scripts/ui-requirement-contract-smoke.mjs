@@ -1,5 +1,6 @@
 /* global window, document */
 import assert from "node:assert/strict";
+import runWorkTree from "./tests/browser-contracts/work-tree.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import { startPreviewServer } from "./ui-preview/server.mjs";
@@ -61,6 +62,7 @@ try {
   await page.setViewportSize({ width: 840, height: 900 });
   check(await entry.locator(".requirement-statement").isVisible(), "Requirement text remains accessible at a narrow width");
   check(errors.length === 0, `No browser errors: ${errors.join("; ")}`);
+  await runWorkTree({ browser, server, output, check: (label, actual, expected) => { assert.deepEqual(actual, expected, label); checks.push(label); } });
   await writeFile(`${output}/acceptance.json`, JSON.stringify({ checks, errors }, null, 2));
   console.log(`Requirement contract browser PASS: ${checks.length} checks`);
 } catch (error) {

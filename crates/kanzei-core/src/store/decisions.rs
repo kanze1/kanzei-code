@@ -663,6 +663,7 @@ mod tests {
         let unit = "R-900/W1";
         store
             .create_work_unit(WorkUnitSpec {
+                node: Default::default(),
                 unit_id: unit.into(),
                 requirement_id: "R-900".into(),
                 objective: "deliver".into(),

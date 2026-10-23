@@ -786,8 +786,8 @@ defer(() => {
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("自主推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
-      renderAutoStatus(`${t("自主推进")} ${autoRounds} · ${t("等待下一轮")}`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("长期维护与开发")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      renderAutoStatus(`${t("长期维护与开发")} ${autoRounds} · ${t("等待下一轮")}`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
       // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
@@ -886,7 +886,7 @@ defer(() => {
       } else if (reason === "ProfileMismatch") {
         // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const msg = t("鞭挞已关闭,当前对话不是自主推进模式");
+        const msg = t("自动推进已关闭，当前对话不是长期维护与开发模式");
         setAutoStopReason(msg);
         // 档位不匹配不是「成功」,不带 ✓:中性通知,原因文字本身就是信息。
         addMessage("notice", msg);

@@ -30,9 +30,10 @@ mod validation;
 #[cfg(test)]
 pub(crate) use scheduling::block_reasons;
 pub use scheduling::{
-    append_progress, backlog_status, coupling_signals, dependency_states_from_documents,
-    dependents_map, dependents_map_with_states, dispatch_verdict, schedule_for_display,
-    schedule_for_display_with_states, workable_titles, DependencyStates, ScheduledEntry,
+    append_progress, backlog_status, backlog_status_for, coupling_signals,
+    dependency_states_from_documents, dependents_map, dependents_map_with_states, dispatch_verdict,
+    schedule_for_display, schedule_for_display_with_states, workable_titles, DependencyStates,
+    ScheduledEntry,
 };
 pub(crate) use scheduling::{is_prerequisite_key, park_reason, tracker_ids};
 

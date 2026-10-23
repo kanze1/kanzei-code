@@ -17,6 +17,7 @@ fn fixture() -> (kanzei_base::test_support::TestDir, ToolCtx) {
     let db = store(&dir).unwrap();
     for n in 1..=3 {
         db.create_work_unit(WorkUnitSpec {
+            node: Default::default(),
             unit_id: format!("R-001/W{n}"),
             requirement_id: "R-001".into(),
             objective: format!("reader scenario {n}"),

@@ -86,6 +86,10 @@ pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_js
                     "unit_id": unit["unit_id"], "objective": unit["objective"],
                     "scope": unit["scope"], "status": unit["status"],
                     "dependencies": unit["dependencies"]
+                    ,"node": unit["node"], "source_sequence": unit["source_sequence"],
+                    "readiness": selected["work_unit_context"]["readiness"],
+                    "ancestors": selected["work_unit_context"]["ancestors"],
+                    "children": selected["work_unit_context"]["children"]
                 },
                 "substantive_progress": {
                     "summary": checkpoint_or_empty.get("summary").cloned().unwrap_or(json!("")),
@@ -104,24 +108,37 @@ pub(super) fn structured_control_output(state: ResolvedControlState) -> serde_js
             });
         }
     }
-    bound_text(&mut value);
+    let mut omissions = Vec::new();
+    bound_text(&mut value, "$", &mut omissions);
+    if !omissions.is_empty() {
+        value["context_omissions"] = json!(omissions);
+        value["full_contract"] =
+            json!("work get_unit(id) 返回完整契约和事件；不得把截断内容当作完整验收范围");
+    }
     value
 }
 
-fn bound_text(value: &mut serde_json::Value) {
+fn bound_text(value: &mut serde_json::Value, path: &str, omissions: &mut Vec<serde_json::Value>) {
     match value {
         serde_json::Value::String(text) if text.chars().count() > 700 => {
+            omissions.push(
+                json!({"path":path,"original_chars":text.chars().count(),"included_chars":700}),
+            );
             *text = text.chars().take(700).collect::<String>() + "…[已裁剪，完整内容见 detail]";
         }
         serde_json::Value::Array(items) => {
+            if items.len() > 12 {
+                omissions
+                    .push(json!({"path":path,"original_items":items.len(),"included_items":12}));
+            }
             items.truncate(12);
-            for item in items {
-                bound_text(item);
+            for (index, item) in items.iter_mut().enumerate() {
+                bound_text(item, &format!("{path}[{index}]"), omissions);
             }
         }
         serde_json::Value::Object(fields) => {
-            for item in fields.values_mut() {
-                bound_text(item);
+            for (key, item) in fields {
+                bound_text(item, &format!("{path}.{key}"), omissions);
             }
         }
         _ => {}

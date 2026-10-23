@@ -3292,7 +3292,7 @@ assert(
 assert(
   document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("事件底座已落地") &&
     document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("记忆来源: M-001") &&
-    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("验证结果: cargo test"),
+    document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-card')?.textContent.includes("验证方法: cargo test"),
   "Work Unit 卡片未呈现实质进展、记忆来源或验证结果",
 );
 // R-170:LEGACY 升级机制已删除——预置的旧默认文案必须原样读回,不再被覆盖
@@ -12627,7 +12627,7 @@ const docsB = {
       `#4 更早的进展应收进「更早进展 N」折叠区:${older?.querySelector("summary")?.textContent}`);
     assert(read?.querySelector(".tf-engine") && !fieldRow("observed_head") && !fieldRow("recorded_at"), "#4 引擎字段应收进「引擎记录」折叠区,不单独成行");
     const units = detail?.querySelector(".work-unit-details");
-    assert(units && !units.open && units.querySelector("summary")?.textContent.startsWith("执行单元 0/1") && units.querySelector(".work-unit-card"),
+    assert(units && !units.open && units.querySelector("summary")?.textContent.startsWith("目标树 · 0 已验证节点") && units.querySelector(".work-unit-card"),
       "#4 执行单元应默认折叠,summary 一行说清进度");
 
     // ③ 详情头的状态流转仍走 docs_update(硬门禁同一套 nextStatuses)。

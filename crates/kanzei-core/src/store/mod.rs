@@ -54,7 +54,8 @@ use serde_json::Value;
 //     (纯数据迁移,建表批不变;主键冲突保留较新的一行)。
 // v26: three delegation modes replace the retired phase pipeline and boolean switch.
 // v29: recovery evidence carries its verification contract; legacy rows remain unverified.
-const SCHEMA_VERSION: i64 = 29;
+// v30: recursive work contracts and events; older clients must not schedule parents as leaves.
+const SCHEMA_VERSION: i64 = 30;
 /// v6 回填的保护窗:promoted_at 晚于"迁移时刻减去这个窗口"的输入不回填,
 /// 因为它可能正被另一个进程执行(桌面端与 CLI 共用同一个库)。
 const LEGACY_PROMOTED_GRACE_MS: i64 = 5 * 60 * 1000;
@@ -410,9 +411,10 @@ pub use typed::{
 
 pub use session::{project_session_id, project_state_path};
 pub use work::{
-    project_work_events, StoredWorkEvent, WorkCheckpoint, WorkEvidence, WorkFact, WorkProjection,
-    WorkUnitSpec, WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS,
-    MAX_WORK_LIST_ITEMS, MAX_WORK_OBJECTIVE_CHARS, WORK_PROJECTION_FORMAT_VERSION,
+    project_work_events, StoredWorkEvent, WorkCheckpoint, WorkEvidence, WorkFact, WorkNodeContract,
+    WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkProjection, WorkUnitSpec, WorkUnitStatus,
+    MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS,
+    MAX_WORK_OBJECTIVE_CHARS, WORK_PROJECTION_FORMAT_VERSION,
 };
 
 pub struct SessionStore {

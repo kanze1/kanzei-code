@@ -63,6 +63,9 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
             | "evidence"
             | "complete"
             | "supersede"
+            | "graph"
+            | "decompose"
+            | "refine"
     ) {
         anyhow::bail!("未知 work action `{cli_action}`；运行 `kz help` 查看可用动作");
     }
@@ -84,6 +87,8 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         "evidence",
         "complete",
         "supersede",
+        "decompose",
+        "refine",
     ];
     if id_actions.contains(&action.as_str()) {
         let id = args
@@ -108,6 +113,27 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("{flag} 需要值"))?;
             input[key] = serde_json::json!(value);
         }
+    }
+    for (flag, key) in [
+        ("--node-file", "node"),
+        ("--children-file", "children"),
+        ("--refinement-file", "refinement"),
+    ] {
+        if let Some(position) = args.iter().position(|arg| arg == flag) {
+            let path = args
+                .get(position + 1)
+                .filter(|value| !value.starts_with("--"))
+                .ok_or_else(|| anyhow::anyhow!("{flag} 需要 JSON 文件路径"))?;
+            let contents = std::fs::read_to_string(path)?;
+            input[key] = serde_json::from_str(&contents)?;
+        }
+    }
+    if let Some(position) = args.iter().position(|arg| arg == "--expected-sequence") {
+        let sequence = args
+            .get(position + 1)
+            .ok_or_else(|| anyhow::anyhow!("--expected-sequence 需要版本号"))?
+            .parse::<i64>()?;
+        input["expected_sequence"] = serde_json::json!(sequence);
     }
     for (flag, key) in [
         ("--scope", "scope"),

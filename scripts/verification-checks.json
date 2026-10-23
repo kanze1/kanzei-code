@@ -1468,7 +1468,12 @@
     "paths": [
       "crates/kanzei-app/ui/14-docs-actions.js",
       "crates/kanzei-app/ui/12-docs-pages.js",
-      "crates/kanzei-app/ui/26-requirement-research.js"
+      "crates/kanzei-app/ui/26-requirement-research.js",
+      "crates/kanzei-app/ui/26-work-tree.js",
+      "scripts/tests/browser-contracts/work-tree.mjs",
+      "crates/kanzei-app/ui/11-docs-list.js",
+      "crates/kanzei-app/ui/style.css",
+      "scripts/ui-requirement-contract-smoke.mjs"
     ],
     "resources": [
       "browser"

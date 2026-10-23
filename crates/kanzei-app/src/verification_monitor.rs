@@ -310,6 +310,7 @@ mod tests {
         let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
         store
             .create_work_unit(kanzei_core::WorkUnitSpec {
+                node: Default::default(),
                 unit_id: "R-001/W1".into(),
                 requirement_id: "R-001".into(),
                 objective: "recipient isolation".into(),

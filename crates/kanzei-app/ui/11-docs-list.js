@@ -1,4 +1,5 @@
 import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
+import { renderWorkTree } from "./26-work-tree.js";
 import { openMenu } from "./00-surface.js";
 import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
@@ -558,7 +559,7 @@ export function captureDetailState(el) {
     const detail = item.querySelector(".doc-detail");
     if (!detail) continue;
     const state = captureWorkDocumentState(detail);
-    if (state.editing || state.unitsOpen || state.olderOpen.size) states.set(item.dataset.docId, state);
+    if (state.editing || state.unitsOpen || state.workNodeOpen.size || state.olderOpen.size) states.set(item.dataset.docId, state);
   }
   return states;
 }
@@ -570,6 +571,7 @@ export function captureWorkDocumentState(detail) {
       drafts: new Map(),
       focus: null,
       unitsOpen: Boolean(detail.querySelector(".work-unit-details")?.open),
+      workNodeOpen: new Map([...detail.querySelectorAll("[data-work-node-state]")].map(node => [node.dataset.workNodeState, node.open])),
       olderOpen: new Set([...detail.querySelectorAll(".doc-progress-older")].filter((node) => node.open).map((node) => node.dataset.field ?? "")),
     };
     if (state.editing) {
@@ -616,42 +618,6 @@ function complexitySelect() {
   select.appendChild(new Option(t("未评估"), ""));
   for (const level of COMPLEXITY_LEVELS) select.appendChild(new Option(t(level), level));
   return select;
-}
-
-function workUnitCard(unit) {
-  const card = document.createElement("div");
-  card.className = `work-unit-card ${unit.status}`;
-  const head = document.createElement("div");
-  head.className = "work-unit-head";
-  const identity = document.createElement("code");
-  identity.textContent = unit.unit_id;
-  const status = document.createElement("span");
-  status.className = "work-unit-status";
-  status.textContent = localizedStatusWord(unit.status, "unit");
-  head.append(identity, status);
-  const objective = document.createElement("div");
-  objective.className = "work-unit-objective";
-  objective.textContent = unit.objective;
-  card.append(head, objective);
-  const meta = (text, extra = "") => {
-    const line = document.createElement("div");
-    line.className = `work-unit-meta${extra ? ` ${extra}` : ""}`;
-    line.textContent = text;
-    card.appendChild(line);
-  };
-  const checkpoint = unit.last_checkpoint ?? {};
-  if (checkpoint.summary) meta(`${t("实质进展")}: ${checkpoint.summary}`);
-  if (Array.isArray(checkpoint.decisions) && checkpoint.decisions.length) meta(`${t("决策记录")}: ${checkpoint.decisions.join("；")}`);
-  if (Array.isArray(checkpoint.retrieval_refs) && checkpoint.retrieval_refs.length) meta(`${t("记忆来源")}: ${checkpoint.retrieval_refs.join(", ")}`);
-  else meta(`${t("记忆来源")}: ${t("未记录")}`, "muted");
-  const declared = Array.isArray(unit.verification) ? unit.verification : [];
-  meta(`${t("验证结果")}: ${declared.length ? declared.join("；") : t("未声明")}`);
-  if (unit.blocked_reason) meta(`${t("阻塞原因")}: ${unit.blocked_reason}`, "blocked");
-  if (checkpoint.next_action) meta(`${t("下一步")}: ${checkpoint.next_action}`);
-  const evidenceCount = Array.isArray(unit.evidence) ? unit.evidence.length : 0;
-  const acceptanceCount = Array.isArray(unit.acceptance) ? unit.acceptance.length : 0;
-  meta(`${t("验收证据")}: ${evidenceCount}/${acceptanceCount}`);
-  return card;
 }
 
 export function renderWorkDocument(entry, kind, prior = null) {
@@ -927,16 +893,15 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
 
   // ⑤ 执行单元:默认折叠,summary 一行说清进度与当前单元。
   if (workUnits.length) {
-    const terminal = workUnits.filter((unit) => unit.status === "done" || unit.status === "superseded").length;
+    const terminal = workUnits.filter((unit) => unit.status === "done").length;
+    const superseded = workUnits.filter((unit) => unit.status === "superseded").length;
     const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
     const units = document.createElement("details");
     units.className = "work-unit-details";
     units.open = Boolean(prior?.unitsOpen);
     const summary = document.createElement("summary");
-    summary.textContent = `${t("执行单元")} ${terminal}/${workUnits.length}${current ? ` · ${current.unit_id} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-    const section = document.createElement("section");
-    section.className = "work-unit-list";
-    for (const unit of workUnits) section.appendChild(workUnitCard(unit));
+    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.unit_id} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+    const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workNodeOpen);
     units.append(summary, section);
     detail.appendChild(units);
   }
@@ -975,7 +940,7 @@ export function filterDocEntries(entries, kind, filters = NEUTRAL_DOC_FILTERS) {
     .filter((entry) => matchesBlockedFilter(entry, filters.blocked ?? "all"));
 }
 
-export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS, archivedEntries = []) {
+export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterState = NEUTRAL_DOC_FILTERS) {
   const listProject = currentProject;
   // Every snapshot source shares this projection boundary. Keep live editing
   // and drag nodes attached, preserving focus, selection and native IME state.
@@ -1274,7 +1239,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];
     if (workUnits.length) {
-      const terminal = workUnits.filter((unit) => unit.status === "done" || unit.status === "superseded").length;
+      const terminal = workUnits.filter((unit) => unit.status === "done").length;
       const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
       const unitBadge = document.createElement("span");
       unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;

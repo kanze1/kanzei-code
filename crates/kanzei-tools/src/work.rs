@@ -39,6 +39,8 @@ pub struct ProgressProvenance {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkItem {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome_action: Option<OutcomeAction>,
     pub id: String,
     pub kind: String,
     pub title: String,
@@ -74,6 +76,13 @@ pub struct WorkItem {
     pub work_unit_context: Option<WorkUnitContext>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutcomeAction {
+    Plan,
+    Accept,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct WorkOutcomeContext {
     pub id: String,
@@ -85,6 +94,9 @@ pub struct WorkOutcomeContext {
 pub struct WorkUnitContext {
     pub outcome: WorkOutcomeContext,
     pub unit: WorkProjection,
+    pub readiness: kanzei_core::WorkNodeReadiness,
+    pub ancestors: Vec<WorkItemSummary>,
+    pub children: Vec<WorkItemSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -548,6 +560,7 @@ fn item(
     reference_index: &BTreeMap<String, WorkReference>,
 ) -> WorkItem {
     WorkItem {
+        outcome_action: None,
         id: entry.id.clone(),
         kind: if kind.prefix == "R" {
             "requirement".into()
@@ -638,12 +651,14 @@ fn work_unit_provenance(
 
 fn work_unit_item(
     projection: &WorkProjection,
+    all: &[WorkProjection],
     outcome: &Entry,
     block_reasons: Vec<String>,
     observation: &RepoObservation,
     reference_index: &BTreeMap<String, WorkReference>,
 ) -> WorkItem {
     WorkItem {
+        outcome_action: None,
         id: projection.unit_id.clone(),
         kind: "work_unit".into(),
         title: projection.objective.clone(),
@@ -677,6 +692,13 @@ fn work_unit_item(
         work_unit_context: Some(WorkUnitContext {
             outcome: outcome_context(outcome),
             unit: projection.clone(),
+            readiness: projection.readiness(all),
+            ancestors: work_node_ancestors(projection, all),
+            children: all
+                .iter()
+                .filter(|node| node.node.parent_id.as_deref() == Some(&projection.unit_id))
+                .map(work_node_summary)
+                .collect(),
         }),
     }
 }
@@ -765,7 +787,7 @@ pub fn resolve_work_decision(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> Result<ResolvedControlState, String> {
-    resolve_work_state(cwd, project_root, priority, true)
+    resolve_work_state(cwd, project_root, priority, true, None)
 }
 
 /// 每步当前裁决不扫描全队列交付证据；全量对账仍由显式 detail/reconcile 读取。
@@ -774,7 +796,16 @@ pub fn resolve_work_selection(
     project_root: &std::path::Path,
     priority: WorkPriority,
 ) -> Result<ResolvedControlState, String> {
-    resolve_work_state(cwd, project_root, priority, false)
+    resolve_work_state(cwd, project_root, priority, false, None)
+}
+
+pub(crate) fn resolve_work_for_outcome(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+    priority: WorkPriority,
+    outcome: &str,
+) -> Result<ResolvedControlState, String> {
+    resolve_work_state(cwd, project_root, priority, false, Some(outcome))
 }
 
 fn resolve_work_state(
@@ -782,6 +813,7 @@ fn resolve_work_state(
     project_root: &std::path::Path,
     priority: WorkPriority,
     include_reconciliation: bool,
+    requested_outcome: Option<&str>,
 ) -> Result<ResolvedControlState, String> {
     let req_store = DocStore::open(project_root, &REQUIREMENTS);
     let def_store = DocStore::open(project_root, &DEFECTS);
@@ -879,35 +911,31 @@ fn resolve_work_state(
             .iter()
             .filter(|unit| unit.requirement_id == outcome.id)
             .collect::<Vec<_>>();
-        if outcome_units.is_empty() {
-            let mut view = item(
-                &REQUIREMENTS,
-                outcome,
-                vec!["已启用 work_units_v1，但尚未拆分 Work Unit".into()],
-                &states,
-                &observation,
-                &reference_index,
-            );
-            view.blocked = true;
-            view.block_reasons = vec!["使用 `work create_unit` 建立首个执行单元".into()];
-            blocked_items.push(view);
-            continue;
-        }
-        if outcome_units.iter().all(|unit| unit.status.is_terminal()) {
-            let mut view = item(
-                &REQUIREMENTS,
-                outcome,
-                vec!["所有 Work Unit 已终态，等待 Outcome 验收关闭".into()],
-                &states,
-                &observation,
-                &reference_index,
-            );
-            view.blocked = true;
-            view.block_reasons = vec!["运行 `req close` 完成 Outcome 级验收".into()];
-            blocked_items.push(view);
-            continue;
-        }
         let outcome_parked = crate::tracker::park_reason(outcome, &states).is_some();
+        if outcome_units.is_empty() || outcome_units.iter().all(|unit| unit.status.is_terminal()) {
+            let mut view = item(
+                &REQUIREMENTS,
+                outcome,
+                scheduled_outcome.block_reasons.clone(),
+                &states,
+                &observation,
+                &reference_index,
+            );
+            view.outcome_action = Some(if outcome_units.is_empty() {
+                OutcomeAction::Plan
+            } else {
+                OutcomeAction::Accept
+            });
+            if outcome_parked {
+                view.parked = true;
+                parked_items.push(view);
+            } else if view.blocked {
+                blocked_items.push(view);
+            } else {
+                work_unit_candidates.push(view);
+            }
+            continue;
+        }
         for projection in outcome_units {
             if projection.status.is_terminal() {
                 continue;
@@ -916,22 +944,15 @@ fn resolve_work_state(
             if outcome_parked {
                 reasons.push("父 Outcome 已停车".into());
             }
-            if !projection.dependencies_satisfied(&work_units) {
-                reasons.push(format!(
-                    "Work Unit 依赖未完成: {}",
-                    projection.dependencies.join("、")
-                ));
-            }
-            if projection.status == WorkUnitStatus::Blocked {
-                reasons.push(
-                    projection
-                        .blocked_reason
-                        .clone()
-                        .unwrap_or_else(|| "Work Unit 已阻塞".into()),
-                );
-            }
-            let mut view =
-                work_unit_item(projection, outcome, reasons, &observation, &reference_index);
+            reasons.extend(projection.readiness(&work_units).blockers);
+            let mut view = work_unit_item(
+                projection,
+                &work_units,
+                outcome,
+                reasons,
+                &observation,
+                &reference_index,
+            );
             if projection.status == WorkUnitStatus::Verifying
                 && projection
                     .background_verification
@@ -1055,9 +1076,25 @@ fn resolve_work_state(
         )
     };
 
+    if let Some(outcome) = requested_outcome {
+        work_unit_candidates.retain(|item| {
+            item.id == outcome
+                || item
+                    .work_unit_context
+                    .as_ref()
+                    .is_some_and(|context| context.unit.requirement_id == outcome)
+        });
+    }
+    let is_defect = |item: &WorkItem| {
+        item.kind == "defect"
+            || item
+                .work_unit_context
+                .as_ref()
+                .is_some_and(|context| context.unit.node.kind == kanzei_core::WorkNodeKind::Defect)
+    };
     executable_wip.sort_by_key(|item| match priority {
-        WorkPriority::DefectFirst => item.kind != "defect",
-        WorkPriority::RequirementFirst => item.kind == "defect",
+        WorkPriority::DefectFirst => !is_defect(item),
+        WorkPriority::RequirementFirst => is_defect(item),
     });
     let queued_wip = executable_wip
         .iter()
@@ -1087,7 +1124,8 @@ fn resolve_work_state(
                     // D-354:WIP 态条目也不是候选——本线的 WIP 走 Resume,他线的
                     // WIP 归持有线,都轮不到 Start。
                     let invalid = !status.is_empty() && !kind.statuses.contains(&status);
-                    if invalid
+                    if requested_outcome.is_some_and(|id| id != scheduled_item.entry.id)
+                        || invalid
                         || status == "draft"
                         || status == "awaiting_external"
                         || status == wip_status
@@ -1113,13 +1151,22 @@ fn resolve_work_state(
             };
             let requirement_candidate = legacy_candidate(&REQUIREMENTS, &scheduled_requirements);
             let defect_candidate = legacy_candidate(&DEFECTS, &scheduled_defects);
-            let unit_candidate = work_unit_candidates.first().cloned();
+            let defect_unit = work_unit_candidates
+                .iter()
+                .find(|item| is_defect(item))
+                .cloned();
+            let requirement_unit = work_unit_candidates
+                .iter()
+                .find(|item| !is_defect(item))
+                .cloned();
             let candidate = match priority {
-                WorkPriority::RequirementFirst => unit_candidate
+                WorkPriority::RequirementFirst => requirement_unit
                     .or(requirement_candidate)
+                    .or(defect_unit)
                     .or(defect_candidate),
-                WorkPriority::DefectFirst => defect_candidate
-                    .or(unit_candidate)
+                WorkPriority::DefectFirst => defect_unit
+                    .or(defect_candidate)
+                    .or(requirement_unit)
                     .or(requirement_candidate),
             };
             // R-307 批2:全员不可执行时,对存量自由文本停车/阻塞做复核提醒——
@@ -1293,7 +1340,13 @@ fn resolve_work_state(
 }
 
 mod context;
+mod graph;
+pub use graph::progress_snapshot;
+use graph::{work_node_ancestors, work_node_summary};
+pub(crate) mod evidence;
 pub(crate) mod log;
+#[cfg(test)]
+mod recursive_tests;
 pub use context::{resolved_control_prompt, resolved_control_prompt_of, WorkControlContext};
 mod output;
 mod reconcile;
@@ -2703,8 +2756,11 @@ mod tests {
 
         let before_split =
             resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
-        assert_eq!(before_split.decision, WorkDecision::Blocked);
-        assert!(before_split.reason.contains("有效阻塞"));
+        assert_eq!(before_split.decision, WorkDecision::Start);
+        assert_eq!(
+            before_split.selected.unwrap().outcome_action,
+            Some(OutcomeAction::Plan)
+        );
 
         let created = tool
             .execute(
@@ -2774,13 +2830,18 @@ mod tests {
         assert!(rejected.is_error);
         assert!(rejected.content.contains("未覆盖 acceptance"));
 
+        std::fs::write(
+            dir.join("work-events-test.txt"),
+            "observed event replay test result",
+        )
+        .unwrap();
         let evidence = tool
             .execute(
                 json!({
                     "action": "evidence",
                     "id": "R-001/W1",
                     "criterion": "事件可回放",
-                    "evidence_refs": ["cargo-test:work-events-replay"]
+                    "evidence_refs": ["work-events-test.txt"]
                 }),
                 &ctx,
             )
@@ -2794,11 +2855,11 @@ mod tests {
         let requirements = DocStore::open(&dir, &REQUIREMENTS).load().unwrap();
         assert_eq!(requirements[0].status, "doing");
         let after = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
-        assert_eq!(after.decision, WorkDecision::Blocked);
-        assert!(after
-            .blocked_items
-            .iter()
-            .any(|item| item.id == "R-001" && item.block_reasons[0].contains("req close")));
+        assert_eq!(after.decision, WorkDecision::Start);
+        assert_eq!(
+            after.selected.unwrap().outcome_action,
+            Some(OutcomeAction::Accept)
+        );
         let closed = req_tool
             .execute(json!({"action": "close", "id": "R-001"}), &ctx)
             .await;
@@ -2829,6 +2890,7 @@ mod tests {
         for index in 1..=2 {
             store
                 .create_work_unit(kanzei_core::WorkUnitSpec {
+                    node: Default::default(),
                     unit_id: format!("R-001/W{index}"),
                     requirement_id: "R-001".into(),
                     objective: format!("单元 {index}"),

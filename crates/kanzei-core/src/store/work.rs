@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{now_ms, SessionStore, StoreError};
 
-pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 1;
+mod graph;
+pub use graph::{WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep};
+
+pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 2;
 pub const MAX_WORK_OBJECTIVE_CHARS: usize = 1_000;
 pub const MAX_WORK_LIST_ITEMS: usize = 32;
 pub const MAX_WORK_ITEM_CHARS: usize = 2_000;
@@ -43,7 +46,7 @@ impl WorkUnitStatus {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 pub struct WorkUnitSpec {
     pub unit_id: String,
     pub requirement_id: String,
@@ -56,6 +59,8 @@ pub struct WorkUnitSpec {
     #[serde(default)]
     pub verification: Vec<String>,
     pub base_revision: String,
+    #[serde(default)]
+    pub node: WorkNodeContract,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,6 +93,14 @@ pub struct BackgroundVerification {
 pub enum WorkFact {
     Created {
         spec: WorkUnitSpec,
+    },
+    Decomposed {
+        children: Vec<String>,
+        reason: String,
+    },
+    Refined {
+        spec: WorkUnitSpec,
+        reason: String,
     },
     Claimed {
         claimed_by: Option<String>,
@@ -128,6 +141,8 @@ impl WorkFact {
     pub fn event_type(&self) -> &'static str {
         match self {
             Self::Created { .. } => "work.created",
+            Self::Decomposed { .. } => "work.decomposed",
+            Self::Refined { .. } => "work.refined",
             Self::Claimed { .. } => "work.claimed",
             Self::Reassigned { .. } => "work.reassigned",
             Self::Checkpointed { .. } => "work.checkpointed",
@@ -165,6 +180,8 @@ pub struct WorkProjection {
     pub acceptance: Vec<String>,
     pub verification: Vec<String>,
     pub base_revision: String,
+    #[serde(default)]
+    pub node: WorkNodeContract,
     pub status: WorkUnitStatus,
     pub claimed_by: Option<String>,
     pub blocked_reason: Option<String>,
@@ -193,6 +210,7 @@ fn invalid(message: impl Into<String>) -> StoreError {
 }
 
 fn validate_spec(spec: &WorkUnitSpec) -> Result<(), StoreError> {
+    graph::validate_node(&spec.node)?;
     if spec.requirement_id.trim().is_empty() || !spec.requirement_id.starts_with("R-") {
         return Err(invalid("work unit requirement_id 必须是 R-xxx"));
     }
@@ -306,6 +324,7 @@ fn apply_fact(
                 acceptance: spec.acceptance.clone(),
                 verification: spec.verification.clone(),
                 base_revision: spec.base_revision.clone(),
+                node: spec.node.clone(),
                 status: WorkUnitStatus::Ready,
                 claimed_by: None,
                 blocked_reason: None,
@@ -350,6 +369,48 @@ fn apply_fact(
         ));
     }
     match &event.fact {
+        WorkFact::Decomposed { children, reason } => {
+            if !matches!(
+                projection.status,
+                WorkUnitStatus::Ready | WorkUnitStatus::Active
+            ) {
+                return Err(invalid("只有 ready/active 节点可以拆分"));
+            }
+            validate_bounded_text(reason, "decomposition reason")?;
+            if children.is_empty() || children.len() > MAX_WORK_LIST_ITEMS {
+                return Err(invalid("拆分必须包含有界的非空子节点集合"));
+            }
+            projection.status = WorkUnitStatus::Ready;
+            projection.claimed_by = None;
+            projection.evidence.clear();
+        }
+        WorkFact::Refined { spec, reason } => {
+            validate_spec(spec)?;
+            validate_bounded_text(reason, "refinement reason")?;
+            if spec.unit_id != projection.unit_id
+                || spec.requirement_id != projection.requirement_id
+                || spec.node.parent_id != projection.node.parent_id
+            {
+                return Err(invalid("修订不能改变节点身份或归属"));
+            }
+            if !matches!(
+                projection.status,
+                WorkUnitStatus::Ready | WorkUnitStatus::Active
+            ) {
+                return Err(invalid(
+                    "只有 ready/active 节点可以修订；先处理当前验证或阻塞",
+                ));
+            }
+            projection.objective = spec.objective.clone();
+            projection.scope = spec.scope.clone();
+            projection.dependencies = spec.dependencies.clone();
+            projection.acceptance = spec.acceptance.clone();
+            projection.verification = spec.verification.clone();
+            projection.base_revision = spec.base_revision.clone();
+            projection.node = spec.node.clone();
+            projection.evidence.clear();
+            projection.last_checkpoint = None;
+        }
         WorkFact::Claimed { claimed_by } => {
             if projection.status != WorkUnitStatus::Ready {
                 return Err(invalid("只有 ready work unit 可以 claim"));
@@ -464,6 +525,13 @@ fn apply_fact(
             if evidence.criterion.trim().is_empty() || evidence.evidence_refs.is_empty() {
                 return Err(invalid("evidence 必须包含 criterion 与至少一个引用"));
             }
+            if evidence
+                .evidence_refs
+                .iter()
+                .any(|reference| reference.trim().is_empty())
+            {
+                return Err(invalid("evidence_refs 不能包含空白引用"));
+            }
             if !projection.acceptance.contains(&evidence.criterion) {
                 return Err(invalid(format!(
                     "evidence criterion 不属于本单元 acceptance: {}",
@@ -527,6 +595,7 @@ fn apply_fact(
         }
         WorkFact::Created { .. } => unreachable!(),
     }
+    projection.format_version = WORK_PROJECTION_FORMAT_VERSION;
     projection.source_sequence = event.sequence;
     projection.updated_at = event.created_at;
     Ok(projection)
@@ -621,6 +690,9 @@ fn append_event_tx(
 impl SessionStore {
     pub fn create_work_unit(&self, spec: WorkUnitSpec) -> Result<WorkProjection, StoreError> {
         validate_spec(&spec)?;
+        if spec.node.parent_id.is_some() {
+            return Err(invalid("子节点通过 decompose 原子创建并释放父节点占用"));
+        }
         let tx = self.connection.unchecked_transaction()?;
         let exists: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM work_surfaces WHERE unit_id = ?1)",
@@ -667,11 +739,13 @@ impl SessionStore {
         if facts.is_empty() || facts.len() > 64 {
             return Err(invalid("work fact batch must contain 1-64 events"));
         }
-        if facts
-            .iter()
-            .any(|fact| matches!(fact, WorkFact::Created { .. }))
-        {
-            return Err(invalid("请使用 create_work_unit 创建 work unit"));
+        if facts.iter().any(|fact| {
+            matches!(
+                fact,
+                WorkFact::Created { .. } | WorkFact::Decomposed { .. } | WorkFact::Refined { .. }
+            )
+        }) {
+            return Err(invalid("创建、拆分和修订必须通过对应的原子工作服务"));
         }
         let tx = self.connection.unchecked_transaction()?;
         let projection_json: Option<String> = tx
@@ -684,9 +758,14 @@ impl SessionStore {
         let mut current: WorkProjection = serde_json::from_str(
             &projection_json.ok_or_else(|| invalid(format!("未知 work unit: {unit_id}")))?,
         )?;
+        let mut graph = graph::read_graph(&tx)?;
         for fact in facts {
+            graph::validate_action(&current, &graph, &fact)?;
             let event = append_event_tx(&tx, unit_id, &current.requirement_id, &fact)?;
             current = apply_fact(Some(current), &event)?;
+            if let Some(node) = graph.iter_mut().find(|node| node.unit_id == unit_id) {
+                *node = current.clone();
+            }
         }
         upsert_surface_tx(&tx, &current)?;
         tx.commit()?;
@@ -763,6 +842,7 @@ mod tests {
 
     fn spec(id: &str, dependencies: Vec<String>) -> WorkUnitSpec {
         WorkUnitSpec {
+            node: Default::default(),
             unit_id: id.into(),
             requirement_id: "R-900".into(),
             objective: format!("完成 {id}"),

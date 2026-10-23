@@ -97,6 +97,11 @@ pub(super) fn conditional_guidance(state: &super::ResolvedControlState) -> Strin
         );
     }
     if let Some(item) = &state.selected {
+        match item.outcome_action {
+            Some(super::OutcomeAction::Plan) => rules.push("当前 Outcome 尚无工作节点：保留用户原始目标，使用 work create_unit 创建首个 goal/规划节点，明确验收并把未知写入 node.questions。随后按实际缺口递归拆解；这不是等待外部解锁的阻塞。".into()),
+            Some(super::OutcomeAction::Accept) => rules.push("当前 Outcome 的节点均已结束：核对原始委托和 Outcome 验收证据，满足后 req close；若发现遗漏，创建新的工作节点继续。全部 superseded 不能当作交付。".into()),
+            None => {},
+        }
         let field = |name: &str| {
             item.fields
                 .iter()
@@ -106,6 +111,14 @@ pub(super) fn conditional_guidance(state: &super::ResolvedControlState) -> Strin
         };
         if item.kind == "work_unit" {
             rules.push("当前是 work_unit：交接用 work checkpoint；完成走 verify → 按原验收逐条 evidence → complete，进展不复制回父 Outcome。".into());
+            if let Some(context) = &item.work_unit_context {
+                match context.readiness.step {
+                    kanzei_core::WorkNodeStep::Plan => rules.push("当前节点需要规划：解释目标与缺口，用 decompose 把未决问题转为可验收的调研/设计/实验节点；子结果返回后用 refine 更新完整契约并消除已解决问题。两者均须读取最新 source_sequence。不能直接宣称验证完成。".into()),
+                    kanzei_core::WorkNodeStep::Integrate => rules.push("子节点已结束，当前执行父级组合验收。逐项核对原始目标与子结果，补齐自身 evidence；子节点完成不能替代父级验收。发现缺口则继续拆分。".into()),
+                    kanzei_core::WorkNodeStep::Execute => rules.push("先确认此节点能在一次有界工作中独立验收；若仍含知识缺口或过大范围，用 decompose 继续拆分。只展开当前需要的分支，沿 node.parent_id 保留目标归属，依赖使用 dependencies。".into()),
+                    kanzei_core::WorkNodeStep::Wait | kanzei_core::WorkNodeStep::Finished => {},
+                }
+            }
         } else {
             if !field("批次").is_empty() {
                 rules.push("批次规则：总数按实际工作选定且不超过 10。每批结束一次更新 批次 k/N 和语义进展；提交主题带 <ID> B<k>。完成时计数必须对应真实完成数，超大范围拆为后续条目，不虚报填满。".into());
