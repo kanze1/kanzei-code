@@ -1135,6 +1135,20 @@
     ]
   },
   {
+    "key": "ui_work_map",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["--test", "scripts/ui-work-map-smoke.mjs"],
+    "paths": [
+      "crates/kanzei-app/ui/26-work-map*",
+      "crates/kanzei-app/ui/work-map.css",
+      "crates/kanzei-app/ui/26-work-tree.js",
+      "crates/kanzei-app/ui/30-management.js",
+      "scripts/ui-work-map-smoke.mjs"
+    ],
+    "resources": ["browser"]
+  },
+  {
     "key": "ui_softwire_choice",
     "inputs": "frontend",
     "program": "node",
