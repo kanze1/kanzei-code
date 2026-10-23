@@ -25,7 +25,7 @@ try {
   check(await page.locator("#process-subagents-wrap .composer-control-label").innerText() === "子代理管理", "The delegation control has an explicit subagent management label");
   check(await page.locator("#profile-mode-wrap .composer-control-label").innerText() === "下一轮执行模式"
     && JSON.stringify(await page.locator("#profile-select option").evaluateAll(options => options.map(option => [option.value, option.textContent])))
-      === JSON.stringify([["dev-pair", "结伴开发"], ["dev-auto", "自主推进"], ["isolated", "隔离执行（不可信代码）"]]), "The next-round execution mode exposes the supported paired, autonomous, and isolated profiles");
+      === JSON.stringify([["dev-pair", "结伴开发"], ["dev-auto", "长期维护与开发"], ["isolated", "隔离执行（不可信代码）"]]), "The next-round execution mode exposes the supported paired, autonomous, and isolated profiles");
   await page.screenshot({ path: `${output}/composer-controls.png` });
   const ids = await page.evaluate(async () => {
     const f = await window.__kzPreview.fixtures();

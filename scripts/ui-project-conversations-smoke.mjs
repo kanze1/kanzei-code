@@ -97,7 +97,7 @@ try {
       document.documentElement.setAttribute("data-theme", theme);
       (await import("/02-i18n.js")).setLanguagePreference(language);
     }, { theme, language }); await settle();
-    check((await welcomeHint.innerText()).includes(language === "zh" ? "「更多」" : "Self-directed progress"), `Welcome guidance follows ${language} in the ${theme} theme`);
+    check((await welcomeHint.innerText()).includes(language === "zh" ? "「更多」" : "Ongoing development and maintenance"), `Welcome guidance follows ${language} in the ${theme} theme`);
     check(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1) && await page.locator("#send").isVisible(), `Welcome guidance preserves page width and sending at ${width}px`);
     await page.screenshot({ path: `${output}/welcome-${theme}-${width}.png` });
   }

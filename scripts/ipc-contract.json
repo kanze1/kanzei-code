@@ -92,7 +92,8 @@
         "severity": "string",
         "status": "string",
         "title": "string",
-        "work_units": "array"
+        "work_units": "array",
+        "work_readiness": {}
       }
     ],
     "findings": "array",
@@ -125,7 +126,8 @@
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array"
+        "work_units": "array",
+        "work_readiness": {}
       }
     ],
     "incident_metrics": {
@@ -226,7 +228,8 @@
         "severity": "nullable",
         "status": "string",
         "title": "string",
-        "work_units": "array"
+        "work_units": "array",
+        "work_readiness": {}
       }
     ],
     "research_topics": "array",
