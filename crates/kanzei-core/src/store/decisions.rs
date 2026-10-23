@@ -180,9 +180,9 @@ impl SessionStore {
             |r| r.get(0),
         )?;
         let unit: super::WorkProjection = serde_json::from_str(&json)?;
-        if unit.status != super::WorkUnitStatus::Done || unit.source_sequence != source_sequence {
+        if !unit.result_is_current() || unit.source_sequence != source_sequence {
             return Err(invalid(
-                "delivery changed or machine verification is incomplete; refresh first",
+                "delivery changed, is under review or no longer current; refresh and revalidate first",
             ));
         }
         if self.list_decisions(journal)?.iter().any(|d| {

@@ -3,6 +3,11 @@ import { localizedStatusWord, t } from "./02-i18n.js";
 export const kindLabels = { goal: "目标节点", requirement: "需求节点", implementation: "实现节点", defect: "缺陷节点", research: "调研节点", design: "设计节点", documentation: "文档节点", verification: "验证节点" };
 const kindGlyphs = { goal: "◎", requirement: "◇", implementation: "⌘", defect: "!", research: "⌕", design: "◈", documentation: "≡", verification: "✓" };
 const stepLabels = { plan: "补齐理解与计划", execute: "推进当前工作", integrate: "验收整体结果", wait: "等待前提满足", finished: "工作已结束" };
+const dispositionLabels = { retain: "继续沿用", revise: "已修订", reverify: "由后继节点重验", replace: "已被替代", retire: "已撤销" };
+export const workReviewPending = unit => Boolean(unit.review && !unit.review.resolution);
+export const workIsCurrent = unit => unit.status !== "superseded" && !["reverify", "replace", "retire"].includes(unit.review?.resolution?.decision?.disposition);
+export const workResultCurrent = unit => unit.status === "done" && workIsCurrent(unit) && !workReviewPending(unit);
+const reviewStatus = unit => workReviewPending(unit) ? t("方向待复核") : !workIsCurrent(unit) && unit.review?.resolution ? t(dispositionLabels[unit.review.resolution.decision.disposition]) : null;
 
 function text(tag, className, content) {
   const element = document.createElement(tag);
@@ -31,11 +36,16 @@ function workUnitCard(unit, readiness, nodes, expanded) {
     card.append(details); return details;
   };
   const terminal = ["done", "superseded"].includes(unit.status);
-  const status = !terminal && ["plan", "wait", "integrate"].includes(readiness?.step)
-    ? t(stepLabels[readiness.step]) : localizedStatusWord(unit.status, "unit");
+  const status = reviewStatus(unit) || (!terminal && ["plan", "wait", "integrate"].includes(readiness?.step)
+    ? t(stepLabels[readiness.step]) : localizedStatusWord(unit.status, "unit"));
   meta(card, "当前情况", status);
+  if (workReviewPending(unit)) {
+    meta(card, "新的方向", unit.review.request.direction);
+    meta(card, "调整原因", unit.review.request.reason);
+    meta(card, "下一步", t("Agent 评估受影响工作，保留有效结果并修正计划"));
+  }
   meta(card, checkpoint.summary ? "实质进展" : "当前理解", checkpoint.summary || node.explanation);
-  if (!terminal) {
+  if (!terminal && !workReviewPending(unit)) {
     const blockers = [...new Set([...(readiness?.blockers || []), unit.blocked_reason].filter(Boolean))];
     meta(card, "阻塞原因", blockers.map(nameReferences).join("\n"), "blocked");
     if (!(unit.acceptance || []).length) meta(card, "下一步", t("先明确完成条件，再开始执行"));
@@ -43,6 +53,14 @@ function workUnitCard(unit, readiness, nodes, expanded) {
   }
   meta(card, "结束原因", unit.terminal_reason);
   meta(card, "预期产物", node.custom_type?.deliverable);
+  if (unit.review?.resolution) {
+    const revision = section("revision", "方向复核记录");
+    const decision = unit.review.resolution.decision;
+    meta(revision, "处置结果", t(dispositionLabels[decision.disposition]));
+    meta(revision, "调整原因", decision.reason);
+    meta(revision, "新的方向", unit.review.request.direction);
+    meta(revision, "后继工作", (decision.replacements || []).map(id => nodes.get(id)?.objective || id).join("；"));
+  }
   if (node.questions?.length) {
     const questions = section("questions", "待澄清的问题");
     // An unresolved research question does not imply a request for human input.
@@ -154,6 +172,10 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
       split.onclick = () => options.onDecompose(unit, split);
       actions.append(split);
     }
+    if (options.onRevise && workIsCurrent(unit) && !workReviewPending(unit)) {
+      const revise = text("button", "ghost work-node-revise", t("调整方向")); revise.type = "button";
+      revise.onclick = () => options.onRevise(unit); actions.append(revise);
+    }
     if (options.onStart && ["execute", "integrate"].includes(readiness[id]?.step)) {
       const start = text("button", "ghost work-node-start", t("推进此节点"));
       start.type = "button"; start.onclick = () => options.onStart(unit); actions.append(start);
@@ -163,6 +185,11 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
       if (!nodes.has(dependency)) continue;
       const link = text("button", "ghost work-node-reference", `${t("查看依赖")} · ${nodes.get(dependency).objective}`);
       link.type = "button"; link.onclick = () => reveal(dependency); inspector.append(link);
+    }
+    for (const successor of unit.review?.resolution?.decision?.replacements || []) {
+      if (!nodes.has(successor)) continue;
+      const link = text("button", "ghost work-node-reference", `${t("后继工作")} · ${nodes.get(successor).objective}`);
+      link.type = "button"; link.onclick = () => reveal(successor); inspector.append(link);
     }
   };
   const visible = () => [...elements.values()].filter(el => !el.hidden && !el.closest("[hidden]"));
@@ -208,6 +235,7 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
     branch.setAttribute("role", "treeitem"); branch.setAttribute("aria-level", String(depth));
     branch.dataset.kind = unit.node?.kind || "requirement";
     branch.dataset.status = unit.status;
+    branch.dataset.review = workReviewPending(unit) ? "pending" : workIsCurrent(unit) ? "current" : "historical";
     elements.set(unit.unit_id, branch);
     if (!open.has(unit.unit_id)) open.set(unit.unit_id, !["done", "superseded"].includes(unit.status));
     if (prior?.known && !prior.known.has(unit.unit_id)) branch.classList.add("work-node-new");
@@ -218,7 +246,7 @@ export function renderWorkTree(units, readiness = {}, prior = null, options = {}
     caret.setAttribute("aria-label", t("展开或收起")); caret.disabled = !descendants.length;
     caret.onclick = event => { event.stopPropagation(); toggle(unit.unit_id); focus(unit.unit_id); };
     const step = readiness[unit.unit_id]?.step;
-    const status = ["wait", "plan", "integrate"].includes(step) ? t(stepLabels[step]) : localizedStatusWord(unit.status, "unit");
+    const status = reviewStatus(unit) || (["wait", "plan", "integrate"].includes(step) ? t(stepLabels[step]) : localizedStatusWord(unit.status, "unit"));
     branch.setAttribute("aria-label", `${unit.objective} · ${status}`);
     const glyph = text("span", "work-tree-glyph", kindGlyphs[unit.node?.kind] || "◇"); glyph.setAttribute("aria-hidden", "true");
     const kind = text("span", "work-tree-kind", unit.node?.custom_type?.name || t(kindLabels[unit.node?.kind || "requirement"]));

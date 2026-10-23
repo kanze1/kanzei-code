@@ -535,7 +535,7 @@ fn recursive_schema_upgrade_preserves_legacy_events_and_creates_downgrade_backup
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(version, "32");
+    assert_eq!(version, "33");
     assert!(store.backup_path(29).unwrap().is_file());
     let legacy = store.get_work_unit("R-1/W1").unwrap().unwrap();
     assert_eq!(legacy.node, WorkNodeContract::default());

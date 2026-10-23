@@ -2,6 +2,146 @@ use super::*;
 use kanzei_harness::{Tool, ToolCtx};
 
 #[tokio::test]
+async fn direction_review_schedules_yield_then_replan_and_preserves_done_results() {
+    let root = kanzei_base::test_support::TestDir::new("work-revision-tools-");
+    let docs = DocStore::open(&root, &REQUIREMENTS);
+    docs.save(&[Entry {
+        id: "R-001".into(),
+        title: "agent".into(),
+        status: "doing".into(),
+        severity: None,
+        fields: vec![("执行模型".into(), "work_units_v1".into())],
+    }])
+    .unwrap();
+    DocStore::open(&root, &DEFECTS).save(&[]).unwrap();
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let goal = ok(&ctx,json!({"action":"create_unit","requirement_id":"R-001","objective":"agent","acceptance":["works"],"base_revision":"fixture"})).await;
+    let id = goal["unit_id"].as_str().unwrap();
+    let db = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+    db.append_work_fact(
+        id,
+        kanzei_core::WorkFact::Claimed {
+            claimed_by: Some("another-line".into()),
+        },
+    )
+    .unwrap();
+    let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
+    let request = ok(&ctx,json!({"action":"begin_revision","id":id,"expected_versions":impact["versions"],"direction":"local first","reason":"user changes direction"})).await;
+    let rejected = WorkTool.execute(json!({"action":"revision_yield","id":id,"revision_id":request["revision_id"],"reason":"cannot acknowledge another executor"}), &ctx).await;
+    assert!(rejected.is_error);
+    assert_eq!(
+        resolve_work_decision(&root, &root, ctx.work_priority)
+            .unwrap()
+            .decision,
+        WorkDecision::Blocked
+    );
+    // The real owner acknowledges its stop; the planning tool never impersonates it.
+    db.append_work_fact(
+        id,
+        kanzei_core::WorkFact::RevisionYielded {
+            revision_id: request["revision_id"].as_str().unwrap().into(),
+            reason: "owner has stopped work".into(),
+        },
+    )
+    .unwrap();
+    let selected = selection(&ctx);
+    assert_eq!(
+        selected.work_unit_context.unwrap().revision_action,
+        Some(WorkRevisionAction::Resolve)
+    );
+    let policy = context::resolved_control_prompt(&root, &root, ctx.work_priority);
+    assert!(policy.contains("apply_revision"));
+    let stale = WorkTool.execute(json!({"action":"apply_revision","id":id,"revision_id":request["revision_id"],"expected_versions":impact["versions"],"revision_decisions":[{"unit_id":id,"disposition":"retain","reason":"still valid"}]}),&ctx).await;
+    assert!(stale.is_error);
+    let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
+    ok(&ctx,json!({"action":"apply_revision","id":id,"revision_id":request["revision_id"],"expected_versions":impact["versions"],"revision_decisions":[{"unit_id":id,"disposition":"retain","reason":"still valid"}]})).await;
+    db.append_work_fact(id, kanzei_core::WorkFact::Claimed { claimed_by: None })
+        .unwrap();
+    let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
+    let request = ok(&ctx,json!({"action":"begin_revision","id":id,"expected_versions":impact["versions"],"direction":"local first with offline support","reason":"refine direction"})).await;
+    assert_eq!(
+        selection(&ctx).work_unit_context.unwrap().revision_action,
+        Some(WorkRevisionAction::Yield)
+    );
+    let claim = WorkTool
+        .execute(json!({"action":"claim","id":id}), &ctx)
+        .await;
+    assert_eq!(claim.code.as_deref(), Some("WORK_REVIEW_PENDING"));
+    ok(&ctx,json!({"action":"revision_yield","id":id,"revision_id":request["revision_id"],"reason":"stopped at checkpoint"})).await;
+    let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
+    ok(&ctx,json!({"action":"apply_revision","id":id,"revision_id":request["revision_id"],"expected_versions":impact["versions"],"revision_decisions":[{"unit_id":id,"disposition":"retain","reason":"offline already covered"}]})).await;
+    for fact in [
+        kanzei_core::WorkFact::Claimed { claimed_by: None },
+        kanzei_core::WorkFact::VerificationStarted,
+        kanzei_core::WorkFact::EvidenceAdded {
+            evidence: kanzei_core::WorkEvidence {
+                criterion: "works".into(),
+                evidence_refs: vec!["receipt".into()],
+            },
+        },
+        kanzei_core::WorkFact::Completed,
+    ] {
+        db.append_work_fact(id, fact).unwrap();
+    }
+    let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
+    ok(&ctx,json!({"action":"begin_revision","id":id,"expected_versions":impact["versions"],"direction":"reassess finished work","reason":"new constraint"})).await;
+    let selected = selection(&ctx);
+    assert_eq!(selected.id, id);
+    assert_eq!(selected.outcome_action, None);
+    assert_eq!(
+        selected.work_unit_context.unwrap().revision_action,
+        Some(WorkRevisionAction::Resolve)
+    );
+    let result = crate::tracker::TrackerTool {
+        tool_name: "req",
+        noun: "需求",
+        kind: &REQUIREMENTS,
+        requires_refs: None,
+    }
+    .execute(json!({"action":"close","id":"R-001"}), &ctx)
+    .await;
+    assert!(result.is_error);
+    assert!(
+        result.content.contains("待复核 Work Unit"),
+        "{}",
+        result.content
+    );
+    assert_eq!(db.get_work_unit(id).unwrap().unwrap().evidence.len(), 1);
+}
+
+#[tokio::test]
+async fn revision_checks_every_affected_outcome_before_freezing_any_node() {
+    let root = kanzei_base::test_support::TestDir::new("work-cross-outcome-review-");
+    let docs = DocStore::open(&root, &REQUIREMENTS);
+    let mut entries = ["R-001", "R-002"]
+        .into_iter()
+        .map(|id| Entry {
+            id: id.into(),
+            title: id.into(),
+            status: "todo".into(),
+            severity: None,
+            fields: vec![("执行模型".into(), "work_units_v1".into())],
+        })
+        .collect::<Vec<_>>();
+    docs.save(&entries).unwrap();
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    ok(&ctx,json!({"action":"create_unit","requirement_id":"R-001","objective":"producer","acceptance":["works"],"base_revision":"fixture"})).await;
+    ok(&ctx,json!({"action":"create_unit","requirement_id":"R-002","objective":"consumer","dependencies":["R-001/W1"],"base_revision":"fixture"})).await;
+    entries[1].status = "blocked".into();
+    docs.save(&entries).unwrap();
+    let impact = ok(&ctx, json!({"action":"impact","id":"R-001/W1"})).await;
+    let result = WorkTool.execute(json!({"action":"begin_revision","id":"R-001/W1","expected_versions":impact["versions"],"direction":"new direction","reason":"scope changed"}),&ctx).await;
+    assert!(result.is_error);
+    assert!(result.content.contains("R-002"));
+    let db = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+    assert!(db
+        .list_work_units(None)
+        .unwrap()
+        .iter()
+        .all(|node| !node.review_pending()));
+}
+
+#[tokio::test]
 async fn draft_goal_uses_system_identity_and_requires_criteria_before_execution() {
     let root = kanzei_base::test_support::TestDir::new("work-draft-tools-");
     for args in [

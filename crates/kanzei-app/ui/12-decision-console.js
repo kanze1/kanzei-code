@@ -3,6 +3,7 @@ import { invoke } from "./00-ipc.js";
 import { localizedStatusWord, t } from "./02-i18n.js";
 import { currentProject, navigate_view, toastError } from "./03-shell.js";
 import { lineAgent } from "./08-auto.js";
+import { workResultCurrent, workReviewPending, workIsCurrent } from "./26-work-tree.js";
 
 let consoleTab = "projects";
 let projectFilter = "";
@@ -42,8 +43,8 @@ function labeledSelect(label, values, selected, change) {
 }
 const pendingDecision = (d) => d.status === "decided" && !d.review;
 const correctedUnit = (p, u) => (p.decisions ?? []).some((d) => d.work_unit_id === u.unit_id && d.review?.action === "correct");
-const acceptedUnit = (p, u) => (p.work_acceptances ?? []).some((a) => a.unit_id === u.unit_id && a.source_sequence === u.source_sequence);
-const pendingDelivery = (p, u) => u.status === "done" && !correctedUnit(p, u) && !acceptedUnit(p, u);
+const acceptedUnit = (p, u) => workResultCurrent(u) && (p.work_acceptances ?? []).some((a) => a.unit_id === u.unit_id && a.source_sequence === u.source_sequence);
+const pendingDelivery = (p, u) => workResultCurrent(u) && !correctedUnit(p, u) && !acceptedUnit(p, u);
 
 export function workspaceConsoleBusy() {
   return pendingWrites.size > 0;
@@ -424,7 +425,7 @@ function renderDeliveries(projects) {
     entry.project = project;
     entry.row.hidden = Boolean(projectFilter && project.path !== projectFilter);
     const stale = correctedUnit(project, unit);
-    const acceptance = stale ? t("纠正后待重新验证") : acceptedUnit(project, unit) ? t("试用已通过") : unit.status === "done" ? t("待你试用") : t("尚未交付");
+    const acceptance = workReviewPending(unit) ? t("方向待复核") : !workIsCurrent(unit) ? t("已替代") : stale ? t("纠正后待重新验证") : acceptedUnit(project, unit) ? t("试用已通过") : workResultCurrent(unit) ? t("待你试用") : t("尚未交付");
     const job = (project.verification_jobs ?? []).find((item) => item.id === unit.background_verification?.job_id);
     const version = JSON.stringify([project.name, unit, acceptance, job]);
     if (entry.version === version) continue;

@@ -126,6 +126,13 @@ export async function continueWorkNode(entry, unit, project) {
   return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}。先读取此节点和依赖结果，按其验收契约推进。`, executionBatch: true, workItemId: unit.unit_id });
 }
 
+export async function reviseWorkNode(entry, unit, project, direction) {
+  if (project !== currentProject || unit.requirement_id !== entry.id) return false;
+  const target = await returnToSelectedConversation(project);
+  if (!target) return false;
+  return sendText(`调整节点 ${unit.unit_id}「${unit.objective}」的方向：\n\n${direction}\n\n请先读取当前工作图并用 impact 分析影响，再用 begin_revision 登记方向变化。让受影响的执行者在安全检查点交还节点，逐项判断保留、修订、重验、替代或撤销，修正依赖并用 apply_revision 原子应用；保留历史完成证据，说明哪些结果继续有效。`, { workItemId: null, executionBatch: false });
+}
+
 async function startSelectedWork(entry, project, request) {
   const owner = facts(project).snapshot?.lines?.find(line => line.current_item_id === entry.id || (request.workItemId && line.current_item_id === request.workItemId));
   const main = selected_workspace_process();

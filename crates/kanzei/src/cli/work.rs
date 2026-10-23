@@ -66,6 +66,10 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
             | "graph"
             | "decompose"
             | "refine"
+            | "impact"
+            | "begin_revision"
+            | "apply_revision"
+            | "revision_yield"
     ) {
         anyhow::bail!("未知 work action `{cli_action}`；运行 `kz help` 查看可用动作");
     }
@@ -89,6 +93,10 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         "supersede",
         "decompose",
         "refine",
+        "impact",
+        "begin_revision",
+        "apply_revision",
+        "revision_yield",
     ];
     if id_actions.contains(&action.as_str()) {
         let id = args
@@ -105,6 +113,8 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         ("--next-action", "next_action"),
         ("--criterion", "criterion"),
         ("--reason", "reason"),
+        ("--direction", "direction"),
+        ("--revision-id", "revision_id"),
     ] {
         if let Some(position) = args.iter().position(|arg| arg == flag) {
             let value = args
@@ -118,6 +128,9 @@ pub(crate) async fn work_cli(args: &[String]) -> anyhow::Result<()> {
         ("--node-file", "node"),
         ("--children-file", "children"),
         ("--refinement-file", "refinement"),
+        ("--versions-file", "expected_versions"),
+        ("--decisions-file", "revision_decisions"),
+        ("--additions-file", "additions"),
     ] {
         if let Some(position) = args.iter().position(|arg| arg == flag) {
             let path = args

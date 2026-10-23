@@ -187,10 +187,56 @@ export default async function run({ browser, server, check, output }) {
   check("Outer summary names the blocked work without its machine ID", await outer.locator(":scope > summary").innerText(), "目标树 · 1 已验证节点 · 1 已替代节点 · 分析偏好读取性能 · 阻塞");
   check("Node counts do not pretend to be project completion fractions", await entry.locator(".work-unit-badge").innerText(), "1 已验证节点 · 阻塞");
   await page.evaluate(async () => {
+    const docs = window.__workTreeDocs, research = docs.work_units[1];
+    research.review = { request: { revision_id: "R-910/W1@9", anchor_id: "R-910/W1", direction: "优先本地运行", reason: "减少远端依赖" }, basis_sequence: 2, resolution: null };
+    docs.requirements[0].work_readiness[research.unit_id] = { step: "wait", blockers: ["方向变化待复核"], uncovered: [] };
+    (await import("/12-docs-pages.js")).renderDocsSnapshot(docs);
+  });
+  await research.locator(":scope > .work-tree-row").click();
+  check("Completed results under review are not counted as current verification", (await outer.locator(":scope > summary").innerText()).includes("0 已验证节点"), true);
+  check("Review state takes precedence over historical completion", await research.locator(":scope > .work-tree-row .work-unit-status").innerText(), "方向待复核");
+  check("Human detail explains the new direction", (await outer.locator(".work-tree-inspector").innerText()).includes("优先本地运行"), true);
+  check("Pending review cannot start execution", await outer.locator(".work-node-start").count(), 0);
+  check("A pending revision cannot be stacked by the UI", await outer.locator(".work-node-revise").count(), 0);
+  await page.screenshot({ path: path.join(output, "work-tree-review.png") });
+  await page.evaluate(async () => {
+    const docs = window.__workTreeDocs, research = docs.work_units[1];
+    research.review.resolution = { decision: { disposition: "reverify", reason: "验证本地方案", replacements: ["R-910/W3"] } };
+    docs.requirements[0].work_readiness[research.unit_id] = { step: "finished", blockers: [], uncovered: [] };
+    (await import("/12-docs-pages.js")).renderDocsSnapshot(docs);
+  });
+  check("Revalidation is distinguished from verified completion", await research.locator(":scope > .work-tree-row .work-unit-status").innerText(), "由后继节点重验");
+  await outer.locator('[data-section="revision"] > summary').click();
+  check("Review history gives the disposition reason", (await outer.locator(".work-tree-inspector").innerText()).includes("验证本地方案"), true);
+  await outer.getByRole("button", { name: "后继工作 · 实现可以纠正的偏好记忆", exact: true }).click();
+  check("Successor navigation selects the new work", await implementation.getAttribute("aria-selected"), "true");
+  await outer.locator(".work-node-revise").click();
+  const revisionDialog = page.getByRole("dialog", { name: "调整方向", exact: true });
+  await revisionDialog.getByRole("textbox", { name: "新的方向", exact: true }).fill("改为离线优先");
+  check("Direction changes ask humans only for intent", await revisionDialog.locator("input, textarea, select").count(), 1);
+  await revisionDialog.getByRole("button", { name: "取消", exact: true }).click();
+  check("Cancelling a direction draft leaves the graph unchanged", await implementation.locator(":scope > .work-tree-row .work-tree-title").innerText(), "实现可以纠正的偏好记忆");
+  await page.evaluate(async () => {
     (await import("/02-i18n.js")).setLanguagePreference("en");
     (await import("/12-docs-pages.js")).renderDocsSnapshot(window.__workTreeDocs);
   });
   check("Tree headings follow the language setting", (await outer.locator(":scope > summary").innerText()).startsWith("Goal tree"), true);
   check("Mode picker uses the new product name", await page.locator('#profile-select option[value="dev-auto"]').innerText(), "Ongoing development and maintenance");
+  await page.evaluate(async () => {
+    const fixture = await window.__kzPreview.fixtures();
+    for (const process of fixture.state.processes) process.running = false;
+    await (await import("/09-sessions.js")).refreshProcesses();
+    window.__revisionRequests = [];
+    window.__kzPreview.setCommand("run_prompt", args => { window.__revisionRequests.push(structuredClone(args)); return null; });
+  });
+  await outer.locator(".work-node-revise").click();
+  const sendDialog = page.getByRole("dialog", { name: "Change direction", exact: true });
+  await sendDialog.getByRole("textbox", { name: "New direction", exact: true }).fill("优先本地运行，保留已经有效的研究");
+  await sendDialog.getByRole("button", { name: "Ask agent to revise", exact: true }).click();
+  await page.waitForFunction(() => window.__revisionRequests.length === 1);
+  const request = await page.evaluate(() => window.__revisionRequests[0]);
+  check("Direction intent reaches the real conversation dispatch with the exact node", request.prompt.includes("R-910/W3") && request.prompt.includes("优先本地运行，保留已经有效的研究") && request.prompt.includes("apply_revision"), true);
+  check("Direction planning never claims an implementation selection", { workItemId: request.workItemId, executionBatch: request.executionBatch }, { workItemId: null, executionBatch: false });
+  await sendDialog.waitFor({ state: "detached" });
   check("No browser runtime errors", errors, []);
 }

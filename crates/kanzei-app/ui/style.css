@@ -4338,6 +4338,8 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 .work-tree-workspace[data-view="map"] .work-tree-row .work-unit-status { grid-column: 1 / -1; max-width: none; text-align: start; font-size: var(--fs-11); }
 .work-tree-workspace[data-view="map"] .work-tree-node[data-status="done"] > .work-tree-row .work-unit-status { color: var(--ok); }
 .work-tree-workspace[data-view="map"] .work-tree-node:is([data-status="active"], [data-status="verifying"]) > .work-tree-row .work-unit-status { color: var(--accent-text); }
+.work-tree-workspace[data-view] .work-tree-node[data-review="pending"] > .work-tree-row .work-unit-status { color: var(--warn); }
+.work-tree-workspace[data-view] .work-tree-node[data-review="historical"] > .work-tree-row .work-unit-status { color: var(--dim); }
 .work-tree-workspace[data-view="map"] .work-tree-toggle { position: absolute; right: -11px; top: 34px; width: 20px; height: 20px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--panel); z-index: var(--z-raised); }
 .work-tree-workspace[data-view="map"] .work-tree-toggle:disabled { visibility: hidden; }
 .work-tree-workspace[data-view="map"] .work-tree-count { display: none; }

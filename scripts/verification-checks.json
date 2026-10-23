@@ -774,6 +774,7 @@
       "crates/kanzei-app/ui/07-events.js",
       "crates/kanzei-app/ui/26-work-tree.js",
       "crates/kanzei-app/ui/26-work-plan.js",
+      "crates/kanzei-app/ui/26-project-conversations.js",
       "crates/kanzei-app/ui/11-docs-list.js",
       "crates/kanzei-app/ui/style.css",
       "scripts/ui-browser-contracts-smoke.mjs",
@@ -929,7 +930,10 @@
       "crates/kanzei-app/ui/07-events.js",
       "crates/kanzei-app/ui/08-auto.js",
       "crates/kanzei-app/ui/12-decision-console.js",
-      "crates/kanzei-app/ui/decision-console.css"
+        "crates/kanzei-app/ui/26-work-tree.js",
+        "crates/kanzei-app/ui/decision-console.css",
+        "scripts/ui-decision-console-smoke.mjs",
+        "scripts/ui-decision-stability-smoke.mjs"
     ],
     "resources": [
       "browser"

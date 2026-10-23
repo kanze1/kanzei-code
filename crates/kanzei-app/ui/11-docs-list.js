@@ -1,5 +1,5 @@
 import { renderRequirementDocument, requirementEditRows, requirementFromEditor } from "./26-requirement-contract.js";
-import { renderWorkTree, captureWorkTreeState } from "./26-work-tree.js";
+import { renderWorkTree, captureWorkTreeState, workResultCurrent, workIsCurrent, workReviewPending } from "./26-work-tree.js";
 import { openMenu } from "./00-surface.js";
 import "./00-dom.js";
 import { $ } from "./00-dom.js";
@@ -894,16 +894,23 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
 
   // The goal tree is the primary workspace; the document remains below it.
   if (workUnits.length) {
-    const terminal = workUnits.filter((unit) => unit.status === "done").length;
-    const superseded = workUnits.filter((unit) => unit.status === "superseded").length;
+    const terminal = workUnits.filter(workResultCurrent).length;
+    const superseded = workUnits.filter(unit => !workIsCurrent(unit)).length;
+    const pending = workUnits.filter(workReviewPending).length;
     const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
     const units = document.createElement("details");
     units.className = "work-unit-details";
     units.open = prior ? prior.unitsOpen : true;
     const summary = document.createElement("summary");
     summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.objective} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+    if (pending) summary.textContent += ` · ${pending} ${t("待复核节点")}`;
     const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workTree, {
       planningBlockers: entry.work_planning_blockers,
+      onRevise: async unit => {
+        if (currentProject !== entryProject) return;
+        try { (await import("./26-work-plan.js")).openWorkRevision({ project: entryProject, entry, unit }); }
+        catch (error) { toastError(String(error)); }
+      },
       onDecompose: async unit => {
         if (currentProject !== entryProject) return;
         try { (await import("./26-work-plan.js")).openWorkPlan({ project: entryProject, unit, units: latestDocsSnapshot?.work_units || workUnits }); }
@@ -1252,11 +1259,13 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     }
     const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];
     if (workUnits.length) {
-      const terminal = workUnits.filter((unit) => unit.status === "done").length;
+      const terminal = workUnits.filter(workResultCurrent).length;
+      const pending = workUnits.filter(workReviewPending).length;
       const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
       const unitBadge = document.createElement("span");
       unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;
       unitBadge.textContent = `${terminal} ${t("已验证节点")}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
+      if (pending) unitBadge.textContent += ` · ${pending} ${t("待复核节点")}`;
       unitBadge.title = current ? current.objective : t("目标树");
       placeFlag(unitBadge);
     }

@@ -112,6 +112,11 @@ pub(super) fn conditional_guidance(state: &super::ResolvedControlState) -> Strin
         if item.kind == "work_unit" {
             rules.push("当前是 work_unit：交接用 work checkpoint；完成走 verify → 按原验收逐条 evidence → complete，进展不复制回父 Outcome。".into());
             if let Some(context) = &item.work_unit_context {
+                match context.revision_action {
+                    Some(super::WorkRevisionAction::Yield) => rules.push("方向已变化：停止旧契约的实现，确认自己启动的任务均已停止或结束，保存检查点，然后 work revision_yield(id,revision_id,reason) 交还节点；不要 claim、继续实现或完成旧验收。".into()),
+                    Some(super::WorkRevisionAction::Resolve) => rules.push("当前工作是方向复核，无需 claim：读取 impact 和受影响节点，按新方向逐项判断 retain/revise/reverify/replace/retire。保留仍有效的结果；完成历史不改写，需要重验时建立后继节点并修正依赖。用最新 expected_versions 与完整 revision_decisions/additions 调用 apply_revision；版本冲突先重读，不覆盖未知变化。".into()),
+                    None => {},
+                }
                 match context.readiness.step {
                     kanzei_core::WorkNodeStep::Plan => rules.push("当前节点需要规划：若 acceptance 为空，先用 refine 明确完成条件；不要 claim 或编造证据。解释目标与缺口，用 decompose 把未决问题转为可验收的调研/设计/实验节点；子结果返回后用 refine 更新完整契约并消除已解决问题。两者均须读取最新 source_sequence。不能直接宣称验证完成。".into()),
                     kanzei_core::WorkNodeStep::Integrate => rules.push("子节点已结束，当前执行父级组合验收。逐项核对原始目标与子结果，补齐自身 evidence；子节点完成不能替代父级验收。发现缺口则继续拆分。".into()),

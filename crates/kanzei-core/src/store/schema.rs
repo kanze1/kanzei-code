@@ -351,7 +351,7 @@ impl SessionStore {
                  );
                  CREATE INDEX IF NOT EXISTS file_checkpoints_path
                      ON file_checkpoints(path_key, updated_at);
-                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '32')
+                 INSERT INTO schema_meta(key, value) VALUES ('schema_version', '33')
                      ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
         )?;
         // 已存在的旧库:上面的 CREATE IF NOT EXISTS 不会改动既有表,逐列补。

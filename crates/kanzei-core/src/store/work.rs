@@ -10,9 +10,14 @@ use serde::{Deserialize, Serialize};
 use super::{now_ms, SessionStore, StoreError};
 
 mod graph;
+mod revision;
 pub use graph::{WorkNodeContract, WorkNodeKind, WorkNodeReadiness, WorkNodeStep, WorkNodeType};
+pub use revision::{
+    WorkGraphVersion, WorkImpact, WorkImpactCause, WorkImpactNode, WorkReview,
+    WorkRevisionDecision, WorkRevisionDisposition, WorkRevisionRequest, WorkRevisionResolution,
+};
 
-pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 4;
+pub const WORK_PROJECTION_FORMAT_VERSION: u32 = 5;
 pub const MAX_WORK_OBJECTIVE_CHARS: usize = 1_000;
 pub const MAX_WORK_LIST_ITEMS: usize = 32;
 pub const MAX_WORK_ITEM_CHARS: usize = 2_000;
@@ -104,6 +109,17 @@ pub enum WorkFact {
         spec: WorkUnitSpec,
         reason: String,
     },
+    ReviewRequested {
+        request: WorkRevisionRequest,
+    },
+    ReviewResolved {
+        revision_id: String,
+        resolution: WorkRevisionResolution,
+    },
+    RevisionYielded {
+        revision_id: String,
+        reason: String,
+    },
     Claimed {
         claimed_by: Option<String>,
     },
@@ -145,6 +161,9 @@ impl WorkFact {
             Self::Created { .. } => "work.created",
             Self::Decomposed { .. } => "work.decomposed",
             Self::Refined { .. } => "work.refined",
+            Self::ReviewRequested { .. } => "work.review_requested",
+            Self::ReviewResolved { .. } => "work.review_resolved",
+            Self::RevisionYielded { .. } => "work.revision_yielded",
             Self::Claimed { .. } => "work.claimed",
             Self::Reassigned { .. } => "work.reassigned",
             Self::Checkpointed { .. } => "work.checkpointed",
@@ -184,6 +203,8 @@ pub struct WorkProjection {
     pub base_revision: String,
     #[serde(default)]
     pub node: WorkNodeContract,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<WorkReview>,
     pub status: WorkUnitStatus,
     pub claimed_by: Option<String>,
     pub blocked_reason: Option<String>,
@@ -202,7 +223,7 @@ impl WorkProjection {
         self.dependencies.iter().all(|dependency| {
             all.iter()
                 .find(|candidate| candidate.unit_id == *dependency)
-                .is_some_and(|candidate| candidate.status == WorkUnitStatus::Done)
+                .is_some_and(WorkProjection::result_is_current)
         })
     }
 }
@@ -306,6 +327,29 @@ fn validate_bounded_text(value: &str, name: &str) -> Result<(), StoreError> {
     Ok(())
 }
 
+fn replace_contract(
+    projection: &mut WorkProjection,
+    spec: &WorkUnitSpec,
+) -> Result<(), StoreError> {
+    validate_spec(spec)?;
+    if spec.unit_id != projection.unit_id
+        || spec.requirement_id != projection.requirement_id
+        || spec.node.parent_id != projection.node.parent_id
+    {
+        return Err(invalid("修订不能改变节点身份或归属"));
+    }
+    projection.objective = spec.objective.clone();
+    projection.scope = spec.scope.clone();
+    projection.dependencies = spec.dependencies.clone();
+    projection.acceptance = spec.acceptance.clone();
+    projection.verification = spec.verification.clone();
+    projection.base_revision = spec.base_revision.clone();
+    projection.node = spec.node.clone();
+    projection.evidence.clear();
+    projection.last_checkpoint = None;
+    Ok(())
+}
+
 fn apply_fact(
     current: Option<WorkProjection>,
     event: &StoredWorkEvent,
@@ -327,6 +371,7 @@ fn apply_fact(
                 verification: spec.verification.clone(),
                 base_revision: spec.base_revision.clone(),
                 node: spec.node.clone(),
+                review: None,
                 status: WorkUnitStatus::Ready,
                 claimed_by: None,
                 blocked_reason: None,
@@ -347,7 +392,12 @@ fn apply_fact(
     }
 
     let mut projection = current.expect("上面的 match 已排除 None");
-    if projection.status.is_terminal() {
+    if projection.status.is_terminal()
+        && !matches!(
+            event.fact,
+            WorkFact::ReviewRequested { .. } | WorkFact::ReviewResolved { .. }
+        )
+    {
         return Err(invalid(format!(
             "{} 已是终态 {}，不能再追加 {}",
             projection.unit_id,
@@ -362,6 +412,7 @@ fn apply_fact(
         && !matches!(
             event.fact,
             WorkFact::VerificationConcluded { .. }
+                | WorkFact::ReviewRequested { .. }
                 | WorkFact::Blocked { .. }
                 | WorkFact::Superseded { .. }
         )
@@ -371,6 +422,34 @@ fn apply_fact(
         ));
     }
     match &event.fact {
+        WorkFact::ReviewRequested { request } => {
+            revision::apply_review_requested(&mut projection, request)?
+        }
+        WorkFact::ReviewResolved {
+            revision_id,
+            resolution,
+        } => revision::apply_review_resolution(&mut projection, revision_id, resolution)?,
+        WorkFact::RevisionYielded {
+            revision_id,
+            reason,
+        } => {
+            validate_bounded_text(reason, "revision yield reason")?;
+            if !projection.review_pending()
+                || !projection
+                    .review
+                    .as_ref()
+                    .is_some_and(|review| review.request.revision_id == *revision_id)
+                || !matches!(
+                    projection.status,
+                    WorkUnitStatus::Active | WorkUnitStatus::Verifying
+                )
+            {
+                return Err(invalid("只有等待方向复核的执行者可以交还节点"));
+            }
+            projection.status = WorkUnitStatus::Ready;
+            projection.claimed_by = None;
+            projection.evidence.clear();
+        }
         WorkFact::Decomposed { children, reason } => {
             if !matches!(
                 projection.status,
@@ -389,12 +468,6 @@ fn apply_fact(
         WorkFact::Refined { spec, reason } => {
             validate_spec(spec)?;
             validate_bounded_text(reason, "refinement reason")?;
-            if spec.unit_id != projection.unit_id
-                || spec.requirement_id != projection.requirement_id
-                || spec.node.parent_id != projection.node.parent_id
-            {
-                return Err(invalid("修订不能改变节点身份或归属"));
-            }
             if !matches!(
                 projection.status,
                 WorkUnitStatus::Ready | WorkUnitStatus::Active
@@ -406,15 +479,7 @@ fn apply_fact(
             if projection.status == WorkUnitStatus::Active && spec.acceptance.is_empty() {
                 return Err(invalid("执行中的节点不能移除全部完成条件"));
             }
-            projection.objective = spec.objective.clone();
-            projection.scope = spec.scope.clone();
-            projection.dependencies = spec.dependencies.clone();
-            projection.acceptance = spec.acceptance.clone();
-            projection.verification = spec.verification.clone();
-            projection.base_revision = spec.base_revision.clone();
-            projection.node = spec.node.clone();
-            projection.evidence.clear();
-            projection.last_checkpoint = None;
+            replace_contract(&mut projection, spec)?;
         }
         WorkFact::Claimed { claimed_by } => {
             if projection.status != WorkUnitStatus::Ready {
@@ -722,7 +787,7 @@ impl SessionStore {
         let fact = WorkFact::Created { spec: spec.clone() };
         let event = append_event_tx(&tx, &spec.unit_id, &spec.requirement_id, &fact)?;
         let projection = apply_fact(None, &event)?;
-        graph::validate_parent(&projection, &graph::read_graph(&tx)?)?;
+        graph::validate_contract_links(&projection, &graph::read_graph(&tx)?)?;
         upsert_surface_tx(&tx, &projection)?;
         tx.commit()?;
         Ok(projection)
@@ -748,7 +813,11 @@ impl SessionStore {
         if facts.iter().any(|fact| {
             matches!(
                 fact,
-                WorkFact::Created { .. } | WorkFact::Decomposed { .. } | WorkFact::Refined { .. }
+                WorkFact::Created { .. }
+                    | WorkFact::Decomposed { .. }
+                    | WorkFact::Refined { .. }
+                    | WorkFact::ReviewRequested { .. }
+                    | WorkFact::ReviewResolved { .. }
             )
         }) {
             return Err(invalid("创建、拆分和修订必须通过对应的原子工作服务"));

@@ -10,6 +10,36 @@ const el = (tag, label, className = "") => {
 };
 const lines = value => value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 
+/** Only human intent is collected here; the agent assesses the graph through work tools. */
+export function openWorkRevision({ project, entry, unit }) {
+  const dialog = el("dialog", "", "k-surface k-dialog work-plan-dialog");
+  dialog.setAttribute("aria-label", t("调整方向"));
+  const form = el("form", "", "work-plan-form");
+  const label = el("label", t("新的方向")), direction = document.createElement("textarea");
+  direction.rows = 4; direction.required = true; direction.setAttribute("aria-label", t("新的方向")); label.append(direction);
+  const error = el("p", "", "work-plan-error"); error.setAttribute("role", "alert");
+  const actions = el("div", "", "work-plan-actions");
+  const cancel = el("button", t("取消"), "ghost"); cancel.type = "button";
+  const submit = el("button", t("交给 Agent 调整")); submit.type = "submit";
+  let busy = false;
+  cancel.onclick = () => closeSurface(dialog);
+  actions.append(cancel, submit);
+  form.append(el("h3", t("调整方向")), el("p", unit.objective, "dim"), label,
+    el("p", t("Agent 评估受影响工作，保留有效结果并修正计划"), "dim"), error, actions);
+  form.onsubmit = async event => {
+    event.preventDefault(); if (busy || !direction.value.trim()) return;
+    busy = true; submit.disabled = true; cancel.disabled = true; direction.readOnly = true; error.textContent = "";
+    try {
+      const sent = await (await import("./26-project-conversations.js")).reviseWorkNode(entry, unit, project, direction.value.trim());
+      if (sent === true) closeSurface(dialog);
+      else error.textContent = t("未发送，方向草稿已保留");
+    } catch (cause) { error.textContent = String(cause); }
+    finally { busy = false; submit.disabled = false; cancel.disabled = false; direction.readOnly = false; }
+  };
+  dialog.append(form); document.body.append(dialog);
+  openDialog(dialog, { initialFocus: direction, onEscape: () => { if (!busy) closeSurface(dialog); }, onClose: () => dialog.remove() });
+}
+
 /** A reviewable draft stays local until the common backend transaction commits. */
 export function openWorkPlan({ project, unit, units }) {
   const dialog = el("dialog", "", "k-surface k-dialog work-plan-dialog");
