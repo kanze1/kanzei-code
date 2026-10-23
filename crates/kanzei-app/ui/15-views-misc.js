@@ -562,7 +562,7 @@ export function emptyStateMarkup() {
     + `<div class="empty-brand"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div><span>kanzei</span></div>`
     + `<h1 data-i18n-key="开始一段对话">${t("开始一段对话")}</h1>`
     + `<p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">${t("描述任务，或添加图片与 PDF。")}</p>`
-    + `<p class="hint empty-auto-hint" data-i18n-key="需要持续推进任务时，可在「更多」中切换为「自主推进」。">${t("需要持续推进任务时，可在「更多」中切换为「自主推进」。")}</p>`
+    + `<p class="hint empty-auto-hint" data-i18n-key="长期目标可在「更多」中使用「长期维护与开发」持续推进。">${t("长期目标可在「更多」中使用「长期维护与开发」持续推进。")}</p>`
     // 与 index.html 的静态空态同一套键位(真实键位:Enter 发送、Shift+Enter 换行;Ctrl+Enter 也能发,不单列)。
     + `<div class="empty-shortcuts"><span><kbd>Enter</kbd><span data-i18n-key="发送">${t("发送")}</span></span>`
     + `<span><kbd>Shift + Enter</kbd><span data-i18n-key="换行">${t("换行")}</span></span>`

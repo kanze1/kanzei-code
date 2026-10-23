@@ -248,6 +248,7 @@ mod tests {
         store.create_session("journal", "project", None).unwrap();
         store
             .create_work_unit(WorkUnitSpec {
+                node: Default::default(),
                 unit_id: "R-001/W1".into(),
                 requirement_id: "R-001".into(),
                 objective: "Reader".into(),

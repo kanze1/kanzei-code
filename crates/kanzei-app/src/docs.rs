@@ -409,6 +409,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     "prior_art": prior_art,
                     "requirement": (kind.prefix == "R").then(|| kanzei_memory::docstore::requirement::requirement_view(&e)),
                     "work_units": work_units_by_requirement.get(&e.id).cloned().unwrap_or_default(),
+                    "work_readiness": work_units.iter().filter(|unit| unit.requirement_id == e.id).map(|unit| (unit.unit_id.clone(), unit.readiness(&work_units))).collect::<BTreeMap<_, _>>(),
                     "dependencies": dependents_deps.get(&e.id).cloned().unwrap_or_default(),
                     "dependents": dependents.get(&e.id).cloned().unwrap_or_default(),
                     "nextStatuses": kind.statuses.iter().filter(|s| **s != e.status && DocStore::open(&root, kind).transition_allowed(&e.status, s).is_ok()).collect::<Vec<_>>(),

@@ -34,6 +34,17 @@ struct WorkInput {
     verification: Vec<String>,
     #[serde(default)]
     base_revision: Option<String>,
+    /// Node purpose, knowledge gaps and sources; independent of execution status.
+    #[serde(default)]
+    node: kanzei_core::WorkNodeContract,
+    /// Required for decompose/refine; use source_sequence from get_unit.
+    #[serde(default)]
+    expected_sequence: Option<i64>,
+    #[serde(default)]
+    children: Vec<WorkChildInput>,
+    /// Complete replacement contract. Identity and parent are immutable.
+    #[serde(default)]
+    refinement: Option<kanzei_core::WorkUnitSpec>,
     #[serde(default)]
     summary: Option<String>,
     #[serde(default)]
@@ -61,7 +72,27 @@ struct WorkInput {
     reason: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct WorkChildInput {
+    /// Unique within this decomposition; dependencies may use @key for siblings.
+    key: String,
+    objective: String,
+    #[serde(default)]
+    scope: Vec<String>,
+    #[serde(default)]
+    dependencies: Vec<String>,
+    acceptance: Vec<String>,
+    #[serde(default)]
+    verification: Vec<String>,
+    #[serde(default)]
+    node: kanzei_core::WorkNodeContract,
+}
+
 const UNIT_ACTIONS: &[&str] = &[
+    "graph",
+    "decompose",
+    "refine",
     "create_unit",
     "get_unit",
     "list_units",
@@ -99,21 +130,32 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     if !is_unit_claim && !UNIT_ACTIONS.contains(&input.action.as_str()) {
         return None;
     }
-    if !matches!(input.action.as_str(), "list_units" | "create_unit")
-        && input.id.as_deref().is_some_and(|id| !id.contains("/W"))
+    if !matches!(
+        input.action.as_str(),
+        "graph" | "list_units" | "create_unit"
+    ) && input.id.as_deref().is_some_and(|id| !id.contains("/W"))
     {
         let parent = input.id.as_deref().unwrap();
         return Some(ToolOutput::needs_correction("WORK_UNIT_ID_REQUIRED",
             format!("此动作需要 Work Unit 的 unit_id（例如 {parent}/W1），不能使用父需求 {parent}。先 work list_units(requirement_id={parent})，使用返回的 unit_id；req update 只记录需求进展，不代表 Work Unit 完成。")));
     }
 
-    if input.action == "list_units" {
+    if matches!(input.action.as_str(), "list_units" | "graph") {
         let store = match open_work_store(&ctx.project_root) {
             Ok(store) => store,
             Err(error) => return Some(ToolOutput::error(error)),
         };
         return Some(
             match store.list_work_units(input.requirement_id.as_deref()) {
+                Ok(units) if input.action == "graph" => {
+                    let all = match store.list_work_units(None) {
+                        Ok(all) => all,
+                        Err(error) => return Some(ToolOutput::error(error.to_string())),
+                    };
+                    pretty(
+                        json!({"nodes": units.iter().map(|unit| json!({"unit": unit, "readiness": unit.readiness(&all)})).collect::<Vec<_>>()}),
+                    )
+                }
                 Ok(units) => pretty(units),
                 Err(error) => ToolOutput::error(format!("cannot list work units: {error}")),
             },
@@ -130,7 +172,9 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         };
         return Some(
             match (store.get_work_unit(id), store.list_work_events(id)) {
-                (Ok(Some(unit)), Ok(events)) => pretty(json!({"unit": unit, "events": events})),
+                (Ok(Some(unit)), Ok(events)) => {
+                    pretty(json!({"contract": unit.spec(), "unit": unit, "events": events}))
+                }
                 (Ok(None), _) => ToolOutput::error(format!("unknown work unit `{id}`")),
                 (Err(error), _) | (_, Err(error)) => {
                     ToolOutput::error(format!("cannot read work unit: {error}"))
@@ -202,6 +246,7 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
             + 1;
         let observation = repo_observation(&ctx.cwd);
         let spec = kanzei_core::WorkUnitSpec {
+            node: input.node.clone(),
             unit_id: format!("{requirement_id}/W{next}"),
             requirement_id: requirement_id.into(),
             objective: objective.trim().into(),
@@ -229,6 +274,40 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
         Ok(None) => return Some(ToolOutput::error(format!("unknown work unit `{id}`"))),
         Err(error) => return Some(ToolOutput::error(format!("cannot read work unit: {error}"))),
     };
+
+    if matches!(input.action.as_str(), "decompose" | "refine") {
+        if matches!(
+            current.status,
+            WorkUnitStatus::Active | WorkUnitStatus::Verifying
+        ) && current.claimed_by != line_identity(&ctx.cwd, &ctx.project_root)
+        {
+            return Some(ToolOutput::needs_correction(
+                "WORK_OWNER_MISMATCH",
+                "先通过 claim 并提供接管理由，不能修改其他执行线正在推进的计划",
+            ));
+        }
+        return Some(execute_plan_change(input, &store, &current));
+    }
+
+    let references = if input.action == "evidence" {
+        input.evidence_refs.iter().collect::<Vec<_>>()
+    } else if input.action == "complete" {
+        current
+            .evidence
+            .iter()
+            .flat_map(|evidence| &evidence.evidence_refs)
+            .collect()
+    } else {
+        Vec::new()
+    };
+    for reference in references {
+        if let Err(error) = super::evidence::validate_reference(&ctx.project_root, id, reference) {
+            return Some(ToolOutput::needs_correction(
+                "WORK_EVIDENCE_UNAVAILABLE",
+                error,
+            ));
+        }
+    }
 
     if is_unit_claim {
         if current.status == WorkUnitStatus::Ready {
@@ -472,6 +551,98 @@ fn execute_work_unit_action(input: &WorkInput, ctx: &ToolCtx) -> Option<ToolOutp
     })
 }
 
+fn execute_plan_change(
+    input: &WorkInput,
+    store: &SessionStore,
+    current: &kanzei_core::WorkProjection,
+) -> ToolOutput {
+    let Some(expected) = input.expected_sequence else {
+        return ToolOutput::needs_correction(
+            "WORK_VERSION_REQUIRED",
+            "重读 work get_unit，并提供 expected_sequence；不能覆盖未知版本的计划",
+        );
+    };
+    let reason = match required(&input.reason, "reason") {
+        Ok(reason) => reason,
+        Err(error) => return ToolOutput::error(error),
+    };
+    if input.action == "refine" {
+        let Some(spec) = input.refinement.clone() else {
+            return ToolOutput::error("refine requires the complete refinement contract");
+        };
+        if spec.unit_id != current.unit_id {
+            return ToolOutput::error("refinement.unit_id must match id");
+        }
+        return match store.refine_work_unit(spec, expected, reason) {
+            Ok(unit) => pretty(unit),
+            Err(error) => ToolOutput::needs_correction("WORK_PLAN_REJECTED", error.to_string()),
+        };
+    }
+    let existing = match store.list_work_units(Some(&current.requirement_id)) {
+        Ok(units) => units,
+        Err(error) => return ToolOutput::error(error.to_string()),
+    };
+    let mut sequence = existing
+        .iter()
+        .filter_map(|unit| unit.unit_id.rsplit_once("/W")?.1.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    let mut keys = BTreeMap::new();
+    for child in &input.children {
+        if child.key.trim().is_empty() || keys.contains_key(&child.key) {
+            return ToolOutput::error("decompose children need unique nonblank keys");
+        }
+        let Some(next) = sequence.checked_add(1) else {
+            return ToolOutput::error("work unit ID range exhausted");
+        };
+        sequence = next;
+        keys.insert(
+            child.key.clone(),
+            format!("{}/W{sequence}", current.requirement_id),
+        );
+    }
+    let mut specs = Vec::new();
+    for child in &input.children {
+        let mut node = child.node.clone();
+        if node
+            .parent_id
+            .as_ref()
+            .is_some_and(|id| *id != current.unit_id)
+        {
+            return ToolOutput::error("child parent_id must match the decomposed node");
+        }
+        node.parent_id = Some(current.unit_id.clone());
+        let mut dependencies = Vec::new();
+        for dependency in &child.dependencies {
+            dependencies.push(if let Some(key) = dependency.strip_prefix('@') {
+                match keys.get(key) {
+                    Some(id) => id.clone(),
+                    None => {
+                        return ToolOutput::error(format!("unknown child dependency key: {key}"))
+                    }
+                }
+            } else {
+                dependency.clone()
+            });
+        }
+        specs.push(kanzei_core::WorkUnitSpec {
+            unit_id: keys[&child.key].clone(),
+            requirement_id: current.requirement_id.clone(),
+            objective: child.objective.clone(),
+            scope: child.scope.clone(),
+            dependencies,
+            acceptance: child.acceptance.clone(),
+            verification: child.verification.clone(),
+            base_revision: current.base_revision.clone(),
+            node,
+        });
+    }
+    match store.decompose_work_unit(&current.unit_id, expected, reason, specs) {
+        Ok(children) => pretty(json!({"children": children, "ids": keys})),
+        Err(error) => ToolOutput::needs_correction("WORK_PLAN_REJECTED", error.to_string()),
+    }
+}
+
 pub struct WorkTool;
 
 #[async_trait]
@@ -484,6 +655,11 @@ impl Tool for WorkTool {
         "Resolve the authoritative work decision. Legacy requirements/defects keep next/claim; \
          requirements opting into `work_units_v1` use create_unit, claim, checkpoint, block, \
          unblock, verify, evidence, complete and supersede over append-only events. \
+         Recursive work uses node.kind (goal/requirement/defect/research/design/documentation/verification), \
+         questions and explanation. Use decompose(id,expected_sequence,reason,children) atomically; \
+         each child declares node.covers from the parent acceptance and a local key; @key dependencies refer to siblings. \
+         Use refine with expected_sequence and the full refinement contract after new evidence. \
+         graph shows readiness; parents wait for children and require their own integration evidence. \
          For background verification submit bash with verification={unit_id,criteria,environment,resource}; \
          it freezes source and releases development WIP. Read verification_jobs; cancel with verification_cancel(id=job_id). \
          WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
@@ -496,6 +672,9 @@ impl Tool for WorkTool {
     fn input_schema(&self) -> serde_json::Value {
         let mut schema = serde_json::to_value(schemars::schema_for!(WorkInput)).unwrap();
         schema["properties"]["action"]["enum"] = json!([
+            "graph",
+            "decompose",
+            "refine",
             "next",
             "verification_jobs",
             "verification_cancel",
@@ -524,7 +703,13 @@ impl Tool for WorkTool {
         // R-322:handoff 是控制面声明,不碰磁盘,按只读归类(权限上无副作用可管)。
         let read_only = matches!(
             action,
-            "next" | "reconcile" | "get_unit" | "list_units" | "handoff" | "verification_jobs"
+            "next"
+                | "reconcile"
+                | "get_unit"
+                | "list_units"
+                | "graph"
+                | "handoff"
+                | "verification_jobs"
         );
         vec![format!(
             "{}:{action}",
@@ -533,7 +718,7 @@ impl Tool for WorkTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let input: WorkInput = match crate::parse_input(self, input) {
+        let mut input: WorkInput = match crate::parse_input(self, input) {
             Ok(input) => input,
             Err(output) => return output,
         };
@@ -625,6 +810,54 @@ impl Tool for WorkTool {
                 input.evidence_refs.join(", "),
                 kanzei_harness::handoff::INTERNAL_RECORD_NOTICE
             ));
+        }
+        if input.action == "claim" {
+            if let Some(id) = input
+                .id
+                .as_deref()
+                .filter(|id| id.starts_with("R-") && !id.contains("/W"))
+            {
+                let outcomes = match DocStore::open(&ctx.project_root, &REQUIREMENTS).load() {
+                    Ok(outcomes) => outcomes,
+                    Err(error) => return ToolOutput::error(error.to_string()),
+                };
+                if outcomes
+                    .iter()
+                    .any(|outcome| outcome.id == id && uses_work_units(outcome))
+                {
+                    let state = match resolve_work_for_outcome(
+                        &ctx.cwd,
+                        &ctx.project_root,
+                        ctx.work_priority,
+                        id,
+                    ) {
+                        Ok(state) => state,
+                        Err(error) => return ToolOutput::error(error),
+                    };
+                    let Some(selected) = state.selected else {
+                        return ToolOutput::blocked_by_workflow(
+                            "WORK_OUTCOME_NOT_READY",
+                            state.reason,
+                        );
+                    };
+                    if selected.id == id {
+                        return pretty(
+                            json!({"claimed":id,"outcome_action":selected.outcome_action,"instruction":"规划使用 work create_unit；收口核对 Outcome 验收后 req close。执行占用属于具体节点。"}),
+                        );
+                    }
+                    if selected
+                        .work_unit_context
+                        .as_ref()
+                        .is_none_or(|context| context.unit.requirement_id != id)
+                    {
+                        return ToolOutput::blocked_by_workflow(
+                            "WORK_CURRENT_TASK_ACTIVE",
+                            format!("先完成或阻塞当前任务 {}，再领取目标 {id}", selected.id),
+                        );
+                    }
+                    input.id = Some(selected.id);
+                }
+            }
         }
         if let Some(output) = execute_work_unit_action(&input, ctx) {
             return output;

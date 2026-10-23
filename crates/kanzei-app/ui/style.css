@@ -757,7 +757,8 @@ body { background: var(--bg); color: var(--fg); font-family: var(--sans); overfl
   transition: rotate var(--motion-fast) ease;
 }
 [aria-expanded="true"] > .kz-chev { rotate: 180deg; }
-select.kz-ctl { padding: 0 8px 0 var(--ctl-px); gap: var(--sp-3); field-sizing: content; }
+/* 原生选择器的文字行盒需容纳中文字体度量；沿用正文行高，避免单倍行高在分数缩放下偏移。 */
+select.kz-ctl { padding: 0 8px 0 var(--ctl-px); gap: var(--sp-3); field-sizing: content; line-height: 1.5; }
 
 /* 上下文带:项目 · 分支 ………… N 个文件 +a −d ⌄(卡片顶部通栏,下方细分隔线)。
    带与展开的文件清单用负外边距抵掉 composer 的左右内边距通栏到卡片边缘;选择器写成 #composer > #id(2,0,0),
@@ -4257,3 +4258,19 @@ input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default;
 
 .native-window-list { display: grid; gap: var(--sp-4); max-height: 50vh; overflow: auto; }
 .native-window-list button { white-space: normal; overflow-wrap: anywhere; text-align: start; }
+
+.work-tree, .work-tree-children { list-style: none; padding: 0; min-width: 0; }
+.work-tree-children { margin: var(--sp-4) 0 0 var(--sp-4); padding-left: clamp(var(--sp-4), 2vw, 20px); border-left: 1px solid var(--border-soft); }
+.work-tree-item { min-width: 0; margin: var(--sp-3) 0; }
+.work-tree-node > summary { display: flex; align-items: baseline; gap: var(--sp-4); padding: var(--sp-4) 0; cursor: pointer; border-bottom: 1px solid var(--border-soft); }
+.work-tree-node > summary::before { content: "›"; color: var(--dim); transition: transform 120ms ease; }
+.work-tree-node[open] > summary::before { transform: rotate(90deg); }
+.work-tree-kind { flex-shrink: 0; color: var(--dim); font-size: var(--fs-11); }
+.work-tree-title { flex: 1; min-width: 0; overflow-wrap: anywhere; color: var(--fg); }
+.work-tree-node > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.work-tree .work-unit-card { border: 0; border-radius: 0; background: transparent; padding: var(--sp-4) 0 var(--sp-4) 18px; }
+.work-tree .work-unit-objective { display: none; }
+.work-tree .work-unit-head { flex-wrap: wrap; overflow-wrap: anywhere; }
+.work-node-inspector { margin-left: var(--sp-4); }
+.work-node-inspector > summary { width: fit-content; padding: var(--sp-2) 0; color: var(--dim); cursor: pointer; font-size: var(--fs-11); }
+@media (prefers-reduced-motion: reduce) { .work-tree-node > summary::before { transition: none; } }

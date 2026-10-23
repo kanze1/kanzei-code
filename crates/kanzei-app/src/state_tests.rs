@@ -222,6 +222,7 @@ fn docs_snapshot_exposes_work_unit_projection() {
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
     store
         .create_work_unit(kanzei_core::WorkUnitSpec {
+            node: Default::default(),
             unit_id: "R-001/W1".into(),
             requirement_id: "R-001".into(),
             objective: "实现投影".into(),
@@ -235,6 +236,10 @@ fn docs_snapshot_exposes_work_unit_projection() {
 
     let snapshot = docs_snapshot(root.display().to_string()).unwrap();
     assert_eq!(snapshot["work_units"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        snapshot["requirements"][0]["work_readiness"]["R-001/W1"]["step"],
+        "execute"
+    );
     assert_eq!(
         snapshot["requirements"][0]["execution_model"],
         "work_units_v1"

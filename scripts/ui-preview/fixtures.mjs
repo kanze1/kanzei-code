@@ -44,7 +44,7 @@ const docEntry = (id, title, status, extra = {}) => ({
   id, title, status, priority: "P1", closed: false, fields: [], nextStatuses: status === "todo" ? ["doing"] : status === "doing" ? ["done", "todo"] : status === "open" ? ["fixing"] : status === "fixing" ? ["fixed", "open"] : [],
   severity: null, complexity: null, batches: { done: 0, total: 1 },
   blocked: false, block_reasons: [], claimed_by: null, dependencies: [], dependents: [],
-  execution_model: null, work_units: [],
+  execution_model: null, work_units: [], work_readiness: {},
   ...extra,
 });
 

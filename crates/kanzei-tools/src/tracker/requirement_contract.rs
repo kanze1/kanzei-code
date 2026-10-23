@@ -128,31 +128,8 @@ pub(super) fn check_close(entry: &Entry, root: &std::path::Path) -> Result<(), S
     }
     let evidence = acceptance_evidence(entry)?;
     for item in &evidence {
-        if item.reference.trim().starts_with("T-") {
-            let records = crate::test_record::records_for_entry(root, &entry.id);
-            if !records
-                .iter()
-                .any(|record| record["id"] == item.reference && record["status"] == "passed")
-            {
-                return Err(format!(
-                    "{} 的测试证据 {} 不存在或未通过",
-                    item.criterion_id, item.reference
-                ));
-            }
-        } else {
-            let path = item
-                .reference
-                .rsplit_once(':')
-                .filter(|(_, line)| line.parse::<usize>().is_ok())
-                .map(|(path, _)| path)
-                .unwrap_or(&item.reference);
-            if !root.join(path).is_file() {
-                return Err(format!(
-                    "{} 的证据文件不存在: {}",
-                    item.criterion_id, item.reference
-                ));
-            }
-        }
+        crate::work::evidence::validate_reference(root, &entry.id, &item.reference)
+            .map_err(|error| format!("{}: {error}", item.criterion_id))?;
     }
     let revision = spec.revision();
     let missing: Vec<_> = spec

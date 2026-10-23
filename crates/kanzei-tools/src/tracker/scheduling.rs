@@ -142,50 +142,31 @@ pub fn workable_titles(project_root: &std::path::Path, limit: usize) -> Vec<Stri
     out
 }
 
-/// R-169:自主推进(鞭挞)的 backlog 判定——桌面端与 CLI 共用同一实现
-/// (D-229 类「能力只在桌面端」的架构债消除)。活动条目里存在可推进项 →
-/// Workable;无活动条目 → Empty;全部阻塞 → AllBlocked。
-/// block_reasons 与 docs_snapshot 的 `blocked` 字段同源(schedule_for_display)。
+/// 自动推进与 work next 消费同一裁决，包含递归依赖和当前线的所有权。
 pub fn backlog_status(project_root: &std::path::Path) -> BacklogStatus {
-    // R-141:调用方给的就是主根,不再从它二次发现(worktree 线传下来的主根
-    // 与代码树不同,发现一次就会拐回分支副本)。
-    let ctx = ToolCtx::new(project_root.to_path_buf(), project_root.to_path_buf());
-    let mut active = 0usize;
-    let mut workable = false;
-    for kind in [&REQUIREMENTS, &DEFECTS] {
-        let entries = match DocStore::open(project_root, kind).load() {
-            Ok(entries) => entries,
-            // 自动推进宁可继续等下一轮，也不能把暂时的读取故障伪装成“已清空”。
-            Err(_) => return BacklogStatus::Unknown,
-        };
-        let scheduled = match schedule_for_display(&ctx, kind, &entries) {
-            Ok(scheduled) => scheduled,
-            Err(_) => return BacklogStatus::Unknown,
-        };
-        for item in scheduled {
-            if kind.terminal.contains(&item.entry.status.as_str())
-                || matches!(item.entry.status.as_str(), "awaiting_external" | "draft")
-            {
-                continue;
-            }
-            // D-332:非法 lifecycle 不算活动条目——它已被隔离为 integrity 错误,
-            // 不能计入「active」,否则 backlog 判定会把它误算成可推进项。
-            if !item.entry.status.is_empty() && !kind.statuses.contains(&item.entry.status.as_str())
-            {
-                continue;
-            }
-            active += 1;
-            if item.block_reasons.is_empty() {
-                workable = true;
-            }
+    backlog_status_for(
+        project_root,
+        project_root,
+        kanzei_harness::auto_run::WorkPriority::DefectFirst,
+    )
+}
+
+pub fn backlog_status_for(
+    cwd: &std::path::Path,
+    project_root: &std::path::Path,
+    priority: kanzei_harness::auto_run::WorkPriority,
+) -> BacklogStatus {
+    use crate::work::WorkDecision;
+    match crate::work::resolve_work_selection(cwd, project_root, priority) {
+        Ok(state) => match state.decision {
+            WorkDecision::Start | WorkDecision::Resume => BacklogStatus::Workable,
+            WorkDecision::Blocked | WorkDecision::WipViolation => BacklogStatus::AllBlocked,
+            WorkDecision::Empty => BacklogStatus::Empty,
+        },
+        Err(error) => {
+            tracing::warn!(%error, "cannot determine automatic work backlog");
+            BacklogStatus::Unknown
         }
-    }
-    if workable {
-        BacklogStatus::Workable
-    } else if active == 0 {
-        BacklogStatus::Empty
-    } else {
-        BacklogStatus::AllBlocked
     }
 }
 

@@ -461,6 +461,7 @@ mod tests {
         use kanzei_core::{WorkEvidence, WorkFact, WorkUnitSpec};
         store
             .create_work_unit(WorkUnitSpec {
+                node: Default::default(),
                 unit_id: "R-900/W1".into(),
                 requirement_id: "R-900".into(),
                 objective: "验证交付入口".into(),

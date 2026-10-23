@@ -180,10 +180,9 @@ pub fn decide_auto_run(ctrl: &mut AutoRunController, ctx: AutoRunCtx) -> AutoRun
 // 刷穿;且轮中上下文压缩会改写消息列表,消息口径本身不可靠。现口径为事件收口,
 // 见 run/events/mod.rs MetricsSink(ToolStart 登记 close 意图,ToolEnd ok 计数)。
 
-/// backlog 判定(R-169):实现已下沉 kanzei-tools::tracker::backlog_status,
-/// 桌面端与 CLI 共用同一实现(D-229 架构债消除)。此处只做转发,不留第二份逻辑。
-pub fn backlog_status(project_root: &Path) -> BacklogStatus {
-    kanzei_tools::tracker::backlog_status(project_root)
+/// 自动模式使用当前线的确定性取活结果。
+pub fn backlog_status(cwd: &Path, project_root: &Path, priority: WorkPriority) -> BacklogStatus {
+    kanzei_tools::tracker::backlog_status_for(cwd, project_root, priority)
 }
 
 /// D-583 验收①后半:「点名阻塞清单」——熔断多半发生在活动条目卡在外部阻塞
@@ -278,6 +277,13 @@ pub fn progress_signature(project_root: &Path) -> String {
         std::fs::read(project_root.join(rel))
             .unwrap_or_default()
             .hash(&mut hasher);
+    }
+    match kanzei_tools::work::progress_snapshot(project_root) {
+        Ok(snapshot) => snapshot.hash(&mut hasher),
+        Err(error) => {
+            tracing::warn!(%error, "work progress unavailable; zero-output comparison suspended");
+            return String::new();
+        }
     }
     format!("{:016x}", hasher.finish())
 }

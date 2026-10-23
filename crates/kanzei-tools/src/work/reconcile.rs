@@ -562,14 +562,14 @@ mod tests {
         .unwrap();
         crate::test_record::append_test_run(
             &root,
-            "D-current-head verification",
+            "D-901 verification",
             "passed",
             Some(".\\scripts\\verify.ps1 -Full"),
             Some("passed"),
-            Some(&["D-current-head".to_string()]),
+            Some(&["D-901".to_string()]),
         )
         .unwrap();
-        let entry = active("D-current-head", &base);
+        let entry = active("D-901", &base);
         let report = reconcile_active(
             &root,
             &[],
@@ -707,10 +707,10 @@ mod tests {
     fn reconcile_reports_committed_unverified_verified_and_stale() {
         let root = git_fixture("classes");
         let current = head(&root);
-        let refs = vec!["D-verified".to_string()];
+        let refs = vec!["D-902".to_string()];
         crate::test_record::append_test_run(
             &root,
-            "D-verified verification",
+            "D-902 verification",
             "passed",
             Some("cargo test -p example"),
             Some("passed"),
@@ -718,9 +718,9 @@ mod tests {
         )
         .unwrap();
         let entries = vec![
-            active("D-unverified", &current),
-            active("D-verified", &current),
-            active("D-stale", "deadbeef"),
+            active("D-901", &current),
+            active("D-902", &current),
+            active("D-903", "deadbeef"),
         ];
         let report = reconcile_active(
             &root,
@@ -742,12 +742,12 @@ mod tests {
                 .unwrap()
                 .classification
         };
-        assert_eq!(class("D-unverified"), ReconcileClass::CommittedUnverified);
-        assert_eq!(class("D-verified"), ReconcileClass::VerifiedUnclosed);
-        assert_eq!(class("D-stale"), ReconcileClass::Stale);
-        assert!(report.already_committed("D-unverified"));
-        assert!(report.already_committed("D-verified"));
-        assert!(!report.already_committed("D-stale"));
+        assert_eq!(class("D-901"), ReconcileClass::CommittedUnverified);
+        assert_eq!(class("D-902"), ReconcileClass::VerifiedUnclosed);
+        assert_eq!(class("D-903"), ReconcileClass::Stale);
+        assert!(report.already_committed("D-901"));
+        assert!(report.already_committed("D-902"));
+        assert!(!report.already_committed("D-903"));
         assert_eq!(report.items[0].current_head, current);
         let _ = std::fs::remove_dir_all(root);
     }

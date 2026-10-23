@@ -75,6 +75,47 @@ pub struct VerificationJob {
     pub command_pid: Option<u32>,
 }
 
+impl VerificationJob {
+    fn evidence_reference(&self) -> String {
+        format!(
+            "verification:{}; source=sha256:{}; log={}",
+            self.id,
+            self.source_fingerprint,
+            self.log_path.display()
+        )
+    }
+}
+
+/// Resolve the persisted receipt through its owner, including exact unit and artifact identity.
+pub(crate) fn validate_evidence_reference(
+    root: &Path,
+    unit_id: &str,
+    reference: &str,
+) -> anyhow::Result<()> {
+    let id = reference
+        .strip_prefix("verification:")
+        .and_then(|rest| rest.split_once(';').map(|(id, _)| id))
+        .context("invalid verification evidence reference")?;
+    let job = read_job(root, id)?;
+    ensure!(
+        job.unit_id == unit_id,
+        "verification evidence belongs to another work unit"
+    );
+    ensure!(
+        job.status == "passed",
+        "verification evidence has not passed"
+    );
+    ensure!(
+        reference == job.evidence_reference(),
+        "verification evidence identity mismatch"
+    );
+    ensure!(
+        job.log_path.is_file(),
+        "verification evidence log is missing"
+    );
+    Ok(())
+}
+
 fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -328,7 +369,7 @@ fn finish(job: &mut VerificationJob) -> anyhow::Result<()> {
                     &e.criterion == c
                         && e.evidence_refs
                             .iter()
-                            .any(|r| r.starts_with(&format!("verification:{};", job.id)))
+                            .any(|r| r == &job.evidence_reference())
                 })
             })
         {
@@ -354,12 +395,7 @@ fn finish(job: &mut VerificationJob) -> anyhow::Result<()> {
             facts.push(WorkFact::EvidenceAdded {
                 evidence: kanzei_core::WorkEvidence {
                     criterion: criterion.clone(),
-                    evidence_refs: vec![format!(
-                        "verification:{}; source=sha256:{}; log={}",
-                        job.id,
-                        job.source_fingerprint,
-                        job.log_path.display()
-                    )],
+                    evidence_refs: vec![job.evidence_reference()],
                 },
             });
         }
