@@ -47,7 +47,11 @@ function Invoke-ArtifactCommand([string]$Program, [string[]]$Arguments, $Run, [s
         $ErrorActionPreference = $savedPreference
         $writer.Dispose()
         $timer.Stop()
-        $receipt = [ordered]@{ command = @($Program) + $Arguments; exit_code = $exitCode; elapsed_seconds = $timer.Elapsed.TotalSeconds; log_sha256 = (Get-FileHash -LiteralPath $logPath -Algorithm SHA256).Hash.ToLowerInvariant() }
+        $sha = [Security.Cryptography.SHA256]::Create()
+        $stream = [IO.File]::OpenRead($logPath)
+        try { $logHash = [BitConverter]::ToString($sha.ComputeHash($stream)).Replace("-", "").ToLowerInvariant() }
+        finally { $stream.Dispose(); $sha.Dispose() }
+        $receipt = [ordered]@{ command = @($Program) + $Arguments; exit_code = $exitCode; elapsed_seconds = $timer.Elapsed.TotalSeconds; log_sha256 = $logHash }
         [IO.File]::WriteAllText(($logPath + ".json"), ($receipt | ConvertTo-Json -Depth 4), [Text.UTF8Encoding]::new($false))
     }
     return $exitCode
