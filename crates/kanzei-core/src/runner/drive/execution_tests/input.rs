@@ -41,6 +41,78 @@ async fn event(socket: &mut TcpStream, delta: serde_json::Value, reason: Option<
         .unwrap();
 }
 
+#[tokio::test]
+async fn conversation_with_an_embedded_checkout_reaches_the_provider() {
+    let root = kanzei_base::test_support::TestDir::new("conversation-nested-checkout");
+    for path in [root.to_path_buf(), root.join("release-checkout")] {
+        std::fs::create_dir_all(&path).unwrap();
+        let initialized = std::process::Command::new("git")
+            .current_dir(&path)
+            .args(["init", "-q"])
+            .output()
+            .unwrap();
+        assert!(initialized.status.success());
+        std::fs::write(path.join("source.txt"), "source").unwrap();
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let request = read_request(&mut socket).await;
+        assert!(request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|m| m["content"] == "RESUME_ORIGINAL_CONVERSATION"));
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        event(&mut socket, json!({"content":"RESUMED"}), None).await;
+        event(&mut socket, json!({}), Some("stop")).await;
+        socket.write_all(b"data: [DONE]\n\n").await.unwrap();
+    });
+    let mut harness = Harness::default();
+    harness.add(Policy);
+    let snapshot = harness
+        .resolve(&ResolveCtx {
+            profile: kanzei_harness::ProfileKind::Dev,
+            cwd: root.to_path_buf(),
+            project_root: root.to_path_buf(),
+            config: Arc::new(Default::default()),
+        })
+        .unwrap();
+    let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+    let agent =
+        serde_json::from_value(json!({"name":"fixture","model":"fixture","max_steps":1})).unwrap();
+    let client = LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
+    let route = Route::openai_at(&format!("http://{address}/v1"), None);
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        run_once(
+            &client,
+            &route,
+            &snapshot,
+            &agent,
+            &config(Default::default()),
+            &ctx,
+            "RESUME_ORIGINAL_CONVERSATION",
+            None,
+            &[],
+            None,
+            &mut |_| {},
+            &mut |_| panic!("source capture requires no approval"),
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.text, "RESUMED");
+    server.await.unwrap();
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Boundary {
     Headers,

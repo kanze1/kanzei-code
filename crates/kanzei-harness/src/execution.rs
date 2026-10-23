@@ -136,6 +136,13 @@ pub fn source_snapshot(root: &Path) -> anyhow::Result<Option<(SourceIdentity, Ve
         if name == ".kanzei" || name.starts_with(".kanzei/") {
             continue;
         }
+        // Git emits an untracked embedded repository or linked worktree as
+        // `path/`, not as files owned by this repository. Capture that checkout
+        // separately when it is the execution cwd. Tracked gitlinks have no
+        // trailing slash and still pass through the regular-file validation.
+        if name.ends_with('/') {
+            continue;
+        }
         match std::fs::symlink_metadata(root.join(relative)) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => return Err(error.into()),
@@ -228,6 +235,88 @@ impl ExecutionIdentity {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_repository_is_a_separate_source_boundary() {
+        let root = kanzei_base::test_support::TestDir::new("source-nested-repository");
+        assert!(git(&root, &["init", "-q"]).unwrap().status.success());
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/main.rs"), "parent source").unwrap();
+        let parent = source_snapshot(&root).unwrap().unwrap();
+
+        let nested = root.join("independent-repository");
+        std::fs::create_dir_all(&nested).unwrap();
+        assert!(git(&nested, &["init", "-q"]).unwrap().status.success());
+        std::fs::write(nested.join("source.txt"), "nested source").unwrap();
+        assert!(String::from_utf8(
+            git(&root, &["ls-files", "--others", "--exclude-standard"])
+                .unwrap()
+                .stdout
+        )
+        .unwrap()
+        .lines()
+        .any(|path| path == "independent-repository/"));
+        assert_eq!(source_snapshot(&root).unwrap().unwrap(), parent);
+        let child = source_snapshot(&nested).unwrap().unwrap();
+        assert_eq!(child.1.len(), 1);
+        assert_eq!(child.1[0].path, "source.txt");
+        std::fs::write(nested.join("source.txt"), "changed nested source").unwrap();
+        assert_ne!(source_snapshot(&nested).unwrap().unwrap().0, child.0);
+        assert_eq!(source_snapshot(&root).unwrap().unwrap(), parent);
+        std::fs::write(root.join("src/main.rs"), "changed parent source").unwrap();
+        assert_ne!(source_snapshot(&root).unwrap().unwrap().0, parent.0);
+    }
+
+    #[test]
+    fn nested_linked_worktree_does_not_block_execution_identity() {
+        let root = kanzei_base::test_support::TestDir::new("source-nested-worktree");
+        assert!(git(&root, &["init", "-q"]).unwrap().status.success());
+        std::fs::write(root.join("source.txt"), "parent source").unwrap();
+        assert!(git(&root, &["add", "source.txt"]).unwrap().status.success());
+        assert!(git(
+            &root,
+            &[
+                "-c",
+                "user.name=Source Test",
+                "-c",
+                "user.email=source@example.invalid",
+                "commit",
+                "-qm",
+                "initial"
+            ]
+        )
+        .unwrap()
+        .status
+        .success());
+        let parent = ExecutionIdentity::capture(&root, &root).unwrap();
+        let nested = root.join("release-candidate");
+        let added = git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "--detach",
+                nested.to_str().unwrap(),
+                "HEAD",
+            ],
+        )
+        .unwrap();
+        assert!(
+            added.status.success(),
+            "{}",
+            String::from_utf8_lossy(&added.stderr)
+        );
+        assert!(nested.join(".git").is_file());
+        assert_eq!(ExecutionIdentity::capture(&root, &root).unwrap(), parent);
+        let child = ExecutionIdentity::capture(&nested, &root).unwrap();
+        assert_eq!(child.source, parent.source);
+        std::fs::write(nested.join("source.txt"), "changed release source").unwrap();
+        assert_ne!(
+            ExecutionIdentity::capture(&nested, &root).unwrap().source,
+            parent.source
+        );
+        assert_eq!(ExecutionIdentity::capture(&root, &root).unwrap(), parent);
+    }
 
     #[test]
     fn identity_covers_python_clean_sources_dirty_content_and_deletions() {
