@@ -186,6 +186,7 @@ try {
   check("UI-06: management search and actions switch language", (await chat.locator(".management-tools").textContent()).includes("Refresh") && !(await chat.locator(".management-tools input").getAttribute("placeholder")).includes("搜索"));
   check("UI-06: language change preserves query and focus", await chat.locator(".management-tools input").inputValue() === "R-" && await chat.locator(".management-tools input").evaluate(el => el === document.activeElement));
   await chat.evaluate(async () => (await import("/02-i18n.js")).setLanguagePreference("zh"));
+  await chat.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await chat.locator(".management-row").first().click(); await chat.locator(".management-body .doc-edit-toggle").click();
   await chat.locator('.management-body [data-field=":title"]').fill("language switch keeps this draft");
   await chat.evaluate(async () => (await import("/02-i18n.js")).setLanguagePreference("en")); await settle(chat);

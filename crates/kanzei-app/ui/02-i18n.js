@@ -79,6 +79,7 @@ export const I18N_EN = {
   "查看缺陷": "View defect",
   "让 Agent 规划": "Ask agent to plan",
   "尚未拆分为工作节点": "Not yet decomposed into work nodes",
+  "项目暂不可用": "Project unavailable",
   "调整方向": "Change direction",
   "新的方向": "New direction",
   "调整原因": "Reason for change",

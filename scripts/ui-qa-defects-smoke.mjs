@@ -180,7 +180,8 @@ try {
     const { page } = app;
     const where = () => page.evaluate(() => ({ view: document.body.dataset.view, list: Boolean(document.querySelector(".management-list")) }));
     await page.click('#project-work-switch [data-work-surface="project"]');
-    await page.locator(".management-row").first().click();
+    await page.locator(".management-goal-tree .work-tree-row").first().click();
+    await page.locator(".management-goal-tree").getByRole("button", { name: "查看需求", exact: true }).click();
     await page.locator(".management-detail-nav").waitFor();
     await page.keyboard.press("Escape");
     await sleep(500);

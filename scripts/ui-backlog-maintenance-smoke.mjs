@@ -42,6 +42,7 @@ try {
   check(!/R-003|R-004|D-002/.test(await rail.innerText()), "Parked, external acceptance and blocked items are excluded from conversation candidates");
   await page.screenshot({ path: `${output}/rail-light.png` });
   await page.locator('[data-work-surface="project"]').click();
+  await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await page.locator('.management-row[data-work-id="R-002"]').waitFor();
   check(await page.locator(".management-row").count() === 4, "Management retains every open requirement, including non-executable states");
   await page.locator('.management-tools select').selectOption("awaiting_external");

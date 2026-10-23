@@ -39,7 +39,7 @@ async function openScene(scene, theme) {
     document.activeElement?.blur();
     await window.__kzPreview.settle(); await document.fonts.ready;
   }, scene);
-  if (scene === "work") await page.locator(".management-row").first().waitFor();
+  if (scene === "work") await page.locator(".management-goal-tree [role=treeitem]").first().waitFor();
   if (scene === "skills") await page.locator(".skill-library-row").first().waitFor();
 }
 async function checkHover(selector, label) {
