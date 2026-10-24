@@ -6,7 +6,7 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 
-async fn read_request(socket: &mut TcpStream) -> serde_json::Value {
+pub(super) async fn read_request(socket: &mut TcpStream) -> serde_json::Value {
     let mut bytes = Vec::new();
     let mut buffer = [0; 4096];
     let end = loop {

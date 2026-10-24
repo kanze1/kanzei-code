@@ -209,6 +209,15 @@ pub fn run_once_with_parts<'a>(
                 );
             }
         };
+        let history_tokens = super::context::estimate_prompt_tokens(&[], &messages, &[]);
+        let materialized = super::tool_exec::materialize_tool_history(&mut messages, ctx)?;
+        if materialized > 0 {
+            on_event(RunEvent::ContextPruned {
+                cleared_results: materialized,
+                before_tokens: history_tokens,
+                after_tokens: super::context::estimate_prompt_tokens(&[], &messages, &[]),
+            });
+        }
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
         // 收尾落盘一旦进入就保持到本轮结束——延长的每一步都要重复这条指令,

@@ -216,10 +216,10 @@ pub(super) fn artifact_storage_bytes(project_root: &Path) -> std::io::Result<u64
     Ok(results.saturating_add(super::tool_images::tool_images_bytes(project_root)?))
 }
 
-/// 把超过 32 KiB 的非 read/task 工具结果写入 durable artifact,再把紧凑引用回喂给模型/UI。
+/// 把超过 32 KiB 的非 read 工具结果写入 durable artifact,再把紧凑引用回喂给模型/UI。
 ///
 /// 该函数位于所有工具的统一消费出口,工具权限与错误码不变。各分支实际保留的内容:
-/// - ≤ 32 KiB 或 read/task:content 原样保留;不取配额锁、不扫描目录。
+/// - ≤ 32 KiB 或分页 read:content 原样保留;不取配额锁、不扫描目录。
 /// - 超过 32 KiB 且同名(同 sha256)、同长度的 artifact 已存在:直接复用,
 ///   不取锁、不计配额。
 /// - 否则在跨进程配额锁内计量 tool-results(不含 shadow 子目录),写入后总占用
@@ -267,8 +267,9 @@ fn materialize_tool_output_with_quota(
     quota_bytes: u64,
     lock_budget: std::time::Duration,
 ) {
-    // Read is paginated; durable task summaries have their own output limits.
-    if matches!(tool_name, "read" | "task") || output.content.len() <= TOOL_RESULT_SPILL_THRESHOLD {
+    // Read is paginated. Task actions can also return complete diffs and histories,
+    // so their results share the same bound as every other ordinary tool.
+    if !tool_result_needs_spill(tool_name, output.content.len()) {
         return;
     }
 
@@ -316,6 +317,71 @@ fn materialize_tool_output_with_quota(
             fail_tool_result_spill(output, original.len(), &sha256, &reason);
         }
     }
+}
+
+fn tool_result_needs_spill(tool_name: &str, bytes: usize) -> bool {
+    tool_name != "read" && bytes > TOOL_RESULT_SPILL_THRESHOLD
+}
+
+/// Restored messages are a request projection; the caller's prior history stays
+/// intact. Apply the same output contract before budgeting or provider dispatch.
+pub(super) fn materialize_tool_history(
+    messages: &mut [kanzei_llm::Message],
+    ctx: &ToolCtx,
+) -> anyhow::Result<usize> {
+    use anyhow::Context;
+    let mut calls = std::collections::HashMap::new();
+    let mut materialized = 0;
+    for message in messages {
+        for part in &mut message.parts {
+            match part {
+                Part::ToolCall { id, name, .. } => {
+                    calls.insert(id.clone(), name.clone());
+                }
+                Part::ToolResult {
+                    call_id,
+                    content,
+                    is_error,
+                } if content.len() > TOOL_RESULT_SPILL_THRESHOLD => {
+                    let name = calls.get(call_id).with_context(|| {
+                        format!("oversized historical result {call_id} has no matching tool call")
+                    })?;
+                    if !tool_result_needs_spill(name, content.len()) {
+                        continue;
+                    }
+                    // Preserve the authority boundary around engine-framed source
+                    // data even when its full historical frame is archived.
+                    let source = if let Some(raw) =
+                        content.strip_prefix(kanzei_harness::tool::EXTERNAL_SOURCE_PREFIX)
+                    {
+                        let frame: serde_json::Value = serde_json::from_str(raw)
+                            .context("invalid historical external-source frame")?;
+                        anyhow::ensure!(
+                            frame["authority"] == "untrusted_data",
+                            "invalid historical external-source authority"
+                        );
+                        Some(
+                            serde_json::from_value::<kanzei_harness::ExternalSource>(
+                                frame["source"].clone(),
+                            )
+                            .context("invalid historical external-source metadata")?,
+                        )
+                    } else {
+                        None
+                    };
+                    let mut output = kanzei_harness::ToolOutput::ok(std::mem::take(content));
+                    output.is_error = *is_error;
+                    output.external_source = source;
+                    materialize_tool_output(&mut output, ctx, name);
+                    *content = output.model_content();
+                    *is_error = output.is_error;
+                    materialized += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(materialized)
 }
 
 /// 条目切换只允许无损外置；配额/锁/写入失败交给调用方保留原文。
@@ -1347,11 +1413,105 @@ mod tests {
     }
 
     #[test]
-    fn read_and_task_results_are_exempt_and_small_results_do_not_write_telemetry() {
+    fn oversized_task_diff_is_externalized_with_recoverable_bytes() {
+        let root = kanzei_base::test_support::TestDir::new("kz-task-diff-spill-");
+        let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+        let original = "x".repeat(11_527_136);
+        let mut output = ToolOutput::ok(original.clone());
+        super::materialize_tool_output(&mut output, &ctx, "task");
+        assert!(
+            output.content.len() < super::TOOL_RESULT_SPILL_THRESHOLD,
+            "task output still contains {} bytes",
+            output.content.len()
+        );
+        let artifact = output
+            .artifact
+            .as_ref()
+            .expect("task diff requires a recoverable artifact");
+        assert_eq!(
+            std::fs::read(root.join(&artifact.relative_path)).unwrap(),
+            original.as_bytes()
+        );
+        assert_eq!(artifact.bytes, original.len() as u64);
+        assert!(!output.is_error);
+    }
+
+    #[test]
+    fn historical_results_keep_source_authority_errors_and_user_instructions() {
+        use kanzei_llm::Message;
+        let root = kanzei_base::test_support::TestDir::new("kz-history-source-");
+        let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+        let original = ToolOutput::error("外部错误资料".repeat(20_000))
+            .with_external_source(
+                kanzei_harness::ExternalSourceKind::Web,
+                "https://example.test/evidence",
+            )
+            .model_content();
+        let prior = vec![
+            Message::user_text("actual user instructions ".repeat(3_000)),
+            Message::assistant(vec![Part::ToolCall {
+                id: "old".into(),
+                name: "task".into(),
+                input: serde_json::json!({"action":"get"}),
+            }]),
+            Message::tool_results(vec![Part::ToolResult {
+                call_id: "old".into(),
+                content: original.clone(),
+                is_error: true,
+            }]),
+        ];
+        let mut projected = prior.clone();
+        assert_eq!(
+            super::materialize_tool_history(&mut projected, &ctx).unwrap(),
+            1
+        );
+        assert_eq!(&projected[..2], &prior[..2]);
+        let Part::ToolResult {
+            call_id,
+            content,
+            is_error,
+        } = &projected[2].parts[0]
+        else {
+            panic!()
+        };
+        assert_eq!(call_id, "old");
+        assert!(*is_error);
+        let frame: serde_json::Value = serde_json::from_str(
+            content
+                .strip_prefix(kanzei_harness::tool::EXTERNAL_SOURCE_PREFIX)
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(frame["authority"], "untrusted_data");
+        assert_eq!(frame["source"]["location"], "https://example.test/evidence");
+        assert!(frame["content"]
+            .as_str()
+            .unwrap()
+            .starts_with("[tool_result_externalized"));
+        let hash = sha256_hex(&original);
+        assert_eq!(
+            std::fs::read(root.join(format!(
+                ".kanzei/artifacts/tool-results/tool-task-{hash}.txt"
+            )))
+            .unwrap(),
+            original.as_bytes()
+        );
+        assert_eq!(
+            super::materialize_tool_history(&mut projected, &ctx).unwrap(),
+            0,
+            "references must not recursively archive themselves"
+        );
+        assert!(
+            matches!(&prior[2].parts[0], Part::ToolResult { content, .. } if content == &original)
+        );
+    }
+
+    #[test]
+    fn paginated_read_is_exempt_and_small_task_results_remain_inline() {
         let root = std::env::temp_dir().join(format!("kz-result-budget-{}", std::process::id()));
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        for tool in ["read", "task"] {
-            let original = "界".repeat(20_000);
+        for (tool, chars) in [("read", 20_000), ("task", 100)] {
+            let original = "界".repeat(chars);
             let mut output = ToolOutput::ok(original.clone());
             super::materialize_tool_output(&mut output, &ctx, tool);
             assert_eq!(output.content, original);
