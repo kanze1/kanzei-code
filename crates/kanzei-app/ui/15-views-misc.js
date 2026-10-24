@@ -61,6 +61,7 @@ import {
   subagentResetSession,
   subagentSealPaneTail,
 } from "./05-subagents.js";
+import { renderRecoveredTurnReceipts } from "./05-turn-receipts.js";
 import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
 import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts } from "./09-sessions.js";
@@ -705,7 +706,7 @@ export function renderMessageParts(items) {
         continue;
       }
       if (message.role === "user" && ["image", "document"].includes(part.type)) {
-        addUserMessage("", [{ file_name:part.type === "image" ? t("图片") : "PDF", media_type:part.media_type }]);
+        addUserMessage("", [{ file_name:part.file_name || (part.type === "image" ? t("图片") : "PDF"), media_type:part.media_type, data:part.data }]);
         continue;
       }
       if (part.type !== "text" || !part.text?.trim()) continue;
@@ -799,9 +800,11 @@ export async function loadConversation(sequence = null, switchGeneration = null,
       sequence,
     });
     if (!isCurrent()) return;
-    renderRecoveredTraces(traces);
-    applyRecoveredToolDurations(traces);
-    log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${traces.length} ${t("组工具轨迹")}`);
+    const toolTraces = traces.filter(trace => trace.kind !== "turn.elapsed");
+    renderRecoveredTraces(toolTraces);
+    applyRecoveredToolDurations(toolTraces);
+  renderRecoveredTurnReceipts(traces, activePane, appendToPane);
+    log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${toolTraces.length} ${t("组工具轨迹")}`);
   } catch (err) {
     if (!isCurrent()) return;
     addMessage("error", `${t("历史消息恢复失败")}:${err}`);

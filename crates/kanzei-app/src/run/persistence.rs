@@ -202,7 +202,7 @@ pub(crate) fn persist_round_outcome(
             tracing::warn!(%error, "memory lifecycle reconciliation failed");
         }
     };
-    persist_round_outcome_with_effects(
+    let result = persist_round_outcome_with_effects(
         state_path,
         session_id,
         run_result,
@@ -224,7 +224,20 @@ pub(crate) fn persist_round_outcome(
             harvest: &harvest,
             after_success: &after_success,
         },
-    )
+    );
+    // Publish only a committed receipt. Failures/stops may not produce kz:done;
+    // this independent rendering event does not change session lifecycle state.
+    let receipt = kanzei_core::SessionStore::open_read_only(state_path)
+        .map_err(|e| e.to_string())
+        .and_then(|store| crate::conversation::timing::current(&store, session_id, run_id));
+    match receipt {
+        Ok(Some(payload)) => {
+            let _ = window.emit("kz:turn-elapsed", payload);
+        }
+        Ok(None) => {}
+        Err(error) => tracing::warn!(%error, "could not read committed round duration"),
+    }
+    result
 }
 
 pub(super) fn commit_outcome(
@@ -276,6 +289,18 @@ fn persist_round_outcome_with_effects(
     // This guard never covers notifications or other optional external effects.
     let lifecycle = runtime.lifecycle.lock_or_recover();
     let stopped_by_user = halt_token.is_cancelled();
+    // The receipt starts at durable admission, before queueing/preparation. Freeze
+    // it at each actual terminal attempt; episode metrics retain the runner clock.
+    let commit = |terminal, payload: serde_json::Value| {
+        let payload = crate::conversation::timing::with_admission_elapsed(
+            &store,
+            session_id,
+            promoted_input_id,
+            payload,
+            chrono::Utc::now().timestamp_millis(),
+        );
+        commit_outcome(typed_writer, promoted_input_id, terminal, &payload)
+    };
     if let Ok(summary) = run_result.as_mut() {
         summary.halted_by_user |= stopped_by_user;
     }
@@ -292,11 +317,9 @@ fn persist_round_outcome_with_effects(
             )
             .map_err(anyhow::Error::from)
             .and_then(|()| {
-                commit_outcome(
-                    typed_writer,
-                    promoted_input_id,
+                commit(
                     summary.terminal(),
-                    &json!({
+                    json!({
                         "steps": summary.steps,
                         "halted_by_user": summary.halted_by_user,
                         "outcome": summary.outcome(),
@@ -309,22 +332,18 @@ fn persist_round_outcome_with_effects(
                 )
             })
         }
-        Err(error) if stopped_by_user => commit_outcome(
-            typed_writer,
-            promoted_input_id,
+        Err(error) if stopped_by_user => commit(
             typed_events::TerminalFact::Stopped,
-            &json!({ "halted_by_user": true, "error": error.to_string() }),
+            json!({ "halted_by_user": true, "error": error.to_string() }),
         ),
         Err(error) => Err(anyhow::anyhow!("{error}")),
     };
     if let Err(error) = outcome {
         // The rejected Completed transaction rolled back all critical state.
         // A Failed retry uses the same atomic boundary, never a partial fallback.
-        let failure_result = commit_outcome(
-            typed_writer,
-            promoted_input_id,
+        let failure_result = commit(
             typed_events::TerminalFact::Failed(error.to_string()),
-            &json!({ "error": error.to_string() }),
+            json!({ "error": error.to_string() }),
         );
         if failure_result.is_ok() {
             flush_live_run(&store, session_id, live, "failed");
@@ -587,7 +606,21 @@ pub(crate) async fn finalize_round(
     let history_len = outcome.history_len;
     let this_run_tools = outcome.this_run_tools;
     let auto_action_json = outcome.auto_action_json;
-    let elapsed_ms = outcome.elapsed_ms;
+    let duration_receipt = match final_store
+        .as_ref()
+        .map(|store| crate::conversation::timing::current(store, session_id, run_id))
+        .transpose()
+    {
+        Ok(receipt) => receipt.flatten(),
+        Err(error) => {
+            tracing::warn!(%error, "could not read fixed round duration for done event");
+            None
+        }
+    };
+    let elapsed_ms = duration_receipt
+        .as_ref()
+        .and_then(|receipt| receipt["elapsedMs"].as_u64())
+        .unwrap_or(outcome.elapsed_ms);
     let config = &deps.config;
     let resolved = &deps.resolved;
     let client = &deps.client;
@@ -798,6 +831,10 @@ pub(crate) async fn finalize_round(
                 "incompleteReason": summary.incomplete_reason(),
                 "history": history_len,
                 "elapsedMs": elapsed_ms,
+                // Keep the legacy log duration fallback, but do not let the UI
+                // turn it into a receipt when admission time was unreliable.
+                "runId": duration_receipt.as_ref().and_then(|receipt| receipt["runId"].as_str()),
+                "source": duration_receipt.as_ref().and_then(|receipt| receipt["source"].as_str()),
                 "input": summary.usage.input,
                 "output": summary.usage.output,
                 "cacheRead": summary.usage.cache_read,

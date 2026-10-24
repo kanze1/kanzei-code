@@ -164,7 +164,8 @@ try {
       window.__kzPreview.setCommand("run_prompt", () => { if (delivery === "steer") throw "audit attachment admission rejected"; return null; });
     }, delivery);
     await page.locator("#attachment-input").setInputFiles({ name: "audit.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=", "base64") });
-    check("Attachment icon uses the cyan token", await colorIs(page.locator(".attachment-chip .resource-mark")));
+    await page.locator(".attachment-chip .attachment-thumbnail").waitFor();
+    check("Image attachment shows its held bytes as a thumbnail", await page.locator(".attachment-chip .attachment-thumbnail").evaluate(async image => { await image.decode(); return image.src.startsWith("data:image/png;base64,") && image.naturalWidth > 0; }));
     const prompt = delivery === "steer" ? "change direction with this image" : "";
     await page.locator("#prompt").fill(prompt); await page.locator("#send").click();
     await page.waitForFunction(() => window.__kzPreview.calls.some(call => call.cmd === "run_prompt"));

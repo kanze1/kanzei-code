@@ -34,6 +34,7 @@ const EVENTS: &[&str] = &[
     "kz:tool-progress",
     "kz:tool-start",
     "kz:turn",
+    "kz:turn-elapsed",
     "kz:ui-probe",
     "kz:workspace-invalidated",
 ];

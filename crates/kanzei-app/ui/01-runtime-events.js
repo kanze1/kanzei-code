@@ -56,6 +56,7 @@ export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:task-progress",
   "kz:agent-job", // Child lifecycle does not revive the parent session.
   "kz:input-received",
+  "kz:turn-elapsed", // Fixed durable round receipt, including background sessions.
   "kz:permission-resolved",
   "kz:compacted",
   "kz:experience",

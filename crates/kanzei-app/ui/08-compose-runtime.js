@@ -3,6 +3,7 @@ import { openGeneralChat } from "./03-general-scope.js";
 import { createOutbox } from "./00-outbox.js";
 import { awaitRunConfirmation } from "./03-session-runtime.js";
 import { runtimeEventsReady } from "./00-event-subscriptions.js";
+import { attachmentPreview } from "./04-attachment-preview.js";
 import { defer } from "./00-dom.js";
 import { attachmentMime, resourceIcon, resourceLinks, resourceType } from "./04-resource-types.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
@@ -336,7 +337,7 @@ export function renderAttachments() {
     remove.setAttribute("aria-label", `${t("移除附件")} ${item.file_name}`);
     remove.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
     chip.title = resourceType(item.file_name, item.media_type).label;
-    chip.append(resourceIcon(item.file_name, item.media_type), name, remove);
+    chip.append(attachmentPreview(item), name, remove);
     box.appendChild(chip);
   });
   document.dispatchEvent(new CustomEvent("kz:attachments-changed"));
