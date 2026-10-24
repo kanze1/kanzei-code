@@ -36,6 +36,12 @@ CLI 可以使用 `kz req add <标题> --requirement-file <JSON文件>`；更新�
 
 实现与验证说明见 [需求登记改造记录](../reports/2026-10-04-requirement-contract.md)。
 
+## 0.2 当前账本消费路径（2026-10-23）
+
+`git finalize` 已写入 deliver 事实；`crates/kanzei-tools/src/work/reconcile.rs` 的 `ledger_scope` 与 reconciliation 已消费 `deliver_facts`，按条目账本的 paths、commit 和测试证据推导交付状态。账本路径优先于旧字段推测，`ledger_paths_are_authoritative_and_legacy_divergence_is_observed` 覆盖两者分歧。缺少账本的存量仍走遗留观察路径，不因没有新账本自动拒绝。
+
+因此 R-353 的“尚未消费 deliver”是旧进展，应读更新后的条目。代码和回归入口存在，不等同于原验收中的四态真实实例、最终提交验证或安装版验收全部通过；本次文档整理保留 doing 和原验收，不代替交付。§1 起保留最初问题推导，不能将其现在时措辞理解为今天仍完全缺少账本实现。
+
 ## 1. 根因
 
 **tracker 里不存在「这条条目 ↔ 哪坨改动 ↔ 哪条证据」这个第一类对象。** 一切摊成条目上的

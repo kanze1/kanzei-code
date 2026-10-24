@@ -84,7 +84,7 @@
 - **R-354**：拒绝文案只要求条目标题自身能提供的证据，并给出可抄写法。
 - **R-374**：见 §1.3 末段。
 
-## 4. 工作树状态与并发写入（接手前必读）
+## 4. 原交接时点的工作树与并发写入
 
 - 15:40 时 `git status --porcelain` 共 **307 项**（20 项未跟踪），其中只有 20 个文件属于本轮改动（§6 清单）。
 - **另一个进程正在同一工作树里写**：`kzapp.exe`（08:02 采样时 PID 73668）运行中；`scripts/ui-runtime-smoke.mjs` 在 15:39:42 仍被改写；08:00–09:40 之间多个 `ui/*.js`、`scripts/ui-*.mjs` 出现非本轮改动（移动端会话选择器 `sessionOptionText`、`/v1/sessions`、预览几何 fixture 等）。这些改动与我的改动**在同一文件里混排**（`scripts/verify-policy.mjs`、`scripts/ui-runtime-smoke.mjs`）。
@@ -93,7 +93,7 @@
   - 不要在此状态下跑 `verify.ps1 -Full`：`.kanzei/project` 现在属于构建输入，未提交的 tracker 会让 `assertCleanBuildInputs` 按设计拒签；且外来在途改动可能随时把门禁跑红。
   - 我的每次验证都是「当时那棵树」的结果；上表最后一轮已包含外来改动，全部为绿。
 
-## 5. 待拍板事项
+## 5. 原交接时点的待办（后续状态见 §8）
 
 1. **提交**：本轮 20 个文件 + 本报告。提交身份 `kanzei <vraniumzwt@gmail.com>`，不得含 `Co-Authored-By`；push 前需设 `HTTPS_PROXY=http://127.0.0.1:12000`。
 2. **conventions 增补（原计划 D-764④）**：把「从用户已审阅设计文档登记且带裁决的条目视为方案已确认，分批实施不需逐批授权」写进 `.kanzei/project/conventions.md`。该文件是受管文档，需走 `cargo run -p kanzei -- …` 的工具通道或用户批准后手改。
@@ -124,7 +124,7 @@
 - `scripts/verify-policy-smoke.mjs`
 - `scripts/ui-runtime-smoke.mjs` ★
 
-## 7. 接手顺序建议
+## 7. 原交接时点的顺序建议
 
 1. 确认并发会话已停（`tasklist | grep -i kzapp`，并观察 `git status` 不再变化）。
 2. 复核 §2 命令仍全绿；重点看 `ui_lint` 与 `ui_runtime`（外来改动最活跃的两处）。

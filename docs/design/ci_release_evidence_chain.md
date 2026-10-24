@@ -1,8 +1,8 @@
-# CI 与发布证据链
+# 本地验证与发布证据链
 
-- 身份：validated_design
-- 状态：发布证据门禁已实现；CI 当前为手动触发。
-- 核对日期：2026-10-22，主工作树源码；发布结果以具体提交的验证和打包记录为准。
+- 身份：live_design
+- 状态：发布证据门禁已有实现；验证和发布检查在本地执行，GitHub Actions CI 禁用。
+- 核对日期：2026-10-23，主工作树源码及仓库规则；发布结果以具体提交的验证和打包记录为准。
 - 关联：R-152、R-146、R-156、R-298；A-009、A-010、A-013。
 
 ## 当前合同
@@ -20,17 +20,17 @@ pwsh -File scripts/package.ps1 -Ack <脚本实际统计的提交数> -Publish
 
 日常运行 `scripts/verify.ps1`，选择当前未提交改动；工作树干净时默认检查上一提交，显式 `KANZEI_VERIFY_BASE` 可以扩大提交范围。修改检查脚本会选择该套件，脚本引用的本地测试辅助模块也参与选择。注册表的 `paths` 声明功能归属；共享基础模块、全局样式和预览基础设施变化会扩大到全部前端检查，验证策略或注册表变化会选择全部检查。依赖生产者自动加入计划。
 
-定向验证记录 HEAD 和未提交输入的内容摘要，结束时重新核对，写入 `dist/verification-targeted.json`；该文件不覆盖正式发版证据，也不能用于打包。Full/CI 继续要求干净提交，全部注册检查通过、无跳步，并在结束时核对 HEAD 和构建输入。
+定向验证记录 HEAD 和未提交输入的内容摘要，结束时重新核对，写入 `dist/verification-targeted.json`；该文件不覆盖正式发版证据，也不能用于打包。`-Full` 要求干净提交，全部注册检查通过、无跳步，并在结束时核对 HEAD 和构建输入。套件 pass、测试用例 ignored 和未执行场景分别报告。
 
 `verify-runner.mjs` 按依赖调度独立检查，最多四个工作进程、两个浏览器套件；Cargo 和 IPC 签名提取共用单一 Cargo 队列。测量动画帧率的套件声明 `host` 资源，独占主机运行。各套件使用独立临时目录、独立日志和 SHA256，失败只阻止其依赖项，独立项继续执行。结果记录实际墙钟耗时与各项耗时；构建缓存测量在所有 Cargo 生产者结束后执行一次。
 
-## CI 的实际边界
+## 远端 CI 与历史兼容边界
 
-`.github/workflows/ci.yml` 当前只有 `workflow_dispatch`，没有 push 或 pull_request 触发。因此 push 不代表发生了独立环境复跑，定向本地检查也不能依赖自动 CI 补齐。
+根 `AGENTS.md` 与 `CONTRIBUTING.md` 规定：不新增、启用或运行 GitHub Actions CI。工作树中的旧 `.github/workflows/ci.yml` 已删除；旧提交保留的 `workflow_dispatch` 不构成当前运行授权。push 和 PR 不代表发生了独立环境复跑。
 
-workflow 统一调用 `scripts/verify.ps1 -Full -Ci`。本地与 CI 共享 `scripts/verification-checks.json`；`ui_runtime` 的共享参数包含 `--experimental-vm-modules`。CI 的 clippy 通过注册表中的 `ci_args` 检查全部目标，本地提交与 verify 使用轻量 clippy。修改检查项或启动参数时维护注册表，不在 workflow 或文档中另抄一份命令清单。
+脚本中保留的 `-Ci` 参数、注册表 `ci_args` 和历史回执字段属于兼容代码，不是当前工作流。检查项及启动参数统一维护在 `scripts/verification-checks.json`，本地入口使用 `scripts/verify.ps1`；需要额外全目标 clippy 时本地显式运行并保留结果。
 
-本地 `verify.ps1 -Full` 是正式发布的验证入口；手动 CI 的实际结果另行记录到具体提交。后台冻结快照与独立 worker 提供执行隔离，仍不等于设计中的完整四角色独立裁决体系。
+本地 `verify.ps1 -Full` 是正式发布的验证入口。后台冻结快照与独立 worker 提供执行隔离，仍不等于完整四角色独立裁决体系。
 
 ## 安装与交付
 
@@ -40,4 +40,4 @@ workflow 统一调用 `scripts/verify.ps1 -Full -Ci`。本地与 CI 共享 `scri
 
 ## 历史与本次校正
 
-2026-08-09 初版规划了自动 push CI，并暂缓 fmt/clippy；之后两条检查已经启用。自动触发承诺不符合当前 workflow，本轮改为手动事实。旧示例脚本与旧发布树流程从正文移除，原文可从 Git 历史和本次备份恢复。没有修改发布脚本或 workflow。
+2026-08-09 初版规划自动 push CI，后续文档曾改为手动 CI；两种描述均由当前本地验证规则替代。fmt/clippy 已在本地检查体系中。文件名保留以维持既有引用；旧合同可从 Git 历史恢复。本次文档维护没有修改发布脚本或 workflow。
