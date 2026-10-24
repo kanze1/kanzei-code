@@ -328,11 +328,13 @@ fn tool_result_needs_spill(tool_name: &str, bytes: usize) -> bool {
 pub(super) fn materialize_tool_history(
     messages: &mut [kanzei_llm::Message],
     ctx: &ToolCtx,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> anyhow::Result<usize> {
     use anyhow::Context;
+    let before_tokens = super::context::estimate_prompt_tokens(&[], messages, &[]);
     let mut calls = std::collections::HashMap::new();
     let mut materialized = 0;
-    for message in messages {
+    for message in messages.iter_mut() {
         for part in &mut message.parts {
             match part {
                 Part::ToolCall { id, name, .. } => {
@@ -380,6 +382,13 @@ pub(super) fn materialize_tool_history(
                 _ => {}
             }
         }
+    }
+    if materialized > 0 {
+        on_event(RunEvent::ContextPruned {
+            cleared_results: materialized,
+            before_tokens,
+            after_tokens: super::context::estimate_prompt_tokens(&[], messages, &[]),
+        });
     }
     Ok(materialized)
 }
@@ -1462,7 +1471,7 @@ mod tests {
         ];
         let mut projected = prior.clone();
         assert_eq!(
-            super::materialize_tool_history(&mut projected, &ctx).unwrap(),
+            super::materialize_tool_history(&mut projected, &ctx, &mut |_| {}).unwrap(),
             1
         );
         assert_eq!(&projected[..2], &prior[..2]);
@@ -1497,7 +1506,7 @@ mod tests {
             original.as_bytes()
         );
         assert_eq!(
-            super::materialize_tool_history(&mut projected, &ctx).unwrap(),
+            super::materialize_tool_history(&mut projected, &ctx, &mut |_| {}).unwrap(),
             0,
             "references must not recursively archive themselves"
         );
