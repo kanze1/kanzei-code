@@ -190,7 +190,7 @@ fn save_decision_review(
         return Err("带附件的反馈需要作为具体回复提交".into());
     }
     review.feedback =
-        crate::attachments::reply_text(&root, &review.feedback, attachments.unwrap_or_default())
+        crate::attachments::message_text(&root, &review.feedback, attachments.unwrap_or_default())
             .map_err(|e| e.to_string())?;
     let _guard = kanzei_tools::atomic_file::lock_exclusive(&root.join(".kanzei/decision-reviews"))
         .map_err(|e| e.to_string())?;

@@ -155,7 +155,7 @@ pub(crate) async fn softwire_answer_question(
         return Err("question_invalid_reply: 回复不能为空，且须在 8000 字以内".into());
     }
     let root = crate::normalized_project_root(Path::new(&project_dir));
-    let reply = crate::attachments::reply_text(&root, &reply, attachments.unwrap_or_default())
+    let reply = crate::attachments::message_text(&root, &reply, attachments.unwrap_or_default())
         .map_err(|e| e.to_string())?;
     let reply = Reply {
         project: &root,
@@ -374,7 +374,7 @@ mod tests {
             }),
         )
         .unwrap();
-        let text = crate::attachments::reply_text(
+        let text = crate::attachments::message_text(
             &root,
             "看图",
             vec![crate::PromptAttachment {
@@ -404,7 +404,7 @@ mod tests {
             receipt,
             deliver_question(&mut asks, &mut receipts, &reply).unwrap()
         );
-        let changed = crate::attachments::reply_text(
+        let changed = crate::attachments::message_text(
             &root,
             "看图",
             vec![crate::PromptAttachment {

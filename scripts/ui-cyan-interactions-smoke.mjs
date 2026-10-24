@@ -157,17 +157,27 @@ try {
     await page.screenshot({ path: `${output}/metrics-${theme}-800.png` });
     await page.close();
   });
-  await scenario("attachment lifecycle", async () => {
+  for (const delivery of ["steer", "queue"]) await scenario(`running attachment ${delivery}`, async () => {
     const page = await open("chat");
-    await page.locator("#attachment-input").setInputFiles({ name: "audit.txt", mimeType: "text/plain", buffer: Buffer.from("audit") });
-    await page.locator("#attachment-send-hint").waitFor();
-    check("Running attachment restriction is persistent before clicking Send", await page.locator("#attachment-send-hint").isVisible());
-    await page.locator("#prompt").fill("retain my attachment draft"); await page.locator("#send").click();
-    check("Blocked attachment send preserves text and attachment", await page.locator("#prompt").inputValue() === "retain my attachment draft" && await page.locator(".attachment-chip").count() === 1);
+    await page.evaluate(delivery => {
+      document.querySelector("#delivery-select").value = delivery;
+      window.__kzPreview.setCommand("run_prompt", () => { if (delivery === "steer") throw "audit attachment admission rejected"; return null; });
+    }, delivery);
+    await page.locator("#attachment-input").setInputFiles({ name: "audit.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=", "base64") });
     check("Attachment icon uses the cyan token", await colorIs(page.locator(".attachment-chip .resource-mark")));
-    await page.evaluate(async () => { const s = await import("/03-shell.js"); window.__kzPreview.emit("kz:stopped", { sessionId: s.activeSessionId }); });
-    await page.locator("#attachment-send-hint").waitFor({ state: "hidden" });
-    check("Terminal state removes the attachment restriction", true);
+    const prompt = delivery === "steer" ? "change direction with this image" : "";
+    await page.locator("#prompt").fill(prompt); await page.locator("#send").click();
+    await page.waitForFunction(() => window.__kzPreview.calls.some(call => call.cmd === "run_prompt"));
+    const sent = await page.evaluate(() => window.__kzPreview.calls.findLast(call => call.cmd === "run_prompt").args);
+    check(`${delivery}: running input retains its delivery and image`, sent.delivery === delivery && sent.attachments[0].file_name === "audit.png" && sent.attachments[0].data.length > 0);
+    if (delivery === "steer") {
+      await page.locator('.msg.user[data-delivery-state="failed"]').waitFor();
+      check("Rejected insertion preserves the complete draft", await page.locator("#prompt").inputValue() === prompt && await page.locator(".attachment-chip").count() === 1);
+      await page.evaluate(() => window.__kzPreview.setCommand("run_prompt", () => null));
+      await page.locator('.msg.user[data-delivery-state="failed"] .outgoing-status button').click();
+    }
+    await page.waitForFunction(() => document.querySelector("#prompt").value === "" && !document.querySelector(".attachment-chip"));
+    check(`${delivery}: acknowledged input clears the draft while the task keeps running`, await page.locator("#stop").isVisible());
     await page.close();
   });
   for (const scene of ["workspace", "settings", "memory", "arch", "lines", "docs", "files"]) await scenario(`surface ${scene}`, async () => {

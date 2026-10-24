@@ -700,7 +700,6 @@ export const I18N_EN = {
   "单个附件最多 16 MB，每次合计最多 18 MB": "Each attachment can be up to 16 MB, with an 18 MB total per message",
   "已切换对话，请重新添加附件": "The conversation has changed. Please add the attachment again",
   "附件正在读取，请稍候再发送": "Attachments are loading. Please wait before sending",
-  "当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论": "The task is running. Your attachments and text are retained; send them after this run ends or start a new discussion",
   "主对话暂不可用，请刷新后重试": "The main conversation is unavailable. Refresh and try again",
   "已打开负责此需求的独立任务": "Opened the independent task responsible for this requirement",
   "请先登记文字需求，附件留在输入框，登记后可以一起发送": "Register the text requirement first. Your attachments remain in the input and can be sent together afterward",
