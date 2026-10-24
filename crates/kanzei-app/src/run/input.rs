@@ -23,11 +23,13 @@ pub(crate) fn admit_input(
     project_dir: &str,
     session_id: &str,
     prompt: &str,
+    attachments: Vec<crate::PromptAttachment>,
     delivery: kanzei_core::Delivery,
     execution_batch: bool,
     work_item_id: Option<&str>,
 ) -> anyhow::Result<kanzei_core::AdmittedInput> {
     let project_root = crate::normalized_project_root(Path::new(project_dir));
+    let prompt = crate::attachments::message_text(&project_root, prompt, attachments)?;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
     store.create_session(session_id, &project_root.display().to_string(), None)?;
     let input_id = format!(
@@ -35,11 +37,11 @@ pub(crate) fn admit_input(
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
     let input = if let Some(item_id) = work_item_id {
-        store.admit_work_input(session_id, &input_id, prompt, item_id)?
+        store.admit_work_input(session_id, &input_id, &prompt, item_id)?
     } else if execution_batch {
-        store.admit_batch_input(session_id, &input_id, prompt, delivery)?
+        store.admit_batch_input(session_id, &input_id, &prompt, delivery)?
     } else {
-        store.admit_input(session_id, &input_id, prompt, delivery)?
+        store.admit_input(session_id, &input_id, &prompt, delivery)?
     };
     Ok(input)
 }
@@ -127,6 +129,69 @@ pub(crate) fn code_root_for(worktree_path: Option<&str>, project_dir: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::code_root_for;
+
+    #[test]
+    fn attachment_inputs_keep_their_delivery_and_survive_queue_recovery() {
+        use base64::Engine;
+        let root = kanzei_base::test_support::TestDir::new("kz-queued-image-");
+        let bytes = b"\x89PNG\r\n\x1a\nqueued image fixture";
+        for delivery in [kanzei_core::Delivery::Queue, kanzei_core::Delivery::Steer] {
+            let input = super::admit_input(
+                root.to_str().unwrap(),
+                "s",
+                "",
+                vec![crate::PromptAttachment {
+                    file_name: "image.png".into(),
+                    media_type: "image/png".into(),
+                    data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                }],
+                delivery,
+                false,
+                None,
+            )
+            .unwrap();
+            let store =
+                kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+            let restored = store
+                .list_pending_inputs("s")
+                .unwrap()
+                .into_iter()
+                .find(|saved| saved.input_id == input.input_id)
+                .unwrap();
+            assert_eq!(restored.delivery, delivery);
+            assert_eq!(restored.prompt, input.prompt);
+            let references: Vec<serde_json::Value> =
+                serde_json::from_str(restored.prompt.lines().last().unwrap()).unwrap();
+            assert_eq!(references[0]["name"], "image.png");
+            assert_eq!(
+                std::fs::read(references[0]["path"].as_str().unwrap()).unwrap(),
+                bytes
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_attachment_never_admits_an_input() {
+        let root = kanzei_base::test_support::TestDir::new("kz-queued-invalid-image-");
+        let result = super::admit_input(
+            root.to_str().unwrap(),
+            "s",
+            "keep this draft",
+            vec![crate::PromptAttachment {
+                file_name: "image.png".into(),
+                media_type: "image/png".into(),
+                data: "invalid base64!".into(),
+            }],
+            kanzei_core::Delivery::Steer,
+            false,
+            None,
+        );
+        assert!(result.is_err());
+        assert!(
+            !kanzei_core::project_state_path(&root).exists(),
+            "validation must precede durable admission"
+        );
+    }
 
     /// R-177 验收② 前半:线上运行时 cwd = worktree、project_root = 主根,两者**不相等**。
     #[test]

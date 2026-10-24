@@ -342,17 +342,6 @@ export function renderAttachments() {
   document.dispatchEvent(new CustomEvent("kz:attachments-changed"));
 }
 
-function renderAttachmentSendHint() {
-  const hint = $("attachment-send-hint");
-  if (!hint) return;
-  const retained = attachments.length > 0 && sessionState(activeSessionId)?.running;
-  hint.classList.toggle("hidden", !retained);
-  hint.textContent = retained ? t("当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论") : "";
-}
-defer(() => {
-  for (const event of ["kz:attachments-changed", "kz:session-state-changed", "kz:conversation-selected", "kz:language"]) document.addEventListener(event, renderAttachmentSendHint);
-});
-
 let pendingFileBytes = 0;
 export function addFiles(files) {
   const target = attachments;
@@ -862,11 +851,6 @@ export async function send({ delivery = null } = {}) {
     if (!activeProcessId && !/^\/compact(?:\s|$)/.test(prompt)) {
       try { if (!await ensure_workspace_process()) return; }
       catch (error) { toastError(String(error)); return; }
-    }
-    // The queue currently accepts text only. Keep the entire draft until it can be sent.
-    if (running && attachments.length) {
-      toast(t("当前任务运行中，附件和文字已保留；本轮结束后发送，或新建讨论"));
-      return;
     }
     stopAutoForManualInput({ supplement: running });
     rememberPrompt(prompt);

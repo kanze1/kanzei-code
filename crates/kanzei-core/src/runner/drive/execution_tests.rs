@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::Notify;
 
 mod input;
+mod large_results;
 mod mutation;
 
 #[tokio::test]

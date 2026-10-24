@@ -209,6 +209,7 @@ pub fn run_once_with_parts<'a>(
                 );
             }
         };
+        super::tool_exec::materialize_tool_history(&mut messages, ctx, &mut on_event)?;
         let halt = config.halt.as_ref();
         let halted = || halt.is_some_and(|token| token.is_cancelled());
         // 收尾落盘一旦进入就保持到本轮结束——延长的每一步都要重复这条指令,

@@ -10,6 +10,9 @@ use serde::Serialize;
 use crate::state::hidden_command;
 use crate::{process_session_id, ProcessHandle, SessionRuntime};
 
+mod summary;
+use summary::{model_snapshot, render_lines, StatusQuery};
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub(crate) struct CollaborationLine {
     pub(crate) process_id: String,
@@ -289,6 +292,9 @@ impl CollaborationProbe {
         // 解析 prompt。读失败也要明示，不能回退到猜测路径。
         let tracker_claims = kanzei_tools::active_claims_by_line(&self.origin_project);
         let durable_store = open_durable_store(&self.origin_project);
+        // Git state belongs to a code tree. Sample it once so participants sharing
+        // that tree see the same state and do not repeat Git and filesystem scans.
+        let mut worktrees = HashMap::new();
         let mut lines = handles
             .into_iter()
             .filter_map(|process| {
@@ -354,12 +360,16 @@ impl CollaborationProbe {
                         (snap.writer_run_id, snap.waiting_writers)
                     })
                     .unwrap_or((None, Vec::new()));
-                let (changed_files, changed_files_error) = changed_files(
-                    &self.origin_project,
-                    &code_root,
-                    process.worktree_path.is_some(),
-                );
-                let worktree_idle_ms = latest_worktree_idle_ms(&code_root, &changed_files);
+                let (changed_files, changed_files_error, worktree_idle_ms) =
+                    worktrees.entry(code_root.clone()).or_insert_with(|| {
+                        let (files, error) = changed_files(
+                            &self.origin_project,
+                            &code_root,
+                            process.worktree_path.is_some(),
+                        );
+                        let idle = latest_worktree_idle_ms(&code_root, &files);
+                        (files, error, idle)
+                    });
                 let status = line_status(LineProgress {
                     running,
                     waiting_for: runtime
@@ -370,7 +380,7 @@ impl CollaborationProbe {
                     run_age_ms,
                     last_outcome: last_outcome.as_deref(),
                     event_idle_ms,
-                    worktree_idle_ms,
+                    worktree_idle_ms: *worktree_idle_ms,
                 });
                 let status = if status_error.is_some() {
                     "unavailable"
@@ -410,12 +420,12 @@ impl CollaborationProbe {
                     status: status.into(),
                     status_error,
                     event_idle_ms,
-                    worktree_idle_ms,
+                    worktree_idle_ms: *worktree_idle_ms,
                     steps,
                     input_tokens,
                     output_tokens,
-                    changed_files,
-                    changed_files_error,
+                    changed_files: changed_files.clone(),
+                    changed_files_error: changed_files_error.clone(),
                     writer_run_id,
                     waiting_writers,
                 })
@@ -436,7 +446,7 @@ impl CollaborationProbe {
         }
         Some(render_lines(
             "COLLABORATION — other lines currently writing this project",
-            &lines,
+            &model_snapshot(&self.origin_project.to_string_lossy(), &lines, None),
         ))
     }
 }
@@ -534,7 +544,12 @@ fn changed_files(
             let merge_base = git_text(code_root, &["merge-base", "HEAD", &main_head])
                 .ok_or_else(|| "无法计算工作树与主线的 merge-base".to_string())?;
             let range = format!("{merge_base}..HEAD");
-            let output = git_output(code_root, &["diff", "--name-only", "-z", &range])?;
+            // Both sides of a rename must remain queryable, just as they are in
+            // the uncommitted porcelain inventory.
+            let output = git_output(
+                code_root,
+                &["diff", "--name-only", "--no-renames", "-z", &range],
+            )?;
             Ok(output
                 .split(|byte| *byte == 0)
                 .filter(|path| !path.is_empty())
@@ -569,38 +584,6 @@ fn parse_porcelain_paths(output: &[u8]) -> Vec<String> {
         index += 1;
     }
     files.into_iter().collect()
-}
-
-fn render_lines(title: &str, lines: &[CollaborationLine]) -> String {
-    let mut output = vec![format!("## {title}")];
-    for line in lines {
-        let files = if let Some(error) = &line.changed_files_error {
-            format!("unavailable ({error})")
-        } else if line.changed_files.is_empty() {
-            "none yet".into()
-        } else {
-            line.changed_files.join(", ")
-        };
-        output.push(format!(
-            "- {} ({}) · claim: {} · branch: {} · status: {} · phase: {} · tool: {} · changed files: {}",
-            line.label,
-            line.process_id,
-            line.claim,
-            line.branch,
-            line.status,
-            line.phase,
-            line.current_tool.as_deref().unwrap_or("none"),
-            files
-        ));
-        if let Some(error) = &line.status_error {
-            output.push(format!("  status unavailable: {error}"));
-        }
-    }
-    output.push(
-        "You are collaborating in the same repository. Before touching a shared file or staging, call `collaboration_status` again because this list changes during the run."
-            .into(),
-    );
-    output.join("\n")
 }
 
 /// R-184 B 面:跨线并列视图的只读 IPC。进程注册先从 state.db 恢复,避免重启后漏线。
@@ -663,20 +646,31 @@ impl Tool for CollaborationStatusTool {
     }
 
     fn description(&self) -> String {
-        "Refresh the real-time list of other running lines in this project: claimed item, branch, and changed files. Call before editing a shared file and immediately before staging/commit. Read-only."
+        "Refresh other running conversations and their shared worktrees, tracker claims, Git change counts and writer queues. Supply a project-relative file or directory `path` before editing or staging to check which trees have changes in that scope. Git state does not identify a conversation's authorship; inspect Git diffs for details. Read-only."
             .into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({"type": "object", "properties": {}, "additionalProperties": false})
+        serde_json::json!({"type": "object", "properties": {
+            "path": {"type": "string", "description": "Project-relative file or directory to check across active worktrees; omit for a compact overview."}
+        }, "additionalProperties": false})
     }
 
     async fn execute(
         &self,
-        _input: serde_json::Value,
+        input: serde_json::Value,
         ctx: &kanzei_harness::ToolCtx,
     ) -> kanzei_harness::ToolOutput {
+        let query = match StatusQuery::parse(input) {
+            Ok(query) => query,
+            Err(error) => return kanzei_harness::ToolOutput::error(error),
+        };
         let lines = self.probe.active_others();
+        let mut snapshot = model_snapshot(
+            &self.probe.origin_project.to_string_lossy(),
+            &lines,
+            query.path.as_deref(),
+        );
         let children = ctx
             .session_id
             .as_deref()
@@ -688,17 +682,10 @@ impl Tool for CollaborationStatusTool {
                 "id":job.id,"name":job.name,"role":job.role,"state":job.state,"worktree":job.worktree,
                 "latest":job.latest.chars().take(400).collect::<String>(),"files":job.files.iter().take(32).collect::<Vec<_>>()
             })).collect();
-            return kanzei_harness::ToolOutput::ok(
-                serde_json::json!({"lines":lines,"children":children}).to_string(),
-            )
-            .with_display(serde_json::json!({"lines":lines,"children":children}));
+            snapshot["children"] = serde_json::json!(children);
         }
-        if lines.is_empty() {
-            kanzei_harness::ToolOutput::ok("No other line is currently running in this project.")
-        } else {
-            kanzei_harness::ToolOutput::ok(render_lines("Live collaboration status", &lines))
-                .with_display(serde_json::json!({"lines": lines}))
-        }
+        kanzei_harness::ToolOutput::ok(render_lines("Live collaboration status", &snapshot))
+            .with_display(snapshot)
     }
 }
 
@@ -707,6 +694,159 @@ mod tests {
     use super::*;
     use crate::{ensure_default_process, process_session_id, runtime_for, AppState, ProcessHandle};
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    fn fixture_line(id: &str, tree: Option<&str>, files: Vec<String>) -> CollaborationLine {
+        CollaborationLine {
+            process_id: id.into(),
+            label: id.into(),
+            branch: "dev".into(),
+            worktree_path: tree.map(str::to_owned),
+            claim: "R-184".into(),
+            claim_error: None,
+            phase: "请求".into(),
+            current_tool: None,
+            running: true,
+            status: "running".into(),
+            status_error: None,
+            event_idle_ms: None,
+            worktree_idle_ms: None,
+            steps: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            changed_files: files,
+            changed_files_error: None,
+            writer_run_id: Some("writer".into()),
+            waiting_writers: vec!["waiter".into()],
+        }
+    }
+
+    #[test]
+    fn collaboration_context_does_not_expand_worktree_file_inventory() {
+        let files = (0..5_000)
+            .map(|index| {
+                format!(
+            ".kanzei/tmp/release-plan/snapshot/crates/component/src/very_long_file_name_{index}.rs"
+        )
+            })
+            .collect::<Vec<_>>();
+        let lines = vec![
+            fixture_line("p1", None, files.clone()),
+            fixture_line("p2", None, files),
+        ];
+        let snapshot = model_snapshot("project", &lines, None);
+        let rendered = render_lines("COLLABORATION", &snapshot);
+        assert!(
+            !rendered.contains("very_long_file_name_"),
+            "resident context expanded {} characters of worktree paths",
+            rendered.chars().count()
+        );
+        assert_eq!(snapshot["worktrees"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["worktrees"][0]["changed_file_count"], 5_000);
+        assert_eq!(
+            snapshot["lines"][0]["worktree"],
+            snapshot["lines"][1]["worktree"]
+        );
+        let mut renamed = lines;
+        for line in &mut renamed {
+            line.changed_files = (0..5_000).map(|index| format!("short{index}.rs")).collect();
+        }
+        assert_eq!(
+            rendered,
+            render_lines("COLLABORATION", &model_snapshot("project", &renamed, None)),
+            "inventory path lengths must not affect resident context size"
+        );
+        eprintln!(
+            "compact collaboration fixture: {} characters",
+            rendered.chars().count()
+        );
+    }
+
+    #[test]
+    fn model_snapshot_groups_worktrees_and_keeps_failed_queries_unknown() {
+        let main = fixture_line("p1", None, vec!["src/shared.rs".into()]);
+        let mut branch = fixture_line("p2", Some("branch-tree"), vec!["src/shared.rs".into()]);
+        branch.changed_files_error = Some("Git inventory unavailable".into());
+        branch.claim_error = Some("Tracker unavailable".into());
+        let snapshot = model_snapshot("main-tree", &[main, branch], Some("src"));
+        let trees = snapshot["worktrees"].as_array().unwrap();
+        assert_eq!(trees.len(), 2);
+        assert_eq!(trees[0]["path"], "main-tree");
+        assert_eq!(trees[0]["path_changed"], true);
+        assert_eq!(trees[0]["writer_run_id"], "writer");
+        assert_eq!(trees[0]["waiting_writers"], serde_json::json!(["waiter"]));
+        assert!(
+            trees[1]["path_changed"].is_null(),
+            "an unreadable tree cannot establish absence of changes"
+        );
+        assert_eq!(trees[1]["changed_files_error"], "Git inventory unavailable");
+        assert_eq!(trees[1]["claim_error"], "Tracker unavailable");
+        assert!(!snapshot.to_string().contains("src/shared.rs"));
+    }
+
+    #[test]
+    fn scoped_query_covers_committed_renames_and_shared_uncommitted_changes() {
+        let owned = kanzei_base::test_support::TestDir::new("kz-collaboration-scope-");
+        let main = owned.join("main");
+        let branch = owned.join("branch");
+        std::fs::create_dir(&main).unwrap();
+        run_git(&main, &["init"]);
+        std::fs::write(main.join("seed.rs"), "seed").unwrap();
+        run_git(&main, &["add", "seed.rs"]);
+        let commit = [
+            "-c",
+            "user.name=Kanzei Test",
+            "-c",
+            "user.email=test@kanzei.local",
+            "commit",
+            "-m",
+            "fixture",
+        ];
+        run_git(&main, &commit);
+        run_git(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "query-branch",
+                branch.to_str().unwrap(),
+            ],
+        );
+        run_git(&branch, &["mv", "seed.rs", "renamed.rs"]);
+        run_git(&branch, &commit);
+        std::fs::write(main.join("seed.rs"), "main change").unwrap();
+        std::fs::write(branch.join("untracked.rs"), "new file").unwrap();
+        let (main_files, main_error) = changed_files(&main, &main, false);
+        let (branch_files, branch_error) = changed_files(&main, &branch, true);
+        assert!(main_error.is_none() && branch_error.is_none());
+        assert_eq!(main_files, ["seed.rs"]);
+        assert_eq!(branch_files, ["renamed.rs", "seed.rs", "untracked.rs"]);
+        let main_root = main.to_string_lossy();
+        let branch_root = branch.to_string_lossy();
+        let lines = [
+            fixture_line("p1", None, main_files.clone()),
+            fixture_line("p2", None, main_files),
+            fixture_line("p3", Some(&branch_root), branch_files),
+        ];
+        for (path, expected) in [
+            ("seed.rs", [true, true]),
+            ("renamed.rs", [false, true]),
+            ("untracked.rs", [false, true]),
+            ("absent.rs", [false, false]),
+        ] {
+            let snapshot = model_snapshot(&main_root, &lines, Some(path));
+            let trees = snapshot["worktrees"].as_array().unwrap();
+            assert_eq!(
+                trees.len(),
+                2,
+                "shared conversations must reference one tree"
+            );
+            for (tree, expected) in trees.iter().zip(expected) {
+                assert_eq!(tree["path_changed"], expected, "{path}: {snapshot}");
+            }
+        }
+        owned.close().unwrap();
+    }
 
     #[test]
     fn 泳道状态机按进程事件和工作树进展判定() {
@@ -1116,7 +1256,12 @@ mod tests {
             "认领条目必须来自 tracker 取得线:{first}"
         );
         assert!(first.contains("kanzei/thread-r184"), "{first}");
-        assert!(first.contains("first.rs"), "{first}");
+        assert!(!first.contains("first.rs"), "{first}");
+        let first_count = other_line.changed_files.len();
+        assert!(
+            first.contains(&format!("\"changed_file_count\":{first_count}")),
+            "{first}"
+        );
         assert!(
             snapshot
                 .stable_system_baseline_with_report()
@@ -1131,7 +1276,11 @@ mod tests {
             .refreshable_system_baseline_with_report()
             .unwrap()
             .0;
-        assert!(refreshed.contains("first.rs") && refreshed.contains("second.rs"));
+        assert!(!refreshed.contains("first.rs") && !refreshed.contains("second.rs"));
+        assert!(
+            refreshed.contains(&format!("\"changed_file_count\":{}", first_count + 1)),
+            "{refreshed}"
+        );
         assert_eq!(
             refreshed.matches("COLLABORATION").count(),
             1,
@@ -1155,7 +1304,35 @@ mod tests {
             )
             .await;
         assert!(!output.is_error, "{}", output.content);
-        assert!(output.content.contains("second.rs"), "{}", output.content);
+        assert!(!output.content.contains("second.rs"), "{}", output.content);
+        let scoped = tool
+            .execute(
+                serde_json::json!({"path": "second.rs"}),
+                &kanzei_harness::ToolCtx::new(canonical.clone(), canonical.clone()),
+            )
+            .await;
+        assert!(!scoped.is_error, "{}", scoped.content);
+        assert_eq!(
+            scoped.display.as_ref().unwrap()["worktrees"][0]["path_changed"],
+            true
+        );
+        let absent = tool
+            .execute(
+                serde_json::json!({"path": "absent.rs"}),
+                &kanzei_harness::ToolCtx::new(canonical.clone(), canonical.clone()),
+            )
+            .await;
+        assert_eq!(
+            absent.display.as_ref().unwrap()["worktrees"][0]["path_changed"],
+            false
+        );
+        let invalid = tool
+            .execute(
+                serde_json::json!({"path": "../outside.rs"}),
+                &kanzei_harness::ToolCtx::new(canonical.clone(), canonical.clone()),
+            )
+            .await;
+        assert!(invalid.is_error);
 
         current_runtime.running.store(false, Ordering::SeqCst);
         other_runtime.running.store(false, Ordering::SeqCst);

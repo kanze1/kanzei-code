@@ -48,11 +48,16 @@ try {
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js");
     shell.setRunning(true);
+    document.querySelector("#delivery-select").value = "queue";
+    window.__kzPreview.setCommand("run_prompt", () => null);
   });
   const callsBefore = await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length);
   await page.locator("#send").click(); await settle();
-  check(await page.locator("#prompt").inputValue() === prompt && await page.locator('#attachments [data-kind="sheet"]').count() === 1, "Busy attachment send preserves the full draft and file");
-  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length) === callsBefore, "Unsupported attachment queue is stopped before submission");
+  await page.waitForFunction(before => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length > before, callsBefore);
+  await page.waitForFunction(() => document.querySelector("#prompt").value === "" && document.querySelectorAll('#attachments [data-kind="sheet"]').length === 0);
+  const queued=await page.evaluate(() => window.__kzPreview.calls.findLast(c=>c.cmd==="run_prompt")?.args);
+  check(queued?.delivery === "queue" && queued.attachments?.[0]?.file_name === "budget.xlsx" && queued.attachments[0].data.length>0, "A running conversation queues the original Excel attachment through the real composer request");
+  check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").length) === callsBefore+1 && await page.locator("#prompt").inputValue() === "" && await page.locator('#attachments [data-kind="sheet"]').count() === 0, "Successful attachment admission clears the draft exactly once");
   await page.evaluate(async () => {
     const f = await window.__kzPreview.fixtures();
     for (const p of f.state.processes) p.running = false;
@@ -62,13 +67,16 @@ try {
     window.__kzPreview.setCommand("run_prompt", () => null);
   });
   await settle();
+  await page.locator("#attachment-input").setInputFiles("tests/fixtures/attachments/budget.xlsx");
+  await page.locator('#attachments [data-kind="sheet"]').waitFor();
+  await page.locator("#prompt").fill(prompt);
   await page.locator("#send").click(); await settle();
   const sent=await page.evaluate(() => window.__kzPreview.calls.findLast(c=>c.cmd==="run_prompt")?.args);
   check(sent?.attachments?.[0]?.file_name === "budget.xlsx" && sent.attachments[0].data.length>0, "Excel bytes are included in the real composer request");
   check(await page.locator('.msg.user .message-attachment [data-kind="sheet"]').count()>0, "Sent attachments retain their type icon");
   check(await page.locator('.msg.user a[href="https://github.com/kanzei/example"] [data-kind="git"]').count()>0, "User messages contain clickable Git links and icons");
   check(!await page.locator("#composer-links").isVisible(), "Sending clears link previews with the draft");
-  await page.locator('.msg.user a[href="https://github.com/kanzei/example"]').click(); await settle();
+  await page.locator('.msg.user a[href="https://github.com/kanzei/example"]').last().click(); await settle();
   check(await page.evaluate(() => window.__kzPreview.calls.filter(c=>c.cmd==="preview_open" && c.args.target==="https://github.com/kanzei/example").length) === 2, "Clicking the sent repository link also opens the preview");
   await page.locator("#preview-close").click(); await settle();
   const types=await page.evaluate(async () => {

@@ -659,9 +659,6 @@ pub(crate) fn schedule_run(
             // 气泡读的都是这一份文字,所以归一在准入点做一次,不在四处各写一遍。
             let prompt = attribute_engine_round(engine_round, prompt);
             if runtime.running.load(Ordering::SeqCst) {
-                if attachments.as_ref().is_some_and(|items| !items.is_empty()) {
-                    return Err("当前任务运行中不能排队附件，请等待本轮完成后再发送".into());
-                }
                 // 自动续跑的重复事件可能在窗口关闭/重开或事件重放后再次到达；
                 // 同文案的 pending 输入只保留一份。手动发送仍允许重复排队。
                 if autonomous
@@ -675,6 +672,7 @@ pub(crate) fn schedule_run(
                     &project_dir,
                     &session_id,
                     &prompt,
+                    attachments.unwrap_or_default(),
                     delivery,
                     execution_batch || autonomous,
                     work_item_id.as_deref(),
@@ -1069,6 +1067,7 @@ mod tests {
             &root_text,
             &session_id,
             "apply the reviewed correction",
+            Vec::new(),
             kanzei_core::Delivery::Queue,
             false,
             None,
