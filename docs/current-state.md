@@ -1,6 +1,6 @@
 # Kanzei 当前实现与文档口径
 
-合同导航更新于 2026-10-22。实现以当前源码和 Cargo 清单为准；验证与发布状态读取绑定到相应提交的机器回执，本页不替代执行证据。
+合同导航更新于 2026-10-23。实现以当前源码和 Cargo 清单为准；验证与发布状态读取绑定到相应提交及工作树的机器回执，本页不替代执行证据。文档总入口见 [README](README.md)，模块所有权见 [结构地图](structure-map.md)。
 
 ## 当前产品与运行合同
 
@@ -14,6 +14,16 @@ Skills 由全局 catalog 提供，启用技能正文按需读取；项目目录�
 
 ## 约束与工作范围
 
+以下能力已经有实现入口，不能再按早期报告中的“尚未接线”重复立项：
+
+| 能力 | 当前实现口径与入口 |
+| --- | --- |
+| 项目知识与记忆 | 项目概览、按区域展开、修订绑定的采用/纠正反馈、保留与可恢复归档，以及冻结对话来源的做梦候选；见 [记忆反馈合同](design/memory_feedback_reliability.md)。收益须用真实任务验证 |
+| 浏览器与原生控制 | 本地 CDP 连接、页面/iframe 身份、语义表单动作和渲染正文存证已有入口；浏览器与原生窗口分别验收，见 [浏览器合同](design/preview_pane.md) |
+| 交付账本 | finalize 写 deliver，reconciliation 已消费条目的账本路径；四态真实实例等剩余验收仍看 R-353，见 [账本合同](design/tracker_evidence_ledger.md) |
+
+下一阶段的候选方向与评估方法见 [10 月 23 日优化调研](reports/2026-10-23-optimization-research.md)。该报告是建议，不自动改变活动需求、依赖或完成状态。
+
 [当前约束](design/current_contracts.md) 导航项目规范、正式决策、动态验证策略和专题真源。[设计身份索引](../.kanzei/project/architecture/README.md) 区分现行设计、已验证设计、历史快照和替代关系。历史报告、原型以及归档条目的旧待办不自动生成当前任务或依赖。
 
 活动需求和缺陷以 `.kanzei/project/requirements.md`、`defects.md` 为准；退役条目的原文、未完成验收和关闭原因保留在相应归档。当前需求的已完成前置转为 `refs`，只保留仍未满足的技术依赖；真实设备/SSH 待验收与未实现开发分别保留。
@@ -22,6 +32,8 @@ Skills 由全局 catalog 提供，启用技能正文按需读取；项目目录�
 
 2026-10-03 至 10-04 的 WB1–WB6 逐文件审查属于截至点记录，见 [WB6 报告](reviews/file-audit-2026-10-03/WB6-delivery-activity.md) 与 [工作区验收](reviews/2026-10-04-ui-information-architecture/production-acceptance.md)。其中的文件数、下一包、待合并分支和安装进度不描述今天的排期。
 
-本轮清理范围和验证结果见 [约束与需求清理记录](reports/2026-10-20-constraints-and-backlog-cleanup.md)。真实链路、安装发布和研究收益分别按专题证据记录。
+约束和活动范围的前次整理见 [10 月 20 日清理记录](reports/2026-10-20-constraints-and-backlog-cleanup.md)；本次入口、过时口径和历史记录整理见 [10 月 23 日文档维护记录](reports/2026-10-23-documentation-maintenance.md)。真实链路、安装发布和研究收益分别按专题证据记录。
 
 运行装配由 `kanzei-runtime` 统一提供，CLI 与桌面直接依赖 `kanzei-memory`。`kanzei-tools` 提供能力，core 的存储实现模块不对外开放。贡献、测试隔离和历史保留规则见 [CONTRIBUTING.md](../CONTRIBUTING.md)。
+
+验证与发布门禁只在本地执行，不新增、启用或运行 GitHub Actions CI。定向回执、最终干净提交的全量回执、安装版验收分别记录，不能互相替代；流程见 [本地验证与发布证据链](design/ci_release_evidence_chain.md)。

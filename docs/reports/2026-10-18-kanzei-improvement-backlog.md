@@ -1,4 +1,19 @@
-# Kanzei 待处理问题与验收清单
+# Kanzei 10 月 18 日问题观察与验收条件（历史记录）
+
+本文保存原始问题和后续复核，不作为当前待办队列。活动状态以 [需求](../../.kanzei/project/requirements.md)、[缺陷](../../.kanzei/project/defects.md) 为准；当前能力见 [实现口径](../current-state.md)，下一步候选方向见 [10 月 23 日调研](2026-10-23-optimization-research.md)。下文日期内的“当前”“缺口”“未找到”仅指对应核对时点。
+
+## 2026-10-23 文档对账
+
+| 原始条目 | 现有实现及剩余证据边界 |
+| --- | --- |
+| BRO-01/02/03/04 | 已有 select/check/upload/validate、本地 CDP connect/pages/frames 和 connection/page/URL/frame 身份；面板路由按活性与归属，隐藏不再触发切换。见 [浏览器合同](../design/preview_pane.md)。完整表单、真实面板和外部登录态仍按场景分别验收 |
+| MEM-01/02 | 已有机会记录、修订绑定的采用/纠正/撤销反馈、冷记忆保留、隔离归档与恢复；见 [记忆反馈合同](../design/memory_feedback_reliability.md)。实际任务收益与误退役率仍需测量 |
+| MEM-03/04/05 | 已有对话做梦入口、冻结来源与 hash、说话人和证据片段、待复核候选及整理作业。不能再按“缺少做梦入口”立项，也不能从代码存在推导长期偏好提炼准确率 |
+| WEB-03 | 已有研究归属、来源工件与内容 hash，浏览器 source 可保存渲染正文；见 `browser_tool/source.rs`、`web_refs.rs` 与 `research_verify.rs`。来源完整性和引用语义正确性分别验收 |
+
+10 月 22 日已核对的 8 项保留在下一节。本次没有重做其余安全审计，也没有把这 27 项批量关闭；原验收条件继续作为历史追溯依据，当前排期不再复制文末原实施顺序。
+
+## 2026-10-18 原始范围
 
 整理日期：2026-10-18。代码基线：8d479de1。范围包括已认可的四个问题、安全审计、网页搜索审查、浏览器填表、记忆升降级与对话做梦。
 
@@ -21,7 +36,7 @@
 | WEB-04 | 已区分 challenge、页面形状失配与正常零结果：同文件 `a_changed_html_layout_is_not_evidence_of_zero_search_results`、`each_query_attempt_is_explicit_and_captcha_is_not_empty_success`。 |
 | WEB-05 | 已阻止 JS 空壳、登录页、挑战页冒充已读正文，并保留原始响应、正文状态和浏览器/原始 API 后续路径：`crates/kanzei-tools/src/web_content.rs`、`webfetch.rs` 的 `unreadable_html_is_not_evidence_and_numbered_preview_resumes_from_cache`。上述用例不代表真实受限站点已取到正文。 |
 
-## 已有能力与实际缺口
+## 2026-10-18 的能力与缺口观察
 
 ### 浏览器填表已有基础
 
@@ -114,7 +129,7 @@ RUN-03 的根因定位指向成功收尾未同步 LiveRun.last_outcome，而协�
 
 做梦应提炼能帮助后续任务的具体知识。例如“网页偏好简洁排版、不要卡片堆砌”“长实验启动前先做教师资格验证”“这个项目的 CLI 和桌面端共用某个入口”。一次性的“这张图用红色”应保留原任务范围，除非用户明确把它提升为长期偏好。
 
-## 建议实施次序
+## 2026-10-18 的原实施建议（已由后续调研替代）
 
 1. 先修当前正确性与范围问题：RUN-01/02/03、SEC-01/02/06、WEB-01；同时用 RUN-04 统一交付事实。
 2. 再完成用户直接感知的流程：BRO-01/03 的内部面板和受控 Edge 填表，BRO-02 的现有 Edge 接管；MEM-01/02/04 提供记忆依据后，完成 MEM-03 做梦按钮并通过 MEM-05 展示结果。

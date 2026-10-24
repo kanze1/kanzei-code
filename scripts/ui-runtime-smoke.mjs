@@ -11859,7 +11859,7 @@ const docsB = {
       const applied = chatNs.applyRecoveredToolDurations([{ events: [{ id: "HG4L-BASH", kind: "tool.completed", ok: true, durationMs: 12300 }] }]);
       assert(applied === 1 && historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent === "⎿ 退出码 0 · 12.3s · 3 通过",
         `applyRecoveredToolDurations 未给历史 bash 行补上耗时:"${historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent}"`);
-      assert(/renderRecoveredTraces\(traces\);\r?\n\s*applyRecoveredToolDurations\(traces\);/.test(source), "loadConversation 未在轨迹回放后回填工具行耗时");
+      assert(/renderRecoveredTraces\((traces|toolTraces)\);\r?\n\s*applyRecoveredToolDurations\(\1\);/.test(source), "loadConversation 未在轨迹回放后回填工具行耗时");
 
       // ---------- 旧后端兼容:tool-end 只有 preview ----------
       const legacy = [

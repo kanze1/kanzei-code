@@ -1,8 +1,8 @@
 # Kanzei 当前约束
 
 - 身份：live_design
-- 日期：2026-10-20
-- 核对基线：df452a2cb79055ef7ce9b28a68bf989ba058fc23
+- 日期：2026-10-23
+- 核对范围：`dev` / `ea4f1560` 及当前未提交工作树；这是文档核对范围，不是全量验证或发布证明。
 - 关联需求：无；本页整理现有约束，不创建新的实施范围。
 - 关联缺陷：无
 - 关联决策：A-001、A-002、A-004、A-007、A-008、A-009、A-010
@@ -14,6 +14,7 @@ Kanzei 的当前约束按项目规则、正式决策和专题合同维护。旧�
 | 内容 | 真源与消费方式 |
 | --- | --- |
 | 用户当前任务与授权 | 当前对话；明确范围优先，已有授权继续有效 |
+| 仓库工程与贡献规则 | 根 [AGENTS.md](../../AGENTS.md) 与 [CONTRIBUTING.md](../../CONTRIBUTING.md)；本地验证、测试隔离、能力依赖和保留已发布历史 |
 | 开发行为 | `crates/kanzei-tools/src/profiles/dev_system.md` |
 | 项目规则的维护与来源 | `crates/kanzei-harness/assets/default_conventions.md` |
 | 仓库专用规则 | `.kanzei/project/conventions.md`；全量载入并刷新 |
@@ -35,9 +36,9 @@ Kanzei 的当前约束按项目规则、正式决策和专题合同维护。旧�
 | 项目知识与记忆 | [项目知识](project_knowledge.md)、[记忆系统](memory_system.md)、[记忆事实](memory_feedback_reliability.md) |
 | 当前界面 | [熟悉的工作区](familiar_workspace.md)、[对话呈现](chat_presentation_contract.md)、[弹层与框](ui_surface_stack.md) |
 | 全局 Skills | [全局 Skills](global-skills.md)；项目目录不参与发现，不按对话绑定正文 |
-| 文件与网页 | [文件编辑](files_editor.md)、[网页预览](preview_pane.md) |
+| 文件与网页 | [文件编辑](files_editor.md)、[浏览器合同](preview_pane.md)；原生软件控制的记录见 [独立验收报告](../reports/2026-10-19-native-control-experience.md) |
 | 研究与语音 | [研究合同](research_mode.md)、[实验运行](research_experiment_runner.md)、[本地语音](voice_interaction.md) |
-| 质量与发布 | [质量不变量](reliability_usability_self_hosting_quality.md)、[发布证据链](ci_release_evidence_chain.md) |
+| 质量与发布 | [质量不变量](reliability_usability_self_hosting_quality.md)、[本地验证与发布证据链](ci_release_evidence_chain.md) |
 
 源码和用途指纹读当前 `cwd`，项目 tracker、记忆与运行事实读主项目根。Markdown 保存治理目标和长期记忆，SQLite 保存原始运行事件，图和检索索引可重建；投影不能覆盖真源。权限与托管写入边界由代码执行。
 
@@ -51,12 +52,15 @@ Kanzei 的当前约束按项目规则、正式决策和专题合同维护。旧�
 
 验证等级 E0–E4 和研究证据等级 V0–V3 分别使用。语法检查、局部测试、真实交互、外部服务与安装发布各自留证。发布清单以 `scripts/verification-checks.json` 和 `verify-policy.mjs` 为准，公开发布必须满足最终提交的全量证据。
 
+按根工程规则，验证与发布门禁只在本地执行，不新增、启用或运行 GitHub Actions CI。修改后运行 `scripts/verify.ps1` 选择受影响检查；发布前在最终干净提交运行 `scripts/verify.ps1 -Full`。pass、ignored、未执行分别报告。
+
 开发依赖按真实调用方维护。React 仅用于浏览器表单验收夹具；它不是正式 UI 框架依赖。本地验证环境、证据和安装器按 `scripts/artifact-lifecycle.mjs` 回收；安装器在发布与安装验收后保留当前及上一版。
 
 ## 变更记录
 
 - 2026-10-20：统一规则导航与专题所有权，明确退役、历史依赖、Skills 作用域和本地产物保留。
+- 2026-10-23：补齐根工程规则和本地门禁优先级，更新浏览器、记忆与账本的专题入口；旧记录仍按原日期解释。
 
 ## 验证证据
 
-规则装配见 `crates/kanzei-tools/src/profiles/dev.rs` 的 conventions、decisions、design-index 和 verification-policy 上下文源。设计身份由 `node scripts/check-design-freshness.mjs` 校验；本轮具体变更和验证结果见 `docs/reports/2026-10-20-constraints-and-backlog-cleanup.md`。
+规则装配见 `crates/kanzei-tools/src/profiles/dev.rs` 的 conventions、decisions、design-index 和 verification-policy 上下文源。设计时效命令 `node scripts/check-design-freshness.mjs` 校验已提交树；未提交正文与索引还需工作副本核对。本次范围和验证入口见 [文档维护记录](../reports/2026-10-23-documentation-maintenance.md)。

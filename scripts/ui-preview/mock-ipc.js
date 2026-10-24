@@ -97,7 +97,33 @@
     toJSON() { return `__CHANNEL__:${this.id}`; }
   }
 
+  // Native window lifetime is explicit in preview: actions are recorded, close
+  // listeners can prevent closure, and no browser tab or user window is closed.
+  const windowCalls = [], closeHandlers = new Set(), resizeHandlers = new Set();
+  const windowState = { maximized: false, minimized: false, closed: false };
+  const recordWindow = action => { windowCalls.push(action); };
+  const previewWindow = {
+    label: "main",
+    async isMaximized() { return windowState.maximized; },
+    async minimize() { recordWindow("minimize"); windowState.minimized = true; },
+    async toggleMaximize() {
+      recordWindow("toggleMaximize"); windowState.maximized = !windowState.maximized;
+      for (const handler of resizeHandlers) handler({ payload: { width: innerWidth, height: innerHeight } });
+    },
+    async startDragging() { recordWindow("startDragging"); },
+    async onResized(handler) { resizeHandlers.add(handler); return () => resizeHandlers.delete(handler); },
+    async onCloseRequested(handler) { closeHandlers.add(handler); return () => closeHandlers.delete(handler); },
+    async close() {
+      recordWindow("close");
+      let prevented = false;
+      const event = { preventDefault() { prevented = true; } };
+      for (const handler of closeHandlers) await handler(event);
+      if (!prevented) windowState.closed = true;
+    },
+  };
+
   window.__TAURI__ = {
+    window: { getCurrentWindow: () => previewWindow },
     core: { invoke, Channel, transformCallback: (fn) => fn },
     event: {
       listen,
@@ -126,6 +152,7 @@
   const readyPromise = new Promise((resolve) => { markReady = resolve; });
   const api = {
     scene, theme, params, calls, emit, settle, readyPromise, ready: false,
+    windowCalls, windowState,
     unknown: () => [...unknown],
     listeners: () => [...listeners.keys()],
     setCommand: (cmd, value) => overrides.set(cmd, value),

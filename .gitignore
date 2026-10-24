@@ -53,3 +53,10 @@ output/
 
 # Review writer locks are local coordination handles.
 docs/reviews/*.lock
+
+# Local coordination and temporary checkouts are not source inputs.
+.kanzei/runtime/
+.kanzei/tmp/
+.kanzei/.write-log/
+docs/**/*.lock
+/.release-*/

@@ -1,4 +1,5 @@
 import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
+import { renderTurnReceipt } from "./05-turn-receipts.js";
 import { defer } from "./00-dom.js";
 import { writeClipboardText } from "./00-clipboard.js";
 import { eventSubscriptionState, onEventSubscriptionChange, restoreEventSubscriptions } from "./00-event-subscriptions.js";
@@ -43,7 +44,7 @@ import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
 import { previewNoteToolEnd } from "./24-preview.js";
 import { autoRounds } from "./08-auto.js";
 import { $ } from "./00-dom.js";
-import { activePane, messages, promptBox, trimLivePane } from "./01-chat-panes.js";
+import { activePane, appendToPane, messages, promptBox, trimLivePane } from "./01-chat-panes.js";
 import { isImeComposing } from "./00-ui-primitives.js";
 import { on } from "./01-runtime-events.js";
 import { invoke } from "./00-ipc.js";
@@ -724,6 +725,7 @@ defer(() => {
 });
 
 defer(() => {
+  on("kz:turn-elapsed", (e) => { renderTurnReceipt(e.payload, activePane, appendToPane); });
   on("kz:done", async (e) => {
     const p = e.payload;
     const outcome = p.outcome || (p.halted ? "halted" : "completed");
@@ -748,6 +750,8 @@ defer(() => {
       "notice turn-end",
       `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? ` · ${endReason}` : ""}`
     );
+    const receipt = renderTurnReceipt(p, activePane, appendToPane);
+    if (receipt) activePane?.append(receipt);
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
     log(`${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}: ${p.steps} ${t("轮")}${duration}`);

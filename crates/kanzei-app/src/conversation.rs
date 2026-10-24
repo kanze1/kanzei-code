@@ -7,6 +7,8 @@ use serde_json::json;
 use tauri::State;
 
 use crate::{normalized_project_root, process_session_id, runtime_for, AppState};
+#[path = "conversation_timing.rs"]
+pub(crate) mod timing;
 
 #[tauri::command]
 pub(crate) fn conversation_clear(
@@ -395,11 +397,13 @@ pub(crate) fn conversation_trace_get(
         .map(|event| event.sequence)
         .next_back()
         .unwrap_or(0);
-    Ok(events
+    let mut traces: Vec<_> = events
         .into_iter()
         .filter(|event| event.sequence > segment_start && event.sequence <= limit)
         .map(|event| event.payload)
-        .collect())
+        .collect();
+    traces.extend(timing::load(&store, &session_id, segment_start, limit)?);
+    Ok(traces)
 }
 
 #[tauri::command]

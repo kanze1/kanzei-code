@@ -13,7 +13,9 @@
 
 - [identity: live_design; last_verified_commit: 172f4f02] [`recursive_goal_development.md`](../../../docs/design/recursive_goal_development.md)：长期维护与开发模式、递归工作节点、依赖、证据与逐层验收；提交号锚定实现，完整门禁以最终发布回执为准。
 
-- [identity: live_design; last_verified_commit: df452a2c] [`current_contracts.md`](../../../docs/design/current_contracts.md)：当前规则来源、专题所有权、历史退役和依赖边界；只导航现行合同，不增加实施范围。
+- [identity: live_design; last_verified_commit: c0ea88d] [`ci_release_evidence_chain.md`](../../../docs/design/ci_release_evidence_chain.md)：本地验证与发布证据链：定向工作树回执、最终干净提交全量回执与安装验收分别记录；根工程规则禁用 GitHub Actions CI。旧提交号保留历史验证锚点，当前正文为 live_design。
+
+- [identity: live_design; last_verified_commit: df452a2c] [`current_contracts.md`](../../../docs/design/current_contracts.md)：当前规则来源、根工程约束、专题所有权、历史退役与依赖边界；验证和发布门禁仅在本地执行，不增加实施范围。
 
 - [identity: live_design; last_verified_commit: b97f8a2e] [`async_conversation_terminal_callbacks.md`](../../../docs/design/async_conversation_terminal_callbacks.md)：异步邮箱、前台终端移交、会话所有权与完成回调契约。实现已随 build-46e2e63a 及后续 build-b97f8a2e 发布，并于 2026-10-17 合入 dev；正文保留 2026-10-07 原生验收记录，本次整理未重跑原生验收。
 
@@ -54,8 +56,8 @@
 
 - [identity: live_design; last_verified_commit: 788dc43e] [`voice_interaction.md`](../../../docs/design/voice_interaction.md)：本机语音识别、流式播报、插话打断、人物嘴型与安装验证边界。
 - [identity: live_design; last_verified_commit: 64953559] [`files_editor.md`](../../../docs/design/files_editor.md)：文件页编辑与可拖拽伸缩——统一路径解析 resolve_in_root(词法拒绝 + 真实路径包含)、只读策略(.git / 托管 / 内部状态 / 二进制 / 超 4MB / 非 UTF-8)、BOM 与换行保真、file_stat / file_write 按内容指纹比较并交换与覆盖留证(quarantine files-overwrite)、写日志供跨树围栏吸收用户手改;前端保存 / 脏标记 / 冲突横幅(比较 / 用磁盘版本 / 覆盖)/ 外部改动轮询 / 切项目草稿 / 新建文件 / 按行定位,文件树分隔条沿用 installSplit 与 ui_layout(UI2-0926 #6)。
-- [identity: live_design; last_verified_commit: 9a58d093] [`preview_pane.md`](../../../docs/design/preview_pane.md)：网页预览面板与 browser 双后端——Tauri 子 webview(add_child,tauri unstable)+ WebView2 进程内 CDP(不开调试端口);B0 规则(不抢焦点、共用主 webview 环境、活性回环、隐藏时不截图、设备模式 = 边界缩放 + set_zoom、DevTools 只给面板);unstable 副作用的补偿(主窗口子类化补回焦点归还与移动通知);导航闸拒 *.localhost 子域 / file: / javascript:(顶层与子框架都过闸,对照组证明必需);错误页只认主帧提交(按 loaderId 取错误码)、错误态只在导航开始时复位;127.0.0.1 token 静态服务(随机 root_id、根内判定、太宽的兜底根只给单文件、片段 LRU 且带 CSP 沙箱落到不透明源);browser 按面板可见性与绑定线路由(遮挡冻结短暂等待)、结果首行标 backend、截图只落 PNG 到 tool-images 并以 [tool-image] 行回显;权限分级(本机 / 本地文件 / 片段放行,外网 Ask);主界面(重新)加载时收面板、批注后只在前台时把焦点还给主界面;IPC 契约与剩余人工验收(UI2-0926 #8)。
-- [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆观测、恢复证据与信息呈现改造(R-361；568adcc8 为审计基线，首批代码在工作树完成定向验证，收益对照与任务上下文改造待推进)。
+- [identity: live_design; last_verified_commit: 9a58d093] [`preview_pane.md`](../../../docs/design/preview_pane.md)：浏览器现行合同：pane/headless/attached 执行面、归属与页面身份、语义表单、渲染正文存证、本地资源权限与浮动面板；隐藏不转移页面身份。旧布局、路由和试验记录移至 2026-10-23-preview-pane-history 报告。
+- [identity: live_design; last_verified_commit: 568adcc8] [`memory_feedback_reliability.md`](../../../docs/design/memory_feedback_reliability.md)：记忆机会与使用观测、修订绑定的采用/纠正反馈、保留与可恢复归档、冻结对话来源的做梦及待复核候选；收益与真实交互分别验证。正文保留 2026-09-06 历史实施记录。
 
 - [identity: live_design; last_verified_commit: 02342e17] [`agent_visualization_tools.md`](../../../docs/design/agent_visualization_tools.md)：Agent 绘图工具统一设计草案(R-335；架构图与 research 科学图表 API、验证、产物和迁移边界；架构图一侧 2026-09-26 已定为 Mermaid 默认、节点可点击,见 architecture_diagrams.md,科学图表的引擎组合仍待用户评审)。
 
@@ -84,7 +86,6 @@
 ## validated_design
 
 - [identity: validated_design; last_verified_commit: 5c9e1df] [`architecture_browser.md`](../../../docs/design/architecture_browser.md)：R-122 架构浏览的交付与历史选型；classic script 为旧方案，当前 ESM 与 Mermaid 见 architecture_diagrams.md。
-- [identity: validated_design; last_verified_commit: c0ea88d] [`ci_release_evidence_chain.md`](../../../docs/design/ci_release_evidence_chain.md)：CI 与发布证据链——本地全量门禁与 commit 锚定；CI 当前手动 workflow_dispatch，原自动 push 承诺已校正。
 - [identity: validated_design; last_verified_commit: e791536] [`continue_prompt_dissection.md`](../../../docs/design/continue_prompt_dissection.md)：继续文案拆解与鞭挞引擎化——实施前拆解与 R-128/R-157/R-169/R-170 交付映射。
 - [identity: validated_design; last_verified_commit: e791536] [`deep_parallel_dev.md`](../../../docs/design/deep_parallel_dev.md)：任务级并行基线——一线一 worktree、diff/合并/恢复与模型隔离(R-177/R-178/R-179/R-182 done)。
 

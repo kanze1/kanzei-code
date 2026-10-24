@@ -7,6 +7,8 @@
 
 2026-10-06 项目知识重组：层级、关联与按需上下文现以 [project_knowledge.md](project_knowledge.md) 为准。记忆仍以 Markdown 为真源，图投影参与模块上下文选择；下文旧平铺 INDEX 常驻注入和 scope×category 概览卡片已退役。项目约束和经验默认写 project，保留来源与旧档案。
 
+2026-10-23 口径核对：更新读取/草稿/管理职责、机会与反馈、轮末采集和保留入口；历史工程决策仍按原日期保留。现行事实与验证边界见 [记忆反馈合同](memory_feedback_reliability.md)。
+
 2026-10-07 清理与加载优化：移除无调用的偏好 upsert 辅助模块，工作优先级使用现有控制状态。模块上下文先加载相关契约和完整正文，再加载用途摘要；任务检索不再排除 preference。项目中的重复、失效和错误恢复经验通过归档退役，原文与来源保留。清理与探索对照见 [本次报告](../reports/2026-10-07-memory-cleanup.md)。
 
 ## 0. 定调(用户拍板的决策记录,后续不再重议)
@@ -76,32 +78,27 @@ refs: R-070 D-200       # R-070 来源引用(可选):空格分隔的引用 ID �
 - `memory_merge(ids, merged)` — 合并重复,被并条目自动 deprecated 并在墓碑里链到新条目;
 - `memory_stale(id, reason)` — 失效标记,写入 deprecated/invalid 墓碑并归档；旧 stale 名称只作兼容输入;
 - `memory_search(query, scope?, category?, status?)` — FTS5 BM25 + 可选 dense/hybrid 第二通道,lexical 依 BM25、通道权重和条目状态排序，dense/hybrid 采用独立相似度与 RRF；读取/注入不作为采纳率加权;
-- `memory_stats()` — 各 scope/category 计数、召回/采纳漏斗、价值画像与 candidate 清退候选;
+- `memory_stats()` — 各 scope/category 计数、检索机会、召回/注入/正文读取观测与 candidate 清退候选；采用和收益需独立证据，缺失值不记为零;
 - `memory_inbox_clear` / `memory_inbox_discard` — 按批或按指纹销账 inbox,不静默清空。
 
-主 agent(dev/dev-pair/research)只拿 `memory_search` + 只读索引注入;**写路径全部走 memory-manager**——主 agent 通过一个轻量 `memory_note(草稿)` 工具投递候选,由管理子代理决定 ADD/UPDATE/MERGE/NOOP。写读分离,避免主 agent 顺手写出垃圾记忆。
+主 agent 通过 `memory_search` 与项目知识上下文读取经验，通过 `memory_note` 投递草稿；管理器负责归并候选。用户在记忆页的修订、反馈与归档走专用领域服务。对话做梦复用整理作业，只生成带来源的待复核候选，不把模型建议当作用户偏好。当前生命周期与来源合同见 [记忆反馈](memory_feedback_reliability.md)。
 
-## 4. 触发策略(什么时候管理记忆)
+## 4. 采集、整理与反馈入口
 
-| 触发点 | 动作 | 成本 |
-| --- | --- | --- |
-| 轮末收尾 | memory-manager 复盘本轮轨迹:生成 episode 摘要;对 note 草稿与轨迹中的"新知"做 ADD/UPDATE/NOOP | 每轮一次 fast 调用 |
-| 条目关闭(defect fixed / req done) | 根因→fact 候选;重复出现的操作序列→sop 候选 | 随轮末合并 |
-| 用户显式 | 「记住这个」指令 / UI 按钮 → 直接投递 note | 零 |
-| 空闲整理(手动,可关) | 桌面端「一键整理」按钮:按当前生命周期与证据规则处理 candidate 并保留归档；不凭零读取/零注入推断无价值;积压进入整理清单可复查——非 sleep-time 自动 | 用户触发 |
-| 上下文溢出 | 先把被裁剪段压成 episode 再重置(与 D-088 联动),轨迹不再无声蒸发 | 溢出时一次 |
-| 体积阈值 | 某 scope 条目数/体积超限 → 强制一轮整理 | 罕见 |
+轮末采集由 `kanzei-memory::memory::harvest_end_of_run` 提供共享入口，根据实际轨迹和完成条目投递 SOP/fact 草稿；纯查询轮不据此生成完成经验。草稿采集、模型整理和发布 active 是不同阶段，不能固定记作“每轮一次 fast 调用”。
+
+用户显式记忆请求进入 note 草稿，记忆页的整理与对话做梦使用当前作业入口。做梦从冻结来源提炼待复核候选；用户采用、纠正和撤销反馈绑定内容修订。候选容量处置与 active 冷记忆保留有各自证据和保护条件，不能把零读取直接当作无价值。当前作业、生命周期和复核边界统一见 [记忆反馈合同](memory_feedback_reliability.md)。
 
 ## 5. 注入与检索(上下文管理精准化)
 
-- **常驻**:项目 scope 的 INDEX 摘要(id+title+description 一行一条)进系统上下文,预算封顶、超限折叠计数——正文一律不常驻;
-- **按需**:主 agent 用 memory_search 拉正文;sop 类按 description 与当前任务的匹配提示加载(「做发版相关任务时必读 M-021」);
+- **常驻**：Dev 上下文加载项目一级概览，以及预算内无区域的 active 项目约束；平铺 `INDEX.md` 不再作为该路径的常驻事实清单。INDEX 仍是可重建的文件索引。
+- **按需**：`architecture action=context` 按区域、邻域和任务关键词选择有效知识；`memory_search` 按任务检索正文。预算不足显式折叠，不截半段约束冒充完整内容。详见 [项目知识合同](project_knowledge.md)。
 - **上下文账单**:harness 逐 source 记录注入 token 数,落库可查——"本轮上下文里有什么、各占多少"成为数据,供 UI 展示与膨胀归因。
 
 ## 6. UI:独立 Memory 页(与设置同级)
 
-- **动态架构图**:scope × category 网格卡片,实时显示条数/体积/最近写入/本轮注入 token;点击进入条目列表;
-- **条目视图**:正文、来源轨迹链接(source 字段可跳转)、hits、candidate/shadow/active/deprecated 状态与对应操作;直接编辑(写盘即生效);
+- **项目知识视图**：按模块组织职责、约束、依赖和经验，与架构/文件页共用只读投影；旧 scope × category 概览卡片不再是当前布局。
+- **条目视图**：正文、来源、修订、状态、召回/注入/读取观测及明确采用/纠正反馈；反馈绑定内容版本，采用不等于结果改善。冷记忆处置给出原因并支持恢复。
 - **上下文账单面板**:当前会话每个注入源的 token 占用,一眼定位膨胀源;
 - **检索框**：复用 memory_search；当前普通检索范围为 project，不承诺 global 生效。
 

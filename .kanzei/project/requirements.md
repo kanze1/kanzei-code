@@ -26,6 +26,8 @@
 - recorded_at: 1792431971425
 - 停车:
 - 对账: 2026-10-20 清单与依赖核对完成：取消旧 R-249 队列停车，真实 UIA/WebView2 验收继续按原条款开放；空字段按当前托管格式输出。
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入递归工作节点；原编号、标题状态、验收、拆批和历史原文保留，R-101/W1 承接本条目标，后续只补当前验收缺口，不重做既有实现、不自动核销历史证据。原观察：df452a2cb79055ef7ce9b28a68bf989ba058fc23 / fnv1a64:4189e8dc168f5a1a / 1792431971425。
 
 ## R-249 工具结果可返回图片:ToolOutput 承载 image part,打通图片读取与 UI 截图 [doing]
 - refs: R-014 R-101 R-244 R-245
@@ -46,6 +48,8 @@
 - 停车:
 - 前置: R-245(spill 落点 B1-B7 已交付,仅余桌面 E2/配额验证缺口,不再作为阻塞依赖)
 - 对账: 2026-09-05 对账:批1(1831239)/批2(ui_screenshot)已交付;批3 所等的 R-245 spill 落点(Inline/Spilled 二态与 artifact 目录)已随 R-245 B1-B7 落地,R-245 仅余真实桌面 E2 与配额语义验证缺口,与本条批3 无关,故 依赖 R-245 改为 前置 R-245,不再等其关闭
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-249/W1；旧编号、标题状态、验收、边界及历史原文不变。既有 B1/B2 不重做，旧测试不自动转为当前节点通过证据。
 
 ## R-299 IPC 与事件契约机械比对扩面 [doing]
 - refs: R-284
@@ -62,6 +66,8 @@
 - observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
 - observed_worktree_hash: fnv1a64:4189e8dc168f5a1a
 - recorded_at: 1792431972845
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-299/W1；旧编号、标题状态、验收、边界及历史原文不变。B1 已合入记录保留，refs 不改为依赖。
 
 ## R-307 停车/依赖解锁机械化与依赖关系可视化:解除条件可判定、达成自动恢复、关键路径可见 [todo]
 - refs: R-306 D-565 R-242 R-281 D-504 R-283
@@ -80,6 +86,8 @@
 - observed_worktree_hash: fnv1a64:2401216920f5e68b
 - recorded_at: 1787173976915
 - 对账: 2026-08-20 发版 build-39cd402f 后 B1/B2 进入运行态;R-306/R-293 停车已改写「解除条件:」语法为首批真实消费者。批3 时顺带把「解除条件:」写入约定补进 conventions 停车纪律,让循环新写停车默认带机器可判条件
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-307/W1；旧编号、标题状态、验收、停车、执行者和历史原文不变。仅整理数据不解除用户停车，不领取 B3/B4；B1/B2 不重做。
 
 ## R-322 门禁强度分档与模型停机权 [awaiting_external]
 - 原始描述: 外部评估七点反馈中的 #1 Harness Tax、#4 模式区分不够明显、#7 双控制器问题。用户定调：控制权交给模型；结伴接近 Claude Code 的高自治，自主推进保留重门禁；决策点要呈现给用户
@@ -95,6 +103,8 @@
 - recorded_at: 1791060855127
 - 停车:
 - 外部验收: 在用户提供的真实安装版/运行设备会话中启动一次目标条件驱动的结伴 loop，核对模型声明达成前不散场、目标完成回显及自动清除；保存可复核的会话/设备证据。代码及既有完整验证见 build-32513251，现场验收尚未通过。
+- 执行模型:
+- 目标树迁移: 2026-10-24：尝试为本条创建 goal 时，专用工具返回 WORK_OUTCOME_NOT_PLANNABLE（父需求不在可规划活动队列）。为保留 awaiting_external，不临时改状态、不伪造节点；本条继续旧队列待真实设备验收。原验收和历史未改，后续具备合法迁移入口再处理。
 
 ## R-340 运行画像任务主视图与 session/round 下钻 [doing]
 - 内容: 在 R-338 task projection 契约评审并可消费后，重做运行画像前端主展示：以已关闭 task 为趋势/主列表，进行中 task 独立展示；点击 task 下钻到 session 分段、input 与 round/episode 细节，保留 provider/model、工具、上下文账单和错误；保留旧 rounds/legacy 提示与空态，不在前端自行聚合。
@@ -114,6 +124,8 @@
 - recorded_at: 1792431973551
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：前端沿用 task 主趋势、进行中/legacy 分区、session/round 下钻和仅显式 attach 的后端语义。
 - 停车:
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-340/W1；旧编号、标题状态、验收、确认记录及发现记录原文不变。不重开已确认语义，不重做后端 projection；只承接真实 UI 消费和验收缺口。
 
 ## R-341 运行画像任务级真实链路收口与回归矩阵 [doing]
 - 内容: 作为 R-338/R-339/R-340 的链路收口，验证真实入口从 task 事实生产、SQLite projection/API 查询到运行画像 UI 的端到端闭环：创建并关闭多个任务、同一长 session 多轮、未关闭任务、session 下钻、legacy 历史和失败路径均可复核；不以单测、viewport 模拟或替身服务冒充真实链路。
@@ -133,6 +145,8 @@
 - recorded_at: 1792431974257
 - 确认记录: 用户确认（本轮）：“按建议全部确认”：真实收口覆盖显式 task start/close、长 session 多任务、未关闭、legacy、失败和 task→session→round 下钻；不以替身或单测替代真实链路。
 - 关联缺陷: D-746：运行画像历史输入审计相关全表扫描阻塞桌面窗口；2026-09-08源码修复与10项定向测试已完成，真实数据库只读task_metrics查询267-281ms；桌面安装及真实窗口点击验收待执行，本需求状态不变。
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-341/W1；旧编号、标题状态、验收、确认记录、关联缺陷和历史原文不变。只映射尚未完成的 R-340 为节点依赖，已完成 refs 不再阻塞。
 
 ## R-344 Experiment Runner:本机与 SSH 执行、@@kanzei 回调解析与 run 事实落盘 [doing]
 - 内容: 按设计 §3/§5 实现实验运行器:local 起进程与 ssh 复用系统客户端两种执行;逐行解析带 @@kanzei 前缀的单行 JSON(stage/metric/progress/artifact/checkpoint/message/heartbeat/result),其余输出原样保留为终端日志;运行器另记 run_started/run_finished/run_failed/run_cancelled/environment_captured;结果事实进 state.db 并回写探索文件的实验结果表,产物落 explorations/<E-id>/<result-id>/;记录 params_text、code_ref、policy/lease_id/max_duration/cleanup、callback_stats。
@@ -153,6 +167,8 @@
 - 阻塞:
 - 停车:
 - 外部验收: 真实 SSH 实验完整运行：阶段/指标/进度/产物回传、结果事实及结果表；远端取消与断线恢复。已实现本机和 SSH 通道，现场目标未验收。
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-344/W1；原状态、4/4 批次、验收和历史不变。保留真实 SSH 实验、远端取消与断线恢复外验，不以本地测试替代或重做既有实现。
 
 ## R-353 改动面账本与交付态推导:让条目、改动、证据成为可机械关联的事实 [doing]
 - 内容: 按 docs/design/tracker_evidence_ledger.md §3.1/§3.2 建立地基:在 .kanzei/artifacts/work-log.jsonl 新增 deliver 事件(条目 id、commit、paths、test_record_ids、时间戳、来源),写入点设在 git finalize 提交通道——该处已在机器写 passed 测试记录,同一时刻引擎已知 WIP 持有者、暂存文件集与提交 sha。据此推导交付态 unstarted/uncommitted/committed/verified,作为纯派生量供门禁与调度消费,不落 Markdown、不新增条目字段。
@@ -164,11 +180,13 @@
 - 验收: ①一次经 kz 提交通道的真实交付在 work-log 留下 deliver 行,paths 与该次提交暂存集一致;②交付态可由账本推导且四种取值各有真实实例;③账本零行的存量条目落入遗留模式,判定只作提示不产生拒绝;④交付态不出现在任何 Markdown 条目字段里;⑤模型侧工具无法写入 deliver 事件。
 - refs: R-349 D-736
 - 优先级: P0
-- 进展: 批次: 1/2；B1 已提交 `2337474b`。①已完成：`git finalize` 在真实提交后写入 deliver（条目 id、commit、commit 实际 paths、test_record_ids、source），`work/log.rs` 已能按同 run/line 找到最近 claim；测试与门禁证据为 T-1786922726932、`cargo check --workspace --all-targets`、`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets -- -D warnings`。既有能力（本次未新增）：`work/reconcile.rs` 已有四类分类框架，但当前仍主要读 tracker observed_head/test 证据，尚未消费 deliver 账本。B2 下一步：让 reconciliation 按 deliver paths/commit/test_record_ids 推导四态，补账本零行遗留提示不拦、Markdown 无交付态字段和模型不能写 deliver 的回归。 2026-10-20 清理：D-662 旧工具减面专项已退役，账本与 reconciliation 无需等待工具目录重构；保留未完成的四态真实实例和消费路径验收。
-- observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
-- observed_worktree_hash: fnv1a64:4189e8dc168f5a1a
-- recorded_at: 1792431975677
+- 进展: 2026-10-23 文档对账：B1 已提交 2337474b，git finalize 在真实提交后写 deliver；当时测试记录 T-1786922726932 及 check/fmt/clippy 是该批历史证据。当前 crates/kanzei-tools/src/work/reconcile.rs 的 ledger_scope 已读取 deliver_facts，reconciliation 按账本 paths/commit/test_record_ids 推导状态；ledger_paths_are_authoritative_and_legacy_divergence_is_observed 覆盖账本路径优先与旧证据分歧。旧“尚未消费 deliver”描述撤销，不再列为代码缺口。本次仅核对文档与源码入口，未据此完成原验收：仍需逐项核对四态真实实例、账本零行遗留仅提示、Markdown 无交付态字段、模型不能写 deliver 和最终版本证据。保留 doing；D-662 旧工具减面专项已退役，不作为账本消费的依赖。
+- observed_head: ea4f15600aa43424d8db179a1dcf4d9018330548
+- observed_worktree_hash: fnv1a64:57349770309d3087
+- recorded_at: 1792689026110
 - 停车:
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-353/W1；旧编号、状态、验收和全部历史保留。finalize/reconcile 已实现部分不重做，仅按原五项验收补真实实例与适用版本证据。
 
 ## R-364 工具延迟加载:常驻层约 20 个工具,其余经 tool_search 按需加载 [doing]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.1/§5.2;实施地图(行号、批次、陷阱、裁决)见 docs/design/cc_codex_alignment_impl_maps.md §1。B1 逐工具 schema 字符账单并定稿常驻名单;B2 tool_search 与通用追加路径、预算门禁拆成常驻面与延迟目录两个数、denial_hint 指向 tool_search 与提示词改写(与 B4 同版发布);B3 Anthropic/Responses 原生延迟加载(先研究后编码);B4 同源测试与硬拒覆盖扩到延迟层。
@@ -181,14 +199,16 @@
 - 验收: ①dev 档主代理首个请求的 tools 只含常驻层(CLI 20、桌面 21),延迟工具以「名称 — 一句话」进 system,账单有 tools/catalog;②tool_search 支持 select 精确加载与关键词检索,加载后下一步起可调用,压缩与溢出恢复后仍可用;③直接调用未加载的延迟工具时自动加载并执行;④预算门禁拆为常驻面与延迟目录两个数,research/readonly/子代理工具面不变;⑤对延迟托管工具的硬拒提示指向 tool_search select;⑥Anthropic/Responses 原生延迟加载经探针核对后启用且加载不改变 tools 前缀,其余协议走追加路径并在账单可见
 - refs: D-662 R-312 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P1
-- 进展: 恢复核对(2026-09-26)：B1 提交 811497b8；B2 实现与定向验证已完成但尚未提交，批次仍 1/4。B2 已打通 Harness 延迟目录/search、CLI 与桌面 resident/deferred 分层、tool_search 串行加载、未加载工具自动加载、prior 历史预加载、overflow 恢复与 tools/catalog、tools/loaded:<name> 计费；新增 CLI provider 路径集成测试覆盖 prior、SSE overflow 与直接调用。补齐 tool_search 空转画像、process 后台引导、延迟托管拒绝提示、prompt select 同源校验，以及 Dev 真实拒绝路径断言；idea/decision/architecture/conventions 与 files/prior_art 的发现指引也已更新。定向验证通过：cargo fmt --all -- --check、cargo clippy --workspace --all-targets -- -D warnings、cargo test -p kanzei-tools（663 passed,1 ignored）、cargo test -p kanzei-harness（192 passed）、cargo test -p kanzei-core（334 passed）、桌面两项 assembly 测试（各 1 passed）、CLI 延迟加载集成（3 passed）；测试记录 T-1786922727074 至 T-1786922727080。未跑全量 workspace 测试，本批不要求。尚未提交/不计入 B2 完成：核心 R-364 改动与其他未提交工作混在多个共享文件，整文件暂存会带入非本条变更；待工作区隔离后审阅暂存并提交 R-364 B2。 2026-10-20 清理：旧21c36e9d未提交共享源码阻塞已过时；当前 df452a2c 已包含 deferred catalog、tool_search 和消费链，后续按原生延迟协议及原验收核对，不再要求用户清理已经提交的源码。
-- observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
-- observed_worktree_hash: fnv1a64:4189e8dc168f5a1a
-- recorded_at: 1792431976387
+- 进展: 2026-10-23 文档对账：B1 提交 811497b8。2026-09-26 的 B2 未提交/等待隔离描述已由 2026-10-20 对账取代，df452a2c 已包含 deferred catalog、tool_search 与消费链；不再要求用户隔离当时已经提交的源码。现有实现包括 resident/deferred 分层、串行加载、直接调用时加载、prior 历史预加载、overflow 恢复、tools/catalog 与 tools/loaded:<name> 计费，以及托管拒绝/发现指引。T-1786922727074 至 T-1786922727080 为原批定向验证记录，不冒充本次重跑。剩余工作按原验收核对 Anthropic/Responses 原生延迟加载探针、启用边界与 B4 同源/硬拒覆盖，再据实际证据更新批次；本次不改变 doing、批次或验收。
+- observed_head: ea4f15600aa43424d8db179a1dcf4d9018330548
+- observed_worktree_hash: fnv1a64:57349770309d3087
+- recorded_at: 1792689040159
 - 确认记录: 已核对同条“对账”字段与 docs/design/cc_codex_alignment_impl_maps.md §1 B2 第9条、docs/design/cc_codex_alignment_20260925.md §5.1：预算门禁按数量，resident = resident_tools 名称数 + core 手工追加 task（tool_search 属 resident）；deferred = deferred_tools 数量；已加载 schema 与 catalog 文本只入上下文账单。此前 question 的 pending 口径由该现存审计裁决取代，不再等待用户选择。
 - 阻塞:
 - 对账: 2026-09-26 波次审计答复 B2 计费口径(无需用户确认,实施地图已规定):按 docs/design/cc_codex_alignment_impl_maps.md §1 B2 第 9 条与设计 §5.1——预算门禁数的是工具个数不是字符:常驻面预算 = resident_tools 名称数 + 手工补上的 task(dev 20 / 桌面 21,tool_search 计入常驻);延迟目录预算 = deferred_tools 个数(dev 12 / 桌面 19)。已加载工具的 schema 字符与 catalog 文本只进上下文账单(tools/catalog、tools/loaded:<name>),不计入预算门禁;core 私有的 task_spec 在账单表注明「未计入」。据此继续 B2。
-- 解除条件: 用户先安排工作区持有人将非 R-364 改动独立提交/隔离，或提供仅含 R-364 改动的干净工作树；随后复核明确文件并提交 B2。
+- 解除条件:
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-364/W1；旧编号、状态、验收、审计裁决及历史不变。B2 已提交实现不重做，原生探针与硬拒覆盖仍须按实际证据验收。
 
 ## R-365 网页搜索与抓取升级:模型自带搜索、webfetch 按问题提取与翻页查找、websearch 批量与过滤 [doing]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.5;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §2。B1 订阅通道探针(codex 托管 web_search、codex /alpha/search、claude 服务端搜索、回放与边界行为);B2a 协议层托管搜索的声明、解析、原样回放与计费(Part::Hosted 带通道标识);B2b runner、[web] 配置与桌面渲染(pause_turn 续跑、编号来源列表);B3 webfetch 重做(url|ref、带行号 markdown、落盘、15 分钟缓存、from_line/find/links、跨域重定向不跟、PDF 落盘、web_extract 按问题提取);B4 websearch 批量化与 recency/domains、codex 搜索后端失效自动退 DuckDuckGo、research 档 add_finding 存证门禁。
@@ -206,6 +226,8 @@
 - observed_worktree_hash: fnv1a64:a5fc26708b274c89
 - recorded_at: 1790542908180
 - 设计冻结: 不变量：①保留 websearch/webfetch 工具身份、权限资源和 prior_art 单次扣预算语义；fetch_bytes/html_to_text、Research/arXiv 捕获及 webfetch_preview 既有切分/行为不得被新路径改变；②只有 B1 实测通过的通道才能启用托管搜索，Hosted 必须同时绑定 protocol 与 provider channel，仅同协议同通道原样回放，异通道条目不进请求体；③research 默认关闭原生搜索且以 add_finding 存证门禁约束引用，非交互拒绝策略下不声明托管工具；④不为本条重新启用 Claude OAuth，Claude 只在已有受支持认证且 P3 实测通过时开放。权威数据：请求路由/模型取 ResolvedModel 与 build_route；服务端未知协议形状只取 B1 脱敏实测，不从模拟推断；web ref 来自当前进程搜索结果注册表，正文以 artifacts/web 为真源，research 存证以 webfetch-log/source_text 为证据。目标文件按实施地图 §2：B1 ignored probe + 设计证据；B2a kanzei-llm request/event/protocol；B2b config/RunnerConfig/drive/App event/UI；B3 webfetch/web_refs/proxy/model roles；B4 websearch/research_loop/prompts。最小验证：B1 真实订阅 probe 手动 ignored 且默认测试绝不联网并脱敏；B2a 真实 SSE/Anthropic event 样例解析、同通道回放/异通道丢弃/计费；B2b config 层叠、pause_turn、IPC 双端事件与会话回放；B3/B4 TcpListener 假服务覆盖重定向、缓存、落盘、提取降级、Codex backend fallback、ref 与 research 门禁；每批运行改动 crate 定向测试与 all-target Clippy，桌面前端使用项目 UI smoke，不能以夹具代替 B1 live probe。
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-365/W1；旧编号、状态、验收、冻结不变量及历史不变。B3/B4 已交付记录保留，B1 与 B2a/B2b 的真实通道探针和启用边界不被核销。
 
 ## R-368 文档引用标记、引用历史与引用图:统一抽取、写入校验、git 推导历史、前端侧栏与邻域图 [todo]
 - 内容: 设计见 docs/design/doc_reference_graph.md。B1 refgraph 抽取内核与统一分词(节点模型、强/弱引用、关系类型前缀、区间展开、脏 token 上报、设计文档身份与改名别名);B2 tracker refs 写入校验(只校验本次传入)与 update 删除显式回显、kz refs check/show、req/defect get 附被引用、architecture 工具 refs 动作、引用约定写入 conventions 与设计模板;B3 git 推导引用历史(归档搬运折叠、改号、改名、未提交标记,缓存于 .kanzei/artifacts/refgraph);B4 前端统一跳转(A/M/T 与设计文档路径、Markdown 编号链接)、引用侧栏与历史时间线;B5 邻域关系图与体检面板(与 R-307 B3 共用渲染器)。
@@ -218,6 +240,8 @@
 - 验收: ①抽取覆盖 refs、依赖、设计文档关联头、测试关联、记忆 refs/supersedes 与行内弱引用,每条边带锚点行号;②tracker 写入 refs 时不存在的 ID 或路径返回纠错并列出 token,存量不阻断;③kz refs check 报告悬空引用、设计与决策单向、缺关联头、改名残留路径、从未存在的 T 与脏 token;④任一文档可查看出入边与引用历史,事件区分建立、删除、搬运、改号并带提交号;⑤前端可从任意编号或设计文档路径跳转,邻域图与依赖图共用渲染器;⑥不新增 agent 工具,索引与历史缓存可删可重建
 - refs: R-307 R-353 R-358 docs/design/doc_reference_graph.md
 - 优先级: P2
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-368/W1；旧编号、状态、验收和历史原文不变。关系词表待审阅、verify 与根外研究区范围延后决定，保留为规划问题；refs 不转依赖。
 
 ## R-369 子代理补齐:自定义 agent 进 task、后台运行与完成通知、worktree 可写、续聊 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.3;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §5。B1 自定义 agent(description)进 task 名册,task 支持 background:true,完成时以 task-notification 注入主对话;B2 isolation:"worktree" 可写子代理(引擎快照提交,主 agent 经 git merge_task squash 合并并走常规 commit 门禁);B3 resume 续聊(按 task_id 恢复 transcript,worktree 任务在原树续)。
@@ -234,6 +258,8 @@
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
 - observed_worktree_hash: fnv1a64:92c7228bb0086680
 - recorded_at: 1791061382127
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-369/W1；旧编号、todo 状态、验收与历史不变。不按旧 0/3 重做已实现团队/worktree 能力；保留统一 task 接口替代 merge_task 的设计差异供原语义验收。
 
 ## R-370 定时任务:一个概念一个面板,触发器到固定流程到可选回写,触发位置可选 app/system/server [awaiting_external]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.10;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §6。B1 定义格式(.kanzei/schedules/*.md,人话频率)、应用内调度器、独立会话执行;B2 回写通道(notify、memory_inbox、file、idea);B3 任务面板与表单;B4 错过补跑、历史、连续失败自动停用;B5 host=system(kz schedule run 与 Windows 任务计划程序);B6 host=server(登记服务器上的 cron、SSH 拉回、本地补做回写)。
@@ -253,6 +279,8 @@
 - 停车:
 - 外部验收: host=server 在真实 SSH 服务器上登记与触发、拉回运行结果、回写只执行一次。app/system 已有本地及原生计时证据。
 - 阻塞:
+- 执行模型:
+- 目标树迁移: 2026-10-24：R-322 的同状态迁移实测已被专用工具以 WORK_OUTCOME_NOT_PLANNABLE 拒绝，因此本条不改 awaiting_external、不尝试绕过状态门禁、不伪造 R-370/W1；保留旧队列及真实 SSH server 外验。原验收、server 语义未决问题与历史不变。
 
 ## R-371 运行中插话:steer 在工具边界注入当前 run,界面标记已送达 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §7。B1 core 注入点、SteerCommitted 事件与 SteerMessageCommitted typed 事实;B2 桌面 inbox 取件、落库、kz:steer-delivered 事件;B3 界面已送达标记。RunnerConfig 新字段与手动压缩、缓存测量两条共享,最先落地的条目一次性加齐三个字段。
@@ -265,6 +293,8 @@
 - 验收: ①run 进行中发送的 steer 在下一次 provider 请求前以一条 user 消息进入上下文,同一 run 内模型可见;②queue 仍在 run 边界处理,最后一步才到达的 steer 留到 run 边界开新 run;③插话被持久化,重启后对话与下一轮 prior 中仍在;④送达后输入状态为 completed,之后停止不改写;⑤界面气泡显示已送达,排队条同步消失;⑥子代理与 CLI 不消费 steer
 - refs: R-241 R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P2
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-371/W1；旧编号、todo 状态、验收、steer/queue 边界及历史原文不变，不将 R-241/R-242 refs 转为新依赖。
 
 ## R-372 手动压缩:桌面 /compact [焦点] 与 kz compact,纪要不再依赖子代理运行时 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §8。B1 core 的 DigestModel 与子代理解耦并支持焦点(焦点写进 system 段);B2 桌面与 CLI 装配 DigestModel,轮末压缩改用它;B3 入口:桌面输入框 /compact 与 kz compact 子命令。
@@ -281,6 +311,8 @@
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
 - observed_worktree_hash: fnv1a64:33b32bf1dddc325c
 - recorded_at: 1791061685667
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-372/W1；旧编号、todo 状态、验收、授权扩展及历史原文不变。既有 /compact 与 kz compact 不重做，三组真实任务对照尚未执行，不宣称摘要质量增益。
 
 ## R-373 缓存测量:按步落盘 cache_read/cache_write,Responses 带 prompt_cache_key,看数据决定是否挪动每步刷新段 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §9。B1a 每步用量进 RunSummary 并落 episodes.metrics_json(不加列、不升 schema);B1b Responses 请求带 prompt_cache_key=会话 id,codex 路由 session_id 头稳定化并真跑验证;B2(有条件)仅当数据显示刷新段变化明显拉低命中率时,把每步刷新段从 system 末尾挪到临时尾消息并同步调整 Anthropic 第二断点。
@@ -293,6 +325,8 @@
 - 验收: ①主代理每个 run 的 episodes.metrics_json 含 cache.read/cache.write 总量与逐步 step_usage,数组长度等于步数;②每步记录 refreshable_changed,可分组比较命中率,口径统一为 cache_read/(input+cache_read+cache_write);③Responses 请求带 prompt_cache_key,其他协议请求体不变;④有一份基于真实数据的结论决定 B2 做或不做,写回设计文档
 - refs: R-106 R-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P2
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-373/W1；旧编号、todo 状态、验收、条件性 B2 决策和历史原文不变。Codex key 支持待真实测量，未取得数据不预先决定挪动刷新段。
 
 ## R-374 question 批量化:一次问 1-4 个问题,单弹窗展示后一次提交 [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.4;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §10(以其中「裁决」的单弹窗形态为准)。B1 后端:questions 数组与旧单问归一、多题 AskRequest 与 Answers 响应、answer_ask 支持答案数组、CLI 逐题 stdin、非交互登记全部问题;B2 桌面单弹窗纵向展示全部问题(各题选项与「其他」输入)、工具块摘要与 QUESTION_PENDING 回放支持多题。
@@ -305,6 +339,8 @@
 - 验收: ①旧形态 {question, options, default, multiple} 不报错,等价于一个元素的 questions,单题结果逐字保持「User answer: …」;②交互运行中 1-4 个问题在一个弹窗内展示并一次提交,结果按顺序列出每题问题与答案,「其他」原样返回;③questions 为空、超过 4 个或某题为空时返回纠错且不打扰用户;④非交互运行返回 QUESTION_PENDING,display 含各题且不带 default;⑤中途取消返回错误并附已答题;⑥模型可见 schema 只推新形态且不含 $ref
 - refs: D-337 D-745 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P2
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-374/W1；旧编号、todo 状态、验收及历史原文不变。保留旧单问兼容、非交互、取消及单弹窗边界；refs 不改为依赖。
 
 ## R-375 项目指令文件:注入仓库根到 cwd 各层的 AGENTS.md(缺省取 CLAUDE.md) [todo]
 - 内容: 规格见 docs/design/cc_codex_alignment_20260925.md §5.8;实施地图见 docs/design/cc_codex_alignment_impl_maps.md §11。单批:新建 project_instructions 纯函数模块,在 BaseComponent 注册 stable source「project/instructions」,dev/research/readonly 三档注入,task 子代理不注入;32 KiB 预算,超出显式注明;段首说明指令里点名的工具在 kanzei 不存在时按意图用等价工具。
@@ -316,6 +352,8 @@
 - 验收: ①从仓库根到 cwd 逐层,每层优先 AGENTS.md,不存在才取 CLAUDE.md,根到叶顺序拼接并标出相对路径;②worktree 线读 worktree 里的文件;③总预算 32 KiB,超出时显式注明原大小与截掉字节数,截断落在字符边界;④没有指令文件时不产生段落与账单项;⑤task 子代理不注入,且该段不随每步刷新
 - refs: D-201 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
 - 优先级: P2
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-375/W1；旧编号、todo 状态、验收及历史原文不变。保留逐层优先级、worktree 读自身、32KiB 上限、task 不注入与不刷新边界。
 
 ## R-378 文件检查点 blob 的保留、统计与清理:进入存储报告与整理入口,按回退可达范围回收 [todo]
 - 依赖:
@@ -331,3 +369,5 @@
 - observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
 - observed_worktree_hash: fnv1a64:4189e8dc168f5a1a
 - recorded_at: 1792431977090
+- 执行模型: work_units_v1
+- 目标树迁移: 2026-10-24：按用户要求显式迁入 R-378/W1；旧编号、todo 状态、验收及历史原文不变。保留天数/总量上限待用户决定，仅规划不实施；不复用 session_events 引用图或 tool-results 配额。

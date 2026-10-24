@@ -1,3 +1,4 @@
+import { attachmentPreview } from "./04-attachment-preview.js";
 import { defer } from "./00-dom.js";
 import { copyButton } from "./00-clipboard.js";
 import { messagePanes } from "./01-chat-panes.js";
@@ -157,7 +158,11 @@ export function addUserMessage(text, promptAttachments = []) {
     const item = document.createElement("span");
     item.className = "message-attachment";
     const kind = resourceType(attachment.file_name, attachment.media_type).label;
-    item.append(resourceIcon(attachment.file_name, attachment.media_type), document.createTextNode(`${attachment.file_name} · ${kind}`));
+    const name = document.createElement("span");
+    name.className = "message-attachment-name";
+    name.textContent = `${attachment.file_name} · ${kind}`;
+    name.title = attachment.file_name;
+    item.append(attachmentPreview(attachment), name);
     attachments.appendChild(item);
   }
   body.appendChild(attachments);

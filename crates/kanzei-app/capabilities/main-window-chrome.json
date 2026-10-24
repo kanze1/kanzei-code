@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/capability/1",
+  "identifier": "main-window-chrome",
+  "description": "Only the main window may use its compact title bar to minimize, maximize, drag or request a guarded close.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close"
+  ]
+}

@@ -1434,6 +1434,39 @@
     ]
   },
   {
+    "key": "ui_window_chrome",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-window-chrome-smoke.mjs"],
+    "paths": [
+      "crates/kanzei-app/ui/30-window-chrome.js",
+      "crates/kanzei-app/ui/window-chrome.css",
+      "crates/kanzei-app/ui/30-workspace-ui.js",
+      "crates/kanzei-app/tauri.conf.json",
+      "crates/kanzei-app/capabilities/main-window-chrome.json",
+      "scripts/ui-window-chrome-smoke.mjs"
+    ],
+    "resources": ["browser"]
+  },
+  {
+    "key": "ui_conversation_media_time",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-conversation-media-time-smoke.mjs"],
+    "paths": [
+      "crates/kanzei-app/src/conversation.rs",
+      "crates/kanzei-app/src/conversation_timing.rs",
+      "crates/kanzei-app/src/run/persistence.rs",
+      "crates/kanzei-app/src/runtime_events.rs",
+      "crates/kanzei-app/ui/04-attachment-preview.js",
+      "crates/kanzei-app/ui/05-turn-receipts.js",
+      "crates/kanzei-app/ui/conversation-media-time.css",
+      "crates/kanzei-app/ui/15-views-misc.js",
+      "scripts/ui-conversation-media-time-smoke.mjs"
+    ],
+    "resources": ["browser"]
+  },
+  {
     "key": "ui_state_ownership",
     "inputs": "frontend",
     "program": "node",
