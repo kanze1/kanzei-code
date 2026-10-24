@@ -331,24 +331,32 @@ pub(super) fn materialize_tool_history(
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> anyhow::Result<usize> {
     use anyhow::Context;
+    use std::collections::{HashMap, VecDeque};
     let before_tokens = super::context::estimate_prompt_tokens(&[], messages, &[]);
-    let mut calls = std::collections::HashMap::new();
+    let mut calls = HashMap::<String, VecDeque<String>>::new();
     let mut materialized = 0;
     for message in messages.iter_mut() {
         for part in &mut message.parts {
             match part {
                 Part::ToolCall { id, name, .. } => {
-                    calls.insert(id.clone(), name.clone());
+                    calls.entry(id.clone()).or_default().push_back(name.clone());
                 }
                 Part::ToolResult {
                     call_id,
                     content,
                     is_error,
-                } if content.len() > TOOL_RESULT_SPILL_THRESHOLD => {
-                    let name = calls.get(call_id).with_context(|| {
+                } => {
+                    // History accepts reused IDs and pairs them FIFO. Consume
+                    // the binding even for small results so later calls retain
+                    // their own output contract.
+                    let name = calls.get_mut(call_id).and_then(VecDeque::pop_front);
+                    if content.len() <= TOOL_RESULT_SPILL_THRESHOLD {
+                        continue;
+                    }
+                    let name = name.with_context(|| {
                         format!("oversized historical result {call_id} has no matching tool call")
                     })?;
-                    if !tool_result_needs_spill(name, content.len()) {
+                    if !tool_result_needs_spill(&name, content.len()) {
                         continue;
                     }
                     // Preserve the authority boundary around engine-framed source
@@ -374,7 +382,7 @@ pub(super) fn materialize_tool_history(
                     let mut output = kanzei_harness::ToolOutput::ok(std::mem::take(content));
                     output.is_error = *is_error;
                     output.external_source = source;
-                    materialize_tool_output(&mut output, ctx, name);
+                    materialize_tool_output(&mut output, ctx, &name);
                     *content = output.model_content();
                     *is_error = output.is_error;
                     materialized += 1;
@@ -1513,6 +1521,65 @@ mod tests {
         assert!(
             matches!(&prior[2].parts[0], Part::ToolResult { content, .. } if content == &original)
         );
+    }
+
+    #[test]
+    fn historical_results_pair_reused_call_ids_in_order() {
+        use kanzei_llm::Message;
+        let root = kanzei_base::test_support::TestDir::new("kz-history-reused-id-");
+        let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf());
+        let large = "x".repeat(super::TOOL_RESULT_SPILL_THRESHOLD + 1);
+        for (first, second) in [("task", "read"), ("read", "task")] {
+            let mut messages = vec![
+                Message::assistant(vec![
+                    Part::ToolCall {
+                        id: "reused".into(),
+                        name: first.into(),
+                        input: serde_json::json!({}),
+                    },
+                    Part::ToolCall {
+                        id: "reused".into(),
+                        name: second.into(),
+                        input: serde_json::json!({}),
+                    },
+                ]),
+                Message::tool_results(vec![
+                    Part::ToolResult {
+                        call_id: "reused".into(),
+                        content: if first == "task" {
+                            large.clone()
+                        } else {
+                            "small read".into()
+                        },
+                        is_error: false,
+                    },
+                    Part::ToolResult {
+                        call_id: "reused".into(),
+                        content: if second == "task" {
+                            large.clone()
+                        } else {
+                            "small read".into()
+                        },
+                        is_error: false,
+                    },
+                ]),
+            ];
+            assert_eq!(
+                super::materialize_tool_history(&mut messages, &ctx, &mut |_| {}).unwrap(),
+                1,
+                "task output must remain bounded even when a parallel read reuses its call ID"
+            );
+            for (name, result) in [first, second].into_iter().zip(&messages[1].parts) {
+                let Part::ToolResult { content, .. } = result else {
+                    panic!()
+                };
+                if name == "task" {
+                    assert!(content.starts_with("[tool_result_externalized"));
+                } else {
+                    assert_eq!(content, "small read");
+                }
+            }
+        }
     }
 
     #[test]
