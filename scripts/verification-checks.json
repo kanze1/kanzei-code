@@ -1434,6 +1434,21 @@
     ]
   },
   {
+    "key": "ui_window_chrome",
+    "inputs": "frontend",
+    "program": "node",
+    "args": ["scripts/ui-window-chrome-smoke.mjs"],
+    "paths": [
+      "crates/kanzei-app/ui/30-window-chrome.js",
+      "crates/kanzei-app/ui/window-chrome.css",
+      "crates/kanzei-app/ui/30-workspace-ui.js",
+      "crates/kanzei-app/tauri.conf.json",
+      "crates/kanzei-app/capabilities/main-window-chrome.json",
+      "scripts/ui-window-chrome-smoke.mjs"
+    ],
+    "resources": ["browser"]
+  },
+  {
     "key": "ui_state_ownership",
     "inputs": "frontend",
     "program": "node",

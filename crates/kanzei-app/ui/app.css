@@ -12,6 +12,7 @@
 @import url("project-conversations.css") layer(app);
 @import url("resource-types.css") layer(app);
 @import url("familiar-workspace.css") layer(app);
+@import url("window-chrome.css") layer(app);
 @import url("skills.css") layer(app);
 @import url("native-control.css") layer(app);
 @import url("surface.css") layer(surface);

@@ -1,0 +1,45 @@
+/* One application-owned row replaces, rather than supplements, native chrome. */
+body.has-window-chrome { --window-chrome-height: 44px; display: grid; grid-template-rows: var(--window-chrome-height) minmax(0, 1fr); }
+.has-window-chrome #app { min-height: 0; height: 100%; }
+#window-chrome { display: flex; align-items: stretch; min-width: 0; background: var(--bg); box-shadow: inset 0 -1px 0 var(--border-soft); user-select: none; }
+.window-app-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 44px; }
+.window-app-mark img { width: 22px; height: 22px; pointer-events: none; }
+#window-chrome > .workspace-header { flex: 1; min-width: 0; min-height: 0; height: 100%; border: 0; background: transparent; padding: 0 var(--sp-5) 0 10px; gap: 18px; }
+#window-chrome .workspace-project-name { flex: 0 1 auto; max-width: 210px; min-width: 48px; font-size: 12px; }
+#window-chrome .project-work-switch { flex: 0 1 auto; gap: var(--sp-2); }
+#window-chrome .project-work-switch [data-work-surface] { height: 44px; padding: 0 var(--sp-5); font-size: 12px; white-space: nowrap; }
+#window-chrome .project-work-switch [aria-pressed="true"]::after { bottom: 0; }
+#window-chrome .project-overview-signal { margin-left: 10px; }
+#window-chrome #composer-context { margin-left: auto; min-width: 0; }
+#window-chrome .workspace-header-actions { flex: none; margin-left: auto; gap: var(--sp-2); }
+#window-chrome .workspace-header-actions .activity-item { margin: 0; width: auto; min-width: 30px; height: 30px; border-radius: 5px; }
+#window-chrome .workspace-header-actions svg { width: 16px; height: 16px; }
+#window-controls { display: flex; flex: none; align-items: stretch; }
+#window-controls .window-control { display: flex; justify-content: center; align-items: center; width: 44px; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--fg); box-shadow: none; cursor: default; }
+#window-controls .window-control svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1; }
+#window-controls .window-control:hover:not(:disabled) { background: var(--surface-hover); }
+#window-controls #window-close:hover:not(:disabled) { background: var(--danger); color: white; }
+#window-controls .window-control:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -3px; }
+#window-controls .window-control:disabled { opacity: .45; }
+#window-chrome-status { align-self: center; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--danger); font-size: 11px; }
+/* The old 60px workspace row is gone from main, not left as an empty track. */
+.has-window-chrome.familiar-workspace #main { grid-template-rows: minmax(0, 1fr) auto auto; }
+.has-window-chrome.familiar-workspace #main > .view { grid-row: 1; }
+.has-window-chrome.familiar-workspace #main > #log-panel { grid-row: 2; }
+.has-window-chrome.familiar-workspace #main > #statusbar { grid-row: 3; }
+.has-window-chrome.familiar-workspace #main > :is(#tasks-panel, #tasks-scrim) { grid-row: 1 / span 2; }
+@media (max-width: 1100px) {
+  #window-chrome .project-overview-signal { display: none; }
+  #window-chrome > .workspace-header { gap: 10px; }
+}
+@media (max-width: 900px) {
+  #window-chrome #composer-context { display: none; }
+  #window-chrome .workspace-project-name { max-width: 150px; }
+}
+@media (max-width: 600px) {
+  #window-chrome > .workspace-header { gap: var(--sp-2); padding-inline: var(--sp-2); }
+  #window-chrome .workspace-project-name { max-width: 80px; }
+  #window-chrome .project-work-switch [data-work-surface] { padding-inline: var(--sp-3); }
+  #window-controls .window-control { width: 32px; }
+  #window-chrome .workspace-header-actions .activity-item { min-width: 26px; }
+}

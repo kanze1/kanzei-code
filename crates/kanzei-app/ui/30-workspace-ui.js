@@ -1,4 +1,6 @@
 import { $, defer } from "./00-dom.js";
+import { installWindowChrome } from "./30-window-chrome.js";
+import { views } from "./00-views.js";
 import { bindMenus } from "./00-surface.js";
 import { t } from "./02-i18n.js";
 import { currentProject, navigate_view, running } from "./03-shell.js";
@@ -11,7 +13,7 @@ defer(() => {
   const header = node("header", "workspace-header"); header.id = "workspace-header";
   const identity = node("strong", "workspace-project-name"); identity.id = "workspace-project-name";
   const actions = node("div", "workspace-header-actions");
-  header.append(identity); $("main").prepend(header);
+  header.append(identity); installWindowChrome(header);
   const switcher = $("project-work-switch"); if (switcher) header.append(switcher);
   const context = $("composer-context"); if (context) header.append(context);
   for (const id of ["tasks-toggle", "preview-toggle"]) if ($(id)) actions.append($(id));
@@ -55,13 +57,14 @@ defer(() => {
   }
   const sync = () => {
     const view = document.body.dataset.view, project = workbenchProject();
-    header.hidden = !["chat", "project"].includes(view);
-    identity.textContent = project ? projectDisplayName(project) : t("对话");
+    const workspace = ["chat", "project"].includes(view);
+    identity.textContent = workspace && project ? projectDisplayName(project) : t(views[view]?.label || "kanzei");
+    identity.title = identity.textContent;
     context.hidden = view !== "chat";
-    actions.hidden = view !== "chat";
+    actions.hidden = false;
     if ($("delivery-select")) $("delivery-select").hidden = !running;
     projectLabel.textContent = project ? projectDisplayName(project) : t("请先选择项目");
   };
-  for (const event of ["kz:view-changed", "kz:conversation-selected", "kz:session-state-changed", "kz:project-overview"]) document.addEventListener(event, sync);
+  for (const event of ["kz:view-changed", "kz:conversation-selected", "kz:session-state-changed", "kz:project-overview", "kz:language"]) document.addEventListener(event, sync);
   sync();
 });
