@@ -80,7 +80,7 @@ pub(crate) fn general_chat_open(state: State<'_, crate::AppState>) -> Result<Str
 struct LinkGuard(std::sync::Arc<crate::SessionRuntime>);
 impl Drop for LinkGuard {
     fn drop(&mut self) {
-        self.0.compacting.store(false, Ordering::SeqCst);
+        self.0.finish_exclusive();
     }
 }
 
@@ -117,10 +117,7 @@ pub(crate) async fn link_to_project(
     let runtime = crate::runtime_for(state, &session);
     {
         let _lock = runtime.lifecycle.lock().unwrap();
-        if runtime.running.load(Ordering::SeqCst) || runtime.compacting.swap(true, Ordering::SeqCst)
-        {
-            return Err("对话正在运行或整理，请结束后再关联".into());
-        }
+        runtime.begin_exclusive(kanzei_core::session_lifecycle::Activity::History)?;
     }
     let _guard = LinkGuard(runtime);
     let source = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))

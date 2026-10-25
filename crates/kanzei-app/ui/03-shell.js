@@ -1022,6 +1022,8 @@ export function renderTokens() {
 }
 
 export function setRunning(value, statusText) {
+  const authoritative = activeSessionId && sessionState(activeSessionId);
+  if (authoritative?.runtime && value !== authoritative.running) { value = authoritative.running; statusText = authoritative.stage; }
   const wasRunning = running;
   running = value;
   runControlPending = false;
@@ -1079,7 +1081,7 @@ export function activeLineBusy() {
 export function setStopping(statusText) {
   running = true;
   runControlPending = false;
-  $("send").disabled = true;
+  $("send").disabled = false;
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.remove("hidden");

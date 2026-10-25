@@ -10,7 +10,7 @@ use tauri::State;
 struct MutationGuard(Arc<crate::state::SessionRuntime>);
 impl Drop for MutationGuard {
     fn drop(&mut self) {
-        self.0.compacting.store(false, Ordering::SeqCst);
+        self.0.finish_exclusive();
     }
 }
 
@@ -37,10 +37,7 @@ pub(crate) async fn conversation_action(
     let runtime = runtime_for(&state, &session_id);
     {
         let _lock = runtime.lifecycle.lock().unwrap();
-        if runtime.running.load(Ordering::SeqCst) || runtime.compacting.swap(true, Ordering::SeqCst)
-        {
-            return Err("对话正在运行或整理，请结束后再操作".into());
-        }
+        runtime.begin_exclusive(kanzei_core::session_lifecycle::Activity::History)?;
     }
     let _guard = MutationGuard(runtime.clone());
     let process = match process_id.as_deref() {

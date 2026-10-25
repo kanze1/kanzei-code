@@ -14,7 +14,142 @@ pub struct StoredInput {
     pub source: Option<String>,
 }
 
+/// A frozen client command and the input admitted in the same transaction.
+pub struct CommandAdmission<'a> {
+    pub command_id: &'a str,
+    pub payload_hash: &'a str,
+    pub prompt: &'a str,
+    pub delivery: Delivery,
+    pub origin: kanzei_base::MessageOrigin,
+    pub attachments: &'a [kanzei_base::InputAttachment],
+    pub execution_batch: bool,
+    pub work_item_id: Option<&'a str>,
+}
+
 impl SessionStore {
+    pub fn admit_command(
+        &self,
+        session: &str,
+        command: CommandAdmission<'_>,
+    ) -> Result<AdmittedInput, StoreError> {
+        let tx = self.connection.unchecked_transaction()?;
+        // Reserve the writer before reading the receipt, including across hosts.
+        tx.execute(
+            "UPDATE sessions SET updated_at=updated_at WHERE session_id=?1",
+            params![session],
+        )?;
+        let previous: Option<String> = tx.query_row("SELECT json_extract(payload_json,'$.payload_hash') FROM session_events WHERE session_id=?1 AND event_type='input.command_admitted' AND json_extract(payload_json,'$.command_id')=?2", params![session,command.command_id], |r|r.get(0)).optional()?;
+        if previous
+            .as_deref()
+            .is_some_and(|hash| hash != command.payload_hash)
+        {
+            return Err(StoreError::InvalidInput(
+                "同一 command_id 的输入内容发生变化".into(),
+            ));
+        }
+        let input_id = format!(
+            "command:{}",
+            crate::stable_json_hash(&serde_json::json!([session, command.command_id]))
+        );
+        let input = admit_input_tx(
+            &tx,
+            session,
+            &input_id,
+            command.prompt,
+            command.delivery,
+            Some(command.origin.as_str()),
+            command.attachments,
+        )?;
+        if previous.is_none() {
+            append_event_tx(
+                &tx,
+                session,
+                "input.command_admitted",
+                &serde_json::json!({"command_id":command.command_id,"payload_hash":command.payload_hash,"input_id":input_id}),
+            )?;
+            if command.execution_batch || command.work_item_id.is_some() {
+                append_event_tx(
+                    &tx,
+                    session,
+                    "prompt.execution_batch",
+                    &serde_json::json!({"input_id":input_id}),
+                )?;
+            }
+            if let Some(item) = command.work_item_id {
+                append_event_tx(
+                    &tx,
+                    session,
+                    "prompt.work_requested",
+                    &serde_json::json!({"input_id":input_id,"item_id":item}),
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(input)
+    }
+
+    /// Fix the boundary before signalling workers; only pending inputs are cancelled here.
+    pub fn request_session_stop(
+        &self,
+        session_id: &str,
+        operation_id: &str,
+    ) -> Result<crate::session_lifecycle::StopOperation, StoreError> {
+        if self.get_session(session_id)?.is_none() {
+            return Ok(crate::session_lifecycle::StopOperation {
+                operation_id: operation_id.into(),
+                input_cutoff: 0,
+                cancelled_inputs: 0,
+                settled: false,
+            });
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        let cutoff: i64 = tx.query_row(
+            "SELECT COALESCE(MAX(sequence),0) FROM session_events WHERE session_id=?1",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        let cancelled = tx.execute("UPDATE session_inputs SET status='cancelled',finished_at=?1 WHERE session_id=?2 AND status='pending'", params![now_ms(),session_id])?;
+        let operation = crate::session_lifecycle::StopOperation {
+            operation_id: operation_id.into(),
+            input_cutoff: cutoff,
+            cancelled_inputs: cancelled,
+            settled: false,
+        };
+        append_event_tx(
+            &tx,
+            session_id,
+            "session.stop_requested",
+            &serde_json::to_value(&operation)
+                .map_err(|e| StoreError::InvalidInput(e.to_string()))?,
+        )?;
+        tx.commit()?;
+        Ok(operation)
+    }
+
+    pub fn settle_session_stop(
+        &self,
+        session_id: &str,
+        operation: &crate::session_lifecycle::StopOperation,
+    ) -> Result<(), StoreError> {
+        if self.get_session(session_id)?.is_none() {
+            return Ok(());
+        }
+        let tx = self.connection.unchecked_transaction()?;
+        tx.execute("UPDATE session_inputs SET status='cancelled',finished_at=?1 WHERE session_id=?2 AND status IN ('promoted','running') AND input_id IN (SELECT json_extract(payload_json,'$.input_id') FROM session_events WHERE session_id=?2 AND event_type='prompt.admitted' AND sequence<=?3)", params![now_ms(),session_id,operation.input_cutoff])?;
+        tx.execute(
+            "UPDATE sessions SET status='idle',updated_at=?1 WHERE session_id=?2",
+            params![now_ms(), session_id],
+        )?;
+        append_event_tx(
+            &tx,
+            session_id,
+            "session.stop_settled",
+            &serde_json::json!({"operation_id":operation.operation_id,"input_cutoff":operation.input_cutoff}),
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Original admissions, before file expansion or model compaction, for one exact session.
     pub fn original_session_inputs(
         &self,
@@ -1158,4 +1293,88 @@ fn work_target_follows_its_input_across_reopen_and_does_not_leak_to_chat() {
     );
     drop(store);
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[cfg(test)]
+mod command_and_stop_tests {
+    use super::*;
+    fn admission<'a>(id: &'a str, hash: &'a str) -> CommandAdmission<'a> {
+        CommandAdmission {
+            command_id: id,
+            payload_hash: hash,
+            prompt: "hello",
+            delivery: Delivery::Queue,
+            origin: kanzei_base::MessageOrigin::Human,
+            attachments: &[],
+            execution_batch: true,
+            work_item_id: Some("R-001"),
+        }
+    }
+    #[test]
+    fn command_retransmission_preserves_one_input_and_checks_frozen_payload() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("s", "project", None).unwrap();
+        let input = store.admit_command("s", admission("c1", "hash-a")).unwrap();
+        let again = store.admit_command("s", admission("c1", "hash-a")).unwrap();
+        assert_eq!(input.input_id, again.input_id);
+        assert_eq!(store.list_pending_inputs("s").unwrap().len(), 1);
+        assert!(store.admit_command("s", admission("c1", "hash-b")).is_err());
+        assert_eq!(
+            store
+                .list_events_by_type("s", 0, "prompt.execution_batch")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .list_events_by_type("s", 0, "prompt.work_requested")
+                .unwrap()
+                .len(),
+            1
+        );
+        store.promote_next_input("s").unwrap();
+        store.finish_input(&input.input_id, true).unwrap();
+        store.admit_command("s", admission("c1", "hash-a")).unwrap();
+        assert!(store.list_pending_inputs("s").unwrap().is_empty());
+    }
+    #[test]
+    fn command_receipt_and_admission_roll_back_together() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("s", "project", None).unwrap();
+        store.connection.execute_batch("CREATE TRIGGER reject_command BEFORE INSERT ON session_events WHEN NEW.event_type='input.command_admitted' BEGIN SELECT RAISE(ABORT,'injected receipt failure'); END;").unwrap();
+        assert!(store.admit_command("s", admission("c1", "hash-a")).is_err());
+        assert!(store.list_pending_inputs("s").unwrap().is_empty());
+        assert!(store
+            .list_events_by_type("s", 0, "prompt.admitted")
+            .unwrap()
+            .is_empty());
+    }
+    #[test]
+    fn stop_boundary_survives_new_inputs_and_repeated_settlement() {
+        let store = SessionStore::open_in_memory().unwrap();
+        store.create_session("s", "project", None).unwrap();
+        store
+            .admit_input("s", "old", "old", Delivery::Queue)
+            .unwrap();
+        store.promote_next_input("s").unwrap();
+        let stop = store.request_session_stop("s", "stop-1").unwrap();
+        assert_eq!(
+            store.input_status("old").unwrap().as_deref(),
+            Some("promoted")
+        );
+        store
+            .admit_input("s", "new", "new", Delivery::Queue)
+            .unwrap();
+        store.settle_session_stop("s", &stop).unwrap();
+        store.settle_session_stop("s", &stop).unwrap();
+        assert_eq!(
+            store.input_status("old").unwrap().as_deref(),
+            Some("cancelled")
+        );
+        assert_eq!(
+            store.input_status("new").unwrap().as_deref(),
+            Some("pending")
+        );
+    }
 }

@@ -20,7 +20,7 @@ use crate::{
     MutexPoisonExt,
 };
 
-use super::assembly::{RuntimeDeps, RuntimeHandles};
+use super::assembly::RuntimeDeps;
 use super::{append_run_notification, compaction_input_tokens, report_persistence_failure};
 
 /// R-253 批7b:`finalize_round` 参数分组——**会话事务层**:对话历史/会话身份/
@@ -577,15 +577,13 @@ fn persist_runner_surface_if_changed(
 }
 
 /// R-202 批2:run_task 轮末收尾段后半——typed surface 事务/typed shadow 报告
-/// → kz:done → 写租约 Released → 停止令牌回收。legacy snapshot 在投影真源切换后
+/// → kz:done → 写租约 Released。停止令牌由 scheduler 持有到调度收尾。legacy snapshot 在投影真源切换后
 /// 只读保留，不再由正常收尾新增 conversation.updated。
-/// R-253 批7b:按生命周期分组收参——`&RuntimeDeps`(不变依赖)/`&RuntimeHandles`
-/// (会话级句柄:conversation/live/halt_slot)/`FinalizeSession`(会话事务)/
+/// R-253 批7b:按生命周期分组收参——`&RuntimeDeps`(不变依赖)/`FinalizeSession`(会话事务)/
 /// `FinalizeRound`(单轮收尾)/`FinalizeOutcome`(本轮结果)/`RoundReport`(UI 汇报)/
-/// `subagent_rt`(压缩用的执行上下文),共 7 参,消 too_many。
+/// `subagent_rt`(压缩用的执行上下文),共 6 参,消 too_many。
 pub(crate) async fn finalize_round(
     deps: &RuntimeDeps,
-    handles: &RuntimeHandles,
     session: FinalizeSession<'_>,
     round: FinalizeRound<'_>,
     outcome: FinalizeOutcome<'_>,
@@ -624,7 +622,6 @@ pub(crate) async fn finalize_round(
     let config = &deps.config;
     let resolved = &deps.resolved;
     let client = &deps.client;
-    let halt_slot = &handles.halt_slot;
     if let Some(store) = final_store.as_ref() {
         let refreshed = {
             let mut cache = conversation.lock_or_recover();
@@ -819,7 +816,7 @@ pub(crate) async fn finalize_round(
             .lock_or_recover()
             .write_shadow_report(&messages);
     }
-    typed_flush_task.abort();
+    finish_typed_flush(typed_flush_task).await?;
     let _ = window.emit(
         "kz:done",
         with_session_id(
@@ -845,9 +842,19 @@ pub(crate) async fn finalize_round(
             session_id,
         ),
     );
-    // D-342:本 run 收尾,收回停止令牌(stop 已 take 过则本来就是 None,幂等)。
-    halt_slot.lock_or_recover().take();
     Ok(())
+}
+
+/// Abort only requests cancellation; joining releases any upgraded writer/owner.
+pub(super) async fn finish_typed_flush(
+    task: tauri::async_runtime::JoinHandle<()>,
+) -> anyhow::Result<()> {
+    task.abort();
+    match task.await {
+        Ok(()) => Ok(()),
+        Err(tauri::Error::JoinError(error)) if error.is_cancelled() => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[cfg(test)]
@@ -1172,9 +1179,7 @@ mod tests {
         let sql = rusqlite::Connection::open(&path).unwrap();
         let runtime = Arc::new(crate::SessionRuntime::default());
         *runtime.halt.lock_or_recover() = Some(halt_token.clone());
-        runtime
-            .running
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        runtime.activate_for_test();
         let stopped = matches!(stop, OutcomeStop::Cooperative | OutcomeStop::AfterProvider);
         if stop == OutcomeStop::Cooperative {
             store.finalize_interrupt("ses").unwrap();
@@ -1185,11 +1190,9 @@ mod tests {
                 !summary.halted_by_user,
                 "runner has already returned success"
             );
-            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
+            crate::request_runtime_stop(&runtime, &store, &path, "ses").unwrap();
             assert!(halt_token.is_cancelled());
-            runtime
-                .running
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            runtime.settle_for_test();
         }
         if let Some(rejected) = rejected {
             let trigger = match rejected {
@@ -1301,10 +1304,8 @@ mod tests {
         assert_eq!(run_result.as_ref().unwrap().halted_by_user, stopped);
         if stop == OutcomeStop::AfterCommit {
             assert!(result.is_ok());
-            crate::stop_runtime_and_finalize(&runtime, &store, &path, "ses").unwrap();
-            runtime
-                .running
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            crate::request_runtime_stop(&runtime, &store, &path, "ses").unwrap();
+            runtime.settle_for_test();
             assert!(store
                 .list_events_by_type("ses", 0, "session.turn_stopped")
                 .unwrap()
@@ -1506,14 +1507,9 @@ mod tests {
         let runtime = Arc::new(crate::SessionRuntime::default());
         *runtime.halt.lock_or_recover() = Some(halt_token.clone());
         if stopped {
-            runtime
-                .running
-                .store(true, std::sync::atomic::Ordering::SeqCst);
-            crate::stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), "ses")
-                .unwrap();
-            runtime
-                .running
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            runtime.activate_for_test();
+            crate::request_runtime_stop(&runtime, &store, &root.join("state.db"), "ses").unwrap();
+            runtime.settle_for_test();
             assert!(halt_token.is_cancelled());
         }
         let controller = crate::auto_run::AutoRunController {

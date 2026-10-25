@@ -35,8 +35,11 @@ const model = task.server(http.createServer(async (req, res) => {
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   try {
     const data = JSON.parse(raw), messages = data.messages || [], history = JSON.stringify(messages);
-    const system = JSON.stringify(messages.filter(m => m.role === "system")), last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
-    const child = system.includes("You own one delegated task");
+    const last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
+    const contextPrefix = "[conversation_context]\n";
+    const contexts = messages.filter(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith(contextPrefix))
+      .map(m => JSON.parse(m.content.slice(contextPrefix.length)));
+    const child = contexts.some(frame => frame.origin === "agent" && frame.text.includes("\nAssigned checkout: "));
     const boundWork = last.includes("MAIN_WORK_ITEM");
     const kind = boundWork ? "work-main"
       : child ? history.includes("CHILD_DURABLE") ? "child-question" : history.includes("CHILD_ONE") ? "child-one" : "child-two"
@@ -97,7 +100,7 @@ try {
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, owner.id);
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("docs_update", { projectDir: project, kind: "req", action: "add", id: "", title: "原生条目绑定验收", status: "todo", priority: "P1", fields: { "复杂度": "小", "标签": "前端", "验收": "工作台选择的 R-001 在真实 IPC 中认领并绑定本轮" } });
-  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { agent: "dev-auto", executionBatch: true, workItemId: "R-001" });
+  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { profile: "dev-auto", agent: "dev-auto", executionBatch: true, workItemId: "R-001" });
   await until(() => held.has("work-main"), "bound work main request");
   const boundDocs = await invoke("docs_snapshot", { projectDir: project });
   check(boundDocs.requirements.find(item => item.id === "R-001")?.status === "doing", "Native workItemId IPC claims the selected requirement before model execution");
@@ -161,7 +164,7 @@ try {
   await until(() => counts.has("terminal-callback"), "terminal final callback"); await idle();
   check(requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages).includes("LOG_DONE")), "Final terminal callback contains the complete final output");
   await invoke("auto_state_update", { sessionId: owner.session_id, enabled: true, paused: false, goal: "AUTO_GOAL verify continued execution after closing the UI" });
-  await prompt("AUTO_GOAL initial round", { agent: "dev-auto", autonomous: true }); await until(() => held.has("auto"), "auto first request");
+  await prompt("AUTO_GOAL initial round", { profile: "dev-auto", agent: "dev-auto", autonomous: true }); await until(() => held.has("auto"), "auto first request");
   await closeUi(); held.get("auto")(); await until(() => held.has("auto-next"), "backend next round", 65000);
   check(true, "Autonomous next-round scheduling continues while the desktop process is closed");
   await open(); await invoke("stop_run", { projectDir: project, processId: owner.id });

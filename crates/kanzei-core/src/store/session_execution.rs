@@ -2,6 +2,9 @@
 //! The existing thread-affine FileLock stays on a dedicated worker until every
 //! execution/writer guard is dropped; process death releases the OS lock.
 
+mod completion;
+pub use completion::ExecutionCompletion;
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
@@ -52,6 +55,26 @@ pub struct SessionExecutionGuard {
     target: PathBuf,
     release: Option<mpsc::Sender<()>>,
     worker: Option<JoinHandle<()>>,
+    writers: Arc<WriterCompletion>,
+    completion: ExecutionCompletion,
+}
+
+struct WriterCompletion {
+    count: std::sync::atomic::AtomicUsize,
+    changed: tokio::sync::Notify,
+}
+pub(super) struct WriterOwner {
+    _owner: Arc<SessionExecutionGuard>,
+    _completion: WriterReceipt,
+}
+struct WriterReceipt(Arc<WriterCompletion>);
+impl Drop for WriterReceipt {
+    fn drop(&mut self) {
+        self.0
+            .count
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        self.0.changed.notify_waiters();
+    }
 }
 
 /// Fail immediately when this session is already executing. Waiting here would
@@ -83,6 +106,11 @@ pub fn try_acquire(state_path: &Path, session_id: &str) -> io::Result<SessionExe
             target,
             release: Some(release),
             worker: Some(worker),
+            completion: ExecutionCompletion::default(),
+            writers: Arc::new(WriterCompletion {
+                count: std::sync::atomic::AtomicUsize::new(0),
+                changed: tokio::sync::Notify::new(),
+            }),
         }),
         Ok(Err(error)) | Err(error) => {
             drop(release);
@@ -93,6 +121,10 @@ pub fn try_acquire(state_path: &Path, session_id: &str) -> io::Result<SessionExe
 }
 
 impl SessionExecutionGuard {
+    pub fn completion(&self) -> ExecutionCompletion {
+        self.completion.clone()
+    }
+
     /// Recover only under this exact database/session owner. The caller may
     /// already have promoted/started its current input; only that input survives.
     pub fn prepare(
@@ -100,6 +132,50 @@ impl SessionExecutionGuard {
         store: &SessionStore,
         session_id: &str,
         current_input: Option<&str>,
+    ) -> Result<(), SessionFactError> {
+        self.validate_store(store, session_id)?;
+        store.seed_latest_legacy_snapshot(&self.session_id)?;
+        store.recover_interrupted_session_facts_owned(
+            &self.session_id,
+            "process_restarted",
+            current_input,
+            super::typed::RecoveryTerminal::Failed,
+        )?;
+        Ok(())
+    }
+
+    /// The supervisor has joined the worker and all writers before closing stopped facts.
+    pub fn settle_stopped(&self, store: &SessionStore) -> Result<(), SessionFactError> {
+        self.validate_store(store, &self.session_id)?;
+        store.recover_interrupted_session_facts_owned(
+            &self.session_id,
+            "user_stopped",
+            None,
+            super::typed::RecoveryTerminal::Stopped,
+        )?;
+        Ok(())
+    }
+
+    /// Recover a worker that exited without committing its own terminal.
+    pub fn settle_failed(
+        &self,
+        store: &SessionStore,
+        reason: &str,
+    ) -> Result<(), SessionFactError> {
+        self.validate_store(store, &self.session_id)?;
+        store.recover_interrupted_session_facts_owned(
+            &self.session_id,
+            reason,
+            None,
+            super::typed::RecoveryTerminal::Failed,
+        )?;
+        Ok(())
+    }
+
+    fn validate_store(
+        &self,
+        store: &SessionStore,
+        session_id: &str,
     ) -> Result<(), SessionFactError> {
         let database = store
             .path
@@ -110,18 +186,37 @@ impl SessionExecutionGuard {
         {
             return Err(StoreError::InvalidInput("执行守卫不属于这份数据库".into()).into());
         }
-        store.seed_latest_legacy_snapshot(&self.session_id)?;
-        store.recover_interrupted_session_facts_owned(
-            &self.session_id,
-            "process_restarted",
-            current_input,
-        )?;
         Ok(())
     }
 
     pub fn writer(self: &Arc<Self>, turn_id: &str) -> TypedSessionWriter {
-        TypedSessionWriter::new(&self.state_path, &self.session_id, turn_id)
-            .with_execution_owner(Arc::clone(self))
+        self.writers
+            .count
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        TypedSessionWriter::new(&self.state_path, &self.session_id, turn_id).with_execution_owner(
+            WriterOwner {
+                _owner: Arc::clone(self),
+                _completion: WriterReceipt(Arc::clone(&self.writers)),
+            },
+        )
+    }
+
+    /// Call after the worker joined: no new writer may be registered afterwards.
+    pub async fn writers_settled(&self) {
+        loop {
+            let changed = self.writers.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self
+                .writers
+                .count
+                .load(std::sync::atomic::Ordering::Acquire)
+                == 0
+            {
+                return;
+            }
+            changed.await;
+        }
     }
 }
 
@@ -133,6 +228,7 @@ impl Drop for SessionExecutionGuard {
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
         }
+        self.completion.finish();
     }
 }
 
@@ -197,10 +293,12 @@ mod tests {
             .unwrap();
         store.promote_next_queue("ses").unwrap().unwrap();
         assert!(store.start_input("input").unwrap());
+        let completed = owner.completion();
         let mut writer = owner.writer("turn");
         writer.user_message("input", Message::user_text("run"));
         writer.turn_started(1, 2);
         drop(owner);
+        assert!(!completed.is_released());
         let busy = try_acquire(&fixture.0.join("./state.db"), "ses")
             .err()
             .unwrap();
@@ -227,6 +325,7 @@ mod tests {
         assert!(store.finish_input("input", true).unwrap());
         assert!(writer.errors().is_empty(), "{:?}", writer.errors());
         drop(writer);
+        assert!(completed.is_released());
         // Last Drop joins release; immediate reacquisition cannot spuriously be busy.
         drop(try_acquire(&path, "ses").unwrap());
     }
@@ -388,5 +487,30 @@ mod tests {
                 .count(),
             1
         );
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+    use std::future::Future;
+    #[tokio::test]
+    async fn writer_completion_receipt_waits_for_actual_writer_drop() {
+        let root = kanzei_base::test_support::TestDir::new("kz-writer-receipt-");
+        let path = root.join("state.db");
+        let store = SessionStore::open(&path).unwrap();
+        store.create_session("s", "project", None).unwrap();
+        let owner = Arc::new(try_acquire(&path, "s").unwrap());
+        let writer = owner.writer("t");
+        let waiting = owner.writers_settled();
+        tokio::pin!(waiting);
+        let pending = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(waiting.as_mut().poll(cx).is_pending())
+        })
+        .await;
+        assert!(pending);
+        drop(writer);
+        waiting.await;
+        owner.settle_stopped(&store).unwrap();
     }
 }

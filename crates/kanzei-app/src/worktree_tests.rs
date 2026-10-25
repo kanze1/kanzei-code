@@ -163,12 +163,24 @@ async fn close_process_先停止运行会话再回收已合并干净工作树并
         .create_session(&session_id, &project_root.display().to_string(), None)
         .unwrap();
     runtime
-        .running
-        .store(true, std::sync::atomic::Ordering::SeqCst);
+        .begin_exclusive(kanzei_core::session_lifecycle::Activity::History)
+        .unwrap();
+    let cancellation = runtime.halt.lock().unwrap().as_ref().unwrap().clone();
+    let owner = runtime.clone();
+    let owned_tree = worktree.clone();
+    let activity = tokio::spawn(async move {
+        cancellation.cancelled().await;
+        assert!(
+            owned_tree.exists(),
+            "worktree must remain until its execution owner exits"
+        );
+        owner.finish_exclusive();
+    });
 
     let result = close_process(&state, &process).await.unwrap();
+    activity.await.unwrap();
 
-    assert!(!runtime.running.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(!runtime.is_running());
     assert!(!state.processes.lock().unwrap().contains_key(&info.id));
     assert!(!worktree.exists(), "已合并且干净的工作树应自动回收");
     assert!(result.contains("已关闭") && result.contains("回收"));
@@ -811,9 +823,7 @@ async fn 运行中线路不能合并或放弃工作树() {
     .unwrap();
     let worktree = PathBuf::from(info.worktree_path.as_ref().unwrap());
     let runtime = crate::runtime_for(&state, &info.session_id);
-    runtime
-        .running
-        .store(true, std::sync::atomic::Ordering::SeqCst);
+    runtime.activate_for_test();
 
     let merge = with_idle_bound_process(&state, &canonical, &worktree, "合并", || {
         Ok::<_, String>(())
@@ -827,9 +837,7 @@ async fn 运行中线路不能合并或放弃工作树() {
     assert!(worktree.is_dir(), "拒绝放弃后工作树必须保留");
     assert!(state.processes.lock().unwrap().contains_key(&info.id));
 
-    runtime
-        .running
-        .store(false, std::sync::atomic::Ordering::SeqCst);
+    runtime.settle_for_test();
     unregister_parallel_process(&state, &canonical, &info.id).unwrap();
     cleanup_worktrees(&[worktree]);
 }

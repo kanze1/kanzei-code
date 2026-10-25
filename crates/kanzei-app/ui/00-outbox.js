@@ -8,7 +8,7 @@ export function createOutbox(deliver) {
     prepare(sessionId, payload) {
       const key = JSON.stringify([sessionId, payload]);
       if (unresolved.has(key)) return unresolved.get(key);
-      const record = { key, sessionId, payload: structuredClone(payload), status: "pending", error: "", request: null, listeners: new Set() };
+      const record = { key, sessionId, payload: { ...structuredClone(payload), commandId: crypto.randomUUID() }, status: "pending", error: "", request: null, listeners: new Set() };
       unresolved.set(key, record); return record;
     },
     subscribe(record, listener) { record.listeners.add(listener); listener(record); return () => record.listeners.delete(listener); },

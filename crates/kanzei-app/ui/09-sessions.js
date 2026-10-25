@@ -1,3 +1,4 @@
+import { applyRuntimeSnapshot, beginRuntimeQuery } from "./00-session-state.js";
 import { renderWorkbenchNavigation, openProjectSpace, setBrowsingProject } from "./12-workbench.js";
 import { isGeneralChat, rememberConversationMode } from "./03-general-scope.js";
 import { dropClosedSessions, processName, renderSidebarSessions, syncSessionActivity } from "./12-session-tree.js";
@@ -457,7 +458,7 @@ export function renderParallelTaskState(row, { runningNow, pendingNow, stoppingN
   if (glyph.textContent !== mark) glyph.textContent = mark;
   if (text.textContent !== words) text.textContent = words;
 }
-export function renderProcesses(items) {
+export function renderProcesses(items, queryId = null) {
   const previousItems = processItems;
   const previousProcessKey = processItems.map((item) => item.id).join("\u0000");
   const previousProcessId = activeProcessId;
@@ -483,6 +484,7 @@ export function renderProcesses(items) {
   // 已收敛终态(converged)的会话不被旧轮询值翻回——事件在轮询采样之后才发
   // 出是正常时序,此刻 process_list 里仍是 running=true,但会话实际已结束。
   for (const item of processItems) {
+    if (item.runtime) { applyRuntimeSnapshot(item.session_id, item.runtime, { queryId }); continue; }
     const state = sessionState(item.session_id);
     if (state.converged) continue;
     // 实时事件是运行态的高优先级来源。一次在飞的 process_list 请求可能在
@@ -583,8 +585,9 @@ export async function refreshProcesses({ force = false } = {}) {
   }
   const promise = (async () => {
     try {
+      const queryId = beginRuntimeQuery();
       const items = await invoke("process_list", { projectDir: forProject });
-      if (currentProject === forProject) renderProcesses(items);
+      if (currentProject === forProject) renderProcesses(items, queryId);
     } catch (err) {
       if (currentProject === forProject) log(`${t("对话列表刷新失败")}:${err}`, "warn");
     } finally {

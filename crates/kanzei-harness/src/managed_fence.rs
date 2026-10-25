@@ -38,6 +38,12 @@ pub struct ManagedWriterSpec {
 /// D-173 的执行前后围栏管自己的副作用,把它放进白名单等于给后台越界开了个庇护所。
 /// `write`/`edit` 对托管路径本就是权限硬 deny,同样不入表。
 const MANAGED_WRITERS: &[ManagedWriterSpec] = &[
+    // The engine owns this audit log. Its normal bookkeeping must update the
+    // same baseline as tool writes, without opening other project documents.
+    ManagedWriterSpec {
+        tool: "runtime_audit",
+        prefixes: &[".kanzei/project/auto-run-alerts.jsonl"],
+    },
     // tracker 四件套(名字来自 profiles.rs 的 tool_name)与架构索引、测试记录,
     // 全部落在 .kanzei/project/ 下(含各自的 -archive.md 与 architecture/ 子树)。
     ManagedWriterSpec {
@@ -265,6 +271,9 @@ mod tests {
 
     #[test]
     fn 前缀覆盖按托管根判定_跨根不越界() {
+        let audit = writer_spec("runtime_audit").unwrap();
+        assert!(covers(audit, ".kanzei/project/auto-run-alerts.jsonl"));
+        assert!(!covers(audit, ".kanzei/project/requirements.md"));
         let defect = writer_spec("defect").unwrap();
         assert!(covers(defect, ".kanzei/project/defects.md"));
         assert!(covers(defect, ".kanzei/project/defects-archive.md"));

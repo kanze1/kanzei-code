@@ -1,14 +1,12 @@
 //! An explicit conversation handoff freezes the source's readable current segment
 //! into the destination input. Queue promotion must never reread a changing source.
 
-use std::sync::atomic::Ordering;
-
 use kanzei_llm::{Message, Part, Role};
 use serde::Deserialize;
 
 use crate::{normalized_project_root, process_session_id, runtime_for, AppState, MutexPoisonExt};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HandoffSource {
     pub(crate) project_dir: String,
@@ -35,7 +33,7 @@ pub(super) fn attach_snapshot(
     // Share the source's lifecycle lock with start/reset/delete. Once it is idle,
     // the finished surface is durable and cannot switch segments during this read.
     let _source_lifecycle = runtime.lifecycle.lock_or_recover();
-    if runtime.running.load(Ordering::SeqCst) {
+    if runtime.is_running() {
         return Err("来源对话仍在运行，请等回复完成后重新交接；结论已保留".into());
     }
     let messages = crate::conversation::conversation_get(

@@ -12,7 +12,6 @@
 //! ⑨`stage` 闭包签名保持 `&(dyn Fn(&str, String) + Sync)`。
 
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use serde_json::json;
@@ -97,13 +96,15 @@ pub(crate) async fn run_task(
         Some(process_id.clone()),
     );
 
-    // D-342:换代 + 安装本 run 的停止令牌。换代在前——stop 的兜底硬杀按代数比对,
-    // 装了新令牌还留着旧代数会让上一次停止的兜底误杀本 run。
-    let halt_token = kanzei_core::CancellationToken::new();
-    {
+    // The scheduler installed this token before publishing running. Retain it
+    // through round finalization so Stop cannot fall between two token owners.
+    let halt_token = {
         let _lifecycle = handles.lifecycle.lock_or_recover();
-        handles.run_generation.fetch_add(1, Ordering::SeqCst);
-        *handles.halt_slot.lock_or_recover() = Some(halt_token.clone());
+        let halt = handles
+            .halt_slot
+            .lock_or_recover()
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("运行调度器未安装停止令牌"))?;
         handles.live_run.lock_or_recover().prepare(
             request
                 .promoted_input
@@ -111,7 +112,8 @@ pub(crate) async fn run_task(
                 .map(|input| input.input_id.as_str()),
             &request.prompt,
         );
-    }
+        halt
+    };
 
     let RunAssembly {
         deps,
@@ -366,8 +368,7 @@ pub(crate) async fn run_task(
     let summary = match run_result {
         Ok(summary) => summary,
         Err(error) => {
-            typed_flush_task.abort();
-            handles.halt_slot.lock_or_recover().take();
+            super::persistence::finish_typed_flush(typed_flush_task).await?;
             // D-403:失败轮不再在轮末判定之前提前返回。鞭挞已武装(ctrl.enabled)
             // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试
             // (连续 MAX_FAILED_ROUNDS 轮才停),致命立即停;停摆经通知桥发手机。
@@ -649,7 +650,6 @@ pub(crate) async fn run_task(
     // RoundReport + deps/handles/subagent_rt)。
     finalize_round(
         &deps,
-        &handles,
         FinalizeSession {
             conversation: &handles.conversation,
             session_id: &session_id,

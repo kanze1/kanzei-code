@@ -39,7 +39,7 @@ pub(crate) fn prompt_attachment_parts(
         .collect()
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub(crate) struct PromptAttachment {
     pub(crate) file_name: String,
     pub(crate) media_type: String,
@@ -131,14 +131,15 @@ pub(crate) fn with_session_id(
 }
 
 pub(crate) struct SessionRuntime {
+    session_id: String,
     pub(crate) read_ledger: kanzei_harness::ReadLedger,
-    pub(crate) compacting: AtomicBool,
+    pub(crate) supervisor: Mutex<kanzei_core::session_lifecycle::ConversationSupervisor>,
+    pub(crate) changed: tokio::sync::Notify,
     pub(crate) callback_options: Mutex<crate::commands::run::RunOptions>,
     pub(crate) async_mailbox: Mutex<Option<kanzei_harness::AsyncMailbox>>,
     pub(crate) async_generation: AtomicU64,
     pub(crate) asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     pub(crate) current_run: Arc<Mutex<Option<tauri::async_runtime::JoinHandle<()>>>>,
-    pub(crate) running: Arc<AtomicBool>,
     pub(crate) lifecycle: Arc<Mutex<()>>,
     pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     pub(crate) live: Arc<Mutex<LiveRun>>,
@@ -147,21 +148,125 @@ pub(crate) struct SessionRuntime {
     /// R-174:本会话运行中的子代理取消注册表。`stop_task` 命令按 id 命中即取消,
     /// run_task 构造 SubagentRuntime 时把它塞进 `cancellations` 字段,单一实例共享。
     pub(crate) task_cancellations: Arc<kanzei_core::TaskCancellations>,
-    /// D-342 协作式停止:当前 run 的停止令牌,每次 run_task 开始时换新。
-    /// stop 取走并 cancel → run 在安全检查点以 halted **正常收尾**(轮末写回对话),
+    /// 当前轮的停止令牌，由 scheduler 在启动或提升输入时安装，收尾后回收。
+    /// stop 保留并 cancel → run 在安全检查点以 halted **正常收尾**(轮末写回对话),
     /// None = 无活跃 run(此时停止走立即终态化的旧路径)。
     pub(crate) halt: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
-    /// D-342:run 代数。兜底硬杀只对「停止时那一代」生效——宽限期内用户又发了
-    /// 新任务时,代数已换,不得误杀新 run。
-    pub(crate) run_generation: Arc<AtomicU64>,
-    /// D-513:停止兜底线程的句柄必须由 runtime 持有，避免线程被静默 detach；已完成句柄在下一次 stop 时回收。
-    pub(crate) stop_watchdogs: Arc<Mutex<Vec<std::thread::JoinHandle<()>>>>,
 }
 fn next_async_generation() -> u64 {
     static NEXT: AtomicU64 = AtomicU64::new(1);
     NEXT.fetch_add(1, Ordering::SeqCst)
 }
 impl SessionRuntime {
+    pub(crate) fn snapshot(&self) -> kanzei_core::session_lifecycle::Snapshot {
+        self.supervisor.lock_or_recover().snapshot()
+    }
+    pub(crate) fn is_running(&self) -> bool {
+        self.supervisor.lock_or_recover().busy()
+    }
+    pub(crate) fn is_compacting(&self) -> bool {
+        let s = self.snapshot();
+        s.phase != kanzei_core::session_lifecycle::Phase::Idle
+            && matches!(
+                s.activity,
+                Some(
+                    kanzei_core::session_lifecycle::Activity::Compact
+                        | kanzei_core::session_lifecycle::Activity::History
+                )
+            )
+    }
+    pub(crate) fn transition(
+        &self,
+        event: kanzei_core::session_lifecycle::Event,
+    ) -> Result<(), String> {
+        // Publish in the same order as transitions, even when Stop races the
+        // worker completion callback. Receivers still reject stale snapshots.
+        let mut supervisor = self.supervisor.lock_or_recover();
+        let snapshot = supervisor.apply(event).map_err(|error| error.to_string())?;
+        crate::session_supervisor::publish(&self.session_id, &snapshot);
+        drop(supervisor);
+        self.changed.notify_waiters();
+        Ok(())
+    }
+    pub(crate) fn generation(&self) -> u64 {
+        self.snapshot().round_generation
+    }
+    pub(crate) fn stopping(&self) -> bool {
+        self.supervisor.lock_or_recover().stopping()
+    }
+    /// Register resource-producing controls before they can await or spawn.
+    /// Stop closes admission under this same lock and waits for their drops.
+    pub(crate) fn admit_effect(
+        &self,
+        id: &str,
+    ) -> Result<kanzei_core::TaskCancellationGuard, String> {
+        use kanzei_core::session_lifecycle::{Existence, Phase};
+        let _lifecycle = self.lifecycle.lock_or_recover();
+        let snapshot = self.snapshot();
+        if snapshot.existence != Existence::Open
+            || self.stopping()
+            || snapshot.phase == Phase::Blocked
+        {
+            return Err("对话正在回收，完成后再操作子任务".into());
+        }
+        Ok(self.task_cancellations.register(id))
+    }
+
+    pub(crate) fn begin_exclusive(
+        &self,
+        activity: kanzei_core::session_lifecycle::Activity,
+    ) -> Result<(), String> {
+        self.transition(kanzei_core::session_lifecycle::Event::Acquire(activity))?;
+        self.transition(kanzei_core::session_lifecycle::Event::Acquired)?;
+        *self.halt.lock_or_recover() = Some(kanzei_core::CancellationToken::new());
+        Ok(())
+    }
+    pub(crate) fn finish_exclusive(&self) {
+        let lifecycle = self.lifecycle.lock_or_recover();
+        self.transition(kanzei_core::session_lifecycle::Event::WorkerEnded)
+            .expect("exclusive owner ends its activity");
+        if !self.stopping() {
+            self.transition(kanzei_core::session_lifecycle::Event::Settled(
+                "completed".into(),
+            ))
+            .expect("exclusive resources released");
+            self.halt.lock_or_recover().take();
+        }
+        drop(lifecycle);
+        crate::session_supervisor::wake_pending(&self.session_id);
+    }
+    /// Caller holds lifecycle. Install cancellation before publishing a running round.
+    pub(crate) fn begin_round(&self) -> Result<(), String> {
+        use kanzei_core::session_lifecycle::{Activity, Event, Phase};
+        match self.snapshot().phase {
+            Phase::Idle => {
+                self.transition(Event::Acquire(Activity::Run))?;
+                self.transition(Event::Acquired)?;
+            }
+            Phase::Reaping => self.transition(Event::NextRound)?,
+            _ => return Err("当前执行尚未回收，不能启动下一轮".into()),
+        }
+        *self.halt.lock_or_recover() = Some(kanzei_core::CancellationToken::new());
+        Ok(())
+    }
+    #[cfg(test)]
+    pub(crate) fn activate_for_test(&self) {
+        let token = self.halt.lock_or_recover().take();
+        self.begin_round().unwrap();
+        if token.is_some() {
+            *self.halt.lock_or_recover() = token;
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn settle_for_test(&self) {
+        use kanzei_core::session_lifecycle::Event;
+        self.transition(Event::WorkerEnded).unwrap();
+        if self.stopping() {
+            self.transition(Event::StopSettled).unwrap();
+        }
+        self.transition(Event::Settled("completed".into())).unwrap();
+    }
+
     /// Caller holds lifecycle when retiring an actor.
     pub(crate) fn retire_async(&self) {
         self.async_generation
@@ -495,6 +600,7 @@ pub(crate) struct ProcessInfo {
     /// 当前会话阶段,用于侧栏逐条投影并行任务状态。
     pub(crate) stage: String,
     pub(crate) running: bool,
+    pub(crate) runtime: kanzei_core::session_lifecycle::Snapshot,
     /// 展示名(永不为空):用户命名 ‖ 首条消息前 48 字 ‖ 类型+序号(「对话」「讨论 3」)。
     /// 界面不再露出 `pN`/「默认」(UX-009)。
     pub(crate) label: String,
@@ -544,22 +650,21 @@ pub(crate) use kanzei_tools::worktree::WorktreeInfo;
 impl Default for SessionRuntime {
     fn default() -> Self {
         Self {
+            session_id: String::new(),
             read_ledger: kanzei_harness::ReadLedger::default(),
-            compacting: AtomicBool::new(false),
+            supervisor: Mutex::new(Default::default()),
+            changed: tokio::sync::Notify::new(),
             callback_options: Mutex::new(crate::commands::run::RunOptions::default()),
             async_mailbox: Mutex::new(None),
             async_generation: AtomicU64::new(next_async_generation()),
             asks: Arc::new(Mutex::new(HashMap::new())),
             current_run: Arc::new(Mutex::new(None)),
-            running: Arc::new(AtomicBool::new(false)),
             lifecycle: Arc::new(Mutex::new(())),
             conversation: Arc::new(Mutex::new(HashMap::new())),
             live: Arc::new(Mutex::new(LiveRun::default())),
             stage: Arc::new(Mutex::new("空闲".into())),
             task_cancellations: Arc::new(kanzei_core::TaskCancellations::default()),
             halt: Arc::new(Mutex::new(None)),
-            run_generation: Arc::new(AtomicU64::new(0)),
-            stop_watchdogs: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -692,17 +797,10 @@ pub(crate) fn process_info_with(
     let session_id = process_session_id(root, Some(&process.id));
     let kind = process_kind_of(process);
     let ordinal = crate::processes::naming::process_ordinal(&process.id);
-    let running = state
-        .runtimes
-        .lock_or_recover()
-        .get(&session_id)
-        .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
-    let stage = state
-        .runtimes
-        .lock_or_recover()
-        .get(&session_id)
-        .map(|runtime| runtime.stage.lock_or_recover().clone())
-        .unwrap_or_else(|| "空闲".into());
+    let actor = runtime_for(state, &session_id);
+    let snapshot = actor.snapshot();
+    let running = snapshot.phase != kanzei_core::session_lifecycle::Phase::Idle;
+    let stage = actor.stage.lock_or_recover().clone();
     ProcessInfo {
         id: process.id.clone(),
         // ProcessInfo 是 IPC 输出类型,保持 String(前端契约不变)。
@@ -724,6 +822,7 @@ pub(crate) fn process_info_with(
         tracker_writes: process.tracker_writes_enabled.load(Ordering::SeqCst),
         stage,
         running,
+        runtime: snapshot,
         label: naming.display(kind, ordinal),
         title: naming.title().map(str::to_string),
         title_custom: naming.custom.is_some(),
@@ -737,145 +836,52 @@ pub(crate) fn runtime_for(state: &AppState, session_id: &str) -> Arc<SessionRunt
         .runtimes
         .lock_or_recover()
         .entry(session_id.to_string())
-        .or_insert_with(|| Arc::new(SessionRuntime::default()))
+        .or_insert_with(|| {
+            Arc::new(SessionRuntime {
+                session_id: session_id.to_string(),
+                ..SessionRuntime::default()
+            })
+        })
         .clone()
 }
-/// D-342:兜底硬杀前的宽限期。协作式停止下 run 会在最近的检查点(步首/流内/
-/// 工具间)自行收尾并走轮末写回;只有工具挂死等异常才等到这个上限。
+/// Cooperative cancellation deadline; only the surviving supervisor may escalate it.
 pub(crate) const STOP_GRACE_SECS: u64 = 30;
 
-/// D-342 协作式停止(用户点「停止」走这里):置位停止令牌让 run 自行收尾,
-/// **不立即 abort**——abort 到不了轮末写回,被打断轮的对话会整轮消失,这正是
-/// D-342 的根因。队列清理(finalize_interrupt)仍然立即执行;兜底硬杀在宽限期
-/// 后按代数比对触发,不误杀停止后新开的 run。
-/// 关线/注销等终点动作请用 [`halt_runtime_immediately`](自 stop_runtime_and_finalize
-/// 拆出的旧路径)——那里随后就删工作树,不能让 run 多活 30 秒。
-/// D-513:回收已经结束的 stop watchdog，保留仍在宽限期内的线程句柄。
-pub(crate) fn reap_stop_watchdogs(runtime: &SessionRuntime) {
-    let mut watchdogs = runtime.stop_watchdogs.lock_or_recover();
-    let mut active = Vec::with_capacity(watchdogs.len());
-    for watchdog in watchdogs.drain(..) {
-        if watchdog.is_finished() {
-            if let Err(error) = watchdog.join() {
-                tracing::warn!(?error, "stop watchdog 线程回收失败");
-            }
-        } else {
-            active.push(watchdog);
-        }
-    }
-    *watchdogs = active;
-}
-
-pub(crate) fn stop_runtime_and_finalize(
+pub(crate) fn request_runtime_stop(
     runtime: &Arc<SessionRuntime>,
     store: &kanzei_core::SessionStore,
-    state_path: &Path,
+    _state_path: &Path,
     session_id: &str,
 ) -> Result<usize, kanzei_core::StoreError> {
     let _lifecycle = runtime.lifecycle.lock_or_recover();
-    reap_stop_watchdogs(runtime);
-    runtime.retire_async();
-    let halt_token = runtime.halt.lock_or_recover().take();
-    match halt_token {
-        Some(token) if runtime.running.load(Ordering::SeqCst) => {
-            token.cancel();
-            // 挂在权限/问题弹窗上的 run:清 pending ask,sender drop → Cancelled →
-            // 既有 UserDeclined 路径立刻 halted 收尾,不用等检查点。
-            runtime.asks.lock_or_recover().clear();
-            let generation = runtime.run_generation.load(Ordering::SeqCst);
-            let runtime_bg = Arc::clone(runtime);
-            let state_path = state_path.to_path_buf();
-            let session_bg = session_id.to_string();
-            tracing::info!(
-                session_id,
-                generation,
-                grace_secs = STOP_GRACE_SECS,
-                "stop watchdog scheduled"
-            );
-            let watchdog = std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_secs(STOP_GRACE_SECS));
-                let _lifecycle = runtime_bg.lifecycle.lock_or_recover();
-                if stale_run_needs_abort(
-                    runtime_bg.run_generation.load(Ordering::SeqCst),
-                    generation,
-                    runtime_bg.running.load(Ordering::SeqCst),
-                ) {
-                    // 兜底:run 没能在宽限期内自行收尾(工具挂死等),回到硬杀,
-                    // 轨迹/episode 先落库再 abort(与旧路径同序)。
-                    tracing::warn!(session_id = %session_bg, generation, "stop watchdog forcing abort");
-                    match kanzei_core::SessionStore::open(&state_path) {
-                        Ok(store) => {
-                            let flushed =
-                                flush_live_run(&store, &session_bg, &runtime_bg.live, "halted");
-                            tracing::info!(session_id = %session_bg, flushed, "stop watchdog flushed live run");
-                        }
-                        Err(error) => {
-                            tracing::warn!(
-                                error = %error,
-                                path = %state_path.display(),
-                                session_id = %session_bg,
-                                "stop watchdog could not open state.db"
-                            );
-                        }
-                    }
-                    if let Some(handle) = runtime_bg.current_run.lock_or_recover().as_ref() {
-                        handle.abort();
-                        // Retain the handle: a shutdown owner must await task destruction.
-                        tracing::info!(session_id = %session_bg, "stop watchdog aborted run handle");
-                    } else {
-                        tracing::warn!(session_id = %session_bg, "stop watchdog found no run handle to abort");
-                    }
-                    runtime_bg.running.store(false, Ordering::SeqCst);
-                    *runtime_bg.stage.lock_or_recover() = "空闲".into();
-                } else {
-                    tracing::debug!(session_id = %session_bg, generation, "stop watchdog observed run already settled or replaced");
-                }
-            });
-            runtime.stop_watchdogs.lock_or_recover().push(watchdog);
-            store.finalize_interrupt(session_id)
+    let snapshot = runtime.snapshot();
+    if let Some(operation) = snapshot.stop.filter(|operation| !operation.settled) {
+        if snapshot.phase == kanzei_core::session_lifecycle::Phase::Blocked {
+            runtime
+                .transition(kanzei_core::session_lifecycle::Event::ResumeCleanup)
+                .map_err(kanzei_core::StoreError::InvalidInput)?;
         }
-        // 无活跃 run(或令牌已被上一轮收走):立即终态化,与旧行为一致。
-        _ => {
-            flush_live_run(store, session_id, &runtime.live, "halted");
-            if let Some(handle) = runtime.current_run.lock_or_recover().as_ref() {
-                handle.abort();
-            }
-            runtime.asks.lock_or_recover().clear();
-            runtime.running.store(false, Ordering::SeqCst);
-            *runtime.stage.lock_or_recover() = "空闲".into();
-            store.finalize_interrupt(session_id)
-        }
+        return Ok(operation.cancelled_inputs);
     }
-}
-
-/// D-342:兜底硬杀的判定,抽成纯函数锁语义——只有「代数未换 && 仍在运行」才硬杀;
-/// 宽限期内新开的 run(代数已 +1)不受停止兜底波及。
-pub(crate) fn stale_run_needs_abort(
-    current_generation: u64,
-    stop_generation: u64,
-    running: bool,
-) -> bool {
-    running && current_generation == stop_generation
-}
-
-/// 关线/注销的立即终态化(旧 stop_runtime_and_finalize 原样保留):调用方随后要
-/// 删工作树/退役身份,不能给 run 宽限期。
-pub(crate) fn halt_runtime_immediately(
-    runtime: &SessionRuntime,
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-) -> Result<usize, kanzei_core::StoreError> {
-    let _lifecycle = runtime.lifecycle.lock_or_recover();
-    flush_live_run(store, session_id, &runtime.live, "halted");
+    let operation = store.request_session_stop(
+        session_id,
+        &format!("{}:stop:{}", snapshot.actor_epoch, snapshot.revision + 1),
+    )?;
+    let cancelled = operation.cancelled_inputs;
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::StopRequested(
+            operation,
+        ))
+        .map_err(kanzei_core::StoreError::InvalidInput)?;
     runtime.retire_async();
-    if let Some(handle) = runtime.current_run.lock_or_recover().as_ref() {
-        handle.abort();
+    if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
+        token.cancel();
     }
     runtime.asks.lock_or_recover().clear();
-    runtime.running.store(false, Ordering::SeqCst);
-    *runtime.stage.lock_or_recover() = "空闲".into();
-    store.finalize_interrupt(session_id)
+    runtime.task_cancellations.cancel_all();
+    Ok(cancelled)
 }
+
 pub(crate) fn take_pending_ask(state: &AppState, id: u64) -> Option<PendingAsk> {
     state
         .runtimes

@@ -8,7 +8,7 @@ use kanzei_llm::{Message, Part, Role};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -195,7 +195,7 @@ async fn run_fixture(point: FailurePoint) -> Value {
     let runtime = Arc::new(crate::SessionRuntime::default());
     let halt_token = kanzei_core::CancellationToken::new();
     *runtime.halt.lock_or_recover() = Some(halt_token.clone());
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.activate_for_test();
     let mut ctx = ToolCtx::new(fixture.0.clone(), fixture.0.clone()).with_session_id("ses".into());
     ctx.input_inbox = Some(steering_inbox(
         writer.clone(),
@@ -212,11 +212,15 @@ async fn run_fixture(point: FailurePoint) -> Value {
             // Stop wins before the production closure obtains lifecycle.
             if takes.fetch_add(1, Ordering::SeqCst) == 1 {
                 let store = SessionStore::open(&inbox_path).unwrap();
-                crate::stop_runtime_and_finalize(&inbox_runtime, &store, &inbox_path, "ses")
-                    .unwrap();
+                crate::request_runtime_stop(&inbox_runtime, &store, &inbox_path, "ses").unwrap();
                 let _lifecycle = inbox_runtime.lifecycle.lock_or_recover();
-                assert!(inbox_runtime.running.load(Ordering::SeqCst));
-                assert!(inbox_runtime.halt.lock_or_recover().is_none());
+                assert!(inbox_runtime.is_running());
+                assert!(inbox_runtime
+                    .halt
+                    .lock_or_recover()
+                    .as_ref()
+                    .unwrap()
+                    .is_cancelled());
                 // This matches a legal manual steer while cooperative Stop has
                 // cancelled the old input but the old run is still settling.
                 store
@@ -410,7 +414,7 @@ async fn run_fixture(point: FailurePoint) -> Value {
         &json!({"run_id":"turn","fixture":"C7"}),
     )
     .unwrap();
-    runtime.running.store(false, Ordering::SeqCst);
+    runtime.settle_for_test();
     let facts = store.list_session_facts("ses").unwrap();
     let steering_ids: Vec<_> = facts
         .iter()
@@ -558,7 +562,7 @@ async fn steering_stop_before_take_does_not_consume_new_admission_in_old_turn() 
     let proof = run_fixture(FailurePoint::StopBeforeTake).await;
     assert!(proof["outcome_error"].is_null(), "{proof}");
     assert_eq!(proof["halt_cancelled"], true);
-    assert_eq!(proof["halt_slot_empty"], true);
+    assert_eq!(proof["halt_slot_empty"], false);
     assert_eq!(proof["requests"].as_array().unwrap().len(), 1, "{proof}");
     assert_eq!(proof["tool_executions"], 1);
     assert_eq!(proof["terminal_types"], json!(["stopped"]));

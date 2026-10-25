@@ -191,7 +191,7 @@ mod tests {
         store
             .create_session("owner", &root.display().to_string(), None)
             .unwrap();
-        crate::stop_runtime_and_finalize(
+        crate::request_runtime_stop(
             &runtime,
             &store,
             &kanzei_core::project_state_path(&root),

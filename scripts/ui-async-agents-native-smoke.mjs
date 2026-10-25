@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -38,10 +38,12 @@ const model = task.server(http.createServer(async (req, res) => {
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   try {
     const data = JSON.parse(raw), messages = data.messages || [];
-    const system = JSON.stringify(messages.filter(m => m.role === "system"));
     const last = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
-    const child = system.includes("You own one delegated task");
-    const assignment = String(messages.findLast(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith("main: CHILD_"))?.content || "");
+    const contextPrefix = "[conversation_context]\n";
+    const contexts = messages.filter(m => m.role === "user" && typeof m.content === "string" && m.content.startsWith(contextPrefix))
+      .map(m => JSON.parse(m.content.slice(contextPrefix.length))).filter(frame => frame.origin === "agent");
+    const child = contexts.some(frame => frame.text.includes("\nAssigned checkout: "));
+    const assignment = contexts.map(frame => frame.text).join("\n");
     const kind = child ? assignment.includes("CHILD_ASK_ASYNC") ? "child-question" : assignment.includes("CHILD_TERMINAL") ? "child-terminal" : assignment.includes("CHILD_FOREGROUND") ? "foreground-child" : assignment.includes("CHILD_ALPHA") ? "alpha" : "beta"
       : last.includes("后台终端完成") ? "terminal-callback" : last.includes("MAIN_PARALLEL") ? "parallel" : last.includes("MAIN_ASK_ASYNC") ? "main-question"
         : last.includes("MAIN_HANDOFF") ? "handoff" : last.includes("HANDOFF_STEER") ? "handoff-steered"
@@ -118,11 +120,23 @@ try {
     window.asyncProgress = [];
     window.asyncJobs = [];
     window.asyncInterruptions = [];
+    window.lifecycleReceipts = [];
+    await window.__TAURI__.event.listen("kz:lifecycle", event => window.lifecycleReceipts.push(event.payload));
     await window.__TAURI__.event.listen("kz:tool-progress", event => window.asyncProgress.push(event.payload));
     await window.__TAURI__.event.listen("kz:agent-job", event => window.asyncJobs.push(event.payload));
     await window.__TAURI__.event.listen("kz:response-interrupted", event => window.asyncInterruptions.push(event.payload));
   });
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
+  const receiptText="COMMAND_RECEIPT: the same client send is retransmitted";
+  const receiptRequest={projectDir:project,processId:owner.id,prompt:receiptText,commandId:randomUUID()};
+  await Promise.all([invoke("run_prompt",receiptRequest),invoke("run_prompt",receiptRequest)]); await idle();
+  await invoke("run_prompt",receiptRequest); await idle();
+  check(requests.filter(r=>r.messages.findLast(m=>m.role==="user")?.content===receiptText).length===1,"Native retransmission and lost receipt replay execute one durable input");
+  await assert.rejects(()=>invoke("run_prompt",{...receiptRequest,prompt:"changed frozen payload"}));
+  check(true,"Reusing a native command ID with changed content returns conflict");
+  await invoke("run_prompt",{...receiptRequest,commandId:randomUUID()}); await idle();
+  check(requests.filter(r=>r.messages.findLast(m=>m.role==="user")?.content===receiptText).length===2,"Identical human text with a fresh command ID is a separate input");
+
   await prompt("MAIN_PARALLEL: dispatch two independent tasks");
   await until(() => held.has("alpha") && held.has("beta"), "Two simultaneous model requests");
   await idle();
@@ -159,6 +173,25 @@ try {
     "New input is handled before the old provider responds, without executing its uncommitted tools");
   check(await page.evaluate(() => window.asyncInterruptions.length) === 1, "Provider interruption is distinct from stopping the conversation");
   held.get("steer")();
+
+  const heldBeforeStop = counts.get("steer") || 0;
+  await prompt("MAIN_STEER_STOP: keep the provider request open until I stop");
+  await until(() => (counts.get("steer") || 0) > heldBeforeStop, "Stop target reaches the actual provider");
+  await Promise.all([
+    invoke("stop_run", { projectDir: project, processId: owner.id }),
+    invoke("stop_run", { projectDir: project, processId: owner.id }),
+  ]);
+  await idle();
+  check(true, "Repeated Stop settles the original conversation without losing its cancellation owner");
+  for (let round = 0; round < 4; round++) {
+    const text = `AFTER_STOP_${round}: continue this same conversation`;
+    await prompt(text);
+    await idle();
+    check(requests.filter(request => request.messages.findLast(message => message.role === "user")?.content === text).length === 1,
+      `Post-stop input ${round + 1} acquires the released session and reaches the provider once`);
+  }
+  const settled = await page.evaluate(async id => (await import("./00-session-state.js")).sessionState(id).phase, owner.session_id);
+  check(settled === "idle", "Post-stop follow-ups leave the same UI conversation idle");
 
   await prompt("MAIN_FOREGROUND: start a foreground child and wait for it");
   await until(() => held.has("foreground-child"), "Foreground child is in flight");
@@ -247,6 +280,16 @@ try {
   await until(() => page.evaluate(id => window.asyncJobs.some(event => event.job.id === id && event.job.state === "stopped"), closing.id), "Closed owner stops children");
   check(true, "Closing an idle main session also stops its background children");
   await page.screenshot({ path: path.join(output, "completed-dark.png") });
+  const receipts=await page.evaluate(()=>window.lifecycleReceipts);
+  const revisions=new Map();
+  let monotonic=true;
+  for(const receipt of receipts) {
+    const snapshot=receipt.runtime, key=`${receipt.sessionId}|${snapshot.actor_epoch}`;
+    monotonic &&= (revisions.get(key)??-1)<=snapshot.revision;
+    revisions.set(key,snapshot.revision);
+  }
+  check(monotonic,"Lifecycle receipts remain monotonic within their actor");
+  check(["acquiring","active","cancelling","reaping","idle"].every(phase=>receipts.some(r=>r.runtime.phase===phase)),"Native execution exercises acquisition, cancellation, reaping and idle receipts");
   check(errors.length === 0, `No browser/runtime errors: ${errors.join("; ")}`);
   const report = { checks, errors, requests: requests.map(({ kind, at }) => ({ kind, at })), executable: exe, executableSha256, boundary: "Real Windows UI, Rust scheduler, SQLite, Git and terminal; model responses supplied by an isolated local server." };
   await writeFile(path.join(run, "acceptance.json"), JSON.stringify(report, null, 2));

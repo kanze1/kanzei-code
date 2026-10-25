@@ -42,6 +42,27 @@ async function open({ selected = false, idle = false, delivery = null } = {}) {
 }
 
 try {
+  const stopping = await open();
+  const stopState = await stopping.page.evaluate(async owner => {
+    const { sessionState } = await import("/00-session-state.js");
+    window.__kzPreview.emit("kz:stopping", { sessionId: owner.session, cancelled_queue: 2 });
+    return { phase: sessionState(owner.session).phase, running: sessionState(owner.session).running };
+  }, stopping.owner);
+  check("Stop acknowledgement retains running ownership until finalization", stopState, { phase: "stopping", running: true });
+  check("Stop finalization leaves the send button available", await stopping.page.locator("#send").isEnabled(), true);
+  await stopping.page.locator("#prompt").fill("停止收尾期间继续补充需求");
+  await stopping.page.locator("#send").click();
+  await stopping.page.waitForFunction(() => window.__kzPreview.calls.some(call => call.cmd === "run_prompt"));
+  const followup = await stopping.page.evaluate(() => window.__kzPreview.calls.findLast(call => call.cmd === "run_prompt").args);
+  check("Input during stop finalization still goes to the same conversation", followup.processId, stopping.owner.process);
+  check("Input during stop finalization keeps steering delivery", followup.delivery, "steer");
+  const finalStop = await stopping.page.evaluate(async owner => {
+    const { sessionState } = await import("/00-session-state.js");
+    window.__kzPreview.emit("kz:idle", { sessionId: owner.session, reason: "completed" });
+    return { phase: sessionState(owner.session).phase, running: sessionState(owner.session).running };
+  }, stopping.owner);
+  check("Only scheduler idle completes the stop", finalStop, { phase: "stopped", running: false });
+  await stopping.page.close();
   const planning = await open({ selected: true, idle: true });
   await planning.page.evaluate(async () => (await import("/08-compose-runtime.js")).sendText("补齐节点理解，不领取实施任务", { workItemId: null, executionBatch: false }));
   const planningRequest = await planning.page.evaluate(() => window.__kzPreview.calls.findLast(call => call.cmd === "run_prompt").args);

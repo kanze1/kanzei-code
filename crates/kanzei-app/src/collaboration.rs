@@ -268,9 +268,7 @@ impl CollaborationProbe {
             .map(|process| {
                 let session_id = process_session_id(&self.origin_project, Some(&process.id));
                 let runtime = runtimes.get(&session_id);
-                let running = runtime.is_some_and(|runtime| {
-                    runtime.running.load(std::sync::atomic::Ordering::SeqCst)
-                });
+                let running = runtime.is_some_and(|runtime| runtime.is_running());
                 let (
                     current_tool,
                     steps,
@@ -696,7 +694,7 @@ impl Tool for CollaborationStatusTool {
 mod tests {
     use super::*;
     use crate::{ensure_default_process, process_session_id, runtime_for, AppState, ProcessHandle};
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::AtomicBool;
 
     fn fixture_conversation(
         id: &str,
@@ -1226,7 +1224,7 @@ mod tests {
         let current = ensure_default_process(&state, &canonical);
         let current_runtime =
             runtime_for(&state, &process_session_id(&canonical, Some(&current.id)));
-        current_runtime.running.store(true, Ordering::SeqCst);
+        current_runtime.activate_for_test();
 
         let peer_root = root.join("peer");
         run_git(
@@ -1303,7 +1301,7 @@ mod tests {
             .unwrap()
             .0
             .contains(&serde_json::to_string(&other.id).unwrap()));
-        other_runtime.running.store(true, Ordering::SeqCst);
+        other_runtime.activate_for_test();
         std::fs::write(peer_root.join("first.rs"), "first\n").unwrap();
         let all = probe.conversations();
         let other_line = all
@@ -1413,8 +1411,8 @@ mod tests {
             .await;
         assert!(invalid.is_error);
 
-        current_runtime.running.store(false, Ordering::SeqCst);
-        other_runtime.running.store(false, Ordering::SeqCst);
+        current_runtime.settle_for_test();
+        other_runtime.settle_for_test();
         drop(snapshot);
         drop(harness);
         std::fs::remove_dir_all(root).ok();

@@ -679,6 +679,7 @@ export const commandParameters = {
     "autoAllow": false,
     "autoRound": false,
     "autonomous": false,
+    "commandId": false,
     "delivery": false,
     "executionBatch": false,
     "handoffSource": false,

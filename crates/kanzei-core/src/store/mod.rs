@@ -443,3 +443,5 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 pub(crate) mod testutil;
+
+pub use inbox::CommandAdmission;

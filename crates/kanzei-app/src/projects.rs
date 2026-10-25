@@ -653,7 +653,7 @@ pub(crate) fn running_conversation_names(
     project_path: &str,
 ) -> Vec<String> {
     use crate::processes::naming::order_key;
-    use std::sync::atomic::Ordering;
+
     let root = normalized_project_root(Path::new(project_path));
     let handles = state
         .processes
@@ -672,7 +672,7 @@ pub(crate) fn running_conversation_names(
                 .lock()
                 .unwrap()
                 .get(&session_id)
-                .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst))
+                .is_some_and(|runtime| runtime.is_running())
         })
         .map(|process| crate::process_info(state, process))
         .collect::<Vec<_>>();
@@ -1346,7 +1346,6 @@ mod tests {
 
     #[test]
     fn 移除项目前能列出运行中的对话_空闲时为空() {
-        use std::sync::atomic::Ordering;
         let dir = std::env::temp_dir().join(format!(
             "kz-remove-running-{}-{}",
             std::process::id(),
@@ -1362,9 +1361,7 @@ mod tests {
         let path = root.display().to_string();
         assert!(running_conversation_names(&state, &path).is_empty());
         let session = crate::process_session_id(&root, Some(&main.id));
-        crate::runtime_for(&state, &session)
-            .running
-            .store(true, Ordering::SeqCst);
+        crate::runtime_for(&state, &session).activate_for_test();
         assert_eq!(running_conversation_names(&state, &path), ["对话"]);
         // 别的项目不受影响。
         assert!(running_conversation_names(&state, r"C:\kz-no-such-project").is_empty());

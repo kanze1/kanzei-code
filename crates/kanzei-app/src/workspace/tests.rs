@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::atomic::Ordering;
 
 struct Project(PathBuf);
 impl Project {
@@ -145,9 +144,7 @@ fn historical_doing_is_not_running_and_only_successful_claim_associates_default(
     let state = AppState::default();
     let process = crate::ensure_default_process(&state, &root.0);
     let session = crate::process_session_id(&root.0, Some(&process.id));
-    crate::runtime_for(&state, &session)
-        .running
-        .store(true, Ordering::SeqCst);
+    crate::runtime_for(&state, &session).activate_for_test();
     crate::runtime_for(&state, &session)
         .live
         .lock()
@@ -185,7 +182,8 @@ fn historical_doing_is_not_running_and_only_successful_claim_associates_default(
     // A new run can be unrelated. The old successful receipt is still history, not proof
     // that this new run is executing the old doing item.
     let runtime = crate::runtime_for(&state, &session);
-    runtime.run_generation.fetch_add(1, Ordering::SeqCst);
+    runtime.settle_for_test();
+    runtime.activate_for_test();
     runtime
         .live
         .lock()

@@ -36,6 +36,40 @@ try {
     }
     return true;
   }));
+  check("versioned runtime receipts reject stale events and retired actors", await page.evaluate(async () => {
+    const { applyRuntimeSnapshot, beginRuntimeQuery, sessionState, reduceSession } = await import("/00-session-state.js");
+    const sid="version-test", snap=(revision,phase,actor_epoch="actor-a")=>({actor_epoch,revision,phase,last_outcome:null});
+    applyRuntimeSnapshot(sid,snap(1,"active"));
+    reduceSession(sid,"idle"); if (!sessionState(sid).running) return false;
+    applyRuntimeSnapshot(sid,snap(3,"cancelling"));
+    if (applyRuntimeSnapshot(sid,snap(2,"idle"))) return false;
+    if (sessionState(sid).phase!=="stopping") return false;
+    applyRuntimeSnapshot(sid,snap(0,"idle","actor-b"),{queryId:beginRuntimeQuery()});
+    if (applyRuntimeSnapshot(sid,snap(99,"active"),{queryId:beginRuntimeQuery()})) return false;
+    if (sessionState(sid).runtime.actor_epoch!=="actor-b") return false;
+    const oldQuery=beginRuntimeQuery(), freshQuery=beginRuntimeQuery();
+    applyRuntimeSnapshot("epoch-race",snap(1,"active","fresh-actor"),{queryId:freshQuery});
+    if (applyRuntimeSnapshot("epoch-race",snap(99,"idle","unseen-old-actor"),{queryId:oldQuery})) return false;
+    applyRuntimeSnapshot(sid,snap(1,"blocked","actor-b"));
+    return sessionState(sid).running && sessionState(sid).phase==="failed";
+  }));
+  check("stop timeout queries authoritative progress without inventing stopped", await page.evaluate(async () => {
+    const shell=await import("/03-shell.js"), model=await import("/00-session-state.js"), auto=await import("/08-auto.js");
+    const items=shell.processItems, sid="watchdog-test", original=window.setTimeout;
+    shell.setProcessItems([...items,{id:"watchdog-p",project_dir:"C:/watchdog",session_id:sid}]);
+    model.applyRuntimeSnapshot(sid,{actor_epoch:"watchdog",revision:1,phase:"cancelling"});
+    let timer, resolve, entered; const querying=new Promise(done=>{entered=done;});
+    window.__kzPreview.setCommand("process_list",()=>new Promise(done=>{resolve=done;entered();}));
+    window.setTimeout=(fn,ms)=>{ if(ms===auto.STOPPING_WATCHDOG_MS) { timer=fn; return 999999; } return original(fn,ms); };
+    auto.armStoppingWatchdog(sid); window.setTimeout=original; timer();
+    await querying;
+    const pending=model.sessionState(sid).phase==="unconfirmed" && model.sessionState(sid).running;
+    resolve([{id:"watchdog-p",runtime:{actor_epoch:"watchdog",revision:2,phase:"reaping"}}]);
+    await new Promise(done=>original(done,0));
+    const confirmed=model.sessionState(sid).phase==="stopping";
+    shell.setProcessItems(items); const fixtures=await window.__kzPreview.fixtures(); window.__kzPreview.setCommand("process_list",fixtures.state.processes);
+    return pending && confirmed;
+  }));
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"); shell.transitionSession(shell.activeSessionId, "idle");
     window.copyCount = 0; Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async () => { window.copyCount++; } } });
@@ -60,6 +94,10 @@ try {
   await page.evaluate(() => window.admission.resolve(null));
   await page.waitForFunction(() => document.querySelector('[data-delivery-state="accepted"]'));
   check("retry reuses one bubble and sends one request", await page.evaluate(() => window.__kzPreview.calls.filter(call => call.cmd === "run_prompt").length === 2) && await page.locator("[data-delivery-state]").count() === 1);
+  check("retry keeps the frozen command ID", await page.evaluate(() => {
+    const calls=window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt");
+    return Boolean(calls[0].args.commandId) && calls[0].args.commandId===calls[1].args.commandId;
+  }));
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"), runtime = await import("/03-session-runtime.js");
     const items = shell.processItems.map(item => ({ ...item, running: false }));

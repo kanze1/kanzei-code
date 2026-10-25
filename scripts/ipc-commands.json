@@ -2623,6 +2623,10 @@
         "required": false,
         "type": "Option < bool >"
       },
+      "commandId": {
+        "required": false,
+        "type": "Option < String >"
+      },
       "delivery": {
         "required": false,
         "type": "Option < String >"

@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -180,7 +179,7 @@ fn lines(
                 // Historical claims remain useful ownership facts, but another run may be
                 // doing unrelated work. Only this running turn can supply a running item.
                 if let Some(runtime) = runtime {
-                    let generation = runtime.run_generation.load(Ordering::SeqCst);
+                    let generation = runtime.generation();
                     let run_id = {
                         let live = runtime.live.lock_or_recover();
                         (!live.flushed)
@@ -191,8 +190,8 @@ fn lines(
                         let claim = store
                             .latest_work_claim(session_id, Some(&run_id))
                             .map_err(|e| e.to_string())?;
-                        if runtime.running.load(Ordering::SeqCst)
-                            && runtime.run_generation.load(Ordering::SeqCst) == generation
+                        if runtime.is_running()
+                            && runtime.generation() == generation
                             && runtime.live.lock_or_recover().run_id == run_id
                         {
                             line["current_item_id"] = json!(claim);

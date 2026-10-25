@@ -25,6 +25,7 @@ pub(crate) struct QueuedInput<'a> {
     pub origin: kanzei_base::MessageOrigin,
     pub execution_batch: bool,
     pub work_item_id: Option<&'a str>,
+    pub command: Option<&'a crate::commands::run::InputCommand>,
 }
 
 /// Persist the complete input and its source before admitting it to the queue.
@@ -40,11 +41,27 @@ pub(crate) fn admit_input(
         origin,
         execution_batch,
         work_item_id,
+        command,
     } = input;
     let project_root = crate::normalized_project_root(Path::new(project_dir));
     let attachments = crate::attachments::prepare(&project_root, attachments)?.references;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
     store.create_session(session_id, &project_root.display().to_string(), None)?;
+    if let Some(command) = command {
+        return Ok(store.admit_command(
+            session_id,
+            kanzei_core::CommandAdmission {
+                command_id: &command.id,
+                payload_hash: &command.payload_hash,
+                prompt,
+                delivery,
+                origin,
+                attachments: &attachments,
+                execution_batch,
+                work_item_id,
+            },
+        )?);
+    }
     let input_id = format!(
         "input_{}",
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
@@ -186,6 +203,7 @@ mod tests {
                     origin,
                     execution_batch: false,
                     work_item_id: None,
+                    command: None,
                 },
             )
             .unwrap();
@@ -224,6 +242,7 @@ mod tests {
                 origin: kanzei_base::MessageOrigin::Human,
                 execution_batch: false,
                 work_item_id: None,
+                command: None,
             },
         );
         assert!(result.is_err());

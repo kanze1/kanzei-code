@@ -1,3 +1,4 @@
+import { confirmSessionRuntime } from "./03-session-runtime.js";
 import "./00-dom.js";
 import { motionCount } from "./00-ui-primitives.js";
 import { $ } from "./00-dom.js";
@@ -13,13 +14,10 @@ import {
   log,
   processItems,
   sessionState,
-  setRunning,
-  toast,
   transitionSession,
 } from "./03-shell.js";
 import { normalizeAutoState, processAutoState, processProfileUi } from "./08-compose-runtime.js";
 import "./08-compose.js";
-import { refreshProcesses } from "./09-sessions.js";
 
 // ---------- 自动续跑状态与渲染 ----------
 // 自动推进状态：续跑轮数用于观察，手动发送时归零。
@@ -271,12 +269,8 @@ export function continuePrompt() {
   return $("continue-prompt").value.trim() || DEFAULT_CONTINUE_PROMPT;
 }
 
-// 「停止中…」是个只能靠后端终态事件走出去的状态:发送禁用、停止禁用、
-// 轮询也不复位(09-sessions.js 只在 phase 属于 starting/running 时才收敛)。
-// 事件桥断开、后端异常退出或事件丢失(D-005 那类)之后按一次停止,这条线就
-// 永久焊死——重启应用才能用,而用户多半只会以为「还在收尾」而一直等下去。
-// 给它一个看门狗:超时未收到确认就自行落到停止态,并把「没收到确认」说出来,
-// 而不是假装什么都没发生。
+// Missing event receipts affect transport confidence only. The deadline probes
+// the authoritative runtime and never manufactures stop completion.
 export const STOPPING_WATCHDOG_MS = 10000;
 export const stoppingWatchdogs = new Map();
 export function armStoppingWatchdog(sessionId) {
@@ -285,11 +279,9 @@ export function armStoppingWatchdog(sessionId) {
   stoppingWatchdogs.set(sessionId, setTimeout(() => {
     stoppingWatchdogs.delete(sessionId);
     if (sessionState(sessionId).phase !== "stopping") return;
-    transitionSession(sessionId, "stopped");
-    if (sessionId === activeSessionId) setRunning(false, t("已停止"));
-    log(t("停止已发出但未收到后端确认,已按停止处理"), "warn");
-    toast(t("停止已发出但未收到后端确认,已按停止处理"));
-    refreshProcesses();
+    transitionSession(sessionId, "unconfirmed", { stage: "停止状态未确认", detail: "正在向后端核对回收进度" });
+    const item = processItems.find(item => item.session_id === sessionId);
+    if (item) void confirmSessionRuntime(sessionId, item.project_dir, item.id);
   }, STOPPING_WATCHDOG_MS));
 }
 export function clearStoppingWatchdog(sessionId) {

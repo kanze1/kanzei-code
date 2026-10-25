@@ -27,7 +27,7 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
     else {
         return;
     };
-    let generation = runtime.run_generation.load(Ordering::SeqCst);
+    let generation = runtime.generation();
     let async_generation = runtime.async_generation.load(Ordering::SeqCst);
     let mut options = runtime.callback_options.lock_or_recover().clone();
     options.autonomous = true;
@@ -49,13 +49,20 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
         tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         // The done event can precede final resource cleanup. Wait for that same
         // generation to release its lease instead of losing the next round.
-        while runtime.running.load(Ordering::SeqCst) {
-            if runtime.run_generation.load(Ordering::SeqCst) != generation
+        loop {
+            let changed = runtime.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if runtime.generation() != generation
                 || runtime.async_generation.load(Ordering::SeqCst) != async_generation
+                || runtime.snapshot().phase == kanzei_core::session_lifecycle::Phase::Blocked
             {
                 return;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            if !runtime.is_running() {
+                break;
+            }
+            changed.await;
         }
         let window = app.clone();
         let state = app.state::<AppState>();

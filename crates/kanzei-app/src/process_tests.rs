@@ -1,8 +1,8 @@
 //! 进程、会话运行时与停止收尾测试。
 
 use super::{
-    process_session_id, runtime_for, stop_runtime_and_finalize, take_pending_ask, AppState,
-    PendingAsk, SessionRuntime,
+    process_session_id, request_runtime_stop, runtime_for, take_pending_ask, AppState, PendingAsk,
+    SessionRuntime,
 };
 // R-153 批4:legacy_process_id 已迁到 state 模块。
 use crate::processes::{
@@ -55,12 +55,34 @@ fn stopping_after_promote_cancels_promoted_and_pending_inputs_atomically() {
         "promoted"
     );
     let runtime = Arc::new(SessionRuntime::default());
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.activate_for_test();
     assert_eq!(
-        stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap(),
-        2
+        request_runtime_stop(&runtime, &store, &root.join("state.db"), session_id).unwrap(),
+        1
     );
-    assert!(!runtime.running.load(Ordering::SeqCst));
+    assert!(runtime.is_running());
+    assert_eq!(
+        store.input_status("promoted").unwrap().as_deref(),
+        Some("promoted")
+    );
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::WorkerEnded)
+        .unwrap();
+    store
+        .settle_session_stop(session_id, &runtime.snapshot().stop.unwrap())
+        .unwrap();
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::StopSettled)
+        .unwrap();
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::Settled(
+            "stopped".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        store.input_status("promoted").unwrap().as_deref(),
+        Some("cancelled")
+    );
     assert!(store.list_pending_inputs(session_id).unwrap().is_empty());
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
@@ -89,7 +111,7 @@ fn 协作式停止_置位令牌不立即终态化_队列仍即刻取消() {
         .admit_input(session_id, "queued", "排队中", kanzei_core::Delivery::Queue)
         .unwrap();
     let runtime = Arc::new(SessionRuntime::default());
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.activate_for_test();
     let token = kanzei_core::CancellationToken::new();
     *runtime.halt.lock().unwrap() = Some(token.clone());
     let (sender, _receiver) = oneshot::channel();
@@ -111,52 +133,74 @@ fn 协作式停止_置位令牌不立即终态化_队列仍即刻取消() {
     );
 
     let cancelled =
-        stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+        request_runtime_stop(&runtime, &store, &root.join("state.db"), session_id).unwrap();
 
     assert_eq!(cancelled, 1, "排队输入立即取消");
     assert!(token.is_cancelled(), "停止令牌必须被置位");
-    assert!(runtime.halt.lock().unwrap().is_none(), "令牌被 stop 取走");
-    assert!(runtime.asks.lock().unwrap().is_empty(), "pending ask 被清");
-    assert_eq!(
-        runtime.stop_watchdogs.lock().unwrap().len(),
-        1,
-        "协作式停止必须保留 watchdog 句柄，不能静默 detach"
-    );
     assert!(
-        runtime.running.load(Ordering::SeqCst),
+        runtime
+            .halt
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .is_cancelled(),
+        "停止令牌须保留到运行收尾"
+    );
+    let cutoff = runtime.snapshot().stop.unwrap().input_cutoff;
+    store
+        .admit_input(
+            session_id,
+            "after-stop",
+            "new human input",
+            kanzei_core::Delivery::Queue,
+        )
+        .unwrap();
+    request_runtime_stop(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+    assert_eq!(runtime.snapshot().stop.unwrap().input_cutoff, cutoff);
+    assert_eq!(
+        store.input_status("after-stop").unwrap().as_deref(),
+        Some("pending")
+    );
+    assert!(runtime.is_running(), "重复停止不能提前公布空闲");
+    assert!(runtime.asks.lock().unwrap().is_empty(), "pending ask 被清");
+    assert!(
+        runtime.is_running(),
         "协作式停止不立即翻 running——run 要自行收尾走轮末写回"
     );
     drop(store);
     std::fs::remove_dir_all(root).ok();
 }
 
-/// D-342:兜底硬杀判定——只有「代数未换 && 仍在运行」才硬杀;宽限期内新开的
-/// run(代数 +1)不受上一次停止的兜底波及。
-#[test]
-fn 兜底硬杀只认停止时那一代() {
-    use crate::state::stale_run_needs_abort;
-    assert!(stale_run_needs_abort(7, 7, true), "同代且在跑:该硬杀");
-    assert!(!stale_run_needs_abort(8, 7, true), "换代:新 run 不能被误杀");
-    assert!(!stale_run_needs_abort(7, 7, false), "已收尾:无需硬杀");
-}
-
-#[test]
-fn 结束的_stop_watchdog句柄可被回收() {
-    use crate::state::reap_stop_watchdogs;
-    let runtime = SessionRuntime::default();
-    runtime
-        .stop_watchdogs
-        .lock()
-        .unwrap()
-        .push(std::thread::spawn(|| {}));
-    // 等线程真正结束再回收:固定睡 10ms 在机器满载(并行编译)时不够线程收尾,测试会偶发红。
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    while !runtime.stop_watchdogs.lock().unwrap()[0].is_finished() {
-        assert!(std::time::Instant::now() < deadline, "空线程 5 秒内应结束");
-        std::thread::sleep(std::time::Duration::from_millis(5));
+#[tokio::test]
+async fn forced_worker_abort_is_joined_before_returning() {
+    struct Receipt(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for Receipt {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
     }
-    reap_stop_watchdogs(&runtime);
-    assert!(runtime.stop_watchdogs.lock().unwrap().is_empty());
+    let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let receipt = Receipt(dropped.clone());
+    let (started, entered) = oneshot::channel();
+    let child = tauri::async_runtime::spawn(async move {
+        let _receipt = receipt;
+        started.send(()).unwrap();
+        std::future::pending::<()>().await;
+        Ok(())
+    });
+    entered.await.unwrap();
+    let cancel = kanzei_core::CancellationToken::new();
+    cancel.cancel();
+    let outcome =
+        crate::session_supervisor::worker_result(child, cancel, std::time::Duration::ZERO)
+            .await
+            .unwrap_err();
+    assert!(crate::run::persistence::is_stopped_outcome(&outcome));
+    assert!(
+        dropped.load(Ordering::SeqCst),
+        "abort must await the worker's resource drops"
+    );
 }
 
 #[test]
@@ -176,7 +220,7 @@ fn 停止时在飞轨迹与episode先落库再abort() {
         .create_session(session_id, &root.display().to_string(), None)
         .unwrap();
     let runtime = Arc::new(SessionRuntime::default());
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.activate_for_test();
     {
         let mut live = runtime.live.lock().unwrap();
         live.begin(
@@ -190,15 +234,23 @@ fn 停止时在飞轨迹与episode先落库再abort() {
         live.trace
             .push(serde_json::json!({"kind": "tool.completed", "name": "bash"}));
     }
-    // 令牌槽为空(无活跃令牌)→ 停止走立即终态化路径,行为与 D-342 之前一致。
-    stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+    // 请求停止不写执行终态；只有 worker/writer 已回收的 supervisor 可持久化。
+    request_runtime_stop(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+    assert!(store
+        .latest_event(session_id, "run.trace")
+        .unwrap()
+        .is_none());
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::WorkerEnded)
+        .unwrap();
+    crate::flush_live_run(&store, session_id, &runtime.live, "halted");
     let trace = store
         .latest_event(session_id, "run.trace")
         .unwrap()
         .unwrap();
     assert_eq!(trace.payload["outcome"], "halted");
     assert_eq!(store.list_episodes(session_id, 5).unwrap().len(), 1);
-    stop_runtime_and_finalize(&runtime, &store, &root.join("state.db"), session_id).unwrap();
+    request_runtime_stop(&runtime, &store, &root.join("state.db"), session_id).unwrap();
     assert_eq!(store.list_episodes(session_id, 5).unwrap().len(), 1);
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
@@ -478,4 +530,25 @@ fn process_restore_is_isolated_per_project() {
 
     std::fs::remove_dir_all(&root_a).ok();
     std::fs::remove_dir_all(&root_b).ok();
+}
+
+#[tokio::test]
+async fn stop_closes_resource_admission_and_joins_in_flight_factories() {
+    use std::future::Future;
+    let root = kanzei_base::test_support::TestDir::new("kz-stop-producer-");
+    let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
+    store.create_session("s", "project", None).unwrap();
+    let runtime = Arc::new(SessionRuntime::default());
+    let factory = runtime.admit_effect("factory").unwrap();
+    request_runtime_stop(&runtime, &store, &root.join("state.db"), "s").unwrap();
+    assert!(factory.token().is_cancelled());
+    assert!(runtime.admit_effect("late-factory").is_err());
+    let waiting = runtime.task_cancellations.settled();
+    tokio::pin!(waiting);
+    let pending =
+        std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx).is_pending()))
+            .await;
+    assert!(pending, "cleanup must wait for already admitted producers");
+    drop(factory);
+    waiting.await;
 }

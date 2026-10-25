@@ -137,7 +137,7 @@ await check('core stopping-to-terminal clears tools without permitting late prog
     assert.equal(toolCount(h.state('A')), 0); assert.equal(h.state('A').stage, '空闲'); assert.equal(h.state('A').detail, ''); const phase = h.state('A').phase;
     h.emit('tool-progress', 'A', { id: 'unfinished', chunk: 'late' }); assert.equal(h.state('A').phase, phase); assert.equal(toolCount(h.state('A')), 0); phases.push(phase);
   }
-  assert.deepEqual(phases, ['idle', 'stopped', 'failed']); return { phases };
+  assert.deepEqual(phases, ['stopped', 'stopped', 'failed']); return { phases };
 });
 await check('done followed by converged auto-pending idle clears tools and keeps its state owner', 'PASS', async () => {
   const h = await harness(); h.emit('turn', 'A', { step: 1 }); h.emit('tool-start', 'A', { id: 'unfinished', name: 'bash' }); h.emit('done', 'A'); assert.equal(toolCount(h.state('A')), 0);

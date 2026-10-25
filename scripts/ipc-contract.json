@@ -553,7 +553,18 @@
     "title_custom": "bool",
     "tracker_writes": "bool",
     "updated_at": "nullable",
-    "worktree_path": "nullable"
+    "worktree_path": "nullable",
+    "runtime": {
+      "actor_epoch": "string",
+      "revision": "number",
+      "phase": "string",
+      "existence": "string",
+      "activity": "nullable",
+      "round_generation": "number",
+      "last_outcome": "nullable",
+      "stop": "nullable",
+      "error": "nullable"
+    }
   },
   "process_list": [
     {
@@ -577,7 +588,18 @@
       "title_custom": "bool",
       "tracker_writes": "bool",
       "updated_at": "number",
-      "worktree_path": "nullable"
+      "worktree_path": "nullable",
+      "runtime": {
+        "actor_epoch": "string",
+        "revision": "number",
+        "phase": "string",
+        "existence": "string",
+        "activity": "string",
+        "round_generation": "number",
+        "last_outcome": "nullable",
+        "stop": "nullable",
+        "error": "nullable"
+      }
     }
   ],
   "project_root_info": {

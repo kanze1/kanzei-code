@@ -21,8 +21,8 @@ use tauri::State;
 use crate::state::legacy_process_id;
 use crate::state::{process_info_with, process_kind_of};
 use crate::{
-    halt_runtime_immediately, normalized_project_root, process_info, process_session_id, AppState,
-    ProcessHandle, ProcessInfo, WorktreeRoot,
+    normalized_project_root, process_info, process_session_id, AppState, ProcessHandle,
+    ProcessInfo, WorktreeRoot,
 };
 use kanzei_tools::worktree as wt;
 
@@ -234,7 +234,7 @@ pub(crate) async fn purge_process(
         .lock()
         .unwrap()
         .get(&session_id)
-        .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
+        .is_some_and(|runtime| runtime.is_running());
     if running {
         return Err("对话正在运行,先停止再删除".into());
     }
@@ -774,35 +774,6 @@ fn persist_settings_update(
     Ok(())
 }
 
-/// 关线/复位前清空该会话尚未消费的排队输入。admitted 而未 promote 的输入若不
-/// 处置,主线复位后会在下一次开跑时被静默续跑,并行线关闭后则无声丢失——两种
-/// 结局用户都看不见。逐条落 prompt.cancelled,取消数量计入关闭消息。
-fn cancel_pending_inputs_on_close(
-    store: &kanzei_core::SessionStore,
-    session_id: &str,
-) -> Result<usize, String> {
-    let pending = store
-        .list_pending_inputs(session_id)
-        .map_err(|e| e.to_string())?;
-    let mut cancelled = 0usize;
-    for input in &pending {
-        if store
-            .cancel_input(session_id, &input.input_id)
-            .map_err(|e| e.to_string())?
-        {
-            store
-                .append_event(
-                    session_id,
-                    "prompt.cancelled",
-                    &json!({ "input_id": input.input_id, "reason": "line_closed" }),
-                )
-                .map_err(|e| e.to_string())?;
-            cancelled += 1;
-        }
-    }
-    Ok(cancelled)
-}
-
 #[tauri::command]
 pub async fn process_close(
     state: State<'_, AppState>,
@@ -833,13 +804,20 @@ pub(crate) async fn close_process(
     // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
     // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
     // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
+    let session = process_session_id(root, Some(&process_id));
+    let runtime = crate::runtime_for(state, &session);
+    let killed = kanzei_tools::background::list(root)
+        .into_iter()
+        .filter(|t| t.owner.process_id == process_id)
+        .count();
+    crate::session_supervisor::close_runtime(&runtime, root, &process_id).await?;
+    let cancelled = runtime
+        .snapshot()
+        .stop
+        .map_or(0, |stop| stop.cancelled_inputs);
     let released = unregister_parallel_process(state, root, &process_id)?;
-    let killed = kanzei_tools::kill_background_processes_for_process(root, &process_id).await;
-    // 注销之后运行时已停,不会再有 promote 与取消赛跑;此时清排队输入最稳。
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
-    let _ = store.create_session(&session_id, &root.display().to_string(), None);
-    let cancelled = cancel_pending_inputs_on_close(&store, &session_id)?;
     let disposal = process
         .worktree_path
         .as_ref()
@@ -899,11 +877,10 @@ pub(crate) fn unregister_parallel_process(
         .and_then(|process| process.branch.clone());
     let runtime = state.runtimes.lock().unwrap().get(&session_id).cloned();
     if let Some(runtime) = runtime {
-        if runtime.running.load(Ordering::SeqCst) {
+        if runtime.is_running() {
             // 注销是运行会话的终点，不能只 abort future。统一出口会先落在飞轨迹、
             // 清 ask，再把 promoted/running/pending 输入收敛为 cancelled。
-            halt_runtime_immediately(&runtime, &store, &session_id)
-                .map_err(|e| format!("注销独立任务时收尾对话失败: {e}"))?;
+            return Err("对话尚未回收，不能注销执行身份或处置工作树".into());
         } else {
             // runtime 容器会在首次历史读取/ask 恢复时提前存在；空闲容器没有
             // promoted 输入可 finalize，直接清待答队列即可。
@@ -1093,7 +1070,7 @@ mod tests {
         let target = discussion(&state, &project).await;
         let session_id = process_session_id(&root, Some(&target.id));
         let runtime = crate::runtime_for(&state, &session_id);
-        runtime.running.store(true, Ordering::SeqCst);
+        runtime.activate_for_test();
         let store =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
         store.create_session(&session_id, &project, None).unwrap();
@@ -1120,7 +1097,7 @@ mod tests {
             crate::ipc_contract::shape(&serde_json::to_value(&pending).unwrap()),
             "非空 list_pending_inputs 返回形状变了",
         );
-        runtime.running.store(false, Ordering::SeqCst);
+        runtime.settle_for_test();
         drop(store);
         drop(state);
         std::fs::remove_dir_all(root).unwrap();
@@ -1241,7 +1218,7 @@ mod tests {
         assert!(error.contains("不存在"), "{error}");
 
         let runtime = crate::runtime_for(&state, &session_id);
-        runtime.running.store(true, Ordering::SeqCst);
+        runtime.activate_for_test();
         let error = purge_process(&state, &project, &target.id, &forget)
             .await
             .unwrap_err();
@@ -1249,7 +1226,7 @@ mod tests {
         assert!(state.processes.lock().unwrap().contains_key(&target.id));
         assert!(store.get_session(&session_id).unwrap().is_some());
         assert!(forgotten.lock().unwrap().is_empty(), "拒绝时不清偏好");
-        runtime.running.store(false, Ordering::SeqCst);
+        runtime.settle_for_test();
 
         let message = purge_process(&state, &project, &target.id, &forget)
             .await

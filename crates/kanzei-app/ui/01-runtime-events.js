@@ -1,6 +1,6 @@
 // App-level event routing and lifecycle coordination. This is not a foundation module.
 import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
-import { setSessionDetails } from "./00-session-state.js";
+import { applyRuntimeSnapshot, setSessionDetails } from "./00-session-state.js";
 import { t } from "./02-i18n.js";
 import { beginStreamResponse, chatAbortRunningFor, commitStreamResponse, markPreviousRunErrors } from "./05-chat-render.js";
 import {
@@ -11,6 +11,8 @@ import {
   processItems,
   sessionState,
   sessionStates,
+  setRunning,
+  setStopping,
   toast,
   transitionSession,
   trackRunElapsed,
@@ -251,6 +253,16 @@ export function on(event, handler) {
     const sessionId = event === "kz:experience"
       ? eventPayload.payload?.session_id
       : eventPayload.payload?.sessionId;
+    // Compatibility lifecycle notifications carry the same version as the
+    // supervisor receipt. A delayed old idle must not abort a new answer.
+    const lifecycle = eventPayload.payload?.runtime;
+    if (sessionId && lifecycle && ["kz:idle", "kz:stopping", "kz:stopped"].includes(event)) {
+      const current = sessionState(sessionId).runtime;
+      if (current && (current.actor_epoch !== lifecycle.actor_epoch || current.revision > lifecycle.revision)) return;
+      applyRuntimeSnapshot(sessionId, lifecycle);
+      if (["kz:idle", "kz:stopped"].includes(event) && lifecycle.phase !== "idle") return;
+      if (event === "kz:stopping" && !["cancelling", "reaping"].includes(lifecycle.phase)) return;
+    }
     // detail 字段只能经 setSessionDetails 落笔:直接赋值跳过 revision 递增与监听通知,
     // 界面会永远停在「不是 runtime_managed」的旧值上。已为真时不重复广播。
     if (sessionId && eventPayload.payload?.runtimeManaged && !sessionState(sessionId).runtime_managed)
@@ -261,6 +273,7 @@ export function on(event, handler) {
       log(`${t("丢弃无 session_id 的运行事件")}:${event}`, "warn");
       return;
     }
+    if (event === "kz:lifecycle") { handler(eventPayload); return; }
     // The floating temporary Q&A keeps its own visible recipient even when the
     // main conversation changes. It never changes main-run state or timers.
     // R-086:kz:turn 是每轮开头必发的信号,拿它把会话状态机拨回运行中并解除
@@ -319,6 +332,7 @@ export function on(event, handler) {
       event === "kz:done" ||
       event === "kz:error" ||
       event === "kz:stopped" ||
+      event === "kz:stopping" ||
       event === "kz:idle" ||
       event === "kz:mobile-message";
     // R-267:后台会话的渲染事件不再丢弃,改为渲染进**它自己**的 pane。
@@ -342,6 +356,11 @@ export function on(event, handler) {
       return;
     }
     if (controlEvent) {
+      if (sessionId && event === "kz:stopping") {
+        transitionSession(sessionId, "stopping");
+        cancelAutoContinueTimer(sessionId);
+        releaseAutoContinue(sessionId);
+      }
       if (sessionId && event === "kz:done") {
         setSessionDetails(sessionId, {
           roundResult: {
@@ -373,7 +392,7 @@ export function on(event, handler) {
               : sessionState(sessionId).auto_pending || retryPending
                 ? "auto_pending"
                 : sessionState(sessionId).roundResult?.outcome === "incomplete" ? "failed"
-                  : sessionState(sessionId).roundResult?.outcome === "halted" ? "stopped" : "idle";
+                  : sessionState(sessionId).roundResult?.outcome === "halted" || sessionState(sessionId).phase === "stopping" ? "stopped" : "idle";
         // R-206:状态写入唯一入口 transitionSession,不再手工复刻 6 布尔标志。
         // terminal_status 由 transitionSession 对 stopped/failed 分支折算,无需重复设置。
         transitionSession(sessionId, targetPhase, {
@@ -384,8 +403,9 @@ export function on(event, handler) {
       }
       // UI-0926 #8:整轮停止 / 终态出错 / 轮末仍没收到终态的子代理卡片收尾。活动线与后台线都走
       // 这里(后台线的控制事件下面就被路由走、不进 handler),停止后卡片不会一直停在「运行中」。
-      if (sessionId && (event === "kz:stopped" || event === "kz:done" || terminalError)) {
-        subagentSettle(sessionId, event === "kz:stopped" ? "cancelled" : "interrupted");
+      const idleStopped = event === "kz:idle" && sessionId && sessionState(sessionId).phase === "stopped";
+      if (sessionId && (event === "kz:stopped" || idleStopped || event === "kz:done" || terminalError)) {
+        subagentSettle(sessionId, event === "kz:stopped" || idleStopped ? "cancelled" : "interrupted");
       }
       // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
       if (event === "kz:mobile-message") {
@@ -398,7 +418,7 @@ export function on(event, handler) {
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && event !== "kz:ask-resolved" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
         if (event === "kz:done") handleBackgroundSessionDone(eventPayload.payload);
-        if (event === "kz:stopped" || terminalError) {
+        if (event === "kz:stopped" || idleStopped || terminalError) {
           // 后台线路的终态错误同样不得掐掉在途的失败退避重试(上面 retryPending 同源):
           // 后台线更没人看着,一次断网就永久停摆。in-flight 标记照旧释放——重试那一枪
           // 到点后才发得出去。
@@ -489,3 +509,14 @@ setInterval(() => {
   if (!anySessionBusy() && processPollTick % PROCESS_POLL_IDLE_EVERY !== 0) return;
   refreshProcesses();
 }, PROCESS_POLL_MS);
+
+on("kz:lifecycle", ({ payload }) => {
+  if (!payload?.sessionId || !payload.runtime) return;
+  if (!applyRuntimeSnapshot(payload.sessionId, payload.runtime)) return;
+  if (payload.sessionId === activeSessionId) {
+    const state = sessionState(payload.sessionId);
+    if (state.phase === "stopping") setStopping(state.stage);
+    else setRunning(state.running, state.stage);
+  }
+  refreshParallelTaskProjection(payload.sessionId);
+});

@@ -1,5 +1,5 @@
 import { invoke } from "./00-ipc.js";
-import { sessionState, reduceSession, onSessionStateChange } from "./00-session-state.js";
+import { sessionState, reduceSession, applyRuntimeSnapshot, beginRuntimeQuery, onSessionStateChange } from "./00-session-state.js";
 
 // An accepted request should produce an execution signal promptly. At the
 // deadline we query a fresh backend fact; this deadline never resends a prompt
@@ -7,11 +7,12 @@ import { sessionState, reduceSession, onSessionStateChange } from "./00-session-
 export const START_CONFIRMATION_MS = 10000;
 const confirmations = new Map();
 export async function confirmSessionRuntime(sessionId, projectDir, processId) {
-  const revision = sessionState(sessionId).revision;
+  const revision = sessionState(sessionId).revision, queryId = beginRuntimeQuery();
   try {
     const items = await invoke("process_list", { projectDir });
     if (sessionState(sessionId).revision !== revision) return;
     const process = items.find(item => item.id === processId);
+    if (process?.runtime) { applyRuntimeSnapshot(sessionId, process.runtime, { queryId }); return; }
     reduceSession(sessionId, process?.running ? "running" : "idle", {
       stage: process?.running ? process.stage || "运行中" : "空闲", detail: "",
     });

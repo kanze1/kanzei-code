@@ -173,7 +173,7 @@ fn prepare_reply(
         Some("cancelled") => return Err("问题已取消，旧回复不能重新启动任务".into()),
         _ => return Err("问题还没有回答".into()),
     }
-    if record["state"] == "answered" && runtime.run_generation.load(Ordering::SeqCst) == 0 {
+    if record["state"] == "answered" && runtime.generation() == 0 {
         if let Ok(options) = serde_json::from_value(record["options"].clone()) {
             *runtime.callback_options.lock_or_recover() = options;
         }

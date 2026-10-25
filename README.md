@@ -18,7 +18,7 @@
 | [AGENTS](AGENTS.md) | Agent 工程规则 | 工程规则改变时 |
 | [CONTRIBUTING](CONTRIBUTING.md) | 开发、测试与发布操作 | 工具链或门禁改变时 |
 
-本页负责产品说明与导航。两张[架构图](docs/architecture)服务应用内架构浏览，许可证见 [LICENSE](LICENSE.md)。需求、缺陷、验收和长期决策保留在 `.kanzei/project/`，它们是项目数据，不再复制成设计进度报告。
+本页负责产品说明与导航。两份[架构文档](docs/architecture)服务应用内架构浏览；[运行时状态机](docs/architecture/01_runtime_loop.md)统一维护执行层级、会话监督器、状态转换、资源回收和验证边界。许可证见 [LICENSE](LICENSE.md)。需求、缺陷、验收和长期决策保留在 `.kanzei/project/`，它们是项目数据，不再复制成设计进度报告。
 
 ## 旧资料
 

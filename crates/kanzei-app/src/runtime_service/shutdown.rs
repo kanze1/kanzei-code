@@ -1,7 +1,6 @@
 //! A successful shutdown receipt means all execution owners have settled.
 use crate::{AppState, MutexPoisonExt};
 use serde_json::{json, Value};
-use std::sync::atomic::Ordering;
 use tauri::Manager;
 
 pub(super) async fn quiesce(app: &tauri::AppHandle) -> Result<Value, String> {
@@ -21,6 +20,20 @@ pub(super) async fn finish_shutdown(app: &tauri::AppHandle) -> Result<Value, Str
 }
 
 async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    for runtime in state.runtimes.lock_or_recover().values() {
+        let _lifecycle = runtime.lifecycle.lock_or_recover();
+        runtime.transition(kanzei_core::session_lifecycle::Event::CloseRequested)?;
+        runtime.retire_async();
+        runtime.task_cancellations.cancel_all();
+        if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
+            token.cancel();
+        }
+        runtime.asks.lock_or_recover().clear();
+    }
+    for (_, team) in kanzei_tools::team::registered_teams() {
+        team.cancel_workers();
+    }
     // Complete every already-admitted dispatch before taking the owner snapshot;
     // otherwise one could create a runtime just after it was enumerated.
     let mut poll = tokio::time::interval(std::time::Duration::from_millis(50));
@@ -55,7 +68,7 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         }
         let session = crate::process_session_id(root, Some(&process.id));
         if let Some(runtime) = runtimes.get(&session) {
-            retire_process_runtime(root, &session, runtime)?;
+            crate::session_supervisor::close_runtime(runtime, root, &process.id).await?;
         }
     }
     // An unregistered execution owner must never be silently omitted from shutdown.
@@ -98,32 +111,9 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
     stop_terminals(&roots).await
 }
 
-fn retire_process_runtime(
-    root: &std::path::Path,
-    session: &str,
-    runtime: &crate::SessionRuntime,
-) -> Result<(), String> {
-    runtime.task_cancellations.cancel_all();
-    kanzei_harness::pending_question::cancel_owner(root, session, None)?;
-    let path = kanzei_core::project_state_path(root);
-    let store = kanzei_core::SessionStore::open(&path).map_err(|error| error.to_string())?;
-    // Shutdown owns the completion boundary itself. Do not schedule a
-    // detached stop watchdog or publish idle before the task has ended.
-    let _lifecycle = runtime.lifecycle.lock_or_recover();
-    runtime.retire_async();
-    if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
-        token.cancel();
-    }
-    runtime.asks.lock_or_recover().clear();
-    store
-        .finalize_interrupt_if_present(session)
-        .map_err(|error| format!("停止会话 {session} 失败 ({}): {error}", root.display()))?;
-    Ok(())
-}
-
 pub(super) fn owners_quiescent(runtime: &crate::SessionRuntime) -> bool {
-    !runtime.running.load(Ordering::SeqCst)
-        && !runtime.compacting.load(Ordering::SeqCst)
+    !runtime.is_running()
+        && !runtime.is_compacting()
         && runtime.task_cancellations.is_quiescent()
         && runtime
             .current_run
@@ -144,46 +134,25 @@ async fn stop_terminals(roots: &[std::path::PathBuf]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn shutdown_retires_opened_empty_conversations_without_creating_history() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-shutdown-empty-{}-{}",
-            std::process::id(),
-            crate::run::now_ms()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        let root = crate::normalized_project_root(&root);
+    #[tokio::test]
+    async fn shutdown_retires_opened_empty_conversations_without_creating_history() {
+        let root = kanzei_base::test_support::TestDir::new("kz-shutdown-empty-");
         let state = AppState::default();
         let process = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
         let session = crate::process_session_id(&root, Some(&process.id));
-        // Opening a conversation hydrates pending asks before the first send.
         let runtime = crate::runtime_for(&state, &session);
+        crate::session_supervisor::close_runtime(&runtime, &root, &process.id)
+            .await
+            .unwrap();
+        assert!(owners_quiescent(&runtime));
         let store =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
         assert!(store.get_session(&session).unwrap().is_none());
-        retire_process_runtime(&root, &session, &runtime).unwrap();
-        assert!(owners_quiescent(&runtime));
-        assert!(store.get_session(&session).unwrap().is_none());
         assert!(store.list_events(&session, 0).unwrap().is_empty());
-        // The same boundary still finalizes real unfinished work atomically.
-        store
-            .create_session(&session, &root.display().to_string(), None)
-            .unwrap();
-        store.set_status(&session, "running").unwrap();
-        store
-            .admit_input(&session, "queued", "hello", kanzei_core::Delivery::Queue)
-            .unwrap();
-        let halt = kanzei_core::CancellationToken::new();
-        *runtime.halt.lock_or_recover() = Some(halt.clone());
-        retire_process_runtime(&root, &session, &runtime).unwrap();
-        assert!(halt.is_cancelled());
-        assert_eq!(store.get_session(&session).unwrap().unwrap().status, "idle");
         assert_eq!(
-            store.input_status("queued").unwrap().as_deref(),
-            Some("cancelled")
+            runtime.snapshot().existence,
+            kanzei_core::session_lifecycle::Existence::Closed
         );
-        drop(store);
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
@@ -201,7 +170,7 @@ mod tests {
             Some(tauri::async_runtime::JoinHandle::Tokio(handle));
         running.await.unwrap();
         runtime.task_cancellations.cancel_all();
-        assert!(!runtime.running.load(Ordering::SeqCst));
+        assert!(!runtime.is_running());
         assert!(
             !owners_quiescent(&runtime),
             "idle UI and cancellation are not owner completion"

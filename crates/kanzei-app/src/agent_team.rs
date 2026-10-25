@@ -73,7 +73,10 @@ async fn execute_impl(
     }
     let action = input["action"].as_str().unwrap_or("list");
     let mut team = kanzei_tools::team::find(&root, &owner);
-    if team.is_none() && matches!(action, "list" | "get") {
+    if matches!(action, "list" | "get") {
+        if let Some(team) = team {
+            return team.ui_command(input).await;
+        }
         let store = kanzei_tools::team::store_for_inspection(&root, &owner)?;
         if action == "list" {
             return Ok(json!(store.list()?));
@@ -108,128 +111,152 @@ async fn execute_impl(
         .as_ref()
         .map(|p| p.0.clone())
         .unwrap_or_else(|| root.clone());
-    if team.is_none() {
-        let config = Arc::new(kanzei_harness::KanzeiConfig::load_at_root(&root)?);
-        let model = process.model.lock().unwrap().clone();
-        let resolved = config.resolve_model(model.as_deref().unwrap_or("primary"))?;
-        let proxy = match config.proxy.as_deref() {
-            Some("off") => kanzei_llm::ProxyConfig::Disabled,
-            Some("env") | None => kanzei_llm::ProxyConfig::Env,
-            Some(p) => kanzei_llm::ProxyConfig::Explicit(p.into()),
-        };
-        let route = kanzei_core::build_route(&resolved, &proxy).await?;
-        let rctx = kanzei_harness::ResolveCtx {
-            profile: if profile.as_deref() == Some("research") {
-                kanzei_harness::ProfileKind::Research
-            } else if profile.as_deref() == Some("readonly") {
-                kanzei_harness::ProfileKind::Readonly
-            } else if profile.as_deref() == Some("dev-pair") {
-                kanzei_harness::ProfileKind::DevPair
-            } else {
-                kanzei_harness::ProfileKind::DevAuto
-            },
-            cwd: code_root.clone(),
-            project_root: root.clone(),
-            config: config.clone(),
-        };
-        let session = runtime_for(state, &owner);
-        let mut runtime = kanzei_runtime::build_subagent_runtime(
-            &rctx,
-            &config,
-            &proxy,
-            &resolved,
-            &route,
-            Some(state.coordinator.clone()),
-            Some(session.task_cancellations.clone()),
-            None,
-            None,
-        )
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("子代理不可用"))?;
-        runtime.options.ask_policy = Some(kanzei_core::AskPolicy::Interactive);
-        runtime.options.mode = process.subagent_mode();
-        let asks = session.asks.clone();
-        let seq = state.ask_seq.clone();
-        let ask_window = window.clone();
-        let ask_root = root.clone();
-        let ask_owner = owner.clone();
-        runtime.ask_router = Some(Arc::new(move |request| {
-            let mut ask = crate::run::events::build_ask_handler(
-                asks.clone(),
-                seq.clone(),
-                "子代理",
-                &ask_window,
-                ask_root.clone(),
-                ask_owner.clone(),
-            );
-            ask(request)
-        }));
-        let events_window = window.clone();
-        team = Some(kanzei_tools::team::AgentTeam::attach(
-            rctx,
-            kanzei_harness::ToolCtx::new(code_root.clone(), root.clone())
-                .with_session_id(owner.clone())
-                .with_identity(
-                    kanzei_tools::worktree::worktree_key(&code_root),
-                    kanzei_tools::worktree::worktree_key(&root),
-                    format!("team-{}", crate::run::now_ms()),
-                    process.id.clone(),
-                ),
-            runtime,
-            kanzei_llm::LlmClient::new(&proxy)?,
-            Some(Arc::new(move |job| {
-                let _ =
-                    events_window.emit("kz:agent-job", json!({"sessionId":job.owner,"job":job}));
-            })),
-        )?);
-    }
-    // UI adoption joins the existing writer arbitration. Calls from the main runner
-    // already own that lease and use AgentTeam::command directly.
-    let _lease = if action == "adopt" {
-        Some(
-            state
-                .coordinator
-                .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-                    write_scope: code_root,
-                    run_id: format!("adopt-{}", crate::run::now_ms()),
-                    process_id: process.id.clone(),
-                    reason: "adopt reviewed child changes".into(),
-                })
-                .await
-                .map_err(anyhow::Error::msg)?,
-        )
-    } else {
-        None
-    };
-    let team = team.unwrap();
-    // Reused teams must follow the current conversation setting in both directions.
-    team.set_policy(
-        process.subagent_mode(),
-        &kanzei_harness::KanzeiConfig::load_at_root(&process.origin_project.0)?.limits,
-    );
     let session = runtime_for(state, &owner);
-    if let Some(reply) = &reply {
-        check_reply_generation(&session, reply.generation)?;
-        team.set_mailbox(reply.mailbox.clone());
-    } else {
-        team.set_mailbox(crate::async_mailbox::for_session(
+    let control = session
+        .admit_effect("team-control")
+        .map_err(anyhow::Error::msg)?;
+    let cancellation = control.token().clone();
+    // Bind the callback capability before asynchronous assembly. Retirement
+    // closes this exact mailbox; the command cannot mint a replacement.
+    let mailbox = {
+        let _lifecycle = session.lifecycle.lock().unwrap();
+        anyhow::ensure!(!cancellation.is_cancelled(), "对话已停止");
+        if let Some(reply) = &reply {
+            check_reply_generation(&session, reply.generation)?;
+            reply.mailbox.clone()
+        } else {
+            crate::async_mailbox::for_session_locked(
+                window,
+                &root,
+                &owner,
+                Some(process.id.clone()),
+                &session,
+            )
+        }
+    };
+    let action = action.to_owned();
+    let operation = async {
+        if team.is_none() {
+            let config = Arc::new(kanzei_harness::KanzeiConfig::load_at_root(&root)?);
+            let model = process.model.lock().unwrap().clone();
+            let resolved = config.resolve_model(model.as_deref().unwrap_or("primary"))?;
+            let proxy = match config.proxy.as_deref() {
+                Some("off") => kanzei_llm::ProxyConfig::Disabled,
+                Some("env") | None => kanzei_llm::ProxyConfig::Env,
+                Some(p) => kanzei_llm::ProxyConfig::Explicit(p.into()),
+            };
+            let route = kanzei_core::build_route(&resolved, &proxy).await?;
+            let rctx = kanzei_harness::ResolveCtx {
+                profile: if profile.as_deref() == Some("research") {
+                    kanzei_harness::ProfileKind::Research
+                } else if profile.as_deref() == Some("readonly") {
+                    kanzei_harness::ProfileKind::Readonly
+                } else if profile.as_deref() == Some("dev-pair") {
+                    kanzei_harness::ProfileKind::DevPair
+                } else {
+                    kanzei_harness::ProfileKind::DevAuto
+                },
+                cwd: code_root.clone(),
+                project_root: root.clone(),
+                config: config.clone(),
+            };
+            let session = runtime_for(state, &owner);
+            let mut runtime = kanzei_runtime::build_subagent_runtime(
+                &rctx,
+                &config,
+                &proxy,
+                &resolved,
+                &route,
+                Some(state.coordinator.clone()),
+                Some(session.task_cancellations.clone()),
+                None,
+                None,
+            )
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("子代理不可用"))?;
+            runtime.options.ask_policy = Some(kanzei_core::AskPolicy::Interactive);
+            runtime.options.mode = process.subagent_mode();
+            let asks = session.asks.clone();
+            let seq = state.ask_seq.clone();
+            let ask_window = window.clone();
+            let ask_root = root.clone();
+            let ask_owner = owner.clone();
+            runtime.ask_router = Some(Arc::new(move |request| {
+                let mut ask = crate::run::events::build_ask_handler(
+                    asks.clone(),
+                    seq.clone(),
+                    "子代理",
+                    &ask_window,
+                    ask_root.clone(),
+                    ask_owner.clone(),
+                );
+                ask(request)
+            }));
+            let events_window = window.clone();
+            team = Some(kanzei_tools::team::AgentTeam::attach(
+                rctx,
+                kanzei_harness::ToolCtx::new(code_root.clone(), root.clone())
+                    .with_session_id(owner.clone())
+                    .with_identity(
+                        kanzei_tools::worktree::worktree_key(&code_root),
+                        kanzei_tools::worktree::worktree_key(&root),
+                        format!("team-{}", crate::run::now_ms()),
+                        process.id.clone(),
+                    ),
+                runtime,
+                kanzei_llm::LlmClient::new(&proxy)?,
+                Some(Arc::new(move |job| {
+                    let _ = events_window
+                        .emit("kz:agent-job", json!({"sessionId":job.owner,"job":job}));
+                })),
+            )?);
+        }
+        // UI adoption joins the existing writer arbitration. Calls from the main runner
+        // already own that lease and use AgentTeam::command directly.
+        let _lease = if action == "adopt" {
+            Some(
+                state
+                    .coordinator
+                    .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+                        write_scope: code_root,
+                        run_id: format!("adopt-{}", crate::run::now_ms()),
+                        process_id: process.id.clone(),
+                        reason: "adopt reviewed child changes".into(),
+                    })
+                    .await
+                    .map_err(anyhow::Error::msg)?,
+            )
+        } else {
+            None
+        };
+        let team = team.unwrap();
+        // Reused teams must follow the current conversation setting in both directions.
+        team.set_policy(
+            process.subagent_mode(),
+            &kanzei_harness::KanzeiConfig::load_at_root(&process.origin_project.0)?.limits,
+        );
+        anyhow::ensure!(!cancellation.is_cancelled(), "对话已停止");
+        if let Some(reply) = &reply {
+            check_reply_generation(&session, reply.generation)?;
+        }
+        team.set_mailbox(mailbox);
+        team.set_ask_router(crate::run::events::build_team_ask_router(
+            runtime_for(state, &owner).asks.clone(),
+            state.ask_seq.clone(),
             window,
-            &root,
-            &owner,
-            Some(process.id.clone()),
+            root,
+            owner,
         ));
-    }
-    team.set_ask_router(crate::run::events::build_team_ask_router(
-        runtime_for(state, &owner).asks.clone(),
-        state.ask_seq.clone(),
-        window,
-        root,
-        owner,
-    ));
-    if let Some(reply) = reply {
-        team.question_reply(&reply.child, reply.question_id, reply.notice)
-    } else {
-        team.ui_command(input).await
+        if let Some(reply) = reply {
+            team.question_reply(&reply.child, reply.question_id, reply.notice)
+        } else {
+            team.ui_command(input).await
+        }
+    };
+    tokio::select! {
+        biased;
+        _=cancellation.cancelled()=>Err(anyhow::anyhow!("对话停止，子任务操作已取消")),
+        result=operation=>result,
     }
 }
 

@@ -657,8 +657,7 @@ defer(() => {
     renderTokens();
   });
 });
-defer(() => {
-  on("kz:stopped", (e) => {
+function finishStoppedRun(e) {
     neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
     setCtxPending(false);
     renderTokens();
@@ -678,7 +677,15 @@ defer(() => {
     notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
     refreshPendingInputs();
     refreshProcesses();
+}
+defer(() => {
+  on("kz:stopping", (e) => {
+    hideAsk();
+    const cancelled = e.payload?.cancelled_queue ?? 0;
+    addMessage("notice", cancelled > 0 ? `${t("停止中…")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("停止中…"));
+    refreshPendingInputs();
   });
+  on("kz:stopped", finishStoppedRun);
 });
 // R-086:会话真正转空闲(后端 run loop 退出,排队输入已跑完或失败中断)。
 // 视图的收尾归 kz:done/kz:error/kz:stopped,这里只把标签页按状态机重画一次——
@@ -686,6 +693,9 @@ defer(() => {
 defer(() => {
   on("kz:idle", (e) => {
     releaseAutoContinue(e.payload?.sessionId || activeSessionId);
+    if (sessionState(e.payload?.sessionId || activeSessionId).phase === "stopped" && !sessionState(e.payload?.sessionId || activeSessionId).runtime) {
+      finishStoppedRun(e);
+    }
     renderProcesses(processItems);
   });
 });

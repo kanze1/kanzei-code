@@ -326,9 +326,9 @@ fn handoff_rejects_running_missing_and_wrong_project_sources() {
     let f = Fixture::new();
     f.save(&f.source_session, vec![Message::user_text("范围")]);
     let runtime = runtime_for(&f.state, &f.source_session);
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.activate_for_test();
     assert!(f.snapshot().unwrap_err().contains("仍在运行"));
-    runtime.running.store(false, Ordering::SeqCst);
+    runtime.settle_for_test();
     let other = Fixture::new();
     let error = attach_snapshot(
         &f.state,

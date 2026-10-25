@@ -205,7 +205,7 @@ fn bridge_sessions_json(
         .map(|session| {
             let running = runtimes
                 .get(&session.session_id)
-                .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
+                .is_some_and(|runtime| runtime.is_running());
             json!({
                 "session_id": session.session_id,
                 "label": session.label,
@@ -567,7 +567,7 @@ fn handle_mobile_message(
             let running = runtimes
                 .lock_or_recover()
                 .get(thread_id)
-                .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst));
+                .is_some_and(|runtime| runtime.is_running());
             mobile_json_response(
                 "202 Accepted",
                 &json!({
@@ -2141,7 +2141,7 @@ mod tests {
 
         // JSON 形态:running 来自运行态表。
         let runtime = Arc::new(SessionRuntime::default());
-        runtime.running.store(true, Ordering::SeqCst);
+        runtime.activate_for_test();
         let mut table = HashMap::new();
         table.insert(named.clone(), runtime);
         let json = bridge_sessions_json(

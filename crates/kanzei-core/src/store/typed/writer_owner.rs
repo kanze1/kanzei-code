@@ -3,7 +3,7 @@ use super::{SessionFactError, SessionTurnTerminal, TypedWriterState};
 use crate::runner::WorkContextReport;
 use kanzei_llm::Message;
 use std::path::Path;
-use std::sync::{mpsc, Arc};
+use std::sync::mpsc;
 
 type Operation = Box<dyn FnOnce(&mut TypedWriterState) + Send>;
 
@@ -82,7 +82,7 @@ impl TypedSessionWriter {
 
     pub(in crate::store) fn with_execution_owner(
         mut self,
-        owner: Arc<super::super::session_execution::SessionExecutionGuard>,
+        owner: super::super::session_execution::WriterOwner,
     ) -> Self {
         self.execute(move |state| state._execution_owner = Some(owner));
         self

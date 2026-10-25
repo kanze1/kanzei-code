@@ -68,6 +68,7 @@ mod runtime_continuation;
 mod runtime_service;
 mod schedules;
 mod screenshot;
+mod session_supervisor;
 mod settings;
 mod skills;
 mod softwire;
@@ -99,12 +100,11 @@ pub(crate) use update::{
 #[cfg(test)]
 pub(crate) use state::ensure_default_process;
 pub(crate) use state::{
-    flush_live_run, flush_live_trace, halt_runtime_immediately, normalized_project_root,
-    pending_ask_payload, process_info, process_session_id, prompt_attachment_parts,
-    record_live_trace, record_live_trace_at_path, record_unpersisted_artifact, runtime_for,
-    stop_runtime_and_finalize, take_pending_ask, ui_probe, with_session_id, AppState, LiveRun,
-    MutexPoisonExt, PendingAsk, ProcessHandle, ProcessInfo, ProjectRoot, PromptAttachment,
-    SessionRuntime, WorktreeInfo, WorktreeRoot, UI_PROBE_EMIT,
+    flush_live_run, flush_live_trace, normalized_project_root, pending_ask_payload, process_info,
+    process_session_id, prompt_attachment_parts, record_live_trace, record_live_trace_at_path,
+    record_unpersisted_artifact, request_runtime_stop, runtime_for, take_pending_ask, ui_probe,
+    with_session_id, AppState, LiveRun, MutexPoisonExt, PendingAsk, ProcessHandle, ProcessInfo,
+    ProjectRoot, PromptAttachment, SessionRuntime, WorktreeInfo, WorktreeRoot, UI_PROBE_EMIT,
 };
 
 #[cfg(test)]
@@ -161,6 +161,7 @@ fn main() {
         .manage(preview::PreviewState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(move |app| {
+            crate::session_supervisor::install(app.handle());
             let handle = app.handle().clone();
             let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
                 let _ = handle.emit("kz:ui-probe", payload);

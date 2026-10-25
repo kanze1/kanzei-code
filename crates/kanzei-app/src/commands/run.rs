@@ -19,9 +19,8 @@ use serde_json::json;
 use tauri::{Emitter, State};
 
 use crate::{
-    normalized_project_root, pending_ask_payload, process_session_id, runtime_for,
-    stop_runtime_and_finalize, take_pending_ask, with_session_id, AppState, PromptAttachment,
-    SessionRuntime,
+    normalized_project_root, pending_ask_payload, process_session_id, request_runtime_stop,
+    runtime_for, take_pending_ask, with_session_id, AppState, PromptAttachment, SessionRuntime,
 };
 
 use crate::run::assembly::{RoundRequest, RunMode, RuntimeHandles};
@@ -219,43 +218,17 @@ pub(crate) async fn stop_run(
 ) -> Result<(), String> {
     let (root, process) = stop_target(&project_dir, process_id.as_deref())?;
     let session = process_session_id(&root, Some(process));
-    match stop_session(&state, &root, &session) {
-        Ok(count) => {
-            crate::desktop_bridge::release_native(process).await?;
-            let payload = match count {
-                Some(count) => json!({ "cancelled_queue": count }),
-                None => json!({ "cancelled_queue": 0, "already_idle": true }),
-            };
-            let _ = window.emit("kz:stopped", with_session_id(payload, &session));
-            if count.is_none() {
-                return Ok(());
-            }
-        }
-        Err(error) => {
-            let message = format!("停止时清理排队输入失败: {error}");
-            let _ = window.emit(
-                "kz:error",
-                with_session_id(
-                    json!({ "message": message.clone(), "terminal": false }),
-                    &session,
-                ),
-            );
-            return Err(message);
-        }
-    }
-    let process = process.to_owned();
-    tauri::async_runtime::spawn(async move {
-        let killed = kanzei_tools::kill_background_processes_for_process(&root, &process).await;
-        if killed > 0 {
-            let _ = window.emit(
-                "kz:status",
-                with_session_id(
-                    json!({ "stage": "停止", "detail": format!("已回收 {killed} 个后台终端") }),
-                    &session,
-                ),
-            );
-        }
-    });
+    let runtime = runtime_for(&state, &session);
+    stop_session(&state, &root, &session)?;
+    let stop = runtime.snapshot().stop;
+    let _ = window.emit(
+        "kz:stopping",
+        with_session_id(
+            json!({"cancelled_queue": stop.map_or(0, |s| s.cancelled_inputs),"runtime":runtime.snapshot()}),
+            &session,
+        ),
+    );
+    crate::session_supervisor::ensure_stop_supervisor(&runtime, &root, process)?;
     Ok(())
 }
 
@@ -285,7 +258,7 @@ fn stop_session(state: &AppState, root: &Path, session: &str) -> Result<Option<u
     }
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
-    stop_runtime_and_finalize(&runtime, &store, &state_path, session)
+    request_runtime_stop(&runtime, &store, &state_path, session)
         .map(Some)
         .map_err(|error| error.to_string())
 }
@@ -350,7 +323,29 @@ pub(crate) async fn run_prompt(
     // D-764:这一轮由引擎自动推进投递,不是用户按键。前端自动续跑闸门发枪时置真;
     // 引擎侧的 Submission::Automatic 不需要这个参数(提交形态本身就是证据)。
     auto_round: Option<bool>,
+    command_id: Option<String>,
 ) -> Result<(), String> {
+    let command = command_id.map(|id| InputCommand {
+        id,
+        payload_hash: kanzei_core::stable_json_hash(&json!([
+            prompt,
+            project_dir,
+            process_id,
+            profile,
+            agent,
+            model,
+            work_priority,
+            delivery,
+            attachments,
+            autonomous,
+            auto_allow,
+            research_topic,
+            execution_batch,
+            work_item_id,
+            handoff_source,
+            auto_round
+        ])),
+    });
     if wake_queued.unwrap_or(false) {
         if !prompt.trim().is_empty() || attachments.as_ref().is_some_and(|items| !items.is_empty())
         {
@@ -376,6 +371,7 @@ pub(crate) async fn run_prompt(
                 input_id: input.input_id.clone(),
             },
             RunOptions {
+                command: None,
                 execution_batch: execution_batch.unwrap_or(false),
                 work_item_id,
                 profile,
@@ -411,6 +407,7 @@ pub(crate) async fn run_prompt(
             attachments,
         },
         RunOptions {
+            command,
             execution_batch: execution_batch.unwrap_or(false) || work_item_id.is_some(),
             work_item_id,
             profile,
@@ -426,8 +423,16 @@ pub(crate) async fn run_prompt(
     .map(|_| ())
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct InputCommand {
+    pub id: String,
+    pub payload_hash: String,
+}
+
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct RunOptions {
+    #[serde(default)]
+    pub(crate) command: Option<InputCommand>,
     pub(crate) execution_batch: bool,
     #[serde(default)]
     pub(crate) work_item_id: Option<String>,
@@ -483,6 +488,7 @@ pub(crate) fn schedule_run(
     let _admission = crate::runtime_service::admit_work()?;
     let is_notice = matches!(&submission, Submission::Notice { .. });
     let RunOptions {
+        command,
         execution_batch,
         work_item_id,
         profile,
@@ -571,8 +577,14 @@ pub(crate) fn schedule_run(
     }
     let runtime = runtime_for(state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
-    if runtime.compacting.load(Ordering::SeqCst) {
-        return Err("当前对话正在压缩，完成后再发送".into());
+    if runtime.snapshot().existence != kanzei_core::session_lifecycle::Existence::Open {
+        return Err("对话正在关闭".into());
+    }
+    if runtime.snapshot().phase == kanzei_core::session_lifecycle::Phase::Blocked {
+        return Err(runtime
+            .snapshot()
+            .error
+            .unwrap_or_else(|| "对话回收未完成，请重试停止".into()));
     }
     if let Submission::Notice { generation, .. } = &submission {
         if *generation != runtime.async_generation.load(Ordering::SeqCst) {
@@ -594,9 +606,9 @@ pub(crate) fn schedule_run(
                     ctrl.enabled && !ctrl.state.paused && !ctrl.state.stop_after_round
                 });
             if !enabled
-                || generation != runtime.run_generation.load(Ordering::SeqCst)
+                || generation != runtime.generation()
                 || async_generation != runtime.async_generation.load(Ordering::SeqCst)
-                || runtime.running.load(Ordering::SeqCst)
+                || runtime.is_running()
             {
                 return Ok("superseded");
             }
@@ -608,104 +620,94 @@ pub(crate) fn schedule_run(
         }
         other => other,
     };
-    // The local lifecycle guard preserves queue/steer behavior; an idle local
-    // runtime must also own this database/session before claiming a saved input.
-    let execution_owner = if runtime.running.load(Ordering::SeqCst) {
-        None
-    } else {
-        Some(Arc::new(
-            kanzei_core::session_execution::try_acquire(
-                &kanzei_core::project_state_path(&main_root),
-                &session_id,
-            )
-            .map_err(|error| error.to_string())?,
-        ))
-    };
-    let (prompt, delivery, attachments, initial_input) = match submission {
-        Submission::Automatic { .. } => {
-            unreachable!("automatic submission checked under lifecycle lock")
-        }
-        Submission::Saved { input_id, .. } | Submission::Notice { input_id, .. } => {
-            let promoted = crate::run::input::resume_saved_input(
-                &project_dir,
-                &session_id,
-                &input_id,
-                runtime.running.load(Ordering::SeqCst),
-            )
-            .map_err(|e| e.to_string())?;
-            match promoted {
-                crate::run::input::SavedInputResume::Start(input) => {
-                    (input.prompt.clone(), input.delivery, None, Some(input))
-                }
-                crate::run::input::SavedInputResume::Queued => return Ok("queued"),
-                crate::run::input::SavedInputResume::Consumed => return Ok("consumed"),
-            }
-        }
+    // Every prompt is durable before execution acquisition, including the first
+    // message. Retransmission resumes that same input instead of admitting twice.
+    let submission = match submission {
         Submission::Prompt {
             prompt,
             delivery,
             attachments,
         } => {
-            // Authorship is durable metadata; the original text remains unchanged.
-            if runtime.running.load(Ordering::SeqCst) {
-                // 自动续跑的重复事件可能在窗口关闭/重开或事件重放后再次到达；
-                // 同文案的 pending 输入只保留一份。手动发送仍允许重复排队。
-                if autonomous
-                    && matches!(delivery, kanzei_core::Delivery::Queue)
-                    && has_pending_queue_prompt(&project_dir, &session_id, &prompt)
-                        .map_err(|e| e.to_string())?
-                {
-                    return Ok("queued");
-                }
-                let queued = admit_input(
-                    &project_dir,
-                    &session_id,
-                    QueuedInput {
-                        prompt: &prompt,
-                        attachments: attachments.unwrap_or_default(),
-                        delivery,
-                        origin: if engine_round {
-                            kanzei_base::MessageOrigin::Engine
-                        } else {
-                            kanzei_base::MessageOrigin::Human
-                        },
-                        execution_batch: execution_batch || autonomous,
-                        work_item_id: work_item_id.as_deref(),
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-                if delivery == kanzei_core::Delivery::Steer {
-                    if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
-                        mailbox.request_input();
-                    }
-                }
-                let (stage, detail) = if delivery == kanzei_core::Delivery::Steer {
-                    (
-                        "插话",
-                        format!(
-                            "输入已保存，将在工具结果完整提交后处理（{}）",
-                            queued.input_id
-                        ),
-                    )
-                } else {
-                    (
-                        "排队",
-                        format!("已排队，前方输入将依次执行（{}）", queued.input_id),
-                    )
-                };
-                let _ = window.emit(
-                    "kz:status",
-                    with_session_id(json!({ "stage": stage, "detail": detail }), &session_id),
-                );
+            if autonomous
+                && runtime.is_running()
+                && delivery == kanzei_core::Delivery::Queue
+                && has_pending_queue_prompt(&project_dir, &session_id, &prompt)
+                    .map_err(|e| e.to_string())?
+            {
                 return Ok("queued");
             }
-            (prompt, delivery, attachments, None)
+            let input = admit_input(
+                &project_dir,
+                &session_id,
+                QueuedInput {
+                    prompt: &prompt,
+                    attachments: attachments.unwrap_or_default(),
+                    delivery,
+                    origin: if engine_round {
+                        kanzei_base::MessageOrigin::Engine
+                    } else {
+                        kanzei_base::MessageOrigin::Human
+                    },
+                    execution_batch: execution_batch || autonomous,
+                    work_item_id: work_item_id.as_deref(),
+                    command: command.as_ref(),
+                },
+            )
+            .map_err(|e| e.to_string())?;
+            if delivery == kanzei_core::Delivery::Steer && !runtime.stopping() {
+                if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
+                    mailbox.request_input();
+                }
+            }
+            if command.is_some() {
+                let store =
+                    kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&main_root))
+                        .map_err(|e| e.to_string())?;
+                if store
+                    .input_status(&input.input_id)
+                    .map_err(|e| e.to_string())?
+                    .as_deref()
+                    != Some("pending")
+                {
+                    return Ok("consumed");
+                }
+            }
+            Submission::Saved {
+                session_id: session_id.clone(),
+                input_id: input.input_id,
+            }
         }
+        other => other,
     };
-    let execution_owner =
-        execution_owner.ok_or_else(|| "当前对话运行状态已变化，未启动第二个执行者".to_string())?;
+    if runtime.is_running() {
+        return Ok("queued");
+    }
+    let execution_owner = Arc::new(
+        kanzei_core::session_execution::try_acquire(
+            &kanzei_core::project_state_path(&main_root),
+            &session_id,
+        )
+        .map_err(|e| e.to_string())?,
+    );
+    let input_id = match submission {
+        Submission::Saved { input_id, .. } | Submission::Notice { input_id, .. } => input_id,
+        _ => unreachable!("all prompts pass durable admission"),
+    };
+    let initial_input =
+        match crate::run::input::resume_saved_input(&project_dir, &session_id, &input_id, false)
+            .map_err(|e| e.to_string())?
+        {
+            crate::run::input::SavedInputResume::Start(input) => input,
+            crate::run::input::SavedInputResume::Queued => return Ok("queued"),
+            crate::run::input::SavedInputResume::Consumed => return Ok("consumed"),
+        };
+    let prompt = initial_input.prompt.clone();
+    let delivery = initial_input.delivery;
+    let initial_input = Some(initial_input);
+    let attachments = None;
     if !is_notice {
         *runtime.callback_options.lock().unwrap() = RunOptions {
+            command: None,
             execution_batch: false,
             work_item_id: None,
             profile: profile.clone(),
@@ -719,7 +721,7 @@ pub(crate) fn schedule_run(
             auto_round: false,
         };
     }
-    runtime.running.store(true, Ordering::SeqCst);
+    runtime.begin_round()?;
     let asks = runtime.asks.clone();
     let ask_seq = state.ask_seq.clone();
     let lifecycle = runtime.lifecycle.clone();
@@ -728,7 +730,6 @@ pub(crate) fn schedule_run(
     let task_cancellations = runtime.task_cancellations.clone();
     // D-342:停止令牌槽与 run 代数随 run_task 走(协作式停止接线)。
     let halt_slot = runtime.halt.clone();
-    let run_generation = runtime.run_generation.clone();
     let runtime_for_task = runtime.clone();
     let current_stage = runtime.stage.clone();
     // R-169:自主推进状态机在 AppState,spawn 前 clone 出来(闭包不能引用 State)。
@@ -751,132 +752,257 @@ pub(crate) fn schedule_run(
         let mut next_work_item_id = work_item_id;
         loop {
             let promoted_id = next_input.as_ref().map(|input| input.input_id.clone());
-            let result = async {
-                // Each queued input owns its execution intent. An ordinary
-                // preparation message cannot inherit the previous round's autonomy.
-                // Failed metadata reads follow the same terminal failure path as assembly.
-                let execution = input_mode::resolve(
-                    &main_root,
-                    &session_id,
-                    next_input.as_ref(),
-                    execution_batch,
-                    autonomous,
-                )?;
-                run_task(
-                    &window,
-                    RoundRequest {
-                        input_origin: if engine_round {
-                            kanzei_base::MessageOrigin::Engine
-                        } else {
-                            kanzei_base::MessageOrigin::Human
+            let cancellation = runtime_for_task
+                .halt
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("scheduler owns its round token")
+                .clone();
+            let worker = {
+                let window = window.clone();
+                let main_root = main_root.clone();
+                let session_id = session_id.clone();
+                let code_root = code_root.clone();
+                let execution_owner = execution_owner.clone();
+                let next_prompt = next_prompt.clone();
+                let mut next_input = next_input.take();
+                let mut next_attachments = next_attachments.take();
+                let mut next_work_item_id = next_work_item_id.take();
+                let process_id_for_run = process_id_for_run.clone();
+                let profile = profile.clone();
+                let research_topic = research_topic.clone();
+                let agent = agent.clone();
+                let model = model.clone();
+                let work_priority = work_priority.clone();
+                let reasoning = reasoning.clone();
+                let process = process.clone();
+                let lifecycle = lifecycle.clone();
+                let asks = asks.clone();
+                let ask_seq = ask_seq.clone();
+                let collaboration_probe = collaboration_probe.clone();
+                let current_stage = current_stage.clone();
+                let conversation = conversation.clone();
+                let live_run = live_run.clone();
+                let task_cancellations = task_cancellations.clone();
+                let auto_runs = auto_runs.clone();
+                let coordinator = coordinator.clone();
+                let halt_slot = halt_slot.clone();
+                tauri::async_runtime::spawn(async move {
+                    // Each queued input owns its execution intent. An ordinary
+                    // preparation message cannot inherit the previous round's autonomy.
+                    // Failed metadata reads follow the same terminal failure path as assembly.
+                    let execution = input_mode::resolve(
+                        &main_root,
+                        &session_id,
+                        next_input.as_ref(),
+                        execution_batch,
+                        autonomous,
+                    )?;
+                    run_task(
+                        &window,
+                        RoundRequest {
+                            input_origin: if engine_round {
+                                kanzei_base::MessageOrigin::Engine
+                            } else {
+                                kanzei_base::MessageOrigin::Human
+                            },
+                            prompt: next_prompt,
+                            attachments: next_attachments.take(),
+                            project_dir: code_root.clone(),
+                            main_root: main_root.clone(),
+                            session_id: session_id.clone(),
+                            execution_owner: execution_owner.clone(),
+                            delivery,
+                            promoted_input: next_input.take(),
+                            process_id: process_id_for_run.clone(),
+                            work_item_id: next_work_item_id.take(),
                         },
-                        prompt: next_prompt,
-                        attachments: next_attachments.take(),
-                        project_dir: code_root.clone(),
-                        main_root: main_root.clone(),
-                        session_id: session_id.clone(),
-                        execution_owner: execution_owner.clone(),
-                        delivery,
-                        promoted_input: next_input.take(),
-                        process_id: process_id_for_run.clone(),
-                        work_item_id: next_work_item_id.take(),
-                    },
-                    RunMode {
-                        execution_batch: !discussion && execution.execution_batch,
-                        // 排队输入共用这个循环；每轮重读,运行中改开关在下一轮生效。
-                        subagent_mode: process.subagent_mode(),
-                        block_tracker_writes,
-                        profile: profile.clone(),
-                        research_topic: research_topic.clone(),
-                        agent_name: agent.clone(),
-                        model_override: model.clone(),
-                        work_priority: work_priority.clone(),
-                        reasoning_override: reasoning.clone(),
-                        autonomous: execution.autonomous,
-                        auto_allow,
-                    },
-                    RuntimeHandles {
-                        lifecycle: lifecycle.clone(),
-                        asks: asks.clone(),
-                        ask_seq: ask_seq.clone(),
-                        collaboration_probe: collaboration_probe.clone(),
-                        current_stage: current_stage.clone(),
-                        conversation: conversation.clone(),
-                        live_run: live_run.clone(),
-                        task_cancellations: task_cancellations.clone(),
-                        auto_runs: auto_runs.clone(),
-                        coordinator: coordinator.clone(),
-                        halt_slot: halt_slot.clone(),
-                        run_generation: run_generation.clone(),
-                    },
-                )
-                .await
-            }
+                        RunMode {
+                            execution_batch: !discussion && execution.execution_batch,
+                            // 排队输入共用这个循环；每轮重读,运行中改开关在下一轮生效。
+                            subagent_mode: process.subagent_mode(),
+                            block_tracker_writes,
+                            profile: profile.clone(),
+                            research_topic: research_topic.clone(),
+                            agent_name: agent.clone(),
+                            model_override: model.clone(),
+                            work_priority: work_priority.clone(),
+                            reasoning_override: reasoning.clone(),
+                            autonomous: execution.autonomous,
+                            auto_allow,
+                        },
+                        RuntimeHandles {
+                            lifecycle: lifecycle.clone(),
+                            asks: asks.clone(),
+                            ask_seq: ask_seq.clone(),
+                            collaboration_probe: collaboration_probe.clone(),
+                            current_stage: current_stage.clone(),
+                            conversation: conversation.clone(),
+                            live_run: live_run.clone(),
+                            task_cancellations: task_cancellations.clone(),
+                            auto_runs: auto_runs.clone(),
+                            coordinator: coordinator.clone(),
+                            halt_slot: halt_slot.clone(),
+                        },
+                    )
+                    .await
+                })
+            };
+            let result = crate::session_supervisor::worker_result(
+                worker,
+                cancellation,
+                std::time::Duration::from_secs(crate::state::STOP_GRACE_SECS),
+            )
             .await;
-            if let Err(e) = &result {
-                if run_error_idle_reason(e) == "failed" {
-                    let message = e.to_string();
-                    let lower = message.to_lowercase();
-                    let hint = if ["timed out", "timeout", "connect", "dns", "connection"]
-                        .iter()
-                        .any(|k| lower.contains(k))
-                    {
-                        "\n提示:疑似网络不通。若需代理,在设置页把代理设为「指定地址」(如 http://127.0.0.1:12000)后重试;本地模型(ollama)不受代理影响。"
-                    } else {
-                        ""
-                    };
+            execution_owner.writers_settled().await;
+            if let Err(error) =
+                runtime_for_task.transition(kanzei_core::session_lifecycle::Event::WorkerEnded)
+            {
+                let _ = window.emit(
+                    "kz:error",
+                    with_session_id(json!({"message":error,"terminal":true}), &session_id),
+                );
+                return;
+            }
+            let mut reason = result
+                .as_ref()
+                .err()
+                .map(run_error_idle_reason)
+                .unwrap_or("completed");
+            if let Err(error) = &result {
+                if crate::run::persistence::is_uncommitted_outcome(error) {
+                    let _ = runtime_for_task.transition(
+                        kanzei_core::session_lifecycle::Event::Failed(error.to_string()),
+                    );
+                    return;
+                }
+                if reason == "failed" {
+                    let recovery = kanzei_core::SessionStore::open(
+                        &kanzei_core::project_state_path(&main_root),
+                    )
+                    .map_err(|e| e.to_string())
+                    .and_then(|store| {
+                        execution_owner
+                            .settle_failed(&store, &error.to_string())
+                            .map_err(|e| e.to_string())
+                    });
+                    if let Err(error) = recovery {
+                        let _ = runtime_for_task
+                            .transition(kanzei_core::session_lifecycle::Event::Failed(error));
+                        return;
+                    }
+
                     let _ = window.emit(
                         "kz:error",
                         with_session_id(
-                            json!({ "message": format!("{message}{hint}"), "terminal": true }),
+                            json!({"message":error.to_string(),"terminal":false}),
                             &session_id,
                         ),
                     );
                 }
-            }
-            if let Err(error) = &result {
-                let _lifecycle = lifecycle.lock().unwrap();
-                // Assembly can fail before the normal round finalizer sees the promoted reply.
-                if let Some(id) = promoted_id {
-                    if let Ok(store) = kanzei_core::SessionStore::open(
-                        &kanzei_core::project_state_path(&main_root),
-                    ) {
-                        let _ = finish_failed_promoted_input(&store, &id, error);
-                    }
-                }
-                finish_scheduler(
-                    &window,
-                    &runtime_for_task,
-                    &session_id,
-                    run_error_idle_reason(error),
-                );
-                break;
-            }
-            next_input = {
-                let _lifecycle = lifecycle.lock().unwrap();
-                match promote_next_input(&project_dir, &session_id) {
-                    Ok(input) => {
-                        if input.is_none() {
-                            finish_scheduler(&window, &runtime_for_task, &session_id, "completed");
+                if let Some(id) = promoted_id.as_deref() {
+                    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(
+                        &main_root,
+                    ));
+                    match store.and_then(|store| finish_failed_promoted_input(&store, id, error)) {
+                        Ok(_) => {}
+                        Err(error) => {
+                            let _ = runtime_for_task.transition(
+                                kanzei_core::session_lifecycle::Event::Failed(error.to_string()),
+                            );
+                            return;
                         }
-                        input
-                    }
-                    Err(error) => {
-                        let _ = window.emit(
-                            "kz:error",
-                            with_session_id(
-                                json!({ "message": error.to_string(), "terminal": true }),
-                                &session_id,
-                            ),
-                        );
-                        finish_scheduler(&window, &runtime_for_task, &session_id, "failed");
-                        None
                     }
                 }
+            }
+            let input = loop {
+                // Admission, Stop and the last drain decision share this lock.
+                // A stop arriving after this decision owns a separate idle reaper.
+                {
+                    let _lifecycle = lifecycle.lock().unwrap();
+                    if !runtime_for_task.stopping() {
+                        let closed = runtime_for_task.snapshot().existence
+                            != kanzei_core::session_lifecycle::Existence::Open;
+                        let promoted = if closed {
+                            Ok(None)
+                        } else {
+                            promote_next_input(&project_dir, &session_id)
+                        };
+                        match promoted {
+                            Ok(Some(input)) => {
+                                if let Err(error) = runtime_for_task.begin_round() {
+                                    let _ = runtime_for_task.transition(
+                                        kanzei_core::session_lifecycle::Event::Failed(error),
+                                    );
+                                    return;
+                                }
+                                break input;
+                            }
+                            Ok(None) => {
+                                return finish_scheduler(
+                                    &window,
+                                    &runtime_for_task,
+                                    &session_id,
+                                    reason,
+                                    execution_owner,
+                                )
+                            }
+                            Err(error) => {
+                                let _ = runtime_for_task.transition(
+                                    kanzei_core::session_lifecycle::Event::Failed(
+                                        error.to_string(),
+                                    ),
+                                );
+                                let _ = window.emit(
+                                    "kz:error",
+                                    with_session_id(
+                                        json!({"message":error.to_string(),"terminal":true}),
+                                        &session_id,
+                                    ),
+                                );
+                                return;
+                            }
+                        }
+                    }
+                }
+                let settled = async {
+                    crate::session_supervisor::settle_resources(
+                        &runtime_for_task,
+                        &main_root,
+                        &process_id_for_run,
+                    )
+                    .await?;
+                    let _lifecycle = lifecycle.lock().unwrap();
+                    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(
+                        &main_root,
+                    ))
+                    .map_err(|error| error.to_string())?;
+                    if result.is_err() {
+                        crate::flush_live_run(&store, &session_id, &live_run, "halted");
+                    }
+                    execution_owner
+                        .settle_stopped(&store)
+                        .map_err(|error| error.to_string())?;
+                    let stop = runtime_for_task.snapshot().stop.ok_or("停止操作缺失")?;
+                    store
+                        .settle_session_stop(&session_id, &stop)
+                        .map_err(|error| error.to_string())?;
+                    runtime_for_task.transition(kanzei_core::session_lifecycle::Event::StopSettled)
+                }
+                .await;
+                if let Err(error) = settled {
+                    let _ = runtime_for_task
+                        .transition(kanzei_core::session_lifecycle::Event::Failed(error.clone()));
+                    let _ = window.emit(
+                        "kz:error",
+                        with_session_id(json!({"message":error,"terminal":true}), &session_id),
+                    );
+                    return;
+                }
+                reason = "stopped";
             };
-            let Some(input) = next_input.clone() else {
-                break;
-            };
+            next_input = Some(input.clone());
             next_prompt = input.prompt.clone();
             let _ = window.emit("kz:status", with_session_id(json!({ "stage": "排队", "detail": format!("开始执行排队输入（{}）", input.input_id) }), &session_id));
         }
@@ -886,19 +1012,37 @@ pub(crate) fn schedule_run(
 }
 
 /// Caller holds lifecycle. Publish the old run's terminal state before a reply may wake a new one.
-fn finish_scheduler(window: &AppEvents, runtime: &SessionRuntime, session_id: &str, reason: &str) {
+fn finish_scheduler(
+    window: &AppEvents,
+    runtime: &SessionRuntime,
+    session_id: &str,
+    reason: &str,
+    execution_owner: Arc<kanzei_core::session_execution::SessionExecutionGuard>,
+) {
+    release_scheduler(runtime, reason, execution_owner);
+    // Retain the JoinHandle so a shutdown owner can await the final task drop.
+    crate::session_supervisor::publish_idle(window, runtime, session_id, reason);
+}
+
+/// Caller holds lifecycle; idle means a subsequent submission can acquire ownership.
+fn release_scheduler(
+    runtime: &SessionRuntime,
+    reason: &str,
+    execution_owner: Arc<kanzei_core::session_execution::SessionExecutionGuard>,
+) {
+    drop(execution_owner);
+    runtime.halt.lock().unwrap().take();
     *runtime.stage.lock().unwrap() = if reason == "failed" {
         "失败"
     } else {
         "空闲"
     }
     .into();
-    // Retain the JoinHandle so a shutdown owner can await the final task drop.
-    let _ = window.emit(
-        "kz:idle",
-        with_session_id(json!({ "reason": reason }), session_id),
-    );
-    runtime.running.store(false, Ordering::SeqCst);
+    runtime
+        .transition(kanzei_core::session_lifecycle::Event::Settled(
+            reason.into(),
+        ))
+        .expect("joined supervisor can settle");
 }
 
 #[cfg(test)]
@@ -907,6 +1051,32 @@ mod tests {
     use kanzei_core::TaskOutcome;
     use kanzei_core::{EpisodeRecord, SessionStore};
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn idle_scheduler_releases_ownership_before_the_next_submission() {
+        use std::sync::Arc;
+        for reason in ["completed", "failed", "halted"] {
+            let (root, session) = fixture(reason);
+            let path = kanzei_core::project_state_path(&root);
+            let owner =
+                Arc::new(kanzei_core::session_execution::try_acquire(&path, &session).unwrap());
+            let runtime = crate::SessionRuntime::default();
+            runtime.activate_for_test();
+            assert!(kanzei_core::session_execution::try_acquire(&path, &session).is_err());
+            {
+                let _lifecycle = runtime.lifecycle.lock().unwrap();
+                runtime
+                    .transition(kanzei_core::session_lifecycle::Event::WorkerEnded)
+                    .unwrap();
+                super::release_scheduler(&runtime, reason, owner);
+                assert!(!runtime.is_running());
+                let next = kanzei_core::session_execution::try_acquire(&path, &session)
+                    .expect("idle must permit the next execution owner immediately");
+                drop(next);
+            }
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
 
     /// D-764:自动续跑轮不得冒用用户名义。判定看投递形态与 auto_round,标注发生在准入点。
 
@@ -1036,6 +1206,7 @@ mod tests {
                 origin: kanzei_base::MessageOrigin::Human,
                 execution_batch: false,
                 work_item_id: None,
+                command: None,
             },
         )
         .unwrap();

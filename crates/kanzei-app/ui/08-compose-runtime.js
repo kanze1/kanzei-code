@@ -1,7 +1,7 @@
 import { closeSurface, isModalOpen, isSurfaceOpen, openPopover } from "./00-surface.js";
 import { openGeneralChat } from "./03-general-scope.js";
 import { createOutbox } from "./00-outbox.js";
-import { awaitRunConfirmation } from "./03-session-runtime.js";
+import { confirmSessionRuntime, awaitRunConfirmation } from "./03-session-runtime.js";
 import { runtimeEventsReady } from "./00-event-subscriptions.js";
 import { attachmentPreview } from "./04-attachment-preview.js";
 import { defer } from "./00-dom.js";
@@ -469,7 +469,10 @@ async function submitOutgoing(record, draft) {
     awaitRunConfirmation(record.sessionId, record.payload);
     if (draft) acknowledge_composer_draft(record.payload.projectDir, record.payload.processId, draft);
   } else {
-    if (sessionState(record.sessionId).phase === "starting") transitionSession(record.sessionId, "failed");
+    if (sessionState(record.sessionId).phase === "starting") {
+      transitionSession(record.sessionId, "unconfirmed", { stage: "发送状态未确认", detail: "输入回执未收到" });
+      void confirmSessionRuntime(record.sessionId,record.payload.projectDir,record.payload.processId);
+    }
     refreshParallelTaskProjection(record.sessionId);
   }
   return accepted;

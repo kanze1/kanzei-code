@@ -113,10 +113,8 @@ pub(crate) struct RuntimeHandles {
     // R-171:项目级协调器(所有 ProcessHandle 共享)。主对话 writer run
     // 在此获取写租约并持有到本轮结束;RAII 保证任何结束路径都释放。
     pub(crate) coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
-    // D-342 协作式停止:本会话的停止令牌槽(SessionRuntime.halt)与 run 代数。
-    // run 开始时换代并安装新令牌;stop 取走令牌 cancel,run 在检查点 halted 收尾。
+    // Scheduler 在发布运行态之前安装令牌，round 借用；stop 取消而不取走。
     pub(crate) halt_slot: Arc<Mutex<Option<kanzei_core::CancellationToken>>>,
-    pub(crate) run_generation: Arc<AtomicU64>,
 }
 
 /// R-202 批1:run_task 装配段的产物聚合。装配(配置/harness/模型/鉴权/会话/typed/
@@ -878,7 +876,7 @@ mod startup_tests {
             let runtime = Arc::new(crate::SessionRuntime::default());
             let halt = kanzei_core::CancellationToken::new();
             *runtime.halt.lock_or_recover() = Some(halt.clone());
-            runtime.running.store(true, Ordering::SeqCst);
+            runtime.activate_for_test();
             let handles = RuntimeHandles {
                 lifecycle: runtime.lifecycle.clone(),
                 asks: runtime.asks.clone(),
@@ -896,7 +894,6 @@ mod startup_tests {
                 auto_runs: Arc::new(Mutex::new(HashMap::new())),
                 coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
                 halt_slot: runtime.halt.clone(),
-                run_generation: runtime.run_generation.clone(),
             };
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
@@ -1227,7 +1224,7 @@ mod startup_tests {
     impl Drop for Fixture {
         fn drop(&mut self) {
             self.server.abort();
-            self.runtime.running.store(false, Ordering::SeqCst);
+            self.runtime.settle_for_test();
         }
     }
 

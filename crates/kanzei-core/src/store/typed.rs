@@ -927,7 +927,12 @@ impl SessionStore {
         reason: &str,
     ) -> Result<RecoveryReport, SessionFactError> {
         let _owner = super::session_execution::lock_recovery(self, session_id)?;
-        self.recover_interrupted_session_facts_owned(session_id, reason, None)
+        self.recover_interrupted_session_facts_owned(
+            session_id,
+            reason,
+            None,
+            RecoveryTerminal::Failed,
+        )
     }
 
     pub(super) fn recover_interrupted_session_facts_owned(
@@ -935,6 +940,7 @@ impl SessionStore {
         session_id: &str,
         reason: &str,
         current_input: Option<&str>,
+        terminal: RecoveryTerminal,
     ) -> Result<RecoveryReport, SessionFactError> {
         let tx = self
             .connection
@@ -958,14 +964,28 @@ impl SessionStore {
                 Err(error) => return Err(error),
             }
         }
-        let recovery = invariant.recovery_facts(reason);
+        let recovery = match terminal {
+            RecoveryTerminal::Failed => invariant.recovery_facts(reason),
+            RecoveryTerminal::Stopped => invariant
+                .recovery_facts(reason)
+                .into_iter()
+                .map(|mut fact| {
+                    if matches!(fact.fact, SessionFact::TurnFailed { .. }) {
+                        fact.fact = SessionFact::TurnStopped;
+                    }
+                    fact
+                })
+                .collect(),
+        };
         if !recovery.is_empty() {
             self.append_session_facts_tx(&tx, session_id, &mut invariant, &recovery)?;
         }
         // An exclusive owner proves previous executions are gone. Preserve its
         // current claimed input, fail only orphaned claims, and leave pending
         // queues/steers available to their existing drain owner.
-        super::inbox::fail_orphaned_execution_inputs_tx(&tx, session_id, current_input)?;
+        if matches!(terminal, RecoveryTerminal::Failed) {
+            super::inbox::fail_orphaned_execution_inputs_tx(&tx, session_id, current_input)?;
+        }
         tx.commit().map_err(StoreError::from)?;
         Ok(RecoveryReport {
             closed_events: recovery.len(),
@@ -1076,7 +1096,7 @@ struct TypedWriterState {
     open_calls: HashSet<String>,
     errors: Vec<String>,
     terminal: bool,
-    _execution_owner: Option<std::sync::Arc<super::session_execution::SessionExecutionGuard>>,
+    _execution_owner: Option<super::session_execution::WriterOwner>,
 }
 
 impl TypedWriterState {
@@ -1427,12 +1447,18 @@ impl TypedWriterState {
                 )
                 .optional()
                 .map_err(StoreError::from)?;
-            // D-342 stops cancel the input before the cooperative runner returns.
-            // Preserve that cancellation; other terminal inputs cannot be reassigned.
-            if !(stopped && input_status.as_deref() == Some("cancelled"))
-                && (!matches!(input_status.as_deref(), Some("promoted" | "running"))
-                    || !super::inbox::finish_input_in(&tx, input_id, ok)?)
-            {
+            // Cancellation is an outcome of the worker, committed with its
+            // stopped fact. A stop request alone never finalizes active input.
+            let committed = match input_status.as_deref() {
+                Some("cancelled") if stopped => true,
+                Some("promoted" | "running") if stopped => tx.execute(
+                    "UPDATE session_inputs SET status='cancelled',finished_at=?1 WHERE input_id=?2 AND session_id=?3 AND status IN ('promoted','running')",
+                    params![super::now_ms(), input_id, self.session_id],
+                ).map_err(StoreError::from)? == 1,
+                Some("promoted" | "running") => super::inbox::finish_input_in(&tx, input_id, ok)?,
+                _ => false,
+            };
+            if !committed {
                 return Err(SessionFactError::Invariant(format!(
                     "input {input_id} is not active in session {}",
                     self.session_id,
@@ -1616,6 +1642,11 @@ impl TypedWriterState {
     pub fn record_error(&mut self, error: impl std::fmt::Display) {
         self.errors.push(error.to_string());
     }
+}
+
+pub(super) enum RecoveryTerminal {
+    Failed,
+    Stopped,
 }
 
 #[cfg(test)]

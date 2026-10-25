@@ -1,6 +1,7 @@
 //! Experimental agent team: durable identities, isolated writers, background work,
 //! dependency scheduling and resumable messages. The model and UI use one command API.
 mod capacity;
+mod lifecycle;
 pub mod store;
 #[cfg(test)]
 mod tests;
@@ -62,7 +63,7 @@ struct Inner {
     active: Mutex<HashMap<String, Arc<ChildWorker>>>,
     /// Actual worker/callback lifetime, including final lease release after the
     /// keyed active slot has been removed for continuation admission.
-    worker_owners: Mutex<Vec<std::sync::Weak<ChildWorker>>>,
+    worker_owners: Mutex<Vec<kanzei_core::session_execution::ExecutionCompletion>>,
     parent: Mutex<Vec<Message>>,
     event: Mutex<Option<TeamEvent>>,
     ask_router: Mutex<Option<TeamAsk>>,
@@ -91,8 +92,8 @@ impl std::ops::Deref for ChildWorker {
         &self.cancel
     }
 }
-// The registry retains teams after a turn. Only a live worker retains its child
-// owner, including cancellation cleanup and callbacks that can still checkpoint.
+// Teams survive the parent turn. Worker registrations retain the child
+// capability; execution completion additionally includes every late writer.
 struct WorkerRegistration {
     team: AgentTeam,
     id: String,
@@ -496,23 +497,6 @@ id: format!("child:{}:{}", job.id, job.revision),
         saved?;
         questions_cancelled?;
         Ok(())
-    }
-    pub fn is_quiescent(&self) -> bool {
-        let mut owners = self.0.worker_owners.lock().unwrap();
-        owners.retain(|owner| owner.strong_count() > 0);
-        owners.is_empty() && self.0.active.lock().unwrap().is_empty()
-    }
-    pub fn stop_all(&self) {
-        let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        for mailbox in self.0.child_mailboxes.lock().unwrap().values() {
-            mailbox.close();
-        }
-        let ids: Vec<_> = self.0.active.lock().unwrap().keys().cloned().collect();
-        for id in ids {
-            if let Err(error) = self.stop_locked(&id) {
-                tracing::error!(%error, child=id, "child stop state could not be saved");
-            }
-        }
     }
     fn close_child_mailbox(&self, id: &str) {
         if let Some(mailbox) = self.0.child_mailboxes.lock().unwrap().remove(id) {
@@ -1038,13 +1022,14 @@ id: format!("child:{}:{}", job.id, job.revision),
             cancel: CancellationToken::new(),
             owner,
         });
-        active.insert(id.into(), cancel.clone());
-        drop(active);
+        // Register the final lease receipt before publishing the worker.
         {
             let mut owners = self.0.worker_owners.lock().unwrap();
-            owners.retain(|owner| owner.strong_count() > 0);
-            owners.push(Arc::downgrade(&cancel));
+            owners.retain(|owner| !owner.is_released());
+            owners.push(cancel.owner.completion());
         }
+        active.insert(id.into(), cancel.clone());
+        drop(active);
         let registration = WorkerRegistration {
             team: self.clone(),
             id: id.into(),

@@ -362,10 +362,7 @@ pub(crate) fn with_idle_bound_process<T>(
     let _lifecycle = runtime
         .as_ref()
         .map(|runtime| runtime.lifecycle.lock().unwrap());
-    if runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.running.load(Ordering::SeqCst))
-    {
+    if runtime.as_ref().is_some_and(|runtime| runtime.is_running()) {
         return Err(format!(
             "独立任务运行中，请先停止并等它收尾，才能{action}工作树"
         ));

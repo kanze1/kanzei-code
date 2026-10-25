@@ -214,6 +214,7 @@ pub fn blocked_wip_summary(project_root: &Path) -> Vec<String> {
 /// 审计文件,与 D-566 的 cleanup-log.jsonl、D-567 的连续失败持久化同一手法:
 /// 只增不改,坏一行不影响其余行,不需要额外的读—改—写并发保护。
 pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_signature: &str) {
+    let _write = kanzei_harness::managed_fence::ToolWindow::open(project_root, "runtime_audit");
     let path = project_root.join(".kanzei/project/auto-run-alerts.jsonl");
     let recorded_at_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

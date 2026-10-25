@@ -3349,3 +3349,34 @@ async fn custom_role_is_visible_and_preserves_system_without_a_step_limit() {
     .unwrap()
     .unwrap();
 }
+
+#[tokio::test]
+async fn team_completion_waits_for_a_late_writer_after_worker_unregisters() {
+    use std::future::Future;
+    let team = answered_question_team("late-writer-completion");
+    let (job, worker) = fixture_worker(&team);
+    team.0
+        .worker_owners
+        .lock()
+        .unwrap()
+        .push(worker.owner.completion());
+    let writer = worker.owner.writer("late-writer");
+    team.0.active.lock().unwrap().remove(&job.id);
+    drop(worker);
+    assert!(
+        !team.is_quiescent(),
+        "worker absence is not execution lease release"
+    );
+    let waiting = team.settled();
+    tokio::pin!(waiting);
+    let pending =
+        std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx).is_pending()))
+            .await;
+    assert!(pending);
+    drop(writer);
+    waiting.await;
+    assert!(team.is_quiescent());
+    drop(
+        claim_child(&team.0.store, &job.id).expect("completion must permit immediate acquisition"),
+    );
+}

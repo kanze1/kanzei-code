@@ -1,7 +1,6 @@
 //! 对话历史命令与会话快照访问。
 
 use std::path::Path;
-use std::sync::atomic::Ordering;
 
 use serde_json::json;
 use tauri::State;
@@ -34,7 +33,7 @@ pub(crate) fn clear_conversation(
     let session_id = process_session_id(&root, process_id);
     let runtime = runtime_for(state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
-    if runtime.running.load(Ordering::SeqCst) {
+    if runtime.is_running() {
         return Err("对话运行中,不能在它脚下开新段;请先停止它,或新建讨论".into());
     }
     let _owner = kanzei_core::session_execution::try_acquire(
@@ -677,7 +676,7 @@ pub(crate) fn delete_conversation_segments(
     let session_id = process_session_id(&root, process_id);
     let runtime = runtime_for(state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
-    if runtime.running.load(Ordering::SeqCst) {
+    if runtime.is_running() {
         return Err("对话运行中,先停止再删除历史对话".into());
     }
     let _owner = kanzei_core::session_execution::try_acquire(

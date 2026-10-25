@@ -79,4 +79,7 @@ pub use store::{
     USER_MESSAGE_COMMITTED,
 };
 mod input_message;
+pub mod session_lifecycle;
 pub use input_message::input_message;
+
+pub use store::CommandAdmission;

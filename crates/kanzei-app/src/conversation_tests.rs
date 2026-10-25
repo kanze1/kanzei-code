@@ -120,7 +120,6 @@ fn 新对话在从未鞭挞过的会话上安全跳过() {
 /// 轮末写回会把整轮落进新段。拒绝时不得写 conversation.reset;停下后照常开新段。
 #[test]
 fn 新对话在运行中的会话上拒绝开新段且不写reset() {
-    use std::sync::atomic::Ordering;
     let root = std::env::temp_dir().join(format!(
         "kanzei-app-clear-running-{}-{}",
         std::process::id(),
@@ -135,7 +134,7 @@ fn 新对话在运行中的会话上拒绝开新段且不写reset() {
     let project_dir = root.display().to_string();
     let project_root = crate::normalized_project_root(&root);
     let session_id = crate::process_session_id(&project_root, None);
-    let running = crate::runtime_for(&state, &session_id).running.clone();
+    let running = crate::runtime_for(&state, &session_id);
     let resets = || {
         let store =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))
@@ -146,12 +145,12 @@ fn 新对话在运行中的会话上拒绝开新段且不写reset() {
             .len()
     };
 
-    running.store(true, Ordering::SeqCst);
+    running.activate_for_test();
     let err = clear_conversation(&state, &project_dir, None).unwrap_err();
     assert!(err.contains("运行中"), "拒绝理由应说明会话运行中:{err}");
     assert_eq!(resets(), 0, "运行中被拒绝时不得写 conversation.reset");
 
-    running.store(false, Ordering::SeqCst);
+    running.settle_for_test();
     let owner = kanzei_core::session_execution::try_acquire(
         &kanzei_core::project_state_path(&project_root),
         &session_id,
@@ -1492,7 +1491,6 @@ fn legacy快照删除一次删净且不重新播种() {
 /// 运行中的线拒绝删除:runner 正往当前段写 typed facts,删掉它会与写入交错留下半截轮次。
 #[test]
 fn 运行中拒绝删除历史对话() {
-    use std::sync::atomic::Ordering;
     let (root, canonical, session_id) = delete_fixture("del-running");
     let project_dir = canonical.display().to_string();
     {
@@ -1511,9 +1509,9 @@ fn 运行中拒绝删除历史对话() {
         crate::conversation::conversation_list(project_dir.clone(), None, None, None).unwrap();
     let seq = listed[0]["sequence"].as_i64().unwrap();
     let state = AppState::default();
-    let running = crate::runtime_for(&state, &session_id).running.clone();
+    let running = crate::runtime_for(&state, &session_id);
 
-    running.store(true, Ordering::SeqCst);
+    running.activate_for_test();
     let err = crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq], None)
         .unwrap_err();
     assert!(err.contains("运行中"), "拒绝理由应说明对话运行中:{err}");
@@ -1523,7 +1521,7 @@ fn 运行中拒绝删除历史对话() {
         "运行中被拒绝时不得写入或删除任何事件"
     );
 
-    running.store(false, Ordering::SeqCst);
+    running.settle_for_test();
     let outcome =
         crate::conversation::delete_conversation_segments(&state, &project_dir, &[seq], None)
             .expect("停下后应能删除");

@@ -18,6 +18,7 @@ use super::{run_once, AskPolicy, RunnerConfig};
 #[derive(Default)]
 pub struct TaskCancellations {
     inner: Mutex<HashMap<String, (CancellationToken, usize)>>,
+    changed: tokio::sync::Notify,
 }
 
 /// 取消注册表的 RAII 注册句柄。
@@ -67,6 +68,7 @@ impl TaskCancellations {
             *owners -= 1;
             if *owners == 0 {
                 tasks.remove(id);
+                self.changed.notify_waiters();
             }
         }
     }
@@ -84,10 +86,22 @@ impl TaskCancellations {
     pub fn is_quiescent(&self) -> bool {
         self.inner.lock_or_recover().is_empty()
     }
+
+    pub async fn settled(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.is_quiescent() {
+                return;
+            }
+            changed.await;
+        }
+    }
 }
 
 impl TaskCancellationGuard {
-    fn token(&self) -> &CancellationToken {
+    pub fn token(&self) -> &CancellationToken {
         &self.token
     }
 }
