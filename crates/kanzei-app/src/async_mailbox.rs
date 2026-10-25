@@ -115,7 +115,14 @@ fn admit_notice(
         .create_session(owner, &root.display().to_string(), None)
         .map_err(|e| e.to_string())?;
     store
-        .admit_input(owner, &input_id, &notice.text, kanzei_core::Delivery::Steer)
+        .admit_input_with_source(
+            owner,
+            &input_id,
+            &notice.text,
+            kanzei_core::Delivery::Steer,
+            Some(notice.origin.as_str()),
+            &notice.attachments,
+        )
         .map_err(|e| e.to_string())?;
     if store
         .input_status(&input_id)
@@ -172,6 +179,8 @@ mod tests {
         };
         let publishing = std::thread::spawn(move || {
             mailbox.publish(AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Notification,
+                attachments: Vec::new(),
                 id: "old".into(),
                 text: "old actor reply".into(),
             })
@@ -194,6 +203,8 @@ mod tests {
         assert!(store.list_pending_inputs("owner").unwrap().is_empty());
         let current = runtime.async_generation.load(Ordering::SeqCst);
         let notice = AsyncNotice {
+            origin: kanzei_base::MessageOrigin::Notification,
+            attachments: Vec::new(),
             id: "current".into(),
             text: "explicit new actor".into(),
         };

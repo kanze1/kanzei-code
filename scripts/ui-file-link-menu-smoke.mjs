@@ -50,7 +50,7 @@ async function setup(page, { independent = false, baselineSource = null, general
     const { renderMarkdownInto } = await import("/04-markdown.js");
     const fixture = {
       id: "file-link-fixture", session_id: "file-link-session", origin_project: project,
-      project_dir: project, worktree_path: independent ? worktree : null, profile: "dev", running: false,
+      project_dir: project, worktree_path: independent ? worktree : null, profile: "dev-auto", running: false,
       title: "文件链接回归", label: "文件链接回归", branch: null,
     };
     const projects = general ? { current: null, projects: [], names: {} }

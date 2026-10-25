@@ -11,7 +11,6 @@ import { researchLinkField, researchOpenLink } from "./11-docs-list.js";
 import { parseJsonish } from "./04-structured-parse.js";
 import { active_space, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { research_category, research_enum_label, research_status_label, render_research_navigation, render_research_overview, show_research_page, sync_research_page } from "./19-research-navigation.js";
-import { refreshResearchWorkflow, researchWorkflow, resetResearchWorkflow } from "./19-research-auto.js";
 import { load_research_library, research_library, selected_library_entry, select_library_entry } from "./03-research-library.js";
 
 // 研究(R-276 批3)。
@@ -47,7 +46,6 @@ export function research_context_guard() {
 }
 
 export function reset_research_project() {
-  resetResearchWorkflow();
   research_context_generation += 1;
   researchSnapshot = { sources: [], findings: [], research_topics: [] };
   selectedResearchTopic = project_workspace().research.topic;
@@ -470,7 +468,6 @@ export async function select_research_topic(topic) {
       ?? research_library.entries.find((entry) => entry.topic === topic && entry.storage_root === currentProject && entry.kind === project_workspace().research.category);
     return select_library_entry(entry?.id || "");
   }
-  resetResearchWorkflow();
   research_context_generation += 1;
   selectedResearchTopic = topic;
   selectedResearchExplorationId = "";
@@ -490,7 +487,7 @@ export async function select_research_topic(topic) {
   research_report_text = null;
   renderResearchReport("");
   const is_current = research_context_guard();
-  await Promise.all([refreshResearchPlan(), refreshResearchReport(), refreshResearchWorkflow()]);
+  await Promise.all([refreshResearchPlan(), refreshResearchReport()]);
   if (!is_current()) return;
   render_research_overview();
   sync_research_page();
@@ -557,10 +554,6 @@ export async function refreshResearchPlan() {
     if (key === researchPlanKey) return;
     researchPlanKey = key;
     renderResearchPlan(researchPlan);
-    if (snapshot.controller === "workflow") {
-      $("research-plan-approve").disabled = true;
-      $("research-plan-status").textContent = t("计划由 AUTO 主流程管理");
-    }
   } catch (error) {
     if (!is_current()) return;
     if (project !== currentProject || topic.topic !== selectedResearchTopicData().topic) return;
@@ -1497,7 +1490,7 @@ export function renderResearchRuns() {
 }
 
 // 研究页的后台刷新(UX-015 / UX-105)。原来每秒一次 docs_snapshot + 计划 + 报告 + 流程(含全量事件)并整页重建,
-// 来源卡的行内编辑框、AUTO 预算输入框、路线图焦点撑不过一秒。现在:4 秒一轮、页面隐藏不刷;只读当前页用得到的;
+// 保护来源卡行内编辑和路线图焦点：4 秒一轮、页面隐藏不刷，只读当前页用得到的数据；
 // 拿回来的数据按签名比对,没变就不重绘;用户正在输入/选择/编辑时本轮不重绘(签名不更新,放下焦点后的下一轮补上)。
 const RESEARCH_POLL_MS = 4000;
 let researchRefreshTimer = null;
@@ -1587,13 +1580,12 @@ export async function refreshResearch({ poll = false } = {}) {
   return request;
 }
 
-/// 计划/报告/流程:手动刷新全读;轮询只读当前页用得到的(概览:计划 + 流程;成果:报告)。
+/// 手动刷新计划与报告；轮询只读取当前页需要的数据。
 async function refreshResearchPageData(page, poll) {
-  const wants = poll ? { plan: page === "overview", report: page === "report", workflow: page === "overview" } : { plan: true, report: true, workflow: true };
-  const before = JSON.stringify(researchWorkflow);
-  await Promise.all([wants.plan && refreshResearchPlan(), wants.report && refreshResearchReport(), wants.workflow && refreshResearchWorkflow()]);
-  // 流程只在概览里画:它变了(阶段推进、暂停)概览才需要重画;没变的话 render_research_overview 自己也会按签名跳过。
-  if (poll && wants.workflow && before !== JSON.stringify(researchWorkflow)) {
+  const wants = poll ? { plan: page === "overview", report: page === "report" } : { plan: true, report: true };
+  const before = JSON.stringify(researchPlan);
+  await Promise.all([wants.plan && refreshResearchPlan(), wants.report && refreshResearchReport()]);
+  if (poll && wants.plan && before !== JSON.stringify(researchPlan)) {
     render_research_overview();
     sync_research_page();
   }

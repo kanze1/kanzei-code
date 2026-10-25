@@ -316,7 +316,7 @@ mod tests {
             project_dir: "C:/project".into(),
             worktree_path: None,
             model: Some("deepseek:deepseek-v4-flash".into()),
-            profile: Some("dev".into()),
+            profile: Some("dev-auto".into()),
             research_topic: None,
             reasoning: Some("high".into()),
             manual_models: vec!["deepseek:deepseek-chat".into()],

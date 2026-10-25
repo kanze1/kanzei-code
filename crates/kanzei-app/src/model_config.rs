@@ -1116,6 +1116,7 @@ mod tests {
                 &merged,
                 *line_reasoning,
                 Path::new("C:/kz-model-config-runner"),
+                kanzei_harness::ProfileKind::DevAuto,
                 kanzei_core::AskPolicy::Interactive,
                 None,
             );
@@ -1189,7 +1190,7 @@ mod tests {
                             // 运行路径:assemble_run 的 ResolveCtx → select_primary_agent → resolve_model_chain
                             // → resolve_model → build_runner_config。
                             let ctx = kanzei_harness::ResolveCtx {
-                                profile: config.default_profile(),
+                                profile: config.default_profile().unwrap(),
                                 cwd: line.code_root.clone().unwrap_or_else(|| project.clone()),
                                 project_root: project.clone(),
                                 config: std::sync::Arc::new(config.clone()),
@@ -1210,6 +1211,7 @@ mod tests {
                                 &config,
                                 line.reasoning.as_deref(),
                                 &project,
+                                ctx.profile,
                                 kanzei_core::AskPolicy::Interactive,
                                 None,
                             );

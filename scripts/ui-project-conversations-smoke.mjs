@@ -86,7 +86,7 @@ try {
   await page.evaluate(sid => window.__kzPreview.emit("kz:idle", { sessionId: sid }), owner.session_id);
   await page.locator("#prompt").fill("概览补充的草稿");
   await page.locator("#new-chat").click(); await settle();
-  check((await last("process_create")).profile === "dev", "New conversation creates an ordinary development recipient");
+  check((await last("process_create")).profile === "dev-auto", "New conversation creates an ordinary development recipient");
   check(await count("conversation_clear") === 0, "New discussion never clears the main conversation");
   const welcomeHint = page.locator('#messages .msg-pane[data-active="1"] .empty-auto-hint');
   check(await welcomeHint.isVisible(), "An empty conversation briefly explains where to enable autonomous progress");
@@ -129,7 +129,7 @@ try {
   await page.locator("#prompt").fill("只分析这个方案"); await page.locator("#send").click(); await settle();
   check(!await welcomeHint.isVisible(), "Sending the first message removes autonomous guidance with the welcome state");
   const peerRequest = await last("run_prompt");
-  check(peerRequest.profile === "dev" && ["dev", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
+  check(peerRequest.profile === "dev-auto" && ["dev-auto", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
   // The handoff form is a compatibility API; the retired composer entry is no longer a user surface.
   await page.evaluate(async () => (await import("/26-project-conversations.js")).openHandoffForm());
   check((await page.locator(".project-handoff-form").innerText()).includes("将附上当前对话上下文"), "Handoff explains that source context accompanies the user's conclusion");
@@ -246,7 +246,7 @@ try {
   const preparation = await last("run_prompt");
   check(preparation.executionBatch === false && preparation.workItemId == null && preparation.prompt.includes("R-1000"), "Pending research starts in the main conversation without a premature claim");
   check(preparation.processId === owner.id, "An idle unrelated conversation cannot claim a planning request with a null target");
-  check(preparation.prompt.includes("原始描述") && preparation.prompt.includes("外部已有实现") && preparation.prompt.includes("仓内既有设计") && preparation.prompt.includes("检索预算") && preparation.prompt.includes("证据验证通过") && preparation.prompt.includes("待我处理") && !/req get|question|background=true|prior_art validate|work claim|doing/.test(preparation.prompt), "Preparation requests real evidence, validation and Needs attention in concise user-facing language");
+  check(preparation.prompt.includes("补齐仍缺少的调研依据") && preparation.prompt.includes("继续实施") && preparation.prompt.includes(".kanzei/research/r1000/prior-art.md") && !/req get|question|background=true|prior_art validate|work claim|doing/.test(preparation.prompt), "Continue preserves the implementation goal and existing artifact without prescribing a research workflow");
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js");
     window.__kzPreview.emit("kz:idle", { sessionId: shell.activeSessionId });
@@ -265,6 +265,8 @@ try {
   await managed.locator(".doc-row").click();
   await managed.getByRole("button", { name: "开始调研", exact: true }).click(); await settle();
   check((await last("run_prompt")).executionBatch === false && (await last("run_prompt")).workItemId == null, "Requirement management resumes preparation without claiming implementation");
+  const researchRequest = await last("run_prompt");
+  check(researchRequest.prompt.includes("已有实现") && researchRequest.prompt.includes("相关设计") && researchRequest.prompt.includes("记录依据") && !/继续实施|work claim/.test(researchRequest.prompt), "The explicit research action delegates investigation without adding implementation");
   await page.evaluate(async sid => {
     window.__kzPreview.emit("kz:idle", { sessionId: sid });
     window.__conversationTest.docs.requirements[0].prior_art.status = "invalid";

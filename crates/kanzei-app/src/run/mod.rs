@@ -66,104 +66,6 @@ pub(crate) fn now_ms() -> i64 {
         .unwrap_or_default()
 }
 
-/// R-143:自举循环轮末自动 push——本轮确有 git commit 成功才触发(检测位由
-/// run_task 的 on_event 在 ToolStart(action=commit)+ ToolEnd(ok=true) 置位)。
-/// push 失败只上报不阻断:自举循环不能被网络/远端状态卡住(验收②);
-/// 与既有手动 git push 流程共存,自动 push 只是把轮末该推的提交推掉(验收③)。
-pub(crate) async fn maybe_push_after_commit(
-    committed: bool,
-    cwd: &std::path::Path,
-    halt: &kanzei_core::CancellationToken,
-    on_stage: &(dyn Fn(&str, String) + Sync),
-    on_trace: &(dyn Fn(serde_json::Value) + Sync),
-) {
-    if !committed || halt.is_cancelled() {
-        return;
-    }
-    on_stage("推送", "本轮有提交,自动 git push…".into());
-    let mut command = tokio::process::Command::new("git");
-    // D-369:auto_push 在桌面端(GUI 无控制台)跑 git push,不隐藏会被 Windows
-    // 新建控制台窗口——每次自动提交后都弹黑窗。与 state.rs hidden_command 同纪律。
-    #[cfg(windows)]
-    {
-        command.creation_flags(0x0800_0000);
-    }
-    command
-        .arg("-C")
-        .arg(cwd)
-        .arg("push")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "Never")
-        .stdin(std::process::Stdio::null());
-    let output = push_output(command, halt, std::time::Duration::from_secs(60)).await;
-    let entry = match output {
-        Ok(out) if out.status.success() => {
-            json!({ "kind": "push", "ok": true, "at": now_ms() })
-        }
-        Ok(out) => {
-            let detail = String::from_utf8_lossy(&out.stderr).trim().to_string();
-            let detail = if detail.is_empty() {
-                String::from_utf8_lossy(&out.stdout).trim().to_string()
-            } else {
-                detail
-            };
-            on_stage("推送", format!("自动 push 失败(不阻断):{detail}"));
-            json!({ "kind": "push", "ok": false, "error": detail, "at": now_ms() })
-        }
-        Err(error) => {
-            on_stage("推送", format!("自动 push 失败(不阻断):{error}"));
-            json!({ "kind": "push", "ok": false, "error": error.to_string(), "at": now_ms() })
-        }
-    };
-    on_trace(entry);
-}
-
-/// A separate task owns the child until cancellation cleanup completes, even
-/// when the round watchdog aborts the caller while it is waiting for push.
-async fn push_output(
-    mut command: tokio::process::Command,
-    halt: &kanzei_core::CancellationToken,
-    timeout: std::time::Duration,
-) -> std::io::Result<std::process::Output> {
-    struct CancelOnDrop(kanzei_core::CancellationToken);
-    impl Drop for CancelOnDrop {
-        fn drop(&mut self) {
-            self.0.cancel();
-        }
-    }
-    let cancel = halt.child_token();
-    let _guard = CancelOnDrop(cancel.clone());
-    command
-        .kill_on_drop(true)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    let task = tokio::spawn(async move {
-        if cancel.is_cancelled() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Interrupted,
-                "自动 push 已取消",
-            ));
-        }
-        let child = command.spawn()?;
-        let pid = child.id();
-        let output = child.wait_with_output();
-        tokio::pin!(output);
-        let reason = tokio::select! {
-            biased;
-            result = &mut output => return result,
-            _ = cancel.cancelled() => (std::io::ErrorKind::Interrupted, "自动 push 已取消"),
-            _ = tokio::time::sleep(timeout) => (std::io::ErrorKind::TimedOut, "自动 push 超时"),
-        };
-        if let Some(pid) = pid {
-            kanzei_tools::kill_tree(pid).await;
-        }
-        // Dropping output also kills the direct child on platforms where the
-        // existing process-tree primitive cannot terminate descendants.
-        Err(std::io::Error::new(reason.0, reason.1))
-    });
-    task.await.map_err(std::io::Error::other)?
-}
-
 pub(crate) fn emit_stage(window: &AppEvents, session_id: &str, name: &str, detail: String) {
     let _ = window.emit(
         "kz:status",
@@ -221,7 +123,7 @@ mod worktree_run_tests {
         let worktree = temp_dir("cfg-tree");
         std::fs::write(
             main_root.join(".kanzei/kanzei.toml"),
-            "[profile]\ndefault = \"dev\"\n",
+            "[profile]\ndefault = \"dev-auto\"\n",
         )
         .unwrap();
         std::fs::write(
@@ -235,7 +137,7 @@ mod worktree_run_tests {
             kanzei_harness::KanzeiConfig::load_with_warnings_at_root(&main_root).unwrap();
         assert_eq!(
             config.profile.default.as_deref(),
-            Some("dev"),
+            Some("dev-auto"),
             "必须读主根那份配置;读到 research 说明取了 worktree 的分支副本"
         );
         std::fs::remove_dir_all(&worktree).ok();
@@ -244,163 +146,9 @@ mod worktree_run_tests {
 }
 
 #[cfg(test)]
-mod auto_push_tests {
-    use super::maybe_push_after_commit;
-    use std::path::{Path, PathBuf};
-    use std::process::Command;
-
-    fn temp_repo(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "kz-push-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let repo = dir.join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-        git(&repo, &["init", "-q", "-b", "main"]);
-        git(&repo, &["config", "user.email", "test@example.invalid"]);
-        git(&repo, &["config", "user.name", "Kanzei Test"]);
-        dir
-    }
-
-    fn git(dir: &Path, args: &[&str]) -> String {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(dir)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "git {:?} 失败: {}",
-            args,
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
-    }
-
-    /// 有提交 + 有 remote → push 成功,origin 收到该提交,轨迹记录 ok:true。
-    #[tokio::test]
-    async fn 本轮有提交_推送成功_远端收到() {
-        let dir = temp_repo("ok");
-        let repo = dir.join("repo");
-        let remote = dir.join("remote.git");
-        Command::new("git")
-            .args(["init", "-q", "--bare"])
-            .arg(&remote)
-            .output()
-            .unwrap();
-        // bare 仓库默认 HEAD 分支名随 git 版本/config 漂移(master 或 main),
-        // 钉死 refs/heads/main 让 rev-parse 断言与本地仓库分支名一致。
-        git(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
-        git(
-            &repo,
-            &["remote", "add", "origin", remote.to_str().unwrap()],
-        );
-        std::fs::write(repo.join("a.txt"), "hello\n").unwrap();
-        git(&repo, &["add", "a.txt"]);
-        git(&repo, &["commit", "-q", "-m", "第一条"]);
-        // simple 模式无 upstream 的 `git push` 会拒绝;先建立 upstream(等价于
-        // 手动 push 流程已跑过),再验证「轮末自动 push 把后续提交推上去」。
-        git(&repo, &["push", "-q", "-u", "origin", "main"]);
-        std::fs::write(repo.join("b.txt"), "second\n").unwrap();
-        git(&repo, &["add", "b.txt"]);
-        git(&repo, &["commit", "-q", "-m", "第二条"]);
-        let local_head = git(&repo, &["rev-parse", "HEAD"]);
-
-        let stages = std::sync::Mutex::new(Vec::new());
-        let traces = std::sync::Mutex::new(Vec::new());
-        maybe_push_after_commit(
-            true,
-            &repo,
-            &kanzei_core::CancellationToken::new(),
-            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
-            &|entry| traces.lock().unwrap().push(entry),
-        )
-        .await;
-
-        let stages = stages.into_inner().unwrap();
-        let traces = traces.into_inner().unwrap();
-        let remote_head = git(&remote, &["rev-parse", "main"]);
-        assert_eq!(remote_head, local_head, "远端必须收到本轮提交");
-        assert!(
-            traces.iter().any(|e| e["ok"] == true),
-            "轨迹应记 push 成功: {traces:?}"
-        );
-        assert!(
-            !stages.iter().any(|s| s.contains("失败")),
-            "成功路径不该报失败: {stages:?}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// 本轮没有 commit(检测位 false)→ 根本不触发 push,零 stage/零 trace。
-    #[tokio::test]
-    async fn 本轮无提交_不触发push() {
-        let dir = temp_repo("none");
-        let repo = dir.join("repo");
-        let stages = std::sync::Mutex::new(Vec::new());
-        let traces = std::sync::Mutex::new(Vec::new());
-        maybe_push_after_commit(
-            false,
-            &repo,
-            &kanzei_core::CancellationToken::new(),
-            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
-            &|entry| traces.lock().unwrap().push(entry),
-        )
-        .await;
-        assert!(
-            traces.into_inner().unwrap().is_empty(),
-            "无提交不应产生 push 轨迹"
-        );
-        assert!(
-            stages.into_inner().unwrap().is_empty(),
-            "无提交不应产生任何 stage 输出"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// 有提交但没有 remote → push 失败,但函数不 panic、不阻断,失败经 stage 可见。
-    #[tokio::test]
-    async fn 有提交无remote_失败可见不panic() {
-        let dir = temp_repo("noremote");
-        let repo = dir.join("repo");
-        std::fs::write(repo.join("a.txt"), "hello\n").unwrap();
-        git(&repo, &["add", "a.txt"]);
-        git(&repo, &["commit", "-q", "-m", "第一条"]);
-
-        let stages = std::sync::Mutex::new(Vec::new());
-        let traces = std::sync::Mutex::new(Vec::new());
-        maybe_push_after_commit(
-            true,
-            &repo,
-            &kanzei_core::CancellationToken::new(),
-            &|name, detail| stages.lock().unwrap().push(format!("{name}:{detail}")),
-            &|entry| traces.lock().unwrap().push(entry),
-        )
-        .await;
-
-        let stages = stages.into_inner().unwrap();
-        let traces = traces.into_inner().unwrap();
-        assert!(
-            stages.iter().any(|s| s.contains("失败")),
-            "失败必须经 stage 可见: {stages:?}"
-        );
-        assert!(
-            traces.iter().any(|e| e["ok"] == false),
-            "轨迹应记 push 失败: {traces:?}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-}
-
-#[cfg(test)]
 mod assembly_tests {
     use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
-    use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
+    use kanzei_tools::{BaseComponent, DevelopmentProfile, ResearchProfile};
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -482,64 +230,6 @@ mod assembly_tests {
         );
     }
 
-    /// D-195:运行装配线必须注册前端自查段点名的每个工具。
-    #[test]
-    fn 桌面装配线必须注册前端自查段点名的每个工具() {
-        let root = PathBuf::from("C:/kanzei-d195-app-test");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(BaseComponent)
-            .add(DevProfile)
-            .add(ResearchProfile)
-            .add(crate::harness_ext::FrontendToolsComponent)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let resident: Vec<String> = snapshot
-            .resident_tools()
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect();
-        let deferred: Vec<String> = snapshot
-            .deferred_tools()
-            .iter()
-            .map(|tool| tool.name().to_string())
-            .collect();
-        let guidance = kanzei_tools::frontend_inspection_guidance();
-        let mentioned = kanzei_tools::prompt_tool_mentions(guidance);
-        let selects = kanzei_tools::prompt_tool_search_selects(guidance);
-        for tool in mentioned {
-            if resident.contains(&tool) {
-                continue;
-            }
-            assert!(
-                deferred.contains(&tool),
-                "前端自查提示词点名了既非常驻也不在延迟目录的工具 `{tool}`"
-            );
-            assert!(
-                selects.contains(&tool),
-                "前端自查提示词点名延迟工具 `{tool}`，却没有 `tool_search select:{tool}`；选择项: {selects:?}"
-            );
-        }
-        for tool in [
-            "ui_dom",
-            "ui_console",
-            "ui_style",
-            "frontend_locate",
-            "frontend_check",
-        ] {
-            assert!(
-                selects.contains(&tool.to_string()),
-                "前端自查段必须显式加载 `{tool}`，实际选择项: {selects:?}"
-            );
-        }
-    }
-
     #[test]
     fn 桌面工具schema字符账单增量() {
         let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
@@ -550,7 +240,7 @@ mod assembly_tests {
             "r364-budget-probe".into(),
         );
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -558,7 +248,7 @@ mod assembly_tests {
         let mut harness = Harness::default();
         harness
             .add(BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ResearchProfile)
             .add(crate::harness_ext::FrontendToolsComponent)
             .add(crate::collaboration::CollaborationComponent {
@@ -752,156 +442,5 @@ mod persistence_boundary_tests {
         assert_eq!(notifications[1].sequence, 2);
         assert_eq!(notifications[1].status, "succeeded");
         assert_eq!(notifications[1].summary, "任务完成");
-    }
-}
-
-#[cfg(all(test, windows))]
-mod push_lifetime_tests {
-    use super::push_output;
-    use std::{path::PathBuf, time::Duration};
-
-    struct Fixture(PathBuf);
-    impl Fixture {
-        fn new() -> Self {
-            let dir = std::env::temp_dir().join(format!(
-                "kz-push-lifetime-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(
-                dir.join("child.ps1"),
-                "$PID | Set-Content child.pid; Start-Sleep -Seconds 60",
-            )
-            .unwrap();
-            std::fs::write(dir.join("parent.ps1"),
-                "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','child.ps1'; $PID | Set-Content parent.pid; Start-Sleep -Seconds 60").unwrap();
-            Self(dir)
-        }
-        fn command(&self) -> tokio::process::Command {
-            let mut command = tokio::process::Command::new("powershell");
-            command
-                .args([
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    "parent.ps1",
-                ])
-                .current_dir(&self.0)
-                .creation_flags(0x0800_0000);
-            command
-        }
-        async fn pids(&self) -> Vec<u32> {
-            tokio::time::timeout(Duration::from_secs(15), async {
-                loop {
-                    let pids = ["parent.pid", "child.pid"]
-                        .iter()
-                        .map(|name| {
-                            std::fs::read_to_string(self.0.join(name))
-                                .ok()?
-                                .trim()
-                                .parse::<u32>()
-                                .ok()
-                        })
-                        .collect::<Option<Vec<_>>>();
-                    if let Some(pids) = pids {
-                        return pids;
-                    }
-                    tokio::time::sleep(Duration::from_millis(25)).await;
-                }
-            })
-            .await
-            .expect("fixture process tree started")
-        }
-    }
-    impl Drop for Fixture {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
-    fn alive(pid: u32) -> bool {
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn OpenProcess(access: u32, inherit: i32, pid: u32) -> isize;
-            fn GetExitCodeProcess(handle: isize, code: *mut u32) -> i32;
-            fn CloseHandle(handle: isize) -> i32;
-        }
-        // SAFETY: local handle is queried and closed exactly once.
-        unsafe {
-            let handle = OpenProcess(0x1000, 0, pid);
-            if handle == 0 {
-                return false;
-            }
-            let mut code = 0;
-            let queried = GetExitCodeProcess(handle, &mut code);
-            CloseHandle(handle);
-            queried != 0 && code == 259
-        }
-    }
-    async fn gone(pids: &[u32]) {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while pids.iter().any(|pid| alive(*pid)) {
-                tokio::time::sleep(Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .expect("push child and descendant must both terminate");
-    }
-    #[tokio::test]
-    async fn push_cancellation_terminates_process_tree() {
-        let fixture = Fixture::new();
-        let halt = kanzei_core::CancellationToken::new();
-        let worker_halt = halt.clone();
-        let command = fixture.command();
-        let worker = tokio::spawn(async move {
-            push_output(command, &worker_halt, Duration::from_secs(60)).await
-        });
-        let pids = fixture.pids().await;
-        halt.cancel();
-        assert_eq!(
-            worker.await.unwrap().unwrap_err().kind(),
-            std::io::ErrorKind::Interrupted
-        );
-        gone(&pids).await;
-    }
-    #[tokio::test]
-    async fn aborting_push_caller_still_terminates_process_tree() {
-        let fixture = Fixture::new();
-        let command = fixture.command();
-        let worker = tokio::spawn(async move {
-            push_output(
-                command,
-                &kanzei_core::CancellationToken::new(),
-                Duration::from_secs(60),
-            )
-            .await
-        });
-        let pids = fixture.pids().await;
-        worker.abort();
-        assert!(worker.await.unwrap_err().is_cancelled());
-        gone(&pids).await;
-    }
-    #[tokio::test]
-    async fn push_timeout_terminates_process_tree() {
-        let fixture = Fixture::new();
-        let command = fixture.command();
-        let worker = tokio::spawn(async move {
-            push_output(
-                command,
-                &kanzei_core::CancellationToken::new(),
-                Duration::from_secs(8),
-            )
-            .await
-        });
-        let pids = fixture.pids().await;
-        assert_eq!(
-            worker.await.unwrap().unwrap_err().kind(),
-            std::io::ErrorKind::TimedOut
-        );
-        gone(&pids).await;
     }
 }

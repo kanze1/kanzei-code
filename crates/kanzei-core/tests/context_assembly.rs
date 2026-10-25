@@ -21,6 +21,7 @@ use tokio::{
 enum Case {
     Stable,
     WireManifest,
+    InvokedSkill,
     RefreshFailure,
     LargeSchema,
     FinalStep,
@@ -41,6 +42,15 @@ impl Component for FileSource {
             _ => fallible_source("fixture/conventions", self.0, read),
         };
         draft.context.insert("fixture/conventions", source);
+        if matches!(self.1, Case::InvokedSkill) {
+            draft.tools.insert(
+                "skill_read",
+                Arc::new(kanzei_harness::skills::SkillReadTool),
+            );
+            draft
+                .permissions
+                .push(rule("skill_read", "*", Effect::Allow));
+        }
         if matches!(
             self.1,
             Case::RefreshFailure | Case::LargeSchema | Case::FinalStep | Case::BudgetViolation
@@ -203,7 +213,7 @@ async fn run_fixture_with_limit(
     harness.add(FileSource(requirement, case));
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: fixture.0.path().to_path_buf(),
             project_root: fixture.0.path().to_path_buf(),
             config: Arc::new(KanzeiConfig::default()),
@@ -214,7 +224,7 @@ async fn run_fixture_with_limit(
     } else {
         3
     };
-    let agent = serde_json::from_value(json!({"name":"fixture","profile":"dev","mode":"primary","steps":steps,"system":"Follow every project convention in full."})).unwrap();
+    let agent = serde_json::from_value(json!({"name":"fixture","profile":"dev-auto","mode":"primary","steps":steps,"system":"Follow every project convention in full."})).unwrap();
     let config = RunnerConfig {
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -235,6 +245,18 @@ async fn run_fixture_with_limit(
     let mut events = Vec::new();
     let mut on_event = |event| events.push(event);
     let mut ask = |_| -> AskFuture { panic!("read-only fixture must not ask") };
+    let mut ctx = ToolCtx::new(
+        fixture.0.path().to_path_buf(),
+        fixture.0.path().to_path_buf(),
+    );
+    let prompt = if matches!(case, Case::InvokedSkill) {
+        "Continue with $context-sample"
+    } else {
+        "Continue the task"
+    };
+    if matches!(case, Case::InvokedSkill) {
+        ctx.invoked_skills = kanzei_harness::skills::invoked_context(&snapshot, prompt).unwrap();
+    }
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         run_once(
@@ -243,11 +265,8 @@ async fn run_fixture_with_limit(
             &snapshot,
             &agent,
             &config,
-            &ToolCtx::new(
-                fixture.0.path().to_path_buf(),
-                fixture.0.path().to_path_buf(),
-            ),
-            "Continue the task",
+            &ctx,
+            prompt,
             None,
             prior,
             None,
@@ -260,6 +279,65 @@ async fn run_fixture_with_limit(
     server.abort();
     let _ = server.await;
     (result, events, calls.load(Ordering::SeqCst))
+}
+
+#[test]
+fn invoked_skill_is_billed_as_its_own_system_source_without_persisting_the_body() {
+    kanzei_base::test_support::isolated_test(
+        module_path!(),
+        "invoked_skill_is_billed_as_its_own_system_source_without_persisting_the_body",
+        || {
+            let fixture = Fixture::new("invoked-skill");
+            std::fs::write(
+                fixture.0.path().join("conventions.md"),
+                "project conventions",
+            )
+            .unwrap();
+            let home = fixture.0.path().join("global");
+            std::fs::create_dir_all(home.join("skills/context-sample")).unwrap();
+            std::env::set_var("KANZEI_HOME", &home);
+            std::fs::write(home.join("skills/context-sample/SKILL.md"), "---\nname: context-sample\ndescription: Context fixture\n---\nSKILL_BODY_CANARY 中文").unwrap();
+            tokio::runtime::Runtime::new().unwrap().block_on(async {
+                let (result, events, calls) = run_fixture(
+                    &fixture,
+                    ContextRequirement::Required,
+                    &[],
+                    Case::InvokedSkill,
+                )
+                .await;
+                let summary = result.unwrap();
+                assert_eq!(calls, 1);
+                assert!(summary
+                    .context_report
+                    .iter()
+                    .any(|(key, chars)| key == "skills/invoked" && *chars > 0));
+                assert!(!serde_json::to_string(&summary.messages)
+                    .unwrap()
+                    .contains("SKILL_BODY_CANARY"));
+                let snapshot = events
+                    .iter()
+                    .find_map(|event| match event {
+                        RunEvent::ContextRequest { snapshot } => Some(snapshot),
+                        _ => None,
+                    })
+                    .unwrap();
+                let block = snapshot
+                    .manifest
+                    .blocks
+                    .iter()
+                    .find(|block| block.label == "skills/invoked")
+                    .unwrap();
+                assert!(snapshot.contents[&block.sha256].contains("SKILL_BODY_CANARY 中文"));
+                let agent = snapshot
+                    .manifest
+                    .blocks
+                    .iter()
+                    .find(|block| block.label == "agent/system")
+                    .unwrap();
+                assert!(!snapshot.contents[&agent.sha256].contains("SKILL_BODY_CANARY"));
+            });
+        },
+    );
 }
 
 async fn assert_admitted_above_soft_target(context_limit: Option<u64>, paragraphs: usize) {
@@ -389,7 +467,7 @@ async fn optional_source_failure_is_reported_while_the_run_can_continue() {
 #[tokio::test]
 async fn oversized_complete_conventions_refuse_before_compaction_or_provider_calls() {
     let fixture = Fixture::new("large");
-    let mut conventions = kanzei_harness::DEFAULT_CONVENTIONS.to_string();
+    let mut conventions = String::from("# 此项目的完整约定\n");
     for index in 0..900 {
         conventions.push_str(&format!("\n## 模块 {index} 的职责与验收\n所有变更必须保留来源、依赖边界、测试证据与失败原因。未完成的工作不得标为完成；用户确认的约束必须完整遵守。\n"));
     }

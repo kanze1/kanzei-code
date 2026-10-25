@@ -98,7 +98,7 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
     await invoke("projects_init",{path:project,name:label});await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true");
     await page.locator(".workbench-project-name").filter({hasText:label}).click();
     const createConversation=async()=>{
-      const line=await invoke("process_create",{projectDir:project,profile:"dev",model:"stub:test",subagentMode:"off"});
+      const line=await invoke("process_create",{projectDir:project,profile:"dev-auto",model:"stub:test",subagentMode:"off"});
       await page.evaluate(async id=>{const sessions=await import("./09-sessions.js");await sessions.refreshProcesses({force:true});await sessions.switchProcess(id,true);},line.id);
       return line;
     };

@@ -3,8 +3,8 @@
 export function contextGroup(block) {
   if (block.kind === "tool_schema" || block.label === "tools/catalog") return "tools";
   if (block.kind === "system") {
-    if (/memory|project-knowledge/.test(block.label)) return "knowledge";
-    if (/agent\/system|conventions|verification-policy|workflow/.test(block.label)) return "rules";
+    if (/memory|preferences|project-knowledge|skills/.test(block.label)) return "knowledge";
+    if (/agent\/system|verification-policy|workflow/.test(block.label)) return "rules";
     return "project";
   }
   if (block.kind === "tool_result" || block.kind === "tool_call") return "results";
@@ -12,7 +12,7 @@ export function contextGroup(block) {
 }
 
 export const CONTEXT_GROUPS = Object.freeze([
-  ["rules", "规则与项目约定"], ["project", "项目与运行上下文"], ["knowledge", "记忆与项目知识"],
+  ["rules", "Agent 规则与运行策略"], ["project", "项目与运行上下文"], ["knowledge", "记忆与项目知识"],
   ["history", "对话消息与纪要"], ["results", "工具与资料结果"], ["tools", "工具定义"],
 ]);
 

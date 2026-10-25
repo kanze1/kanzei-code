@@ -145,7 +145,7 @@ defer(() => {
       openDocumentsQuick(kind);
     });
   }
-  // 开发规范的可见入口(B19/UX-007):原来只在被隐藏的侧栏分区里,生成/打开/审阅都到不了。
+  // 项目规范的可见入口(B19/UX-007):原来只在被隐藏的侧栏分区里,生成/打开/审阅都到不了。
   $("documents-conventions-open")?.addEventListener("click", () => {
     const more = $("documents-more-menu");
     if (more) closeSurface(more);

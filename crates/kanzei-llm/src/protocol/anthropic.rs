@@ -217,7 +217,7 @@ fn message_to_value(message: &crate::request::Message, provider_channel: &str) -
         .parts
         .iter()
         .filter_map(|part| match part {
-            Part::Text { text } => Some(json!({"type": "text", "text": text})),
+            Part::Text { text } => Some(json!({"type": "text", "text": message.model_text(text)})),
             Part::Image { media_type, data } => Some(json!({
                 "type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}
             })),

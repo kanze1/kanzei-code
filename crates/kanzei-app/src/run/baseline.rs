@@ -11,7 +11,7 @@ const MAX_PATHS: usize = 64;
 const MAX_PATH_CHARS: usize = 320;
 const MAX_MODEL_CHARS: usize = 3_200;
 
-pub(crate) const ORIGIN_RULES: &str = "来源判断：现时 ?? 只表示现在未跟踪，不证明开跑前就有用户稿。覆盖/丢失事故必须对照本 run 起点、对应 HEAD/起点改动和该 run 成功 write/edit/insert 事实；路径存在、执行方或复核方自述都不能单独证明用户所有权或覆盖。起点命令失败、截断或来源证据不足时说未知，先回读证据，不编造事故。先明确本任务范围、验收和交接；既定验证已通过后按用户要求收口，新增工作只针对实际失败或明确未满足的验收。";
+pub(crate) const ORIGIN_RULES: &str = "这是本次运行的起点快照，不代表当前状态或文件归属。判断改动来源时结合起点、对应版本和实际写入记录；采样失败或裁剪部分保持未知。";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct RunBaseline {
@@ -208,10 +208,10 @@ impl RunBaseline {
     }
 
     pub(crate) fn model_context(&self) -> String {
-        let evidence = serde_json::to_string(self).unwrap_or_default();
+        let evidence = serde_json::to_string(self).expect("run baseline serializes");
         let clipped = evidence.chars().count() > MAX_MODEL_CHARS;
         let preview: String = evidence.chars().take(MAX_MODEL_CHARS).collect();
-        format!("\n\n[本 run 起点来源证据，仅为开跑时观测]\n{preview}{}\n完整证据：项目 state.db 的 run.baseline，run_id={}。\n{ORIGIN_RULES}\n", if clipped { "\n[模型预览已截断，未显示的路径/状态未知；须回读完整事件。]" } else { "" }, self.run_id)
+        format!("\n\n[运行起点快照]\n{preview}{}\n完整记录：项目 state.db 的 run.baseline，run_id={}。\n{ORIGIN_RULES}\n", if clipped { "\n[以上为裁剪后的 JSON 片段；未显示的内容未知，完整内容可回读事件。]" } else { "" }, self.run_id)
     }
 }
 
@@ -316,7 +316,7 @@ mod tests {
             .unwrap();
         let mut system = "main agent".to_string();
         let (run_id, context) = prepare(
-            kanzei_harness::ProfileKind::Dev,
+            kanzei_harness::ProfileKind::DevAuto,
             &root,
             &mut store,
             "session-prepare",
@@ -342,6 +342,8 @@ mod tests {
             serde_json::json!(["draft.md"])
         );
         assert!(context.contains(&run_id));
+        assert!(context.contains("运行起点快照"));
+        assert!(context.contains("不代表当前状态或文件归属"));
         assert_eq!(system, format!("main agent{context}"));
         std::fs::write(root.join("later.md"), "created later").unwrap();
         assert!(!origins[0].payload.to_string().contains("later.md"));

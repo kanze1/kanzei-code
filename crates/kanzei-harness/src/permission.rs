@@ -1222,7 +1222,7 @@ mod tests {
     ) -> std::sync::Arc<crate::HarnessSnapshot> {
         let root = std::path::PathBuf::from("C:/d3-permission-fixture");
         let ctx = crate::ResolveCtx {
-            profile: crate::ProfileKind::Dev,
+            profile: crate::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: std::sync::Arc::new(toml::from_str::<crate::KanzeiConfig>(config).unwrap()),

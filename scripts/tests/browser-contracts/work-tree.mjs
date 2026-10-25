@@ -235,7 +235,7 @@ export default async function run({ browser, server, check, output }) {
   await sendDialog.getByRole("button", { name: "Ask agent to revise", exact: true }).click();
   await page.waitForFunction(() => window.__revisionRequests.length === 1);
   const request = await page.evaluate(() => window.__revisionRequests[0]);
-  check("Direction intent reaches the real conversation dispatch with the exact node", request.prompt.includes("R-910/W3") && request.prompt.includes("优先本地运行，保留已经有效的研究") && request.prompt.includes("apply_revision"), true);
+  check("Direction intent reaches the real conversation dispatch with the exact node and leaves tool choice to the agent", request.prompt.includes("R-910/W3") && request.prompt.includes("优先本地运行，保留已经有效的研究") && !request.prompt.includes("apply_revision"), true);
   check("Direction planning never claims an implementation selection", { workItemId: request.workItemId, executionBatch: request.executionBatch }, { workItemId: null, executionBatch: false });
   await sendDialog.waitFor({ state: "detached" });
   check("No browser runtime errors", errors, []);

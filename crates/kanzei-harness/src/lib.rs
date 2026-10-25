@@ -2,13 +2,13 @@
 //! 模型输入经组件 → 四类注册表(agents/tools/skills/context)→ 每轮不可变快照;
 //! 规则全走代码硬门禁(权限 Ruleset + 拦截器),不靠提示词恳求。
 
+pub mod agent_sources;
 /// 记忆图谱:代码区域注册表(crate/模块/前端子目录/顶层代码目录 + 依赖层带)。
 pub mod areas;
 pub mod async_mailbox;
 pub mod auto_run;
 pub mod config;
 pub mod context;
-pub mod conventions;
 pub mod defs;
 pub mod handoff;
 pub mod harness;
@@ -46,8 +46,10 @@ pub use context::{
     fallible_source, refreshing_fallible_source, refreshing_source, source, ContextAssemblyError,
     ContextBaseline, ContextRequirement, ContextSource, ContextSourceReport, ContextSourceStatus,
 };
-pub use conventions::{CARGO_CONVENTIONS, DEFAULT_CONVENTIONS};
-pub use defs::{effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef};
+pub use defs::{
+    effective_agent_steps, AgentDef, AgentMode, ProfileKind, ProfileScope, SkillDef,
+    DEV_AUTO_AGENT, DEV_PAIR_AGENT,
+};
 pub use harness::{
     rule, Component, ConfigComponent, Harness, HarnessDraft, HarnessSnapshot, ResolveCtx,
 };

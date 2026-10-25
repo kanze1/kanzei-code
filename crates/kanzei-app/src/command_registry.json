@@ -1,6 +1,12 @@
 [
-  { "path": "context_view::context_snapshot", "host": "service" },
-  { "path": "context_view::context_content", "host": "service" },
+  {
+    "path": "context_view::context_snapshot",
+    "host": "service"
+  },
+  {
+    "path": "context_view::context_content",
+    "host": "service"
+  },
   {
     "path": "terminal_monitor::terminal_monitor",
     "host": "service"
@@ -183,18 +189,6 @@
   },
   {
     "path": "research_library::research_library_link_projects",
-    "host": "service"
-  },
-  {
-    "path": "research_auto::research_workflow_get",
-    "host": "service"
-  },
-  {
-    "path": "research_auto::research_workflow_start",
-    "host": "service"
-  },
-  {
-    "path": "research_auto::research_workflow_update",
     "host": "service"
   },
   {

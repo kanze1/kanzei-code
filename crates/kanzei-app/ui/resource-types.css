@@ -14,5 +14,6 @@
 .composer-link:hover { color:var(--accent-text); background:var(--surface-selected); }
 .composer-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .message-file-content { margin-top:var(--sp-4); }
+.message-source { color:var(--fg-muted); font-size:12px; margin-bottom:var(--sp-4); }
 .message-file-content summary { cursor:pointer; display:flex; align-items:center; gap:7px; }
 .message-file-content pre { max-height:320px; overflow:auto; white-space:pre-wrap; font-size:12px; }

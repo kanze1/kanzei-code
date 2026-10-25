@@ -571,14 +571,8 @@ impl FilesTool {
             }
             None => render_tree(&entries, &annotations, prefix.as_deref()),
         };
-        let knowledge = crate::project_knowledge::snapshot(&ctx.project_root, &ctx.cwd);
-        if !knowledge.enabled {
-            return ToolOutput::ok(text);
-        }
-        let context = knowledge
-            .context(input.path.as_deref(), None, 9000)
-            .unwrap_or_else(|_| knowledge.overview(1500));
-        ToolOutput::ok(format!("{text}\n{context}"))
+        // 文件列表只呈现这次文件观察；项目知识由独立入口按需查询。
+        ToolOutput::ok(text)
     }
 }
 
@@ -602,6 +596,32 @@ mod tests {
         std::fs::write(root.join("docs/note.md"), "中文字数按字符计,一共二十个字。").unwrap();
         std::fs::write(root.join("data.bin"), vec![0u8; 128]).unwrap();
         root
+    }
+
+    #[tokio::test]
+    async fn file_listing_does_not_implicitly_load_project_knowledge_or_mask_its_errors() {
+        let root = fixture("knowledge-separation");
+        std::fs::create_dir_all(root.join(".kanzei")).unwrap();
+        std::fs::write(
+            root.join(".kanzei/project-knowledge.json"),
+            "broken knowledge configuration",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = FilesTool
+            .execute(serde_json::json!({"path":"src"}), &ctx)
+            .await;
+        assert!(
+            !output.is_error,
+            "file observation is independent of knowledge projection: {}",
+            output.content
+        );
+        assert!(output.content.contains("lib.rs"));
+        assert!(
+            !output.content.contains("<project-context")
+                && !output.content.contains("<project-knowledge>")
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// R-177 内容②:线上运行时 files 工具读的是**本线的树**。

@@ -1,17 +1,4 @@
-//! 取活/停机的**过程事实**落点(append-only JSONL)。
-//!
-//! 与 `incident` 同形状、同理由:这些是引擎每轮重新产生的机制产物,不是条目自身的
-//! 状态。写进 tracker 文档是走错门——`取活依据` 就是这么被腌进每个条目的:
-//! `structured_entry` 把条目的**全部** fields 序列化进控制状态,于是这行必然过期的
-//! 快照跟着条目进每一次 `work next`、每一次文档快照,而调度器本来就每轮重算一遍。
-//! 只写不读,却永久占上下文。
-//!
-//! handoff 的完成条件与证据引用是另一半:工具**硬拦**缺失(拦两次),逼模型写出来,
-//! 然后只回显、不落任何地方——停机理由恰恰是最该留痕的东西。它同样不属于条目
-//! 状态(条目可能压根没关),属于这一轮运行的过程事实。
-//!
-//! 判据一句话:**跨轮要引用、人要在条目里读到的 → 文档;引擎每轮重算或只描述
-//! 这一轮发生了什么的 → 这里。**
+//! 认领、局部交付与完成声明的追加式过程记录，不改变条目生命周期。
 
 use std::path::Path;
 
@@ -45,15 +32,14 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
-/// 追加一条过程事实。**失败不影响调用方**:这是留痕,不是事务的一部分——
-/// 让写日志失败去否决一次成功的取活,是拿观测性换可用性。
+/// 追加并持久化过程事实。调用方必须处理错误，不能把写入失败回报为已登记。
 pub(crate) fn append(
     project_root: &Path,
     event: &str,
     id: Option<&str>,
     ctx: &kanzei_harness::ToolCtx,
     detail: serde_json::Value,
-) {
+) -> anyhow::Result<()> {
     let path = project_root.join(WORK_LOG_REL);
     let line_identity = crate::work::line_identity(&ctx.cwd, project_root);
     let record = WorkLogRecord {
@@ -65,26 +51,20 @@ pub(crate) fn append(
         line: line_identity.as_deref(),
         detail,
     };
-    let Ok(mut line) = serde_json::to_string(&record) else {
-        return;
-    };
+    let mut line = serde_json::to_string(&record)?;
     line.push('\n');
     if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
+        std::fs::create_dir_all(parent)?;
     }
-    let Ok(_guard) = kanzei_base::atomic_file::lock_exclusive(&path) else {
-        return;
-    };
+    let _guard = kanzei_base::atomic_file::lock_exclusive(&path)?;
     use std::io::Write;
-    let opened = std::fs::OpenOptions::new()
+    let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path);
-    if let Ok(mut file) = opened {
-        let _ = file.write_all(line.as_bytes());
-    }
+        .open(&path)?;
+    file.write_all(line.as_bytes())?;
+    file.sync_data()?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -164,7 +144,8 @@ mod tests {
                 "test_record_ids": ["T-001"],
                 "source": "engine"
             }),
-        );
+        )
+        .unwrap();
         append(
             &dir,
             "deliver",
@@ -174,7 +155,8 @@ mod tests {
                 "commit": "1111111111111111",
                 "paths": ["crates/other/src/lib.rs"]
             }),
-        );
+        )
+        .unwrap();
         let facts = deliver_facts(&dir, "R-353");
         assert_eq!(facts.len(), 1);
         assert_eq!(facts[0].commit, "abcdef1234567890");
@@ -199,14 +181,16 @@ mod tests {
             Some("R-001"),
             &ctx,
             serde_json::json!({"reason": "队首", "unblocks": 2}),
-        );
+        )
+        .unwrap();
         append(
             &dir,
             "handoff",
             None,
             &ctx,
             serde_json::json!({"criterion": "验收①达成", "evidence_refs": ["a.rs:1"]}),
-        );
+        )
+        .unwrap();
 
         let text = std::fs::read_to_string(dir.join(WORK_LOG_REL)).unwrap();
         let lines: Vec<&str> = text.lines().collect();

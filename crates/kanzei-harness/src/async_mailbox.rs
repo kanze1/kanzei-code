@@ -9,6 +9,8 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct AsyncNotice {
+    pub origin: kanzei_base::MessageOrigin,
+    pub attachments: Vec<kanzei_base::InputAttachment>,
     /// Stable within the owning actor, so a retried callback is admitted once.
     pub id: String,
     pub text: String,
@@ -17,20 +19,41 @@ pub struct AsyncNotice {
 /// The runner drains steering before provider requests, between complete
 /// tool/result batches. An uncommitted response can yield to that boundary.
 #[derive(Clone)]
-pub struct InputInbox(Arc<dyn Fn() -> Result<Vec<AsyncNotice>, String> + Send + Sync>);
+pub struct InputInbox {
+    actor: Option<String>,
+    read: Arc<dyn Fn() -> Result<Vec<AsyncNotice>, String> + Send + Sync>,
+}
 impl fmt::Debug for InputInbox {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("InputInbox")
+        f.debug_struct("InputInbox")
+            .field("actor", &self.actor)
+            .finish_non_exhaustive()
     }
 }
 impl InputInbox {
     pub fn new(
         read: impl Fn() -> Result<Vec<AsyncNotice>, String> + Send + Sync + 'static,
     ) -> Self {
-        Self(Arc::new(read))
+        Self {
+            actor: None,
+            read: Arc::new(read),
+        }
+    }
+    /// A child may inherit only an inbox explicitly bound to its own identity.
+    pub fn for_actor(
+        actor: impl Into<String>,
+        read: impl Fn() -> Result<Vec<AsyncNotice>, String> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            actor: Some(actor.into()),
+            read: Arc::new(read),
+        }
+    }
+    pub fn belongs_to(&self, actor: &str) -> bool {
+        self.actor.as_deref() == Some(actor)
     }
     pub fn take(&self) -> Result<Vec<AsyncNotice>, String> {
-        (self.0)()
+        (self.read)()
     }
 }
 
@@ -156,6 +179,15 @@ impl InputRequests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_child_inherits_only_its_own_bound_inbox() {
+        let parent = InputInbox::new(|| Ok(vec![]));
+        let child = InputInbox::for_actor("child-a", || Ok(vec![]));
+        assert!(!parent.belongs_to("child-a"));
+        assert!(child.belongs_to("child-a"));
+        assert!(!child.belongs_to("child-b"));
+    }
 
     fn is_pending(requests: &mut InputRequests) -> bool {
         use std::{

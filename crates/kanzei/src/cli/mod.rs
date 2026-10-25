@@ -117,8 +117,8 @@ pub(crate) fn usage_text() -> &'static str {
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\
 config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
-agent: dev(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
-profile: KANZEI_PROFILE=dev|research|readonly；KANZEI_AGENT=dev|dev-pair|research|readonly\n\
+agent: dev-auto(默认开发)、dev-pair(结伴开发)、research(只读研究)\n\
+profile: KANZEI_PROFILE=dev-auto|dev-pair|research|readonly；KANZEI_AGENT=dev-auto|dev-pair|research|readonly\n\
 model: KANZEI_MODEL=<role|provider:model>，例如 primary、fast、ollama:qwen3.5:4b\n\
 proxy: KANZEI_PROXY=off|env|<proxy-url>\n"
 }
@@ -538,7 +538,7 @@ mod tests {
     fn usage_lists_agent_profile_and_model_selection() {
         let usage = usage_text();
         assert!(usage.contains("dev-pair"));
-        assert!(usage.contains("KANZEI_PROFILE=dev|research"));
+        assert!(usage.contains("KANZEI_PROFILE=dev-auto|dev-pair|research"));
         assert!(usage.contains("KANZEI_MODEL=<role|provider:model>"));
         assert!(usage.contains("ollama:qwen3.5:4b"));
     }
@@ -548,8 +548,8 @@ mod tests {
         let usage = usage_text();
         assert!(usage.contains("--readonly"));
         assert!(usage.contains("--no-subagents"));
-        assert!(usage.contains("KANZEI_PROFILE=dev|research|readonly"));
-        assert!(usage.contains("KANZEI_AGENT=dev|dev-pair|research|readonly"));
+        assert!(usage.contains("KANZEI_PROFILE=dev-auto|dev-pair|research|readonly"));
+        assert!(usage.contains("KANZEI_AGENT=dev-auto|dev-pair|research|readonly"));
     }
 
     #[test]

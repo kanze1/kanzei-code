@@ -45,7 +45,7 @@ try {
   await invoke("projects_init", { path: project, name: "浏览器安全原生验收" });
   await main.reload();
   await main.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 30000 });
-  const line = await invoke("process_create", { projectDir: project, profile: "dev" });
+  const line = await invoke("process_create", { projectDir: project, profile: "dev-auto" });
   const open = target => invoke("preview_open", { target, processId: line.id, bounds: { x: 500, y: 100, w: 650, h: 600 } });
   const previewCreated = browser.contexts()[0].waitForEvent("page", { timeout: 15000 });
   const first = await open(path.join(project, "first.html"));

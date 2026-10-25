@@ -8,8 +8,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use kanzei_core::{
-    load_research_topic, parse_callback_line, project_state_path, CallbackStats, ResearchRunRecord,
-    SessionStore,
+    ensure_result_artifact_skeleton, load_research_topic, parse_callback_line, project_state_path,
+    CallbackStats, ResearchRunRecord, SessionStore,
 };
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
 use serde::{Deserialize, Serialize};
@@ -487,41 +487,13 @@ async fn cancel_run(input: &RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     ToolOutput::ok(json!({ "result_id": result_id, "status": run.status, "pid": pid }).to_string())
 }
 
-async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
-    if let Err(error) = crate::research_workflow::check_run(
-        &ctx.project_root,
-        &input.topic,
-        input.exploration_id.as_deref().unwrap_or(""),
-    ) {
-        return ToolOutput::needs_correction("RESEARCH_WORKFLOW_RUN", error);
-    }
+async fn run_experiment(input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     let Some(mut execution) = input.execution.clone() else {
         return ToolOutput::needs_correction(
             "MISSING_EXECUTION",
             "run 必须提供 execution.kind 与 execution.command",
         );
     };
-    if ctx
-        .project_root
-        .join(".kanzei/research")
-        .join(&input.topic)
-        .join("workflow.json")
-        .exists()
-    {
-        if let Ok(Some(state)) = crate::research_workflow::load(&ctx.project_root, &input.topic) {
-            if let Some(compute) = state.compute {
-                if input.environment_id.is_none() {
-                    input.environment_id = compute.spec.environment_id;
-                }
-                if execution.workdir.is_none() {
-                    execution.workdir = Some(compute.workdir);
-                }
-                if execution.host.is_none() {
-                    execution.host = compute.host;
-                }
-            }
-        }
-    }
     let declared_environment = match input.environment_id.as_deref() {
         Some(environment_id) => match load_environment(&ctx.project_root, environment_id) {
             Ok(environment) if environment.status == "active" => Some(environment),
@@ -596,14 +568,6 @@ async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             Err(error) => return ToolOutput::needs_correction("INVALID_RESEARCH_RESULT_ID", error),
         },
     };
-    if let Err(error) = crate::research_workflow::validate_run_id(
-        &ctx.project_root,
-        &input.topic,
-        &exploration_id,
-        &result_id,
-    ) {
-        return ToolOutput::needs_correction("INVALID_RESEARCH_RESULT_ID", error);
-    }
     if matches!(effective_policy, "approval" | "strict") && input.confirmed != Some(true) {
         return ToolOutput::needs_confirmation(
             "RESEARCH_RUN_CONFIRMATION_REQUIRED",
@@ -620,16 +584,16 @@ async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
             .to_string(),
         );
     }
-    let output_dir = ctx
-        .project_root
-        .join(".kanzei/research")
-        .join(&input.topic)
-        .join("explorations")
-        .join(&exploration_id)
-        .join(&result_id);
-    if let Err(error) = std::fs::create_dir_all(&output_dir) {
-        return ToolOutput::error(format!("创建实验产物目录失败: {error}"));
-    }
+    let output_dir = match ensure_result_artifact_skeleton(
+        &ctx.project_root.join(".kanzei/research").join(&input.topic),
+        &exploration_id,
+        &result_id,
+    ) {
+        Ok(artifacts) => artifacts.result_dir,
+        Err(error) => {
+            return ToolOutput::needs_correction("INVALID_RESEARCH_RESULT_ID", error.to_string())
+        }
+    };
     let terminal_log_path = output_dir.join("terminal.log");
     let environment_path = output_dir.join("environment.json");
     let mut execution_json = serde_json::to_value(&execution).unwrap_or_else(|_| json!({}));
@@ -684,7 +648,7 @@ async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
     ) {
         return *output;
     }
-    if matches!(effective_policy, "managed" | "approval") {
+    let leased_environment = if matches!(effective_policy, "managed" | "approval") {
         let Some(environment) = declared_environment.as_ref() else {
             return ToolOutput::needs_correction(
                 "MISSING_MANAGED_ENVIRONMENT",
@@ -699,9 +663,20 @@ async fn run_experiment(mut input: RunnerInput, ctx: &ToolCtx) -> ToolOutput {
         ) {
             return ToolOutput::failed("ENVIRONMENT_LEASE_CONFLICT", error.to_string());
         }
-    }
-    if let Err(error) = crate::research_workflow::record_run_start(&ctx.project_root, &run) {
-        let _ = store.release_research_environment_lease_for_result(&result_id);
+        Some(environment.id.as_str())
+    } else {
+        None
+    };
+    if let Err(error) = store.insert_research_run(&run) {
+        if let Some(environment_id) = leased_environment {
+            if let Err(cleanup) =
+                store.release_research_environment_lease(environment_id, &result_id)
+            {
+                return ToolOutput::error(format!(
+                    "写入 run_started 事实失败: {error}；释放本次环境租约失败: {cleanup}"
+                ));
+            }
+        }
         return ToolOutput::error(format!("写入 run_started 事实失败: {error}"));
     }
     let _ = append_event(
@@ -1518,8 +1493,8 @@ mod tests {
         let explorations = root.join(".kanzei/research/managed-test/explorations");
         std::fs::create_dir_all(&explorations).unwrap();
         std::fs::write(
-            explorations.join("E-managed.md"),
-            "---\nkind: exploration\nid: E-managed\ntopic: managed-test\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-managed\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
+            explorations.join("E-001.md"),
+            "---\nkind: exploration\nid: E-001\ntopic: managed-test\ntitle: test\nstatus: running\nhypothesis: test\ndepends_on:\nsupersedes:\nentry_refs:\nenvironment: ENV-managed\nbudget: 1\ncreated_at: 1\nupdated_at: 1\n---\n\n## 假设\ntest\n\n## 实验结果\n| 实验 | 参数 | 状态 | 关键指标 | 产物 | 结论 |\n| --- | --- | --- | --- | --- | --- |\n\n## 结论\n待定\n",
         )
         .unwrap();
         std::fs::write(
@@ -1535,13 +1510,13 @@ mod tests {
         store
             .acquire_research_environment_lease("ENV-managed", "held", "managed", 10_000)
             .unwrap();
-        let conflict = run_experiment(managed_input("E-managed-01", "E-managed", None), &ctx).await;
+        let conflict = run_experiment(managed_input("E-001-01", "E-001", None), &ctx).await;
         assert_eq!(conflict.code.as_deref(), Some("ENVIRONMENT_LEASE_CONFLICT"));
         assert!(conflict.is_error);
         store
             .release_research_environment_lease("ENV-managed", "held")
             .unwrap();
-        let output = run_experiment(managed_input("E-managed-02", "E-managed", None), &ctx).await;
+        let output = run_experiment(managed_input("E-001-02", "E-001", None), &ctx).await;
         assert!(!output.is_error, "{}", output.content);
         let reopened = SessionStore::open(&project_state_path(&root)).unwrap();
         reopened

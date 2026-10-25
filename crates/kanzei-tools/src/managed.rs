@@ -341,19 +341,9 @@ pub(crate) fn enforce_managed_files(
         };
 
     Some(format!(
-        "[managed-files] BLOCKED AND ROLLED BACK. This command modified files under {} — those \
-         paths are policy-managed and the shell is not a write channel for them, no matter which \
-         mechanism is used (redirect, Set-Content/Out-File, [System.IO.File]::WriteAllText, \
-         python/node one-liner, git checkout of a single file).\n\
-         touched: {listed}\n\
-         restored {restored} file(s) to their pre-command contents; your versions were kept at \
-         {} so nothing is lost.\n\
-         Redo the change through the dedicated tool (`req`/`defect`/`idea`/`decision` for tracker \
-         entries, `architecture` for the architecture index, `memory_note` for memory). For deferred \
-         tracker and index tools, load the needed one with \
-         `tool_search select:idea,decision,architecture,conventions`. If no tool covers what \
-         you need, that is an unimplemented capability: record it and tell the \
-         user — do not look for another shell route.",
+        "[managed-files] BLOCKED AND ROLLED BACK: unauthorized writes under {}.\n\
+         touched: {listed}\nrestored: {restored} file(s)\nquarantine: {}\n\
+         Managed files are written through their owning tools; current tool availability is in the tool catalog.",
         MANAGED_ROOTS.join(" and "),
         quarantine.display(),
     ))
@@ -448,7 +438,7 @@ pub(crate) fn enforce_managed_files_with_writer_log(
          legitimate; the following had no such explanation and were rolled back:\n\
          touched: {listed}\n\
          restored {restored} file(s) to their pre-command contents; your versions were kept at \
-         {} so nothing is lost.",
+         {} for inspection.",
         MANAGED_ROOTS.join(" and "),
         quarantine.display(),
     ))

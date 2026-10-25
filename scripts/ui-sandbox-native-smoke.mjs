@@ -78,7 +78,7 @@ try {
       generalRoot = await invoke("general_chat_open");
     }
     const root = general ? generalRoot : project;
-    const line = await invoke("process_create", { projectDir: root, profile: "dev", model: "stub:test", subagentMode: "off" });
+    const line = await invoke("process_create", { projectDir: root, profile: "dev-auto", model: "stub:test", subagentMode: "off" });
     await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses({ force: true }); await sessions.switchProcess(id, true); }, line.id);
     if (mode.includes("ISOLATED")) {
       if (!general) isolatedLine = line.id;
@@ -86,12 +86,12 @@ try {
       await page.locator("#profile-select").selectOption("isolated");
       await page.locator("#auto-allow").check();
       if (mode.includes("STALE")) {
-        await invoke("run_prompt", { projectDir: root, processId: line.id, prompt: `${mode}：旧发送者试图返回开发模式。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
+        await invoke("run_prompt", { projectDir: root, processId: line.id, prompt: `${mode}：旧发送者试图返回开发模式。`, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
       } else {
         await page.locator("#prompt").fill(`${mode}：在隔离工作区执行指定输入。`);
         await page.locator("#send").click();
       }
-    } else await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${mode}：在隔离工作区执行指定输入。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
+    } else await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${mode}：在隔离工作区执行指定输入。`, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous: true, autoAllow: true });
     if (mode.endsWith("CANCEL")) {
       await until(() => children() > 0, "Actual Linux command exists before cancellation");
       await invoke("stop_run", { projectDir: project, processId: line.id });

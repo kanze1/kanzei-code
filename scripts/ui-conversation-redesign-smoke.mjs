@@ -11,11 +11,15 @@ import { runtimeSummary } from "../crates/kanzei-app/ui/30-workspace-model.js";
 const output = "output/playwright/conversation-redesign", checks = [], errors = [];
 const check = (value, label) => { assert(value, label); checks.push(label); };
 const md = conversationMarkdown({ name: "Conversation", project: "fixture", sessionId: "one", messages: [
-  { role: "user", parts: [{ type: "text", text: "User instruction" }] },
+  { role: "user", origin: "human", parts: [{ type: "text", text: "User instruction" }] },
+  { role: "user", origin: "engine", parts: [{ type: "text", text: "ENGINE_CONTINUATION" }] },
+  { role: "user", origin: "summary", parts: [{ type: "text", text: "PREVIOUS_SUMMARY" }] },
+  { role: "user", parts: [{ type: "text", text: "UNKNOWN_SOURCE" }] },
   { role: "assistant", parts: [{ type: "reasoning", text: "Reasoning" }, { type: "tool_call", name: "bash", id: "call-1", input: { command: "echo example" } }] },
   { role: "user", parts: [{ type: "tool_result", call_id: "call-1", content: "```code```", is_error: false }, { type: "image", media_type: "image/png", data: "PRIVATE_BASE64" }] },
 ] });
 check(md.includes("## User") && md.includes("## Assistant") && md.includes("## Tool results") && md.includes("call-1"), "Markdown preserves roles and tool call/result identities");
+check(md.includes("## Engine context") && md.includes("## History summary") && md.includes("## Source not recorded"), "Export preserves engine, summary and unknown authorship");
 check(md.includes("````\n```code```\n````") && !md.includes("PRIVATE_BASE64"), "Markdown fences embedded code safely and omits image data");
 const now = Date.now();
 const observed = runtimeSummary([
@@ -48,7 +52,7 @@ try {
     window.__kzPreview.setCommand("run_prompt", args => { submitted.push(structuredClone(args)); return null; });
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async text => { window.__redesign.clipboard = text; } } });
     await (await import("/09-sessions.js")).refreshProcesses(); shell.setRunning(false);
-    return { project: shell.currentProject, process: shell.activeProcessId, session: shell.activeSessionId, peer: f.state.processes.find(p => p.id !== shell.activeProcessId && p.profile === "dev") };
+    return { project: shell.currentProject, process: shell.activeProcessId, session: shell.activeSessionId, peer: f.state.processes.find(p => p.id !== shell.activeProcessId && p.profile === "dev-auto") };
   });
   check(await page.locator("#composer-more").isVisible() && !await page.locator("#side-question-open").isVisible(), "Advanced operations are folded behind a visible More entry");
   await openComposerOptions(page);
@@ -127,7 +131,7 @@ try {
   check(!await page.locator("#diff-summary").isVisible() && await page.locator("#diff-summary-toggle").getAttribute("aria-expanded") === "false", "New diffs preserve the user's collapsed state");
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"), f = window.__redesign.f;
-    for (const process of f.state.processes.filter(p => p.profile === "dev").slice(0, 2)) { process.running = true; shell.transitionSession(process.session_id, "running"); }
+    for (const process of f.state.processes.filter(p => p.profile === "dev-auto").slice(0, 2)) { process.running = true; shell.transitionSession(process.session_id, "running"); }
     await (await import("/09-sessions.js")).refreshProcesses();
   }); await settle();
   const dots = await page.locator('.workbench-session-link[data-activity="running"] .workbench-session-activity').evaluateAll(nodes => nodes.filter(n => n.getBoundingClientRect().width).map(n => getComputedStyle(n).animationName));

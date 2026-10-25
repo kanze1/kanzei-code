@@ -1,4 +1,4 @@
-//! R-184 A 面:运行中各线共享的协作真源、轮内刷新上下文与主动查询工具。
+//! 项目对话与工作树的协作采样、刷新上下文和只读查询。
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -11,17 +11,17 @@ use crate::state::hidden_command;
 use crate::{process_session_id, ProcessHandle, SessionRuntime};
 
 mod summary;
-use summary::{model_snapshot, render_lines, StatusQuery};
+use summary::{model_snapshot, render_snapshot, StatusQuery};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-pub(crate) struct CollaborationLine {
+pub(crate) struct CollaborationConversation {
     pub(crate) process_id: String,
     pub(crate) label: String,
-    pub(crate) branch: String,
     pub(crate) worktree_path: Option<String>,
-    pub(crate) claim: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) claim_error: Option<String>,
+    pub(crate) session_id: String,
+    pub(crate) run_id: Option<String>,
+    #[serde(flatten)]
+    pub(crate) tree: CollaborationWorktree,
     pub(crate) phase: String,
     pub(crate) current_tool: Option<String>,
     pub(crate) running: bool,
@@ -31,18 +31,31 @@ pub(crate) struct CollaborationLine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) event_idle_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) worktree_idle_ms: Option<u64>,
+    pub(crate) run_age_ms: Option<u64>,
     pub(crate) steps: u32,
     pub(crate) input_tokens: u64,
     pub(crate) output_tokens: u64,
-    pub(crate) changed_files: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) changed_files_error: Option<String>,
-    /// R-176 B5(验收⑥):当前持写权者(协调器快照 writer_run_id,数据来自
-    /// coordinator.snapshot() 而非前端推测)。None = 该代码树无 writer。
+}
+
+/// Git、工作登记和写租约属于工作树，同树参与者共用一次采样结果。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub(crate) struct CollaborationWorktree {
+    #[serde(skip)]
+    pub(crate) path: String,
+    pub(crate) branch: String,
+    pub(crate) branch_error: Option<String>,
+    /// 只保留 tracker「取得线」的登记事实，不推断对话或文件所有权。
+    pub(crate) tracker_line: Option<String>,
+    pub(crate) tracker_entries: Vec<String>,
+    pub(crate) tracker_error: Option<String>,
+    pub(crate) uncommitted_files: Vec<String>,
+    pub(crate) uncommitted_error: Option<String>,
+    pub(crate) unmerged_files: Vec<String>,
+    pub(crate) unmerged_error: Option<String>,
+    /// 当前工作树的写租约快照，由协调器提供。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) writer_run_id: Option<String>,
-    /// R-176 B5(验收⑥):该代码树等待写租约的排队者(协调器快照 waiting_writers)。
+    /// 当前工作树等待写租约的运行标识。
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub(crate) waiting_writers: Vec<String>,
 }
@@ -54,27 +67,25 @@ pub(crate) struct CollaborationProbe {
     runtimes: Arc<Mutex<HashMap<String, Arc<SessionRuntime>>>>,
     origin_project: PathBuf,
     current_process_id: String,
-    /// R-176 B5(验收⑥):项目级协调器——writer/waiting 数据真源,面板只读快照。
+    /// 工作树写租约的事实来源。
     coordinator: Option<Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>>,
 }
 
-const LINE_STALE_AFTER_MS: u64 = 30_000;
-
 #[derive(Default)]
-enum LineWait {
+enum ConversationWait {
     #[default]
     None,
     Approval,
     Answer,
 }
 
-fn pending_wait(runtime: &SessionRuntime) -> LineWait {
+fn pending_wait(runtime: &SessionRuntime) -> ConversationWait {
     let asks = runtime.asks.lock().unwrap();
     if asks
         .values()
         .any(|ask| matches!(ask.request, kanzei_core::AskRequest::Permission { .. }))
     {
-        LineWait::Approval
+        ConversationWait::Approval
     } else if asks.values().any(|ask| {
         matches!(
             ask.request,
@@ -84,9 +95,9 @@ fn pending_wait(runtime: &SessionRuntime) -> LineWait {
             }
         )
     }) {
-        LineWait::Answer
+        ConversationWait::Answer
     } else {
-        LineWait::None
+        ConversationWait::None
     }
 }
 
@@ -158,33 +169,29 @@ fn durable_outcome(
 }
 
 #[derive(Default)]
-struct LineProgress<'a> {
+struct ConversationProgress<'a> {
     running: bool,
-    waiting_for: LineWait,
+    waiting_for: ConversationWait,
     run_id: &'a str,
     waiting_writers: &'a [String],
     run_age_ms: Option<u64>,
     last_outcome: Option<&'a str>,
-    event_idle_ms: Option<u64>,
-    worktree_idle_ms: Option<u64>,
 }
 
-fn line_status(progress: LineProgress<'_>) -> &'static str {
-    let LineProgress {
+fn conversation_status(progress: ConversationProgress<'_>) -> &'static str {
+    let ConversationProgress {
         running,
         waiting_for,
         run_id,
         waiting_writers,
         run_age_ms,
         last_outcome,
-        event_idle_ms,
-        worktree_idle_ms,
     } = progress;
     if running {
         match waiting_for {
-            LineWait::Approval => return "awaiting_approval",
-            LineWait::Answer => return "awaiting_answer",
-            LineWait::None => {}
+            ConversationWait::Approval => return "awaiting_approval",
+            ConversationWait::Answer => return "awaiting_answer",
+            ConversationWait::None => {}
         }
         if waiting_writers.iter().any(|waiting| waiting == run_id) {
             return "queued";
@@ -192,17 +199,7 @@ fn line_status(progress: LineProgress<'_>) -> &'static str {
         if run_age_ms.is_none() {
             return "starting";
         }
-        let recent_event = event_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
-        let recent_worktree = worktree_idle_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS);
-        // 新 run 尚未收到第一条事件时给一个启动宽限；之后必须有事件流或源码现场进展。
-        if recent_event
-            || recent_worktree
-            || (event_idle_ms.is_none() && run_age_ms.is_some_and(|age| age <= LINE_STALE_AFTER_MS))
-        {
-            "running"
-        } else {
-            "suspected_stuck"
-        }
+        "running"
     } else {
         match last_outcome {
             Some("completed") => "completed",
@@ -212,7 +209,7 @@ fn line_status(progress: LineProgress<'_>) -> &'static str {
             Some("queued") => "queued",
             Some("failed") => "failed",
             None if run_age_ms.is_none() => "idle",
-            None => "failed",
+            None => "unavailable",
             Some(_) => "unavailable",
         }
     }
@@ -220,23 +217,6 @@ fn line_status(progress: LineProgress<'_>) -> &'static str {
 
 fn elapsed_ms(at: Option<std::time::Instant>) -> Option<u64> {
     at.map(|instant| instant.elapsed().as_millis() as u64)
-}
-
-fn latest_worktree_idle_ms(code_root: &Path, files: &[String]) -> Option<u64> {
-    files
-        .iter()
-        .filter_map(|file| {
-            std::fs::metadata(code_root.join(file))
-                .ok()
-                .and_then(|metadata| metadata.modified().ok())
-                .and_then(|modified| {
-                    std::time::SystemTime::now()
-                        .duration_since(modified)
-                        .ok()
-                        .map(|age| age.as_millis() as u64)
-                })
-        })
-        .min()
 }
 
 impl CollaborationProbe {
@@ -255,7 +235,7 @@ impl CollaborationProbe {
         }
     }
 
-    /// R-176 B5:注入协调器快照源。装配点在 run_task/协作快照 IPC。
+    /// 装配运行和协作 IPC 时注入同一个工作树写租约协调器。
     pub(crate) fn with_coordinator(
         mut self,
         coordinator: Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>,
@@ -264,32 +244,20 @@ impl CollaborationProbe {
         self
     }
 
-    /// 当前项目里其它正在运行的线。锁内只克隆句柄;git 与 live 采样全部在锁外。
-    pub(crate) fn active_others(&self) -> Vec<CollaborationLine> {
-        self.collect_lines(false, true)
-    }
-
-    /// 前端并列视图读取当前项目全部线(含 idle)。与 agent 协作块共用同一采样路径。
-    pub(crate) fn all_lines(&self) -> Vec<CollaborationLine> {
-        self.collect_lines(true, false)
-    }
-
-    fn collect_lines(&self, include_current: bool, running_only: bool) -> Vec<CollaborationLine> {
+    /// 采样当前项目的全部已注册对话，包括空闲、停止和完成的对话。
+    /// 句柄在锁内克隆，运行状态与 Git 状态在锁外读取。
+    pub(crate) fn conversations(&self) -> Vec<CollaborationConversation> {
         let origin = self.origin_project.display().to_string();
         let handles = self
             .processes
             .lock()
             .unwrap()
             .values()
-            .filter(|process| {
-                process.origin_project.0.display().to_string() == origin
-                    && (include_current || process.id != self.current_process_id)
-            })
+            .filter(|process| process.origin_project.0.display().to_string() == origin)
             .cloned()
             .collect::<Vec<_>>();
         let runtimes = self.runtimes.lock().unwrap().clone();
-        // R-247:整份快照只读一次 tracker；取得关系来自「取得线」字段，不再逐线
-        // 解析 prompt。读失败也要明示，不能回退到猜测路径。
+        // 一次读取登记关系；字段来源与错误在快照中保留，不推断对话所有权。
         let tracker_claims = kanzei_tools::active_claims_by_line(&self.origin_project);
         let durable_store = open_durable_store(&self.origin_project);
         // Git state belongs to a code tree. Sample it once so participants sharing
@@ -297,15 +265,12 @@ impl CollaborationProbe {
         let mut worktrees = HashMap::new();
         let mut lines = handles
             .into_iter()
-            .filter_map(|process| {
+            .map(|process| {
                 let session_id = process_session_id(&self.origin_project, Some(&process.id));
                 let runtime = runtimes.get(&session_id);
                 let running = runtime.is_some_and(|runtime| {
                     runtime.running.load(std::sync::atomic::Ordering::SeqCst)
                 });
-                if running_only && !running {
-                    return None;
-                }
                 let (
                     current_tool,
                     steps,
@@ -349,89 +314,56 @@ impl CollaborationProbe {
                     .as_ref()
                     .map(|worktree| worktree.0.clone())
                     .unwrap_or_else(|| self.origin_project.clone());
-                // R-176 B5(验收⑥):writer/waiting 数据来自协调器快照,不是前端
-                // 推测。按每条线的代码树(write_scope)查——同树 writer 与排队者
-                // 对这条线可见;跨树并行互不干扰(R-182 口径)。
-                let (writer_run_id, waiting_writers) = self
-                    .coordinator
-                    .as_ref()
-                    .map(|coord| {
-                        let snap = coord.snapshot(&code_root);
-                        (snap.writer_run_id, snap.waiting_writers)
-                    })
-                    .unwrap_or((None, Vec::new()));
-                let (changed_files, changed_files_error, worktree_idle_ms) =
-                    worktrees.entry(code_root.clone()).or_insert_with(|| {
-                        let (files, error) = changed_files(
-                            &self.origin_project,
-                            &code_root,
-                            process.worktree_path.is_some(),
-                        );
-                        let idle = latest_worktree_idle_ms(&code_root, &files);
-                        (files, error, idle)
-                    });
-                let status = line_status(LineProgress {
+                let tree = worktrees.entry(code_root.clone()).or_insert_with(|| {
+                    self.observe_worktree(
+                        &code_root,
+                        process.worktree_path.is_some(),
+                        &tracker_claims,
+                    )
+                });
+                let status = conversation_status(ConversationProgress {
                     running,
                     waiting_for: runtime
                         .map(|runtime| pending_wait(runtime))
                         .unwrap_or_default(),
                     run_id: &run_id,
-                    waiting_writers: &waiting_writers,
+                    waiting_writers: &tree.waiting_writers,
                     run_age_ms,
                     last_outcome: last_outcome.as_deref(),
-                    event_idle_ms,
-                    worktree_idle_ms: *worktree_idle_ms,
                 });
                 let status = if status_error.is_some() {
                     "unavailable"
                 } else {
                     status
                 };
-                let branch = process.branch.clone().unwrap_or_else(|| {
-                    git_text(&code_root, &["branch", "--show-current"])
-                        .filter(|value| !value.is_empty())
-                        .unwrap_or_else(|| "(主工作树)".into())
-                });
-                let owner = process.worktree_path.as_ref().map(|_| branch.clone());
-                let (claim, claim_error) = match &tracker_claims {
-                    Ok(claims) => (
-                        claims
-                            .get(&owner)
-                            .filter(|ids| !ids.is_empty())
-                            .map(|ids| ids.join(", "))
-                            .unwrap_or_else(|| "未绑定条目".into()),
-                        None,
+                CollaborationConversation {
+                    label: conversation_label(
+                        &process,
+                        durable_store.as_ref().ok().and_then(|store| store.as_ref()),
+                        &session_id,
                     ),
-                    Err(error) => ("取得线读取失败".into(), Some(error.clone())),
-                };
-                Some(CollaborationLine {
-                    label: process_label(&process),
                     process_id: process.id,
-                    branch,
+                    session_id,
+                    run_id: (!run_id.is_empty()).then_some(run_id),
                     worktree_path: process
                         .worktree_path
                         .as_ref()
                         .map(|worktree| worktree.0.display().to_string()),
-                    claim,
-                    claim_error,
+                    tree: tree.clone(),
                     phase,
                     current_tool,
                     running,
                     status: status.into(),
                     status_error,
                     event_idle_ms,
-                    worktree_idle_ms: *worktree_idle_ms,
+                    run_age_ms,
                     steps,
                     input_tokens,
                     output_tokens,
-                    changed_files: changed_files.clone(),
-                    changed_files_error: changed_files_error.clone(),
-                    writer_run_id,
-                    waiting_writers,
-                })
+                }
             })
             .collect::<Vec<_>>();
-        // 数字序:主对话在前,p2 在 p10 之前(按 id 字符串排,p10 会挤到 p2 前面)。
+        // 与对话列表保持相同的稳定数字序。
         lines.sort_by(|a, b| {
             crate::processes::naming::order_key(&a.process_id)
                 .cmp(&crate::processes::naming::order_key(&b.process_id))
@@ -439,15 +371,112 @@ impl CollaborationProbe {
         lines
     }
 
-    pub(crate) fn context_block(&self) -> Option<String> {
-        let lines = self.active_others();
-        if lines.is_empty() {
-            return None;
+    fn observe_worktree(
+        &self,
+        root: &Path,
+        independent: bool,
+        registrations: &Result<std::collections::BTreeMap<Option<String>, Vec<String>>, String>,
+    ) -> CollaborationWorktree {
+        let (branch, branch_error) = match git_output(root, &["branch", "--show-current"]) {
+            Ok(branch) => (String::from_utf8_lossy(&branch).trim().to_string(), None),
+            Err(error) => (String::new(), Some(error)),
+        };
+        let tracker_line = independent.then(|| branch.clone());
+        let (tracker_entries, tracker_error) = match registrations {
+            Err(error) => (Vec::new(), Some(error.clone())),
+            Ok(entries) => match branch_error.as_ref().filter(|_| independent) {
+                Some(error) => (Vec::new(), Some(error.clone())),
+                None => (
+                    entries.get(&tracker_line).cloned().unwrap_or_default(),
+                    None,
+                ),
+            },
+        };
+        let changes = worktree_changes(&self.origin_project, root, independent);
+        let (uncommitted_files, uncommitted_error) = match changes.uncommitted {
+            Ok(files) => (files, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        let (unmerged_files, unmerged_error) = match changes.unmerged {
+            Ok(files) => (files, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        let (writer_run_id, waiting_writers) = match &self.coordinator {
+            Some(coordinator) => {
+                let lease = coordinator.snapshot(root);
+                (lease.writer_run_id, lease.waiting_writers)
+            }
+            None => (None, Vec::new()),
+        };
+        CollaborationWorktree {
+            path: root.display().to_string(),
+            branch,
+            branch_error,
+            tracker_line,
+            tracker_entries,
+            tracker_error,
+            uncommitted_files,
+            uncommitted_error,
+            unmerged_files,
+            unmerged_error,
+            writer_run_id,
+            waiting_writers,
         }
-        Some(render_lines(
-            "COLLABORATION — other lines currently writing this project",
-            &model_snapshot(&self.origin_project.to_string_lossy(), &lines, None),
-        ))
+    }
+
+    fn snapshot(&self, path: Option<&str>) -> serde_json::Value {
+        use kanzei_tools::worktree::{git_worktrees, worktree_key};
+        let conversations = self.conversations();
+        let mut snapshot = model_snapshot(
+            &self.origin_project.to_string_lossy(),
+            &self.current_process_id,
+            &conversations,
+            path,
+        );
+        let mut observed = conversations
+            .iter()
+            .map(|conversation| worktree_key(Path::new(&conversation.tree.path)))
+            .collect::<std::collections::HashSet<_>>();
+        match git_worktrees(&self.origin_project) {
+            Ok(worktrees) => {
+                let registrations = kanzei_tools::active_claims_by_line(&self.origin_project);
+                let primary = worktree_key(&self.origin_project);
+                let trees = snapshot["worktrees"]
+                    .as_array_mut()
+                    .expect("worktrees are assembled as an array");
+                for worktree in worktrees
+                    .into_iter()
+                    .filter(|tree| !tree.bare && !tree.prunable)
+                {
+                    let key = worktree_key(&worktree.path);
+                    if !observed.insert(key.clone()) {
+                        continue;
+                    }
+                    let tree =
+                        self.observe_worktree(&worktree.path, key != primary, &registrations);
+                    trees.push(summary::worktree_snapshot(trees.len(), &tree, path));
+                }
+                snapshot["worktree_discovery_error"] = serde_json::Value::Null;
+            }
+            Err(error) => snapshot["worktree_discovery_error"] = serde_json::Value::String(error),
+        }
+        snapshot
+    }
+
+    pub(crate) fn context_block(&self) -> Option<String> {
+        let snapshot = self.snapshot(None);
+        let has_other_conversation =
+            snapshot["conversations"]
+                .as_array()
+                .is_some_and(|conversations| {
+                    conversations
+                        .iter()
+                        .any(|conversation| conversation["process_id"] != self.current_process_id)
+                });
+        let has_other_tree = snapshot["worktrees"]
+            .as_array()
+            .is_some_and(|trees| trees.len() > 1);
+        (has_other_conversation || has_other_tree).then(|| render_snapshot(&snapshot))
     }
 }
 
@@ -488,14 +517,19 @@ fn parallel_tool_completion_keeps_the_other_tool_visible() {
     assert_eq!(current_tool(&trace), None);
 }
 
-/// 协作视图里的线名:类型 + 序号(「主对话」「独立任务 3」),不再露出 `pN`/「默认」。
-/// 这里拿不到会话标题(不开库),完整展示名以 `process_list` 的 `label` 为准。
-fn process_label(process: &ProcessHandle) -> String {
-    use crate::processes::naming::{fallback_label, process_ordinal};
-    fallback_label(
-        crate::state::process_kind_of(process),
-        process_ordinal(&process.id),
-    )
+/// 复用对话列表的持久标题与首条消息标题；无标题时使用同一命名规则。
+fn conversation_label(
+    process: &ProcessHandle,
+    store: Option<&kanzei_core::SessionStore>,
+    session_id: &str,
+) -> String {
+    use crate::processes::naming::{fallback_label, load_naming, process_ordinal};
+    let kind = crate::state::process_kind_of(process);
+    let ordinal = process_ordinal(&process.id);
+    match store {
+        Some(store) => load_naming(store, session_id, kind).display(kind, ordinal),
+        None => fallback_label(kind, ordinal),
+    }
 }
 
 fn git_output(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
@@ -515,37 +549,24 @@ fn git_output(cwd: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
-fn git_text(cwd: &Path, args: &[&str]) -> Option<String> {
-    git_output(cwd, args)
-        .ok()
-        .map(|bytes| String::from_utf8_lossy(&bytes).trim().to_string())
+struct WorktreeChanges {
+    uncommitted: Result<Vec<String>, String>,
+    unmerged: Result<Vec<String>, String>,
 }
 
-fn changed_files(
-    origin_project: &Path,
-    code_root: &Path,
-    is_worktree: bool,
-) -> (Vec<String>, Option<String>) {
-    let mut files = BTreeSet::new();
-    let status = match git_output(
+fn worktree_changes(origin_project: &Path, code_root: &Path, is_worktree: bool) -> WorktreeChanges {
+    let uncommitted = git_output(
         code_root,
         &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    ) {
-        Ok(output) => output,
-        Err(error) => return (Vec::new(), Some(error)),
-    };
-    files.extend(parse_porcelain_paths(&status));
-
-    // 已提交但尚未合回主线的文件同样属于“这条线已经改过”。
-    if is_worktree {
-        let committed = (|| -> Result<Vec<String>, String> {
-            let main_head = git_text(origin_project, &["rev-parse", "HEAD"])
-                .ok_or_else(|| "无法读取主工作树 HEAD".to_string())?;
-            let merge_base = git_text(code_root, &["merge-base", "HEAD", &main_head])
-                .ok_or_else(|| "无法计算工作树与主线的 merge-base".to_string())?;
-            let range = format!("{merge_base}..HEAD");
-            // Both sides of a rename must remain queryable, just as they are in
-            // the uncommitted porcelain inventory.
+    )
+    .map(|status| parse_porcelain_paths(&status));
+    let unmerged = if is_worktree {
+        (|| -> Result<Vec<String>, String> {
+            let main_head = git_output(origin_project, &["rev-parse", "HEAD"])?;
+            let main_head = String::from_utf8_lossy(&main_head);
+            let merge_base = git_output(code_root, &["merge-base", "HEAD", main_head.trim()])?;
+            let merge_base = String::from_utf8_lossy(&merge_base);
+            let range = format!("{}..HEAD", merge_base.trim());
             let output = git_output(
                 code_root,
                 &["diff", "--name-only", "--no-renames", "-z", &range],
@@ -555,13 +576,14 @@ fn changed_files(
                 .filter(|path| !path.is_empty())
                 .map(|path| String::from_utf8_lossy(path).to_string())
                 .collect())
-        })();
-        match committed {
-            Ok(committed) => files.extend(committed),
-            Err(error) => return (files.into_iter().collect(), Some(error)),
-        }
+        })()
+    } else {
+        Ok(Vec::new())
+    };
+    WorktreeChanges {
+        uncommitted,
+        unmerged,
     }
-    (files.into_iter().collect(), None)
 }
 
 fn parse_porcelain_paths(output: &[u8]) -> Vec<String> {
@@ -591,7 +613,7 @@ fn parse_porcelain_paths(output: &[u8]) -> Vec<String> {
 pub(crate) async fn collaboration_snapshot(
     state: tauri::State<'_, crate::AppState>,
     project_dir: String,
-) -> Result<Vec<CollaborationLine>, String> {
+) -> Result<Vec<CollaborationConversation>, String> {
     let root = crate::normalized_project_root(Path::new(&project_dir));
     crate::processes::restore_processes_from_store_once(&state, &root)?;
     let probe = CollaborationProbe::new(
@@ -603,10 +625,10 @@ pub(crate) async fn collaboration_snapshot(
     .with_coordinator(Arc::clone(&state.coordinator)
         as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>);
     // git status/diff 在大仓可能到秒级；轮询 IPC 用阻塞线程池采样，不能占住
-    // Tauri 命令执行线程拖慢其它线路的发送、停止与权限响应。
-    tauri::async_runtime::spawn_blocking(move || probe.all_lines())
+    // Tauri 命令执行线程拖慢其他对话的发送、停止与权限响应。
+    tauri::async_runtime::spawn_blocking(move || probe.conversations())
         .await
-        .map_err(|error| format!("读取独立任务状态失败: {error}"))
+        .map_err(|error| format!("读取项目协作状态失败: {error}"))
 }
 
 pub(crate) struct CollaborationComponent {
@@ -646,46 +668,27 @@ impl Tool for CollaborationStatusTool {
     }
 
     fn description(&self) -> String {
-        "Refresh other running conversations and their shared worktrees, tracker claims, Git change counts and writer queues. Supply a project-relative file or directory `path` before editing or staging to check which trees have changes in that scope. Git state does not identify a conversation's authorship; inspect Git diffs for details. Read-only."
+        "查询当前项目相关对话与工作树的协作状态，包括执行状态、工作树关联、Git 变化和写租约。可指定项目相对路径，分别查看未提交变化与分支提交差异。用于了解同树协作与跨树整合范围；文件变化和登记关系不证明具体对话的修改归属。只读。"
             .into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
         serde_json::json!({"type": "object", "properties": {
-            "path": {"type": "string", "description": "Project-relative file or directory to check across active worktrees; omit for a compact overview."}
+            "path": {"type": "string", "description": "项目相对文件或目录路径。指定后分别查询各工作树的未提交变化和分支提交差异是否涉及此范围；省略时返回项目协作概览。"}
         }, "additionalProperties": false})
     }
 
     async fn execute(
         &self,
         input: serde_json::Value,
-        ctx: &kanzei_harness::ToolCtx,
+        _ctx: &kanzei_harness::ToolCtx,
     ) -> kanzei_harness::ToolOutput {
         let query = match StatusQuery::parse(input) {
             Ok(query) => query,
             Err(error) => return kanzei_harness::ToolOutput::error(error),
         };
-        let lines = self.probe.active_others();
-        let mut snapshot = model_snapshot(
-            &self.probe.origin_project.to_string_lossy(),
-            &lines,
-            query.path.as_deref(),
-        );
-        let children = ctx
-            .session_id
-            .as_deref()
-            .and_then(|owner| kanzei_tools::team::find(&ctx.project_root, owner))
-            .and_then(|team| team.list().ok())
-            .unwrap_or_default();
-        if !children.is_empty() {
-            let children: Vec<_> = children.iter().map(|job| serde_json::json!({
-                "id":job.id,"name":job.name,"role":job.role,"state":job.state,"worktree":job.worktree,
-                "latest":job.latest.chars().take(400).collect::<String>(),"files":job.files.iter().take(32).collect::<Vec<_>>()
-            })).collect();
-            snapshot["children"] = serde_json::json!(children);
-        }
-        kanzei_harness::ToolOutput::ok(render_lines("Live collaboration status", &snapshot))
-            .with_display(snapshot)
+        let snapshot = self.probe.snapshot(query.path.as_deref());
+        kanzei_harness::ToolOutput::ok(render_snapshot(&snapshot)).with_display(snapshot)
     }
 }
 
@@ -695,28 +698,41 @@ mod tests {
     use crate::{ensure_default_process, process_session_id, runtime_for, AppState, ProcessHandle};
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    fn fixture_line(id: &str, tree: Option<&str>, files: Vec<String>) -> CollaborationLine {
-        CollaborationLine {
+    fn fixture_conversation(
+        id: &str,
+        tree: Option<&str>,
+        files: Vec<String>,
+    ) -> CollaborationConversation {
+        CollaborationConversation {
             process_id: id.into(),
+            session_id: format!("session-{id}"),
+            run_id: Some(format!("run-{id}")),
             label: id.into(),
-            branch: "dev".into(),
             worktree_path: tree.map(str::to_owned),
-            claim: "R-184".into(),
-            claim_error: None,
             phase: "请求".into(),
             current_tool: None,
             running: true,
             status: "running".into(),
             status_error: None,
             event_idle_ms: None,
-            worktree_idle_ms: None,
+            run_age_ms: None,
             steps: 0,
             input_tokens: 0,
             output_tokens: 0,
-            changed_files: files,
-            changed_files_error: None,
-            writer_run_id: Some("writer".into()),
-            waiting_writers: vec!["waiter".into()],
+            tree: CollaborationWorktree {
+                path: tree.unwrap_or("project").into(),
+                branch: "dev".into(),
+                branch_error: None,
+                tracker_line: tree.map(str::to_owned),
+                tracker_entries: vec!["R-184".into()],
+                tracker_error: None,
+                uncommitted_files: files,
+                uncommitted_error: None,
+                unmerged_files: Vec::new(),
+                unmerged_error: None,
+                writer_run_id: Some("writer".into()),
+                waiting_writers: vec!["waiter".into()],
+            },
         }
     }
 
@@ -730,29 +746,30 @@ mod tests {
             })
             .collect::<Vec<_>>();
         let lines = vec![
-            fixture_line("p1", None, files.clone()),
-            fixture_line("p2", None, files),
+            fixture_conversation("p1", None, files.clone()),
+            fixture_conversation("p2", None, files),
         ];
-        let snapshot = model_snapshot("project", &lines, None);
-        let rendered = render_lines("COLLABORATION", &snapshot);
+        let snapshot = model_snapshot("project", "p1", &lines, None);
+        let rendered = render_snapshot(&snapshot);
         assert!(
             !rendered.contains("very_long_file_name_"),
             "resident context expanded {} characters of worktree paths",
             rendered.chars().count()
         );
         assert_eq!(snapshot["worktrees"].as_array().unwrap().len(), 1);
-        assert_eq!(snapshot["worktrees"][0]["changed_file_count"], 5_000);
+        assert_eq!(snapshot["worktrees"][0]["uncommitted"]["file_count"], 5_000);
         assert_eq!(
-            snapshot["lines"][0]["worktree"],
-            snapshot["lines"][1]["worktree"]
+            snapshot["conversations"][0]["worktree"],
+            snapshot["conversations"][1]["worktree"]
         );
         let mut renamed = lines;
         for line in &mut renamed {
-            line.changed_files = (0..5_000).map(|index| format!("short{index}.rs")).collect();
+            line.tree.uncommitted_files =
+                (0..5_000).map(|index| format!("short{index}.rs")).collect();
         }
         assert_eq!(
             rendered,
-            render_lines("COLLABORATION", &model_snapshot("project", &renamed, None)),
+            render_snapshot(&model_snapshot("project", "p1", &renamed, None)),
             "inventory path lengths must not affect resident context size"
         );
         eprintln!(
@@ -763,23 +780,35 @@ mod tests {
 
     #[test]
     fn model_snapshot_groups_worktrees_and_keeps_failed_queries_unknown() {
-        let main = fixture_line("p1", None, vec!["src/shared.rs".into()]);
-        let mut branch = fixture_line("p2", Some("branch-tree"), vec!["src/shared.rs".into()]);
-        branch.changed_files_error = Some("Git inventory unavailable".into());
-        branch.claim_error = Some("Tracker unavailable".into());
-        let snapshot = model_snapshot("main-tree", &[main, branch], Some("src"));
+        let main = fixture_conversation("p1", None, vec!["src/shared.rs".into()]);
+        let mut branch =
+            fixture_conversation("p2", Some("branch-tree"), vec!["src/shared.rs".into()]);
+        branch.tree.uncommitted_error = Some("Git inventory unavailable".into());
+        branch.tree.tracker_error = Some("Tracker unavailable".into());
+        let snapshot = model_snapshot("main-tree", "p1", &[main, branch], Some("src"));
         let trees = snapshot["worktrees"].as_array().unwrap();
         assert_eq!(trees.len(), 2);
         assert_eq!(trees[0]["path"], "main-tree");
-        assert_eq!(trees[0]["path_changed"], true);
+        assert_eq!(snapshot["current"]["session_id"], "session-p1");
+        assert_eq!(snapshot["current"]["run_id"], "run-p1");
+        assert_eq!(
+            snapshot["current"]["worktree"],
+            snapshot["conversations"][0]["worktree"]
+        );
+        assert!(trees[1]["uncommitted"]["file_count"].is_null());
+        assert_eq!(trees[1]["unmerged"]["file_count"], 0);
+        assert_eq!(trees[0]["uncommitted"]["path_changed"], true);
         assert_eq!(trees[0]["writer_run_id"], "writer");
         assert_eq!(trees[0]["waiting_writers"], serde_json::json!(["waiter"]));
         assert!(
-            trees[1]["path_changed"].is_null(),
+            trees[1]["uncommitted"]["path_changed"].is_null(),
             "an unreadable tree cannot establish absence of changes"
         );
-        assert_eq!(trees[1]["changed_files_error"], "Git inventory unavailable");
-        assert_eq!(trees[1]["claim_error"], "Tracker unavailable");
+        assert_eq!(
+            trees[1]["uncommitted"]["error"],
+            "Git inventory unavailable"
+        );
+        assert_eq!(trees[1]["registered_work"]["error"], "Tracker unavailable");
         assert!(!snapshot.to_string().contains("src/shared.rs"));
     }
 
@@ -816,87 +845,121 @@ mod tests {
         run_git(&branch, &commit);
         std::fs::write(main.join("seed.rs"), "main change").unwrap();
         std::fs::write(branch.join("untracked.rs"), "new file").unwrap();
-        let (main_files, main_error) = changed_files(&main, &main, false);
-        let (branch_files, branch_error) = changed_files(&main, &branch, true);
-        assert!(main_error.is_none() && branch_error.is_none());
+        let main_changes = worktree_changes(&main, &main, false);
+        let branch_changes = worktree_changes(&main, &branch, true);
+        let main_files = main_changes.uncommitted.unwrap();
+        let branch_uncommitted = branch_changes.uncommitted.unwrap();
+        let branch_unmerged = branch_changes.unmerged.unwrap();
         assert_eq!(main_files, ["seed.rs"]);
-        assert_eq!(branch_files, ["renamed.rs", "seed.rs", "untracked.rs"]);
+        assert_eq!(branch_uncommitted, ["untracked.rs"]);
+        assert_eq!(branch_unmerged, ["renamed.rs", "seed.rs"]);
+        assert!(main_changes.unmerged.unwrap().is_empty());
         let main_root = main.to_string_lossy();
         let branch_root = branch.to_string_lossy();
-        let lines = [
-            fixture_line("p1", None, main_files.clone()),
-            fixture_line("p2", None, main_files),
-            fixture_line("p3", Some(&branch_root), branch_files),
+        let mut branch_conversation =
+            fixture_conversation("p3", Some(&branch_root), branch_uncommitted);
+        branch_conversation.tree.unmerged_files = branch_unmerged;
+        let conversations = [
+            fixture_conversation("p1", None, main_files.clone()),
+            fixture_conversation("p2", None, main_files),
+            branch_conversation,
         ];
-        for (path, expected) in [
-            ("seed.rs", [true, true]),
-            ("renamed.rs", [false, true]),
-            ("untracked.rs", [false, true]),
-            ("absent.rs", [false, false]),
+        for (path, uncommitted, unmerged) in [
+            ("seed.rs", [true, false], [false, true]),
+            ("renamed.rs", [false, false], [false, true]),
+            ("untracked.rs", [false, true], [false, false]),
+            ("absent.rs", [false, false], [false, false]),
         ] {
-            let snapshot = model_snapshot(&main_root, &lines, Some(path));
+            let snapshot = model_snapshot(&main_root, "p1", &conversations, Some(path));
             let trees = snapshot["worktrees"].as_array().unwrap();
             assert_eq!(
                 trees.len(),
                 2,
                 "shared conversations must reference one tree"
             );
-            for (tree, expected) in trees.iter().zip(expected) {
-                assert_eq!(tree["path_changed"], expected, "{path}: {snapshot}");
+            for (index, tree) in trees.iter().enumerate() {
+                assert_eq!(
+                    tree["uncommitted"]["path_changed"], uncommitted[index],
+                    "{path}: {snapshot}"
+                );
+                assert_eq!(
+                    tree["unmerged"]["path_changed"], unmerged[index],
+                    "{path}: {snapshot}"
+                );
             }
         }
+        // Git 登记的保留工作树不依赖对话绑定，不能被空闲或缺失的对话遮蔽。
+        let state = AppState::default();
+        let main_project = crate::normalized_project_root(&main);
+        let current = ensure_default_process(&state, &main_project);
+        let probe = CollaborationProbe::new(
+            state.processes.clone(),
+            state.runtimes.clone(),
+            main_project,
+            current.id.clone(),
+        );
+        let snapshot = probe.snapshot(Some("renamed.rs"));
+        assert_eq!(snapshot["conversations"].as_array().unwrap().len(), 1);
+        assert_eq!(snapshot["current"]["process_id"], current.id);
+        let retained = snapshot["worktrees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tree| tree["branch"] == "query-branch")
+            .unwrap();
+        assert_eq!(retained["unmerged"]["path_changed"], true);
+        assert!(snapshot.get("children").is_none());
+        drop(probe);
+        drop(state);
+        drop(current);
         owned.close().unwrap();
     }
 
     #[test]
-    fn 泳道状态机按进程事件和工作树进展判定() {
+    fn 对话状态来自运行与等待事实_长时间运行不推断卡住() {
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 run_age_ms: Some(1_000),
-                event_idle_ms: Some(100),
                 ..Default::default()
             }),
             "running"
         );
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 run_age_ms: Some(90_000),
-                event_idle_ms: Some(90_000),
                 ..Default::default()
             }),
-            "suspected_stuck"
+            "running"
         );
-        // 真实长任务可能没有新的 RunEvent，但源码仍在变化，不能被判成失败。
+        // 模型或工具长时间运行时，保持引擎的实际运行状态。
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 run_age_ms: Some(90_000),
-                event_idle_ms: Some(90_000),
-                worktree_idle_ms: Some(100),
                 ..Default::default()
             }),
             "running"
         );
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 run_age_ms: Some(90_000),
                 ..Default::default()
             }),
-            "failed"
+            "unavailable"
         );
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 run_age_ms: Some(90_000),
                 last_outcome: Some("completed"),
                 ..Default::default()
             }),
             "completed"
         );
-        assert_eq!(line_status(LineProgress::default()), "idle");
+        assert_eq!(conversation_status(ConversationProgress::default()), "idle");
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 run_age_ms: Some(90_000),
                 last_outcome: Some("incomplete"),
                 ..Default::default()
@@ -905,12 +968,11 @@ mod tests {
         );
         let waiting = vec!["run-waiting".to_string()];
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 run_id: "run-waiting",
                 waiting_writers: &waiting,
                 run_age_ms: Some(90_000),
-                event_idle_ms: Some(90_000),
                 ..Default::default()
             }),
             "queued"
@@ -963,7 +1025,7 @@ mod tests {
                 .unwrap();
             let outcome = durable_outcome(&store, "ses").unwrap();
             assert_eq!(outcome.as_deref(), Some(expected));
-            let status = line_status(LineProgress {
+            let status = conversation_status(ConversationProgress {
                 last_outcome: outcome.as_deref(),
                 ..Default::default()
             });
@@ -1067,7 +1129,7 @@ mod tests {
         assert!(live.last_outcome.is_none());
         assert!(!live.flushed);
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 ..Default::default()
             }),
@@ -1096,11 +1158,10 @@ mod tests {
             },
         );
         assert_eq!(
-            line_status(LineProgress {
+            conversation_status(ConversationProgress {
                 running: true,
                 waiting_for: pending_wait(&runtime),
                 run_age_ms: Some(90_000),
-                event_idle_ms: Some(90_000),
                 ..Default::default()
             }),
             "awaiting_approval"
@@ -1129,7 +1190,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn 协作块取真实运行态_单线不注入_文件变化后原位刷新() {
+    async fn 协作块包含空闲对话与工作树_文件变化后原位刷新() {
         let root = std::env::temp_dir().join(format!(
             "kz-collaboration-{}-{}",
             std::process::id(),
@@ -1167,13 +1228,23 @@ mod tests {
             runtime_for(&state, &process_session_id(&canonical, Some(&current.id)));
         current_runtime.running.store(true, Ordering::SeqCst);
 
+        let peer_root = root.join("peer");
+        run_git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-b",
+                "kanzei/thread-r184",
+                peer_root.to_str().unwrap(),
+            ],
+        );
+        let peer_root = crate::normalized_project_root(&peer_root);
         let other = ProcessHandle {
             id: format!("p1|{}", canonical.display()),
             origin_project: crate::ProjectRoot(canonical.clone()),
             project_dir: crate::ProjectRoot(canonical.clone()),
-            // 该测试不需要另建真实 worktree，但必须标成分支线，才能验证
-            // 「取得线=分支名」而非默认线(None)的 tracker 归属。
-            worktree_path: Some(crate::WorktreeRoot(canonical.clone())),
+            worktree_path: Some(crate::WorktreeRoot(peer_root.clone())),
             branch: Some("kanzei/thread-r184".into()),
             model: Arc::new(Mutex::new(None)),
             profile: Arc::new(Mutex::new(None)),
@@ -1215,7 +1286,7 @@ mod tests {
             current.id.clone(),
         );
         let ctx = ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: canonical.clone(),
             project_root: canonical.clone(),
             config: Arc::new(kanzei_harness::KanzeiConfig::default()),
@@ -1226,11 +1297,15 @@ mod tests {
         });
         let snapshot = harness.resolve(&ctx).unwrap();
 
-        // 只有当前线在跑:动态源不注入任何占位噪音。
-        assert!(snapshot.system_baseline().unwrap().is_empty());
+        // 空闲对话及其工作树仍属于协作范围。
+        assert!(snapshot
+            .refreshable_system_baseline_with_report()
+            .unwrap()
+            .0
+            .contains(&serde_json::to_string(&other.id).unwrap()));
         other_runtime.running.store(true, Ordering::SeqCst);
-        std::fs::write(root.join("first.rs"), "first\n").unwrap();
-        let all = probe.all_lines();
+        std::fs::write(peer_root.join("first.rs"), "first\n").unwrap();
+        let all = probe.conversations();
         let other_line = all
             .iter()
             .find(|line| line.process_id == other.id)
@@ -1257,9 +1332,9 @@ mod tests {
         );
         assert!(first.contains("kanzei/thread-r184"), "{first}");
         assert!(!first.contains("first.rs"), "{first}");
-        let first_count = other_line.changed_files.len();
+        let first_count = other_line.tree.uncommitted_files.len();
         assert!(
-            first.contains(&format!("\"changed_file_count\":{first_count}")),
+            first.contains(&format!("\"file_count\":{first_count}")),
             "{first}"
         );
         assert!(
@@ -1271,18 +1346,18 @@ mod tests {
             "协作块不得落进稳定 baseline 后逐轮累积"
         );
 
-        std::fs::write(root.join("second.rs"), "second\n").unwrap();
+        std::fs::write(peer_root.join("second.rs"), "second\n").unwrap();
         let refreshed = snapshot
             .refreshable_system_baseline_with_report()
             .unwrap()
             .0;
         assert!(!refreshed.contains("first.rs") && !refreshed.contains("second.rs"));
         assert!(
-            refreshed.contains(&format!("\"changed_file_count\":{}", first_count + 1)),
+            refreshed.contains(&format!("\"file_count\":{}", first_count + 1)),
             "{refreshed}"
         );
         assert_eq!(
-            refreshed.matches("COLLABORATION").count(),
+            refreshed.matches("## 当前项目协作状态").count(),
             1,
             "刷新应替换同一块,不能累计旧副本"
         );
@@ -1312,20 +1387,24 @@ mod tests {
             )
             .await;
         assert!(!scoped.is_error, "{}", scoped.content);
-        assert_eq!(
-            scoped.display.as_ref().unwrap()["worktrees"][0]["path_changed"],
-            true
-        );
+        let scoped_tree = scoped.display.as_ref().unwrap()["worktrees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tree| tree["branch"] == "kanzei/thread-r184")
+            .unwrap();
+        assert_eq!(scoped_tree["uncommitted"]["path_changed"], true);
         let absent = tool
             .execute(
                 serde_json::json!({"path": "absent.rs"}),
                 &kanzei_harness::ToolCtx::new(canonical.clone(), canonical.clone()),
             )
             .await;
-        assert_eq!(
-            absent.display.as_ref().unwrap()["worktrees"][0]["path_changed"],
-            false
-        );
+        assert!(absent.display.as_ref().unwrap()["worktrees"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|tree| tree["uncommitted"]["path_changed"] == false));
         let invalid = tool
             .execute(
                 serde_json::json!({"path": "../outside.rs"}),
@@ -1342,7 +1421,7 @@ mod tests {
     }
 
     /// R-176 验收⑥:协作面板的 writer/waiting 数据来自协调器快照,不是前端推测。
-    /// 用真实 MemoryCoordinator:先占住写租约,再采样 CollaborationLine,断言
+    /// 用真实 MemoryCoordinator:先占住写租约,再采样 CollaborationConversation,断言
     /// writer_run_id 与 waiting_writers 从 snapshot() 取到(而非空)。
     #[tokio::test]
     async fn collaboration_line_writer_and_waiting_come_from_coordinator_snapshot() {
@@ -1396,12 +1475,12 @@ mod tests {
             current.id.clone(),
         )
         .with_coordinator(coordinator);
-        let lines = probe.all_lines();
+        let lines = probe.conversations();
         // current(主树)的 writer 与 waiting 就是协调器快照的内容。
         assert!(
             lines.iter().any(|line| {
-                line.writer_run_id.as_deref() == Some("line-a")
-                    && line.waiting_writers.contains(&"line-b".to_string())
+                line.tree.writer_run_id.as_deref() == Some("line-a")
+                    && line.tree.waiting_writers.contains(&"line-b".to_string())
             }),
             "writer/waiting 必须来自协调器快照: {lines:?}"
         );

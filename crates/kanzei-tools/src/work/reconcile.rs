@@ -467,7 +467,7 @@ pub fn reconcile_active(
                     .unwrap_or_default();
                 if legacy_paths != item.source_files {
                     let ctx = kanzei_harness::ToolCtx::new(root.to_path_buf(), root.to_path_buf());
-                    crate::work::log::append(
+                    if let Err(error) = crate::work::log::append(
                         root,
                         "reconcile_observation",
                         Some(&entry.id),
@@ -478,7 +478,9 @@ pub fn reconcile_active(
                             "decision": "unchanged",
                             "source": "engine",
                         }),
-                    );
+                    ) {
+                        tracing::warn!(%error, "reconciliation observation could not be recorded");
+                    }
                 }
             }
             items.push(item);
@@ -625,7 +627,8 @@ mod tests {
                 "paths": ["crates/example/src/lib.rs"],
                 "test_record_ids": ["T-ledger"]
             }),
-        );
+        )
+        .unwrap();
         std::fs::create_dir_all(root.join("dist")).unwrap();
         std::fs::write(
             root.join("dist/verification.json"),

@@ -69,7 +69,7 @@ fn dev_fixture(tag: &str) -> (std::path::PathBuf, Arc<KanzeiConfig>) {
 fn agent() -> kanzei_harness::AgentDef {
     kanzei_harness::AgentDef {
         name: "dev-pair".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "mock".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 4,
@@ -105,7 +105,7 @@ fn runner_config(
 async fn 停止先置位_步首收尾_prior与用户消息完整交还() {
     let (project, config) = dev_fixture("prehalt");
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -173,7 +173,7 @@ async fn 停止先置位_步首收尾_prior与用户消息完整交还() {
 async fn 执行中停止_取消占位配对_历史无孤儿() {
     let (project, config) = dev_fixture("midhalt");
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),

@@ -28,6 +28,7 @@ use crate::run::assembly::{RoundRequest, RunMode, RuntimeHandles};
 use crate::run::coordinator::run_task;
 use crate::run::input::{
     admit_input, code_root_for, has_pending_queue_prompt, parse_delivery, promote_next_input,
+    QueuedInput,
 };
 
 pub(crate) mod handoff;
@@ -471,16 +472,6 @@ fn is_engine_round(submission: &Submission, auto_round: bool) -> bool {
     matches!(submission, Submission::Automatic { .. }) || auto_round
 }
 
-/// D-764:引擎自动推进轮的文本加上非用户归属前缀;用户按键原样通过。
-/// 纯函数,幂等由 `mark_engine_round` 保证(重放同一份文本不会叠第二层前缀)。
-fn attribute_engine_round(engine_round: bool, prompt: String) -> String {
-    if engine_round {
-        kanzei_harness::auto_run::mark_engine_round(&prompt)
-    } else {
-        prompt
-    }
-}
-
 pub(crate) fn schedule_run(
     window: AppEvents,
     state: &AppState,
@@ -655,9 +646,7 @@ pub(crate) fn schedule_run(
             delivery,
             attachments,
         } => {
-            // D-764:引擎投递的枪先定归属再入库。队列去重、模型上下文、压缩纪要和界面
-            // 气泡读的都是这一份文字,所以归一在准入点做一次,不在四处各写一遍。
-            let prompt = attribute_engine_round(engine_round, prompt);
+            // Authorship is durable metadata; the original text remains unchanged.
             if runtime.running.load(Ordering::SeqCst) {
                 // 自动续跑的重复事件可能在窗口关闭/重开或事件重放后再次到达；
                 // 同文案的 pending 输入只保留一份。手动发送仍允许重复排队。
@@ -671,11 +660,18 @@ pub(crate) fn schedule_run(
                 let queued = admit_input(
                     &project_dir,
                     &session_id,
-                    &prompt,
-                    attachments.unwrap_or_default(),
-                    delivery,
-                    execution_batch || autonomous,
-                    work_item_id.as_deref(),
+                    QueuedInput {
+                        prompt: &prompt,
+                        attachments: attachments.unwrap_or_default(),
+                        delivery,
+                        origin: if engine_round {
+                            kanzei_base::MessageOrigin::Engine
+                        } else {
+                            kanzei_base::MessageOrigin::Human
+                        },
+                        execution_batch: execution_batch || autonomous,
+                        work_item_id: work_item_id.as_deref(),
+                    },
                 )
                 .map_err(|e| e.to_string())?;
                 if delivery == kanzei_core::Delivery::Steer {
@@ -769,6 +765,11 @@ pub(crate) fn schedule_run(
                 run_task(
                     &window,
                     RoundRequest {
+                        input_origin: if engine_round {
+                            kanzei_base::MessageOrigin::Engine
+                        } else {
+                            kanzei_base::MessageOrigin::Human
+                        },
                         prompt: next_prompt,
                         attachments: next_attachments.take(),
                         project_dir: code_root.clone(),
@@ -908,44 +909,6 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     /// D-764:自动续跑轮不得冒用用户名义。判定看投递形态与 auto_round,标注发生在准入点。
-    #[test]
-    fn engine_gun_is_attributed_to_the_engine_not_the_user() {
-        assert!(super::is_engine_round(
-            &super::Submission::Automatic {
-                prompt: "继续推进".into(),
-                generation: 1,
-                async_generation: 1,
-            },
-            false
-        ));
-        assert!(!super::is_engine_round(
-            &super::Submission::Prompt {
-                prompt: "把这条改成 P1".into(),
-                delivery: kanzei_core::Delivery::Queue,
-                attachments: None,
-            },
-            false
-        ));
-        // UI 的自动续跑闸门走 Prompt 形态,靠 auto_round 声明归属。
-        assert!(super::is_engine_round(
-            &super::Submission::Prompt {
-                prompt: "继续推进".into(),
-                delivery: kanzei_core::Delivery::Queue,
-                attachments: None,
-            },
-            true
-        ));
-
-        let marked =
-            super::attribute_engine_round(true, "继续推进,规则按系统提示执行。".to_string());
-        assert!(marked.starts_with(kanzei_harness::auto_run::ENGINE_ROUND_MARKER));
-        assert_eq!(
-            super::attribute_engine_round(false, "把这条改成 P1".to_string()),
-            "把这条改成 P1"
-        );
-        // 队列去重比的是入库文本:重放同一枪若叠第二层前缀,同文案永不相等 → 重复轮次。
-        assert_eq!(super::attribute_engine_round(true, marked.clone()), marked);
-    }
 
     #[test]
     fn stored_restricted_recipient_defeats_a_stale_dev_sender() {
@@ -954,7 +917,7 @@ mod tests {
                 let (profile, agent) = super::recipient_mode(
                     general,
                     Some(stored.into()),
-                    Some("dev".into()),
+                    Some("dev-auto".into()),
                     Some("dev-pair".into()),
                 );
                 assert_eq!(profile.as_deref(), Some(stored));
@@ -962,7 +925,7 @@ mod tests {
             }
         }
         assert_eq!(
-            super::recipient_mode(true, Some("dev".into()), Some("isolated".into()), None),
+            super::recipient_mode(true, Some("dev-auto".into()), Some("isolated".into()), None),
             (Some("isolated".into()), Some("isolated".into()))
         );
     }
@@ -1066,11 +1029,14 @@ mod tests {
         let queued = super::admit_input(
             &root_text,
             &session_id,
-            "apply the reviewed correction",
-            Vec::new(),
-            kanzei_core::Delivery::Queue,
-            false,
-            None,
+            super::QueuedInput {
+                prompt: "apply the reviewed correction",
+                attachments: Vec::new(),
+                delivery: kanzei_core::Delivery::Queue,
+                origin: kanzei_base::MessageOrigin::Human,
+                execution_batch: false,
+                work_item_id: None,
+            },
         )
         .unwrap();
         let store = SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();

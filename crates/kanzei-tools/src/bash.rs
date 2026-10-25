@@ -91,10 +91,10 @@ struct BashInput {
     #[serde(default)]
     persistent: bool,
     /// Foreground test command: automatically records running/result/duration/log in one call.
-    /// Example: {"title":"unit tests","refs":["R-001"]}. Do not also call test_record.
+    /// Foreground only. Example: {"title":"unit tests","refs":["R-001"]}.
     #[serde(default)]
     test: Option<crate::test_record::execution::TestExecution>,
-    /// 冻结当前源码后异步验证 Work Unit；沿用 bash 的权限和命令 guards。
+    /// 冻结源码并异步验证 Work Unit，释放开发 WIP；与 test/background/persistent 互斥。
     #[serde(default)]
     verification: Option<crate::verification::VerificationRequest>,
 }
@@ -123,39 +123,16 @@ impl Tool for BashTool {
     fn description(&self) -> String {
         let shell = detected_shell();
         let syntax = match shell.name {
-            "pwsh" | "powershell" => {
-                "PowerShell syntax (NOT POSIX: use ; or && (pwsh7), $env:VAR, Get-ChildItem)"
-            }
-            "cmd" => "cmd.exe syntax (NOT POSIX: use %VAR%, dir, &&)",
+            "pwsh" | "powershell" => "PowerShell syntax; environment variables use $env:NAME",
+            "cmd" => "cmd.exe syntax; environment variables use %NAME%",
             _ => "POSIX sh syntax",
         };
         format!(
-            "Run a HOST shell command via {} — {syntax}. This uses the host user's privileges, without OS isolation. For untrusted POSIX execution use sandbox, whose copied-input workspace cannot publish host writes. Params: command; optional timeout_ms, workdir, \
-             background, test, verification. PowerShell commands are parsed by its native AST for dedicated-tool routing; \
-             other shells use resource/result guards without PowerShell command-routing checks. \
-             For a work_units_v1 unit use verification={{unit_id,criteria,environment,resource}} \
-             to freeze source and submit an independent persistent verification job. criteria must be exact acceptance entries; \
-             resource defaults to local-build. The unit releases development WIP while verification runs. \
-             Use work verification_jobs to read results and verification_cancel to stop a job. Do not combine verification with test/background/persistent. \
-             For foreground test commands set test={{title,refs}}: the engine records \
-             running and the actual exit result, duration and log automatically; no separate \
-             test_record calls. test requires foreground execution. Default stdin is closed (EOF). Set interactive=true to start a background command with writable stdin; use process action=input with its id, text and optional close=true (EOF). This is pipe input, without terminal emulation. \
-             Set background=true for long-running processes (dev server, watch): it returns a \
-             process id immediately. Foreground commands own their process tree through cleanup; \
-             use background=true for services that must remain running after the shell exits. \
-             Where the session has an async mailbox, final output and exit \
-             status automatically return to the same session, including after its current turn ends; \
-             continue independent work instead of polling. A steering message can move an eligible \
-             foreground command to the background without restarting it. Explicit timeout_ms remains \
-             the execution deadline after that transfer. Foreground test recording stays synchronous. \
-             Call `process` directly (the runner auto-loads it if deferred) \
-             or use `tool_search` query `select:process` to load its schema first. \
-             In a managed project a background task is fenced and owned by the current session: it may \
-             not write under .kanzei/project or .kanzei/memory (such writes are quarantined and \
-             rolled back), its workdir must stay inside the project and outside .kanzei/, and it is \
-             stopped when its owner is explicitly stopped or closed. Set persistent=true only for \
-             services that need cross-application recovery; it is not required to survive a turn.",
-            shell.name
+            "Run a host command using {} ({syntax}), with host user privileges. \
+             Foreground returns output and exit status; background/interactive returns a process ID for the process tool. \
+             stdin is closed by default (EOF); interactive=true accepts pipe input via process action=input, without a PTY. Eligible foreground commands may transfer to the background when steered; explicit deadlines still apply. \
+             Managed background tasks cannot write project/memory state, remain inside the code tree, and stop with their owner session. \
+             Test receipts and independent verification jobs are selected by their input fields.", shell.name
         )
     }
 

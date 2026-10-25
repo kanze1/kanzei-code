@@ -93,10 +93,12 @@ try {
   await until(async () => !(await invoke("skills_list")).find(skill => skill.name === "pdf").enabled, "global disable");
   check(JSON.parse(await readFile(path.join(home, "skills.json"), "utf8")).disabled.includes("builtin:pdf"), "Native toggle writes source-qualified global preferences");
   await page.locator("#skills-generate-open").click(); await page.locator("#skills-generation-prompt").fill("把周报模板整理为一个可复用技能");
+  await page.locator("#skill-manual-only").check();
   await page.locator("#skills-generate").click();
   await until(async () => await page.locator("#skill-name").inputValue() === "weekly-review", "generated draft");
   check(requests.length === 1 && requests[0].model === "skills-global-model", "Generation uses the global model through the real provider protocol");
   check(!(await invoke("skills_list")).some(skill => skill.name === "weekly-review"), "Generated drafts are not installed before Save");
+  check(await page.locator("#skill-manual-only").isChecked(), "Draft generation preserves the user’s invocation setting");
   await page.locator("#skills-save").click();
   await until(async () => (await invoke("skills_list")).some(skill => skill.name === "weekly-review"), "saved draft");
   const saved = await invoke("skills_read", { name: "weekly-review" });
@@ -122,7 +124,7 @@ try {
   check(invalid && truncated, "Malformed and truncated model responses are reported without saving skills");
   mode = "valid";
   const openedRoot = await invoke("general_chat_open");
-  const active = await invoke("process_create", { projectDir: openedRoot, profile: "dev", model: "mock:skills-global-model", subagentMode: "off" });
+  const active = await invoke("process_create", { projectDir: openedRoot, profile: "dev-auto", model: "mock:skills-global-model", subagentMode: "off" });
   await invoke("run_prompt", { projectDir: openedRoot, processId: active.id, prompt: "请使用$weekly-review", autoAllow: true });
   await until(async () => requests.some(request => JSON.stringify(request.messages).includes("请使用$weekly-review"))
     && !(await invoke("process_list", { projectDir: openedRoot })).some(item => item.running), "explicit global skill invocation");

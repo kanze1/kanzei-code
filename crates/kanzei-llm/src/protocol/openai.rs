@@ -29,9 +29,8 @@ pub fn build_body(request: &LlmRequest) -> Value {
             Role::User => {
                 for part in &message.parts {
                     match part {
-                        Part::Text { text } => {
-                            messages.push(json!({"role": "user", "content": text}))
-                        }
+                        Part::Text { text } => messages
+                            .push(json!({"role": "user", "content": message.model_text(text)})),
                         Part::Image { media_type, data } => {
                             // OpenAI Chat Completions 规范的部件类型是 "image_url"(D-028:
                             // 写成 "image" 会被 moonshot 等严格校验的 provider 400 拒收)。

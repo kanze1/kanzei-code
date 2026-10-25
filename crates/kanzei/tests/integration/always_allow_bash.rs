@@ -154,7 +154,7 @@ async fn cli_allow_listed_executes_bash_without_tty() {
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -258,7 +258,7 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -354,7 +354,7 @@ async fn cli_declined_permission_persists_paired_tool_results() {
     let output2 = cmd2
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -440,7 +440,7 @@ async fn cli_filters_preexisting_orphan_tool_call_before_next_request() {
     let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -514,7 +514,7 @@ async fn cli_prompt_file_feeds_big_prompt_without_argv() {
     let mut child = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

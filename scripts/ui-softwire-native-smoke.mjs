@@ -141,8 +141,8 @@ try {
   await page.waitForFunction(()=>document.querySelector(".research-workspace").dataset.page==="overview"&&document.querySelector('[data-research-page="overview"]').getAttribute("aria-current")==="page");
   await page.evaluate(()=>document.documentElement.setAttribute("data-theme","dark"));await page.waitForTimeout(250);
   await page.screenshot({path:path.join(output,"research-dark.png")});
-  await page.locator('[data-workspace="dev"]').click();
-  await page.waitForFunction(()=>document.body.dataset.space==="dev");
+  await page.locator('[data-workspace="dev-auto"]').click();
+  await page.waitForFunction(()=>document.body.dataset.space==="dev-auto");
   await page.locator('[data-work-surface="project"]').click();
   await page.locator("#softwire-workspace").waitFor();
   check(await page.locator("#prompt").inputValue()==="原生主对话草稿","Native return from research restores the persisted development draft");

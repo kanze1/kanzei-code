@@ -152,7 +152,7 @@ try {
   await page.screenshot({ path: `${output}/rail-dense.png` });
   const outcomes = await page.evaluate(async () => {
     const chat = await import("/05-chat-render.js"), activity = await import("/06-activity.js"), summary = await import("/05-tool-summary.js");
-    const raw = "[tool_outcome=blocked_by_workflow code=BATCH_CLOSING]\nBATCH_CLOSING: close batch first";
+    const raw = "[tool_outcome=blocked_by_workflow code=WORK_ITEM_BLOCKED]\nwork item dependency pending";
     const history = summary.toolResultSummary("bash", { ok: false, content: raw });
     return { chat: chat.toolOutcomeView(false, "blocked_by_workflow"), activity: activity.activityOutcomeView(false, "blocked_by_workflow"), history };
   });

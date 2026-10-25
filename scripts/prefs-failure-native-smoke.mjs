@@ -28,12 +28,12 @@ await writeFile(path.join(home, "kanzei.toml"), "[models]\nprimary = 'fixture:un
 const good = { projects: [project, otherProject], current: project,
   names: { [project]: "Existing A", [otherProject]: "Retained B" }, theme: "dark",
   open_tools: [{ id: "kept-tool", label: "Retained tool", command: "fixture-never-launched", args: ["{path}"] }],
-  workspace_state: { [project]: { space: "dev" }, [otherProject]: { space: "research" } } };
+  workspace_state: { [project]: { space: "dev-auto" }, [otherProject]: { space: "research" } } };
 const goodBytes = Buffer.from(JSON.stringify(good));
 const damaged = [
   ["invalid_utf8", Buffer.concat([goodBytes, Buffer.from([0xff])])],
   ["invalid_json", Buffer.from(JSON.stringify(good).slice(0, -1))],
-  ["invalid_typed_field", Buffer.from(JSON.stringify({ ...good, auto_max: "not-a-u32" }))],
+  ["invalid_typed_field", Buffer.from(JSON.stringify({ ...good, theme: 42 }))],
 ];
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };

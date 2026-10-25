@@ -531,9 +531,10 @@ async function onAnnotateClick() {
   try {
     const result = await invoke("files_annotate", { projectDir: root });
     const counts = `${result.annotated}/${result.total}`;
-    if (result.failed && result.firstError) {
+    const failures = result.failed + result.directoryFailed;
+    if (failures && result.firstError) {
       // 失败原因必须可见:全 failed 只报数字没有原因,排查无从下手(D-213)。
-      toastError(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts} · ${result.failed} ${t("失败")} · ${result.firstError}`);
+      toastError(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts} · ${failures} ${t("失败")} · ${result.firstError}`);
     } else {
       toast(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}${result.failed ? ` · ${result.failed} ${t("失败")}` : ""}`);
     }

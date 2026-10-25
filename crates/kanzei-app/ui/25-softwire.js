@@ -50,7 +50,7 @@ function stateFor(project) {
   return states.get(project);
 }
 const surface = () => $("sw-surface");
-const visible = () => document.body.dataset.view === "project" && active_space === "dev";
+const visible = () => document.body.dataset.view === "project" && active_space === "dev-auto";
 function allMessages() {
   const merged = new Map([...projectDetails.values()].map(p => [p.path, p]));
   return inboxFromProjects([...merged.values()], questions).filter(m => !replies.get(m.key)?.done);
@@ -484,7 +484,7 @@ function openInteraction(message, nativeTarget = null) {
 // 普通 question 正在等当前对话的回答,直接呈现可作答详情;后台问题仍只进待处理。
 // 已看过/收起的同一版本不因轮询重开,回复始终使用原事项的项目、会话与 revision。
 async function presentForegroundQuestion() {
-  if (!initialized || presentingQuestion || document.hidden || active_space !== "dev") return;
+  if (!initialized || presentingQuestion || document.hidden || active_space !== "dev-auto") return;
   const view = document.body.dataset.view;
   if (!["chat", "project"].includes(view) || visible() && current?.interaction) return;
   const project = visible() ? current?.project : currentProject;
@@ -633,7 +633,7 @@ async function dispatchPrompt(destination, capture, resolved) {
   let line = destination.processId ? candidates.find(p => p.id === destination.processId) : candidates[0];
   if (destination.processId && (!line || destination.sessionId && line.session_id !== destination.sessionId))
     throw new Error(t("原对话已变化，请重新选择对话。草稿已保留。"));
-  if (!line) line = await invoke("process_create", { projectDir: destination.project, profile: "dev" });
+  if (!line) line = await invoke("process_create", { projectDir: destination.project, profile: "dev-auto" });
   if (!line?.id || line.profile === "research") throw new Error(t("开发对话创建失败，草稿已保留。"));
   if (line) {
     const bound = { ...destination, processId: line.id, sessionId: line.session_id };

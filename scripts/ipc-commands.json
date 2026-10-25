@@ -113,10 +113,6 @@
         "required": false,
         "type": "Option < String >"
       },
-      "maxRounds": {
-        "required": false,
-        "type": "Option < u32 >"
-      },
       "paused": {
         "required": false,
         "type": "Option < bool >"
@@ -172,7 +168,7 @@
       }
     },
     "path": "collaboration::collaboration_snapshot",
-    "returns": "-> Result < Vec < CollaborationLine > , String >"
+    "returns": "-> Result < Vec < CollaborationConversation > , String >"
   },
   "composer_draft_save": {
     "host": "service",
@@ -2544,75 +2540,6 @@
     "path": "research_topics::research_topic_create",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "research_workflow_get": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "topic": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "research_auto::research_workflow_get",
-    "returns": "-> Result < Option < Workflow > , String >"
-  },
-  "research_workflow_start": {
-    "host": "service",
-    "parameters": {
-      "budget": {
-        "required": true,
-        "type": "kanzei_tools :: research_plan :: PlanBudget"
-      },
-      "maxMvpRuns": {
-        "required": true,
-        "type": "u32"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "topic": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "research_auto::research_workflow_start",
-    "returns": "-> Result < Workflow , String >"
-  },
-  "research_workflow_update": {
-    "host": "service",
-    "parameters": {
-      "action": {
-        "required": true,
-        "type": "String"
-      },
-      "direction": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "maxMvpRuns": {
-        "required": false,
-        "type": "Option < u32 >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "revision": {
-        "required": true,
-        "type": "u64"
-      },
-      "topic": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "research_auto::research_workflow_update",
-    "returns": "-> Result < Workflow , String >"
-  },
   "reveal_path": {
     "host": "desktop",
     "parameters": {
@@ -2903,7 +2830,7 @@
       }
     },
     "path": "skills::skills_generate",
-    "returns": "-> Result < SkillDraft , String >"
+    "returns": "-> Result < GeneratedSkill , String >"
   },
   "skills_import": {
     "host": "service",
@@ -3157,10 +3084,6 @@
   "ui_prefs_set": {
     "host": "service",
     "parameters": {
-      "auto_max": {
-        "required": false,
-        "type": "Option < u32 >"
-      },
       "backdrop": {
         "required": false,
         "type": "Option < serde_json :: Value >"

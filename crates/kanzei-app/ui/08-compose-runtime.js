@@ -47,12 +47,10 @@ import { setOutputChars } from "./05-chat-render.js";
 import { hideAsk } from "./07-events.js";
 import { tasksPanelUserRun } from "./06-agent-panel.js";
 import {
-  DEFAULT_AUTO_CONTINUE_MAX,
   DEFAULT_CONTINUE_PROMPT,
   armStoppingWatchdog,
   autoContinueBlockedReason,
   autoContinueInFlight,
-  autoContinueMax,
   autoContinueTimers,
   autoPaused,
   autoRounds,
@@ -86,7 +84,7 @@ import {
 } from "./08-auto.js";
 import "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
-import { collaborationLines, renderLines } from "./20-lines.js";
+import { collaborationConversations, renderLines } from "./20-lines.js";
 import { sync_workspace_visibility, acknowledge_composer_draft, ensure_workspace_process } from "./03-workspaces.js";
 import { autoAllowEnabled } from "./03-layout.js";
 
@@ -186,7 +184,7 @@ export async function sendAutoToSession(prompt, sessionId) {
     // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
     const mode = lineAgent(item);
     const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
-    const workItemId = mode.agent === "dev" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
+    const workItemId = mode.agent === "dev-auto" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
     const priority = uiPrefsCache?.work_priority?.[projectDir] ?? localStorage.getItem(workPriorityKeyFor(projectDir));
     await invoke("run_prompt", {
       prompt,
@@ -250,7 +248,7 @@ export function handleBackgroundSessionDone(payload) {
     // 引擎判定该线不能再续跑(全阻塞/清空/档位不符)时,后台线自己的自动推进存档
     // 也要置关——否则切回该线时勾选框回显"开着",与引擎的实际停机对不上;
     // 本轮后停是一次性意图,同样要在所属线上落地取消,不能等用户切回来。
-    if (["AllBlocked", "BacklogEmpty", "ProfileMismatch", "ResearchWaiting", "ResearchCompleted"].includes(action.reason)) {
+    if (["AllBlocked", "BacklogEmpty", "ProfileMismatch"].includes(action.reason)) {
       applyAutoStopToSession(sessionId, { enabled: false });
     } else if (action.reason === "StopAfterRound") {
       applyAutoStopToSession(sessionId, { stopAfterRound: false });
@@ -261,8 +259,7 @@ export function handleBackgroundSessionDone(payload) {
 
 // 失败停摆的原因文案:活动线(07-events kz:auto-fail)与后台线(下面那个)必须同一份,
 // 否则同一件事在两条线上说法不同。
-export function autoFailStopReasonText(reason, message) {
-  if (["ResearchWaiting", "ResearchCompleted"].includes(reason)) return message || t("请查看研究课题概览");
+export function autoFailStopReasonText(reason) {
   if (reason === "RateLimited") return t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
   if (reason === "RepeatedFailure") return t("连续多轮运行失败,自动推进已停止(已发手机通知)");
   return t("运行失败:致命错误,自动推进已停止");
@@ -293,7 +290,7 @@ export function handleBackgroundAutoFail(payload) {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
     // 后台线停摆没人看着:必须浮到界面上(abortAutoContinue 同一口径),不能只 log 一行。
-    reportPersistentError(`${label} ${t("自动推进停止")}:${autoFailStopReasonText(action.reason, action.message)}`);
+    reportPersistentError(`${label} ${t("自动推进停止")}:${autoFailStopReasonText(action.reason)}`);
   }
   refreshParallelTaskProjection(sessionId);
 }
@@ -441,7 +438,7 @@ function outgoingMessage(record, draft) {
     if (!message.isConnected) activePane?.append(message);
     return;
   }
-  const message = addUserMessage(record.payload.prompt, record.payload.attachments);
+  const message = addUserMessage(record.payload.prompt, record.payload.attachments, record.payload.autoRound ? "engine" : "human");
   outgoingMessages.set(record, message);
   const feedback = document.createElement("div"), status = document.createElement("span"), retry = document.createElement("button");
   feedback.className = "outgoing-status"; feedback.setAttribute("role", "status");
@@ -524,12 +521,12 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     return false;
   }
   if (!recipientIsCurrent()) { toast(t("对话已切换，请在目标对话中重新发送")); return false; }
-  if (selectedAgent().agent !== "dev") { executionBatch = false; workItemId = null; }
+  if (selectedAgent().agent !== "dev-auto") { executionBatch = false; workItemId = null; }
   // A running conversation receives a message. A pending work choice belongs to
   // the next execution request, and must not turn a question into a new batch.
   // An explicit null means a planning/research request with no execution claim.
   // Only an omitted binding inherits the work picker's selection.
-  if (workItemId === undefined && selectedAgent().agent === "dev" && !recipient.running) {
+  if (workItemId === undefined && selectedAgent().agent === "dev-auto" && !recipient.running) {
     const project = currentProject, process = activeProcessId;
     try {
       workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);
@@ -916,15 +913,6 @@ defer(() => {
     void uiPrefsSave({ continue_prompt: value || DEFAULT_CONTINUE_PROMPT });
   });
 });
-// D-404:仍读取旧 auto_max 到 localStorage,供旧状态迁移链兼容;它不再驱动控件或停止条件。
-defer(() => {
-  void uiPrefsLoad().then((p) => {
-    if (Number.isFinite(p.auto_max)) {
-      const max = Math.min(100, Math.max(1, Number(p.auto_max)));
-      localStorage.setItem("kz-auto-max", String(max));
-    }
-  });
-});
 // 「本轮后停」是一次性意图,不是偏好:绝不持久化。
 // 曾经持久化过——勾一次后 localStorage 永远是 "1",每次启动都重新武装,
 // 表现为"自动推进跑一轮就停,怎么都停不掉"(D-111)。这里顺手清掉存量键。
@@ -935,7 +923,6 @@ defer(() => {
   $("auto-stop-round").checked = false;
 });
 // 启动时等 activeSessionId 就绪后同步所有控件，保持持久设置与控件值一致。
-// max_rounds 仅为兼容配置，不再参与自动推进的停止判定。
 defer(() => {
   void syncAutoRunState();
 });
@@ -1025,10 +1012,9 @@ defer(() => {
     log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
   });
 });
-// 旧 auto_max 控件已移除。历史配置仍由 normalizeAutoState 读取,但不再被用户编辑或用作停止门禁。
 defer(() => {
   $("auto-continue").addEventListener("change", () => {
-    if ($("auto-continue").checked && selectedAgent().profile === "dev" && $("profile-select").value === "dev-pair" && !currentGoalText().trim()) {
+    if ($("auto-continue").checked && $("profile-select").value === "dev-pair" && !currentGoalText().trim()) {
       $("profile-select").value = "dev-auto";
       $("profile-select").dispatchEvent(new Event("change"));
     }
@@ -1072,7 +1058,7 @@ defer(() => {
 defer(() => {
   syncResearchSectionVisibility();
 });
-// 后端 ProfileKind 为 dev/research/readonly/isolated；dev-auto 是前端推进档位，按进程记住，
+// 前后端均使用 dev-auto/dev-pair/research/readonly/isolated；模式按进程记住，
 // 否则切换进程回显时自主推进会被静默降级成结伴开发。
 // R-115:这份映射必须落盘。早期只放在内存里,重启后它是空的,回退分支就把模式
 // 降级成结伴开发——哪怕 kz-profile 里明明存着自主推进(D-155)。
@@ -1166,9 +1152,7 @@ export function mergeBackendAutoState(savedMap) {
 defer(() => {
   void uiPrefsLoad().then((p) => mergeBackendAutoState(p.process_auto_state));
 });
-export function normalizeAutoState(value, _processId) {
-  const storedMax = Number.parseInt(value?.maxRounds, 10);
-  const legacyMax = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
+export function normalizeAutoState(value) {
   return {
     // 无记录 = 关。旧实现让默认线回落读全局 kz-auto-continue,于是 A 项目开自动推进、
     // B 项目首次打开就继承为开,还随 applyAutoUiState 落盘固化成 B 的"用户选择"。
@@ -1176,9 +1160,6 @@ export function normalizeAutoState(value, _processId) {
     enabled: value?.enabled === true,
     paused: value?.paused === true,
     stopAfterRound: value?.stopAfterRound === true,
-    maxRounds: Number.isFinite(storedMax)
-      ? Math.min(100, Math.max(1, storedMax))
-      : Number.isFinite(legacyMax) ? Math.min(100, Math.max(1, legacyMax)) : DEFAULT_AUTO_CONTINUE_MAX,
     // UI2-0926 #13 复核:线档位随自动推进存档落盘(见 restoreLineModes);没有记录就不带这个键。
     ...(LINE_MODES.includes(value?.mode) ? { mode: value.mode } : {}),
   };
@@ -1201,21 +1182,19 @@ export let applyingProfileEcho = false;
 // UI2-0926 #13 复核:要记进存档的线档位。当前线读模式芯片(就是用户眼前、刚操作过的那个值),
 // 其余线读本线记住的档位;都没有就沿用存档里原有的。
 function lineModeToRemember(processId, previous) {
-  if (processId === activeProcessId && selectedAgent().profile === "dev") return $("profile-select").value;
+  if (processId === activeProcessId && ["dev-auto", "dev-pair"].includes(selectedAgent().profile)) return $("profile-select").value;
   const remembered = processProfileUi.get(processId);
   if (LINE_MODES.includes(remembered)) return remembered;
   return LINE_MODES.includes(previous?.mode) ? previous.mode : undefined;
 }
 export function rememberAutoUiState(processId = activeProcessId, fields = ["enabled", "paused", "stopAfterRound", "mode"]) {
   if (!processId || applyingProfileEcho) return {};
-  const previous = normalizeAutoState(processAutoState.get(processId), processId);
+  const previous = normalizeAutoState(processAutoState.get(processId));
   const mode = lineModeToRemember(processId, previous);
   const next = {
     enabled: $("auto-continue").checked,
     paused: autoPaused,
     stopAfterRound: autoStopAfterRound,
-    // 旧配置只保留在状态投影中,不再发送给引擎作硬门禁。
-    maxRounds: Number.isFinite(Number(previous?.maxRounds)) ? previous.maxRounds : autoContinueMax(),
     ...(mode ? { mode } : {}),
   };
   const patch = {};
@@ -1234,7 +1213,7 @@ export function rememberAutoUiState(processId = activeProcessId, fields = ["enab
 export function applyAutoStopToSession(sessionId, patch) {
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
   if (item) {
-    const next = normalizeAutoState(processAutoState.get(item.id), item.id);
+    const next = normalizeAutoState(processAutoState.get(item.id));
     Object.assign(next, patch);
     processAutoState.set(item.id, next);
     persistProcessAutoState({ [item.id]: patch });
@@ -1257,7 +1236,7 @@ export function applyAutoStopToSession(sessionId, patch) {
   }
 }
 export function applyAutoUiState(processId) {
-  const next = normalizeAutoState(processAutoState.get(processId), processId);
+  const next = normalizeAutoState(processAutoState.get(processId));
   processAutoState.set(processId, next);
   $("auto-continue").checked = next.enabled;
   setAutoPaused(next.paused);
@@ -1280,7 +1259,7 @@ export function applyAutoUiState(processId) {
 // 线路页要能直接操控任意一条线的自动推进；配置始终从 processAutoState 读取，顶栏 DOM 仅是投影。
 
 export function lineAutoConfig(processId) {
-  return normalizeAutoState(processAutoState.get(processId), processId);
+  return normalizeAutoState(processAutoState.get(processId));
 }
 const lineAutoStateQueues = new Map();
 export function setLineAutoState(processId, patch) {
@@ -1345,8 +1324,8 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
     armAutoContinue(processId === activeProcessId ? continuePrompt() : DEFAULT_CONTINUE_PROMPT, item.session_id);
   }
   refreshParallelTaskProjection(item.session_id);
-  if (typeof collaborationLines !== "undefined" && collaborationLines.length) {
-    renderLines(collaborationLines);
+  if (typeof collaborationConversations !== "undefined" && collaborationConversations.length) {
+    renderLines(collaborationConversations);
   }
   return next;
 }
@@ -1395,6 +1374,7 @@ export function applyProfileValue(backendProfile) {
     ? globalChoice
     : "dev-pair";
   if (backendProfile === "isolated") $("profile-select").value = "isolated";
+  else if (["dev-auto", "dev-pair"].includes(backendProfile)) $("profile-select").value = backendProfile;
   else if (backendProfile !== "research") $("profile-select").value = remembered && remembered !== "research" ? remembered : fallback;
   // 回显期间关掉的自动推进只是**跟随显示**,不是用户按下的开关:不落盘、不写全局键。
   applyingProfileEcho = true;
@@ -1408,13 +1388,13 @@ export function applyProfileValue(backendProfile) {
 defer(() => {
   $("profile-select").addEventListener("change", () => {
     const value = $("profile-select").value;
-    if (!["dev", "isolated"].includes(selectedAgent().profile)) return;
+    if (!["dev-auto", "dev-pair", "isolated"].includes(selectedAgent().profile)) return;
     syncResearchSectionVisibility();
     localStorage.setItem(PROFILE_STORAGE_KEY, value);
     if (activeProcessId) {
       processProfileUi.set(activeProcessId, value);
       persistProcessProfiles();
-      const profile = value === "isolated" ? "isolated" : "dev";
+      const profile = value;
       updateLocalProcessItem(activeProcessId, { profile });
       queueProcessUpdate(activeProcessId, { profile })
         .catch((error) => reportPersistentError(`${t("对话模式保存失败")}:${error}`));

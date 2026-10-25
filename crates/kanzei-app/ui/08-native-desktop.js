@@ -21,14 +21,15 @@ let generation=0;
 async function sync() {
   const version=++generation,owner=activeProcessId,button=document.getElementById("native-desktop-choose");
   if(!button)return;
-  const profile=processItems.find(item=>item.id===owner)?.profile || "dev";
-  button.disabled=!owner || profile!=="dev";
+  const profile=processItems.find(item=>item.id===owner)?.profile || "dev-auto";
+  const development=["dev-auto","dev-pair"].includes(profile);
+  button.disabled=!owner || !development;
   if(!owner){button.textContent=t("选择原生窗口");return;}
   try {
     const current=await invoke("native_desktop_get",{processId:owner});
     if(version!==generation || owner!==activeProcessId)return;
     button.textContent=current ? `${t("原生窗口")} · ${current.title}` : t("选择原生窗口");
-    button.title=profile==="dev" ? t("选择本对话可操作的原生窗口") : t("当前模式不操作原生窗口");
+    button.title=development ? t("选择本对话可操作的原生窗口") : t("当前模式不操作原生窗口");
   }catch(error){if(version===generation){button.textContent=t("原生窗口状态读取失败");button.title=String(error);}}
 }
 async function choose() {

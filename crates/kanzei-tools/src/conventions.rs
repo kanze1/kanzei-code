@@ -44,13 +44,9 @@ impl Tool for ConventionsTool {
 
     fn description(&self) -> String {
         format!(
-            "Read and maintain the dev rules document `{CONVENTIONS_REL}` (the agent write \
-             channel for it — write/edit are denied there). Actions: create (content, absent file only), propose (content + expected_hash; \
-             save a separate draft for user review, never replace active rules), get (full text + hash + \
-             heading navigation), patch (replace exactly one occurrence of old_string with \
-             new_string; refuses when the hash from the last get is stale, when old_string \
-             matches 0 places, or when it matches 2+ places — nothing is written then). \
-             patch is a surgical replacement, never a whole-file rewrite."
+            "Read or maintain project rules in `{CONVENTIONS_REL}`. get returns content/hash/navigation. \
+             create requires an absent file; propose saves a separate review draft. \
+             patch requires the current expected_hash and exactly one old_string match; stale or ambiguous edits do not write."
         )
     }
 

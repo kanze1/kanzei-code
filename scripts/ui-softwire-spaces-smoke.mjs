@@ -30,7 +30,7 @@ try {
     const snapshot = f.commands.workspace_snapshot(), overview = f.commands.workspace_overview();
     const project = snapshot.projects[0].path;
     const originals = f.state.processes.filter(p => p.origin_project === project);
-    originals.forEach((p, index) => { p.profile = index === 1 ? "dev" : "research"; p.running = false; p.research_topic = index === 1 ? null : "old-study"; });
+    originals.forEach((p, index) => { p.profile = index === 1 ? "dev-auto" : "research"; p.running = false; p.research_topic = index === 1 ? null : "old-study"; });
     for (const data of [snapshot, overview]) {
       const p = data.projects[0];
       p.lines.forEach((line, index) => Object.assign(line, { profile: originals[index].profile, running: false, stage: "空闲", label: index === 1 ? "开发执行" : "旧研究会话" }));
@@ -54,7 +54,7 @@ try {
     window.__kzPreview.setCommand("research_library_list", () => ({entries,diagnostics:[]}));
     window.__kzPreview.setCommand("run_prompt", () => null);
     await (await import("/12-docs-pages.js")).refreshWorkspace();
-    return { project, research:originals[0].id, dev:originals[1].id };
+    return { project, research:originals[0].id, "dev-auto":originals[1].id };
   });
   await page.evaluate(async project => (await import("/12-workbench.js")).openProjectSpace(project, "project"), id.project); await settle();
   check((await page.locator(".sw-recipient").innerText()).includes("开发执行"), "Development ignores a research default process and selects a development line");
@@ -99,14 +99,14 @@ try {
   await page.locator("#research-topic-select").selectOption("alpha"); await settle();
   await page.locator('[data-research-page="chat"]').click(); await settle();
   check(await page.locator("#prompt").inputValue() === "Alpha 课题草稿", "Returning to a topic restores its draft");
-  await space("dev");
+  await space("dev-auto");
   check(await page.locator("body").getAttribute("data-view") === "chat", "Returning to development enters the main conversation");
   await page.locator('[data-work-surface="project"]').click(); await settle();
   check(await page.locator("#softwire-workspace").isVisible() && await page.locator("#prompt").inputValue() === "开发工作草稿", "Returning to development restores its overview and composer draft");
   check((await calls("run_prompt")).length === 0 && !(await calls("auto_state_update")).some(args => args.enabled), "Browsing spaces never starts a task or enables a loop");
   await page.locator("#send").click(); await settle();
   const first = (await calls("run_prompt")).at(-1);
-  check(first.processId === id.dev && first.profile === "dev" && first.agent === "dev-pair" && first.projectDir === id.project && !first.researchTopic, "Development send is explicitly bound to the development process");
+  check(first.processId === id["dev-auto"] && first.profile === "dev-pair" && first.agent === "dev-pair" && first.projectDir === id.project && !first.researchTopic, "Development send is explicitly bound to the development process");
   // Reproduce the user's project: every existing process, including d|..., is research.
   await page.evaluate(async () => {
     const {f, snapshot, overview, project} = window.__spaces;
@@ -119,7 +119,7 @@ try {
   await page.locator("#prompt").fill("新的开发任务");
   await page.locator("#send").click(); await settle();
   const next = (await calls("run_prompt")).at(-1), created = (await calls("process_create")).at(-1);
-  check(created.profile === "dev" && next.processId !== id.research && next.processId !== id.dev && next.profile === "dev", "With only research sessions, send creates a separate development session");
+  check(created.profile === "dev-auto" && next.processId !== id.research && next.processId !== id["dev-auto"] && next.profile === "dev-auto", "With only research sessions, send creates a separate development session");
   await page.evaluate(async processId => {
     const {f,snapshot,overview,project} = window.__spaces;
     const p = f.state.processes.find(p => p.id === processId); p.profile = "research";
@@ -130,7 +130,7 @@ try {
   const runsBeforeStart = (await calls("run_prompt")).length;
   await page.locator("#sw-run-toggle").click(); await settle();
   const enabled = (await calls("auto_state_update")).findLast(args => args.enabled);
-  const createdLines = await page.evaluate(() => window.__spaces.f.state.processes.filter(p => p.origin_project === window.__spaces.project && p.profile === "dev"));
+  const createdLines = await page.evaluate(() => window.__spaces.f.state.processes.filter(p => p.origin_project === window.__spaces.project && p.profile === "dev-auto"));
   check(createdLines.length === 1 && enabled?.sessionId === createdLines[0].session_id, "One-click loop start creates and enables a separate development session when only research exists");
   await page.locator("#sw-run-toggle").click(); await settle();
   await page.getByRole("button",{name:"关闭鞭挞",exact:true}).click(); await settle();

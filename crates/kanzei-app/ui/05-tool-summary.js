@@ -638,8 +638,7 @@ function summarizeTracker(s) {
 
 function summarizeWork(s) {
   const action = String(s.input.action ?? "");
-  const head = firstLine(s.lines).trim();
-  if (/^model completion declared/.test(head) || action === "handoff") {
+  if (action === "handoff") {
     const local = ["work_item", "batch"].includes(s.input.handoff_scope);
     return { groups: [local ? t("交付记录已登记") : t("交付记录已提交")], key: "work.handoff" };
   }
@@ -786,11 +785,9 @@ function summarizeDeliver(s) {
   return m ? { groups: [[txt(`${t("已交付")} `), code(m[1])], formatByteSize(m[2])], key: "deliver" } : null;
 }
 function summarizeCollaboration(s) {
-  if (Array.isArray(s.display?.lines)) {
-    return { groups: [countText(s.display.lines.length, t("{n} 个独立任务"), t("1 个独立任务"))], key: "collaboration_status" };
-  }
-  if (/^No other line is currently running/.test(firstLine(s.lines).trim())) return { groups: [t("无其他独立任务")], key: "collaboration_status" };
-  return null;
+  if (!Array.isArray(s.display?.conversations) || !Array.isArray(s.display?.worktrees)) return null;
+  return { groups: [countText(s.display.conversations.length, t("{n} 个对话"), t("1 个对话")),
+    countText(s.display.worktrees.length, t("{n} 个工作树"), t("1 个工作树"))], key: "collaboration_status" };
 }
 const summarizeScreenshot = () => ({ groups: [t("截图")], key: "ui_screenshot" });
 

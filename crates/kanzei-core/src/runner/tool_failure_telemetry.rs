@@ -340,7 +340,7 @@ mod tests {
             &ctx,
             "gate",
             "bash",
-            &ToolOutput::blocked_by_workflow("BATCH_CLOSING", "close batch first"),
+            &ToolOutput::blocked_by_workflow("WORK_ITEM_BLOCKED", "work item dependency pending"),
         );
         record_permission_denied(&ctx, "declined", "write");
         record_tool_failure(

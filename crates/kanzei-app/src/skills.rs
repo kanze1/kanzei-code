@@ -22,7 +22,9 @@ fn yes() -> bool {
 }
 
 fn validate(draft: &SkillDraft) -> Result<(), String> {
-    let name = &draft.name;
+    validate_content(&draft.name, &draft.description, &draft.instructions)
+}
+fn validate_content(name: &str, description: &str, instructions: &str) -> Result<(), String> {
     if name.is_empty()
         || name.chars().count() > 64
         || name.starts_with('-')
@@ -34,16 +36,16 @@ fn validate(draft: &SkillDraft) -> Result<(), String> {
     {
         return Err("名称请使用小写字母、数字和连字符，最多 64 个字符".into());
     }
-    if draft.description.trim().is_empty() || draft.description.chars().count() > 1024 {
+    if description.trim().is_empty() || description.chars().count() > 1024 {
         return Err("描述不能为空，最多 1024 个字符".into());
     }
-    if draft.instructions.trim().is_empty() || draft.instructions.len() > 120_000 {
+    if instructions.trim().is_empty() || instructions.len() > 120_000 {
         return Err("技能正文不能为空，最多 120 KB".into());
     }
     Ok(())
 }
 
-fn entry(skill: &SkillDef, _home: &Path, disabled: &std::collections::BTreeSet<String>) -> Value {
+fn entry(skill: &SkillDef, disabled: &std::collections::BTreeSet<String>) -> Value {
     let source = skill.source.as_str();
     let title = if source == "builtin" {
         catalog::BUILTINS
@@ -54,7 +56,7 @@ fn entry(skill: &SkillDef, _home: &Path, disabled: &std::collections::BTreeSet<S
         None
     };
     json!({"id":skill.id, "name":skill.name, "displayName":title.unwrap_or(&skill.name), "description":skill.description,
-        "path":skill.path, "source":source, "editable":source == "personal", "enabled":!disabled.contains(&skill.id) && !disabled.contains(&skill.name),
+        "path":skill.path, "source":source, "editable":source == "personal", "enabled":!disabled.contains(&skill.id),
         "manualOnly":skill.disable_model_invocation, "userInvocable":skill.user_invocable})
 }
 
@@ -63,10 +65,10 @@ fn list_at(home: &Path) -> Result<Vec<Value>, String> {
         .map_err(|e| e.to_string())?
         .disabled;
     Ok(
-        catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+        catalog::catalog_at(home, catalog::external_library_home().as_deref())
             .map_err(|e| e.to_string())?
             .iter()
-            .map(|skill| entry(skill, home, &disabled))
+            .map(|skill| entry(skill, &disabled))
             .collect(),
     )
 }
@@ -80,7 +82,7 @@ fn skill_lock(home: &Path, name: &str) -> Result<kanzei_base::atomic_file::FileL
     kanzei_base::atomic_file::lock_exclusive(&directory.join(name)).map_err(|e| e.to_string())
 }
 fn find_at(home: &Path, selector: &str) -> Result<SkillDef, String> {
-    let skills = catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+    let skills = catalog::catalog_at(home, catalog::external_library_home().as_deref())
         .map_err(|e| e.to_string())?;
     catalog::resolve(&skills, selector)
         .cloned()
@@ -95,12 +97,8 @@ pub(crate) fn skills_list() -> Result<Vec<Value>, String> {
 fn read_at(home: &Path, name: &str) -> Result<Value, String> {
     let skill = find_at(home, name)?;
     let content = catalog::read_content(&skill).map_err(|e| e.to_string())?;
-    if content.len() > 131_072 {
-        return Err("Skill 太大，请把参考资料放入 references".into());
-    }
     let mut value = entry(
         &skill,
-        home,
         &catalog::preferences_at(home)
             .map_err(|e| e.to_string())?
             .disabled,
@@ -164,7 +162,7 @@ fn save_at(home: &Path, draft: SkillDraft, expected_hash: Option<&str>) -> Resul
     validate(&draft)?;
     let _lock = skill_lock(home, &draft.name)?;
     let id = format!("personal:{}", draft.name);
-    let existing = catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+    let existing = catalog::catalog_at(home, catalog::external_library_home().as_deref())
         .map_err(|e| e.to_string())?
         .into_iter()
         .find(|skill| skill.id == id);
@@ -336,7 +334,7 @@ fn duplicate_at(home: &Path, name: &str, new_name: &str) -> Result<Value, String
     };
     validate(&draft)?;
     let _lock = skill_lock(home, new_name)?;
-    if catalog::catalog_at(home, catalog::compatibility_home().as_deref())
+    if catalog::catalog_at(home, catalog::external_library_home().as_deref())
         .map_err(|e| e.to_string())?
         .iter()
         .any(|s| s.id == format!("personal:{new_name}"))
@@ -382,22 +380,25 @@ pub(crate) fn skills_duplicate(name: String, new_name: String) -> Result<Value, 
     duplicate_at(&home()?, &name, &new_name)
 }
 
-fn parse_generated(text: &str) -> Result<SkillDraft, String> {
-    let text = text.trim();
-    let text = text
-        .strip_prefix("```json")
-        .or_else(|| text.strip_prefix("```"))
-        .and_then(|text| text.strip_suffix("```"))
-        .unwrap_or(text)
-        .trim();
-    let draft: SkillDraft =
-        serde_json::from_str(text).map_err(|_| "模型返回的技能草稿格式无效，请重新生成")?;
-    validate(&draft)?;
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GeneratedSkill {
+    name: String,
+    description: String,
+    instructions: String,
+}
+
+fn parse_generated(text: &str) -> Result<GeneratedSkill, String> {
+    let draft: GeneratedSkill = serde_json::from_str(text)
+        .map_err(|error| format!("模型返回的技能草稿必须是完整 JSON 对象: {error}"))?;
+    validate_content(&draft.name, &draft.description, &draft.instructions)?;
     Ok(draft)
 }
 
+const SKILL_DRAFT_SYSTEM: &str = "按用户描述生成可编辑、可复用的 Skill 草稿，说明适用条件和必要做法，不虚构工具或环境。使用用户语言。只返回 JSON 对象，字段为 name、description、instructions；name 用小写字母、数字和连字符，最长 64 字符，description 最长 1024 字符，instructions 为简明 Markdown 正文。";
+
 #[tauri::command]
-pub(crate) async fn skills_generate(description: String) -> Result<SkillDraft, String> {
+pub(crate) async fn skills_generate(description: String) -> Result<GeneratedSkill, String> {
     if description.trim().is_empty() || description.len() > 16_000 {
         return Err("请简要描述技能用途，最多 16 KB".into());
     }
@@ -413,12 +414,15 @@ pub(crate) async fn skills_generate(description: String) -> Result<SkillDraft, S
         .await
         .map_err(|e| e.to_string())?;
     let client = kanzei_llm::LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let guidance = catalog::BUILTINS[0].2;
     let request = kanzei_llm::LlmRequest {
         model: model.model.clone(),
-        system: vec![format!("你是 Skills 草稿生成助手。只返回一个 JSON 对象，字段 name、description、instructions；name 使用小写英文、数字和连字符，最多 64 个字符，description 最多 1024 个字符。instructions 为简洁的 Markdown 正文。根据用户语言编写描述和正文。生成可复用、触发条件明确的技能，不执行任务，不写文件，不虚构工具或能力，不引用当前机器不存在的绝对路径。\n{guidance}")],
-        messages: vec![kanzei_llm::Message::user_text(&description)], tools: Vec::new(), hosted_tools: Vec::new(),
-        max_tokens: 4096, temperature: None, reasoning: kanzei_llm::ReasoningEffort::Off,
+        system: vec![SKILL_DRAFT_SYSTEM.into()],
+        messages: vec![kanzei_llm::Message::user_text(&description)],
+        tools: Vec::new(),
+        hosted_tools: Vec::new(),
+        max_tokens: 4096,
+        temperature: None,
+        reasoning: kanzei_llm::ReasoningEffort::Off,
         service_tier: config.service_tier_for(&model),
     };
     tokio::time::timeout(std::time::Duration::from_secs(120), async {
@@ -431,11 +435,12 @@ pub(crate) async fn skills_generate(description: String) -> Result<SkillDraft, S
         while let Some(event) = stream.next().await {
             match event.map_err(|e| e.to_string())? {
                 kanzei_llm::LlmEvent::TextDelta { text, .. } => output.push_str(&text),
-                kanzei_llm::LlmEvent::StepFinish {
-                    reason: kanzei_llm::FinishReason::MaxTokens,
-                    ..
-                } => return Err("技能草稿被截断，请缩短描述后重新生成".into()),
-                kanzei_llm::LlmEvent::StepFinish { .. } => finished = true,
+                kanzei_llm::LlmEvent::StepFinish { reason, .. } => {
+                    if reason != kanzei_llm::FinishReason::EndTurn {
+                        return Err(format!("技能草稿未完整结束: {reason:?}"));
+                    }
+                    finished = true;
+                }
                 _ => {}
             }
         }
@@ -446,53 +451,6 @@ pub(crate) async fn skills_generate(description: String) -> Result<SkillDraft, S
     })
     .await
     .map_err(|_| "技能生成超时，请重试")?
-}
-
-pub(crate) fn append_explicit_instructions(
-    system: &mut String,
-    prompt: &str,
-) -> anyhow::Result<()> {
-    let home = catalog::global_home()?;
-    let prefs = catalog::preferences_at(&home)?;
-    let skills = catalog::global_catalog()?;
-    let mut invoked = std::collections::BTreeSet::new();
-    for (start, _) in prompt.match_indices('$') {
-        if prompt[..start]
-            .chars()
-            .next_back()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        {
-            continue;
-        }
-        let selector: String = prompt[start + 1..]
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ':'))
-            .collect();
-        if !skills
-            .iter()
-            .any(|s| s.id == selector || s.name == selector)
-        {
-            continue;
-        }
-        let skill = catalog::resolve(&skills, &selector)?;
-        if !invoked.insert(skill.id.clone()) {
-            continue;
-        }
-        anyhow::ensure!(
-            catalog::is_enabled(skill, &prefs),
-            "Skill 已停用：{}，请在 Skills 中启用",
-            skill.id
-        );
-        anyhow::ensure!(skill.user_invocable, "Skill 不允许手动调用：{}", skill.id);
-        let content = catalog::read_content(skill)?;
-        system.push_str(&format!(
-            "\n用户显式调用了全局 Skill ${}。遵循用户当前指令；来源 {}，按需读取引用资料。\n{}\n",
-            skill.id,
-            skill.path.display(),
-            content
-        ));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -568,39 +526,29 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
-    fn enabled_state_is_global_and_explicit_calls_obey_it() {
+    fn enabled_state_is_global_and_source_qualified() {
         kanzei_base::test_support::isolated_test(
             module_path!(),
-            "enabled_state_is_global_and_explicit_calls_obey_it",
+            "enabled_state_is_global_and_source_qualified",
             || {
                 let root = temp();
                 crate::settings::with_kanzei_home(&root, || {
                     save_at(&root, draft(), None).unwrap();
-                    let mut system = String::new();
-                    append_explicit_instructions(&mut system, "use $sample-check").unwrap();
-                    assert!(system.contains("Read references/example.md"));
-                    let mut chinese = String::new();
-                    append_explicit_instructions(&mut chinese, "请使用$sample-check").unwrap();
-                    assert!(chinese.contains("Read references/example.md"));
-                    let mut other = String::new();
-                    append_explicit_instructions(&mut other, "$sample-check-other").unwrap();
-                    assert!(other.is_empty());
                     skills_set_enabled("sample-check".into(), false).unwrap();
-                    assert!(
-                        append_explicit_instructions(&mut String::new(), "$sample-check").is_err()
-                    );
-                    assert!(
-                        !kanzei_harness::markdown::discover_skills(&root.join("project-one"))
-                            .iter()
-                            .any(|s| s.name == "sample-check")
-                    );
+                    assert!(!catalog::enabled_catalog()
+                        .unwrap()
+                        .iter()
+                        .any(|s| s.name == "sample-check"));
                     skills_set_enabled("sample-check".into(), true).unwrap();
-                    let one = kanzei_harness::markdown::discover_skills(&root.join("project-one"));
-                    let two = kanzei_harness::markdown::discover_skills(&root.join("project-two"));
-                    assert_eq!(
-                        one.iter().map(|s| &s.name).collect::<Vec<_>>(),
-                        two.iter().map(|s| &s.name).collect::<Vec<_>>()
-                    );
+                    assert!(catalog::enabled_catalog()
+                        .unwrap()
+                        .iter()
+                        .any(|skill| skill.id == "personal:sample-check"));
+                    assert!(list_at(&root)
+                        .unwrap()
+                        .iter()
+                        .any(|entry| entry["id"] == "personal:sample-check"
+                            && entry["enabled"] == true));
                 });
                 std::fs::remove_dir_all(root).unwrap();
             },
@@ -614,5 +562,11 @@ mod tests {
         )
         .is_err());
         assert!(parse_generated("{\"name\":\"daily-review\"").is_err());
+        for extra in ["manualOnly", "userInvocable", "system"] {
+            let mut input = json!({"name":"daily-review","description":"Review progress","instructions":"Read the supplied report."});
+            input[extra] = json!(true);
+            assert!(parse_generated(&input.to_string()).is_err());
+        }
+        assert!(parse_generated("```json\n{\"name\":\"daily-review\",\"description\":\"x\",\"instructions\":\"x\"}\n```").is_err());
     }
 }

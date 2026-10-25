@@ -129,7 +129,7 @@ try {
   await page.locator("#sw-run-toggle").click();
   await page.waitForFunction(() => window.__kzPreview.calls.some(c => c.cmd === "run_prompt"));
   const run = await last("run_prompt");
-  check(run.projectDir === identity.project && run.processId === identity.process && run.autonomous === true && run.agent === "dev", "Resume sends a real autonomous request for the visible project and mode");
+  check(run.projectDir === identity.project && run.processId === identity.process && run.autonomous === true && run.agent === "dev-auto", "Resume sends a real autonomous request for the visible project and mode");
   check(await count("run_prompt") === 1, "A single start produces one first-round request");
   check(await page.locator("#prompt").inputValue() === "启动不应该带走这个草稿", "The loop does not send or clear a user draft");
   await page.getByRole("button",{name:"关闭鞭挞",exact:true}).click(); await settle();

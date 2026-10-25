@@ -161,7 +161,7 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
         None,
         ThreadSettings {
             model: None,
-            profile: Some("dev".into()),
+            profile: Some("dev-auto".into()),
             research_topic: None,
             reasoning: None,
 

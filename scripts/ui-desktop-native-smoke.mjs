@@ -72,7 +72,7 @@ try{
   await app.page.locator("#native-desktop-dialog").waitFor({state:"hidden"});
   const selected=await app.invoke("native_desktop_get",{processId:line.id});check(Boolean(selected?.id),"Actual UI window selection publishes a conversation-owned capability");
   const list=await app.invoke("native_desktop_windows");check(!list.windows.some(window=>/^(kzapp|codex|chatgpt)\.exe$/i.test(window.application)),"Human picker excludes agent and approval windows");
-  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_DESKTOP_FORM: 填写原生表单、按键、点击画布并选择明确文件，保留失败。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
+  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_DESKTOP_FORM: 填写原生表单、按键、点击画布并选择明确文件，保留失败。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
   await until(async()=>{assert.equal(app.errors.length,0,app.errors.join("; "));return done&&(await app.invoke("collaboration_snapshot",{projectDir:app.project})).find(row=>row.process_id===line.id)?.status==="completed";},"Actual native GUI workflow completes",180000);
   const state=JSON.parse(await readFile(path.join(fixtureRoot,"state.json"),"utf8"));
   check(state.submitted&&state.name==="NATIVE_AGENT_NAME","Native application callback verifies actual form submission");
@@ -90,11 +90,11 @@ try{
   check(!JSON.stringify(app.requests).includes("NATIVE_DESKTOP_SECRET_CANARY")&&!JSON.stringify(app.requests).includes("UIA_PASSWORD_CANARY"),"Credential and password canaries never enter provider requests");
   const next=await app.createConversation();
   check(await app.invoke("native_desktop_get",{processId:next.id})===null,"Another conversation does not inherit the selected window");
-  await app.invoke("run_prompt",{projectDir:app.project,processId:next.id,prompt:"NATIVE_DESKTOP_NO_WINDOW: 不得接管上一条对话的窗口。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
+  await app.invoke("run_prompt",{projectDir:app.project,processId:next.id,prompt:"NATIVE_DESKTOP_NO_WINDOW: 不得接管上一条对话的窗口。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
   await until(()=>noWindowDone,"Unselected conversation refuses native inspection");
   check(results.find(result=>result.mode==="unselected")?.content.includes("NATIVE_WINDOW_REQUIRED"),"Provider cannot pick a window by itself");
   await app.page.evaluate(async id=>(await import("./09-sessions.js")).switchProcess(id,true),line.id);
-  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_DESKTOP_APPROVAL: 等待一次窗口动作批准。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
+  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_DESKTOP_APPROVAL: 等待一次窗口动作批准。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
   await until(async()=>(await app.invoke("pending_asks_get",{projectDir:app.project,processId:line.id})).length===1,"Native mutation waits for actual approval");
   const pending=await app.invoke("pending_asks_get",{projectDir:app.project,processId:line.id});
   await app.invoke("native_desktop_select",{processId:line.id,candidateId:null});

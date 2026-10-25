@@ -25,7 +25,7 @@ try {
   const actionFixture=await page.evaluate(async()=>{
    const fixture=await window.__kzPreview.fixtures();
    const {switchProcess}=await import('/09-sessions.js');await switchProcess(fixture.ids.idleProcess,true);
-   const forked=await window.__TAURI__.core.invoke('process_create',{projectDir:fixture.ids?.project || 'C:/Users/kanzei/Documents/kanzei code',profile:'dev'});
+   const forked=await window.__TAURI__.core.invoke('process_create',{projectDir:fixture.ids?.project || 'C:/Users/kanzei/Documents/kanzei code',profile:'dev-auto'});
    let holdForkRefresh=false,releaseForkRefresh;
    const forkRefresh=new Promise(resolve=>{releaseForkRefresh=resolve;});
    window.__harnessForkRefreshBlocked=false;
@@ -75,17 +75,26 @@ try {
   assert.equal(stopCalls.filter(c=>c.cmd==='stop_run').length,0,'single terminal stop must not stop the whole run');
   await page.evaluate(async()=>{
    const global='C:/fixture-home/agents/reviewer.md',project='C:/fixture-project/.kanzei/agents/reviewer.md';
-   const base={profile:'dev',mode:'primary',model:'primary',steps:0,status:'available',error:null};
-   window.__kzPreview.setCommand('agent_directory_get',{profile:'dev',agents:[
-    {...base,name:'reviewer',source:'project',path:project,systemPreview:'Project winner prompt',registration:{name:'reviewer',replaced:[{component:'fixture::Builtin',path:null},{component:'fixture::Markdown',path:global}],winner:{component:'fixture::Markdown',path:project}}},
+   const base={profile:'dev-auto',mode:'primary',model:'primary',steps:0,status:'available',error:null};
+   window.__kzPreview.setCommand('agent_directory_get',{profile:'dev-auto',agents:[
+    {...base,name:'reviewer',source:'project',path:project,revision:'a'.repeat(64),approved:true,systemPreview:'Project winner prompt',registration:{name:'reviewer',replaced:[{component:'fixture::Builtin',path:null},{component:'fixture::Markdown',path:global}],winner:{component:'fixture::Markdown',path:project}}},
+    {...base,name:'reviewer',source:'global',path:global,revision:'b'.repeat(64),status:'overridden',systemPreview:'Global shadowed prompt',registration:null},
+    {...base,name:'pending',source:'project',path:'C:/fixture-project/.kanzei/agents/pending.md',revision:'c'.repeat(64),approved:false,status:'untrusted',systemPreview:'Unapproved source prompt',registration:null},
+    {...base,name:'broken',source:'project',path:'C:/fixture-project/.kanzei/agents/broken.md',steps:null,profile:'',mode:'',model:'',status:'configurationError',error:'Invalid Agent mode',systemPreview:'',registration:null},
     {...base,name:'plain',source:'builtin',path:null,systemPreview:'Builtin prompt',registration:{name:'plain',replaced:[],winner:{component:'fixture::Builtin',path:null}}},
    ]});
    (await import('/03-shell.js')).navigate_view('settings');
   });
   await page.locator('[data-settings-target="sg-agents"]').click();
-  const overlayAgent=page.locator('.agent-directory-card').filter({has:page.getByRole('heading',{name:/^reviewer /})});
+  const overlayAgent=page.locator('.agent-directory-card').filter({hasText:'Project winner prompt'});
   await overlayAgent.getByText('Project winner prompt',{exact:true}).waitFor();
   assert.match(await overlayAgent.innerText(),/来源: 项目/,'the displayed source must be the effective project winner');
+  assert.match(await overlayAgent.innerText(),/当前内容已批准/);
+  assert.match(await overlayAgent.innerText(),/步数上限: 无上限/);
+  assert.match(await overlayAgent.innerText(),new RegExp('a'.repeat(64)));
+  assert.match(await page.locator('.agent-directory-card').filter({hasText:'Global shadowed prompt'}).innerText(),/已被覆盖/);
+  assert.match(await page.locator('.agent-directory-card').filter({hasText:'Unapproved source prompt'}).innerText(),/尚未信任/);
+  assert.equal(await page.locator('.agent-directory-card').filter({hasText:'Invalid Agent mode'}).getByText('步数上限:',{exact:false}).count(),0,'invalid metadata must not invent an execution budget');
   const overrideOrder=overlayAgent.locator('.agent-directory-field').filter({hasText:'覆盖顺序:'});
   assert.equal(await overrideOrder.count(),1);
   assert.equal(await overrideOrder.innerText(),'覆盖顺序: 内建 → C:/fixture-home/agents/reviewer.md → C:/fixture-project/.kanzei/agents/reviewer.md');
@@ -97,6 +106,25 @@ try {
   await overlayAgent.getByRole('button',{name:'打开原文',exact:true}).click();
   const directoryOpen=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='agent_directory_open').at(-1));
   assert.equal(directoryOpen.args.path,'C:/fixture-project/.kanzei/agents/reviewer.md','open-source action must use the final winner path');
+  const openedScope=await page.evaluate(()=>window.__kzPreview.calls.filter(c=>c.cmd==='agent_directory_get').at(-1).args.projectDir);
+  assert.equal(directoryOpen.args.projectDir,openedScope,'source opening must retain the displayed directory scope');
+  const directoryText=await page.evaluate(async()=>{
+    const {loadAgentDirectory}=await import('/16-settings.js');
+    const pending=[];
+    let admitted;
+    const bothStarted=new Promise(resolve=>{admitted=resolve;});
+    window.__kzPreview.setCommand('agent_directory_get',()=>new Promise(resolve=>{pending.push(resolve);if(pending.length===2)admitted();}));
+    const first=loadAgentDirectory(),second=loadAgentDirectory();
+    await bothStarted;
+    const snapshot=name=>({profile:'dev-auto',agents:[{name,source:'builtin',profile:'dev-auto',mode:'primary',model:'primary',steps:0,status:'available',systemPreview:name}]});
+    pending[1](snapshot('LATEST_DIRECTORY_SOURCE'));
+    await second;
+    pending[0](snapshot('STALE_DIRECTORY_SOURCE'));
+    await first;
+    return document.querySelector('#agent-directory').innerText;
+  });
+  assert.match(directoryText,/LATEST_DIRECTORY_SOURCE/);
+  assert.doesNotMatch(directoryText,/STALE_DIRECTORY_SOURCE/,'an older response must not replace a later directory snapshot');
   assert.equal(errors.length,0,errors.join('\n'));console.log(`${theme}: 定时任务、回退预览和代码操作、分叉、手动压缩、单个后台终端停止、Agent 胜者/覆盖链与原文入口通过`);await page.close();
  }
 }finally{await browser.close();await server.close();}

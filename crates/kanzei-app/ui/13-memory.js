@@ -413,7 +413,7 @@ function syncMemoryNotice() {
 // run_metrics 聚合项目下全部对话(主对话、讨论、独立任务),每轮带 sessionId,点一轮就跳到它所在的对话。
 // 版面:上面是「近 N 轮均值 + 迷你柱」(一根柱一轮,左旧右新),下面是逐轮列表。
 // 均值口径:只统计有度量的轮次。早于度量落地的轮次 metrics 是空对象,把它们算成 0 会把均值整体
-// 压低,得出「冗余在下降」的假结论——所以它们既不进均值也不画柱,列表里单独写明。
+// 压低,形成失真的调用统计——所以它们既不进均值也不画柱,列表里单独写明。
 const METRICS_ROUNDS = 20;
 let metricsGeneration = 0;
 let metricsRenderedProject = null;
@@ -520,26 +520,27 @@ const BILL_TOP_ROWS = 6;
 export const CONTEXT_BILL_LABELS = Object.freeze({
   "agent/system": "系统提示词",
   "core/env": "运行环境",
+  "core/preferences": "已保存偏好",
   "core/project-state": "项目状态",
   "core/skills": "技能清单",
-  "dev/control": "开工控制",
-  "dev/conventions": "开发规范",
-  "dev/decisions": "项目决策",
-  "dev/design-index": "设计文档索引",
-  "dev/ideas": "想法收件箱",
-  "dev/memory": "项目记忆",
-  "dev/project-knowledge": "项目知识",
-  "dev/verification-policy": "验证策略",
+  "skills/invoked": "本轮调用技能",
+  "development/control": "开工控制",
+  "project/conventions": "项目规范",
+  "development/decisions": "已接受项目决策",
+  "development/design-index": "设计导航入口",
+  "development/ideas": "想法收件箱索引",
+  "development/project-knowledge": "项目知识概览",
+  "development/verification-policy": "验证策略",
   "memory/hints": "记忆提示",
   "scout/brief": "勘察简报",
   "runtime/decisions": "运行时决定",
   "runtime/collaboration": "协作状态",
   "tools/catalog": "延迟工具目录",
   "tools/schema": "工具参数定义",
-  "team/inbox": "团队待整理",
-  "team/memory": "团队记忆",
-  "research/docs": "研究文档",
-  "research/workflow": "研究流程",
+  "team/inbox": "子任务消息",
+  "team/memory": "子任务经验缓存",
+  "research/docs": "研究资料导航",
+  "research/topic": "研究课题归属",
 });
 export function contextBillLabel(name) {
   const raw = String(name ?? "");
@@ -739,7 +740,7 @@ function metricsRoundRow(round) {
       fillTemplate(t("子代理 {n} 次"), { n: m.subagent_calls ?? 0 }),
       fillTemplate(t("失败 {failed}/{total} 次"), { failed: m.failed_calls ?? 0, total: m.total_calls ?? 0 }),
       fillTemplate(t("上下文 {n} 字"), { n: contextTotal }),
-    ].filter(Boolean).join(" · ") + redundantLine(m)
+    ].filter(Boolean).join(" · ")
     : t("该轮早于度量落地,无画像");
   const tools = document.createElement("div");
   tools.className = "metrics-round-tools dim";
@@ -777,16 +778,6 @@ export function renderMetrics(rounds) {
   }
   metricsTrend(rounds);
   for (const round of rounds) list.appendChild(metricsRoundRow(round));
-}
-
-export function redundantLine(m) {
-  const total = (m.redundant_git ?? 0) + (m.redundant_test ?? 0) + (m.redundant_task ?? 0);
-  if (total === 0) return "";
-  const parts = [];
-  if (m.redundant_git) parts.push(`${t("重复 git 查询")}×${m.redundant_git}`);
-  if (m.redundant_test) parts.push(`${t("重复跑测试")}×${m.redundant_test}`);
-  if (m.redundant_task) parts.push(`${t("重复派子代理")}×${m.redundant_task}`);
-  return ` · ${t("冗余提醒")} ${parts.join(" ")}`;
 }
 
 defer(() => {
@@ -1814,7 +1805,7 @@ defer(() => {
     chatInput.setSelectionRange?.(chatInput.value.length, chatInput.value.length);
   });
   $("memory-empty-add")?.addEventListener("click", () => $("project-add")?.click());
-  $("memory-empty-dev")?.addEventListener("click", () => document.querySelector('[data-workspace="dev"]')?.click());
+  $("memory-empty-dev")?.addEventListener("click", () => document.querySelector('[data-workspace="dev-auto"]')?.click());
   const input = $("memory-search-input");
   const clear = $("memory-search-clear");
   let searchTimer = 0;

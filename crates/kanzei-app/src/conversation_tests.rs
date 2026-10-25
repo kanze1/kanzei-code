@@ -79,7 +79,7 @@ fn conversation_prior_prefers_persisted_snapshot_over_stale_memory() {
 /// 2026-08-20 现场:新对话卡在鞭挞失败重试循环里点了"新对话",鞭挞立刻带着
 /// 旧的失败计数发起下一轮——因为 conversation.reset 只清对话投影,从不碰
 /// auto_runs(鞭挞控制器按 session_id 存)。这里断言:清空后失败轮数归零,
-/// 但用户显式设置的开关(enabled/max_rounds)必须保留,不能被连带清掉。
+/// 但用户显式设置的启用开关与暂停状态必须保留,不能被连带清掉。
 #[test]
 fn 新对话清空鞭挞失败轮数但保留用户开关设置() {
     let state = AppState::default();
@@ -88,7 +88,6 @@ fn 新对话清空鞭挞失败轮数但保留用户开关设置() {
         let ctrl = controllers.entry("ses_reset".to_string()).or_default();
         ctrl.enabled = true;
         ctrl.state.rounds = 3;
-        ctrl.state.max_rounds = 7;
         ctrl.state.paused = true;
     }
 
@@ -101,10 +100,6 @@ fn 新对话清空鞭挞失败轮数但保留用户开关设置() {
         "失败重试轮数必须清零,否则新对话形同虚设"
     );
     assert!(ctrl.enabled, "用户开启的鞭挞开关不该被新对话连带关掉");
-    assert_eq!(
-        ctrl.state.max_rounds, 7,
-        "旧 max_rounds 兼容字段不该被新对话重置"
-    );
     assert!(ctrl.state.paused, "用户的暂停状态不该被新对话清掉");
 }
 

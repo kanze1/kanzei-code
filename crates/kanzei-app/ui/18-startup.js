@@ -89,7 +89,7 @@ defer(() => {
     const isCurrent = workbenchNavigationGuard();
     await runStep(["项目进展", refreshWorkspace]);
     await runStep(["工作空间", () => restore_active_workspace({ isCurrent })]);
-    if (isCurrent() && active_space === "dev") {
+    if (isCurrent() && active_space === "dev-auto") {
       const mode = (await uiPrefsLoad())?.ui_layout?.prefs?.conversation_mode;
       if (isCurrent() && (mode === "general" || !lastProjectPrefs.projects?.length)) await runStep(["无项目对话", openGeneralChat]);
       else if (isCurrent() && lastProjectPrefs.current) await runStep(["项目概览", () => openProjectSpace(lastProjectPrefs.current)]);

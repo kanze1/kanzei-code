@@ -549,7 +549,8 @@ fn project_visible_segment(
         metadata["message_count"] = json!(messages.len());
         metadata["title"] = json!(messages
             .iter()
-            .find(|message| message.role == kanzei_llm::Role::User)
+            .find(|message| message.role == kanzei_llm::Role::User
+                && message.origin == kanzei_llm::MessageOrigin::Human)
             .and_then(|message| message.parts.iter().find_map(|part| match part {
                 kanzei_llm::Part::Text { text } => Some(text.chars().take(48).collect::<String>()),
                 _ => None,
@@ -579,7 +580,10 @@ fn project_segment(
     }
     let title = surface
         .iter()
-        .find(|message| message.role == kanzei_llm::Role::User)
+        .find(|message| {
+            message.role == kanzei_llm::Role::User
+                && message.origin == kanzei_llm::MessageOrigin::Human
+        })
         .and_then(|message| {
             message.parts.iter().find_map(|part| match part {
                 kanzei_llm::Part::Text { text } => Some(text.clone()),
@@ -621,7 +625,7 @@ fn legacy_segment(
         .expect("nonempty snapshot");
     let title = messages
         .iter()
-        .find(|item| item["role"] == "user")
+        .find(|item| item["role"] == "user" && item["origin"] == "human")
         .and_then(|item| item["parts"].as_array())
         .and_then(|parts| parts.iter().find(|part| part["type"] == "text"))
         .and_then(|part| part["text"].as_str())

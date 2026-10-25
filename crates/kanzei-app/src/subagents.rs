@@ -1,32 +1,98 @@
-//! 独立子代理命令：快速结构化落库与缺陷审查。
-
-use std::sync::Arc;
-
+//! Button-scoped registration, idea decomposition and read-only defect review.
 use crate::{run_once_with_parts, AppState, AskFuture};
 use kanzei_core::{RunEvent, RunnerConfig};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
-use kanzei_harness::Tool as _;
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx};
-use kanzei_llm::LlmClient;
-use kanzei_llm::ProxyConfig;
+use kanzei_llm::{LlmClient, ProxyConfig};
 use kanzei_memory::docstore::{DocStore, DEFECTS, IDEAS, REQUIREMENTS};
+use std::sync::Arc;
 
-#[cfg(test)]
-const QUICK_CAPTURE_TAGS: &str = "核心|后端|前端|模型|发布|流程";
+const QUICK_DEFECT_SYSTEM: &str = "根据用户描述登记缺陷，按独立问题组织条目并查重。保留限定条件，只记录有依据的现象和复现；缺失信息写为具体待澄清问题，不补造事实。原文和来源由系统保存并绑定。返回实际登记或复用的 ID，未完成的部分如实说明。";
+const QUICK_REQUIREMENT_SYSTEM: &str = "将用户意图登记为可追踪的需求，按可独立验收的行为组织并查重。保留明确的约束，正文和验收只写有依据的行为与可观察结果；未知信息记录为问题并保留草稿，不替用户补功能、阈值、技术方案或批准。原文和来源由系统保存并绑定。返回实际登记或复用的 ID，未完成的部分如实说明。";
+const IDEA_SPLIT_SYSTEM: &str = "根据所选想法的完整记录，整理可独立追踪的需求或缺陷，并核对已有条目。保留原记录的限定条件，不补造功能、复现、阈值或批准；未知信息记录为问题。来源由系统绑定。说明实际登记或复用的条目及未解决的问题，不开展实现。";
 
-const QUICK_REQ_DEFECT_SYSTEM: &str = "You capture ONE defect from the user's natural-language description. Call the `defect` tool exactly once with action \"add\": a concise title (<=40 chars, Chinese preferred, keep qualifier words like 用户/桌面端/CLI from the original), severity high|medium|low, fields = {\"标签\": pick ONE tag from [核心|后端|前端|模型|发布|流程] best matching the subject, \"复现\": concrete reproduction steps ONLY if the description actually contains them — NEVER invent or pad one; when not reproducible from the text, write \"待澄清: \" followed by the specific questions the user must answer, \"原始描述\": the user's original text verbatim}. Then reply with only the new id.";
+/// These tasks use their configured model once; a failed write task is not rerun on a second model.
+async fn run_button_agent(
+    config: &KanzeiConfig,
+    snapshot: &kanzei_harness::HarnessSnapshot,
+    agent: &kanzei_harness::AgentDef,
+    ctx: &ToolCtx,
+    prompt: &str,
+    execution_policy: kanzei_harness::orchestration::ExecutionPolicy,
+    on_event: &mut (dyn FnMut(RunEvent) + Send),
+) -> Result<kanzei_core::RunSummary, String> {
+    let resolved = config
+        .resolve_model(&agent.model)
+        .map_err(|error| format!("模型配置失败: {error}"))?;
+    let proxy = match config.proxy.as_deref() {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") | None => ProxyConfig::Env,
+        Some(value) => ProxyConfig::Explicit(value.into()),
+    };
+    let route = kanzei_core::build_route(&resolved, &proxy)
+        .await
+        .map_err(|error| format!("模型路由失败: {error}"))?;
+    let client = LlmClient::new(&proxy).map_err(|error| error.to_string())?;
+    let runner = RunnerConfig {
+        hosted_tools: Vec::new(),
+        digest_model: None,
+        intensity: kanzei_harness::HarnessIntensity::Autonomous,
+        model: resolved.model.clone(),
+        max_tokens: config.limits.subagent_max_tokens(),
+        reasoning: kanzei_llm::ReasoningEffort::Off,
+        service_tier: config.service_tier_for(&resolved),
+        context_limit: resolved.provider.context_limit,
+        limits: config.limits.clone(),
+        recall: None,
+        execution_policy,
+        ask_policy: kanzei_core::AskPolicy::NonInteractive,
+        halt: None,
+    };
+    let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
+        Box::pin(async move {
+            match request {
+                kanzei_core::AskRequest::Permission { .. } => {
+                    kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny)
+                }
+                kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
+            }
+        })
+    };
+    run_once_with_parts(
+        &client,
+        &route,
+        snapshot,
+        agent,
+        &runner,
+        ctx,
+        prompt,
+        None,
+        &[],
+        None,
+        None,
+        on_event,
+        &mut ask,
+    )
+    .await
+    .map_err(|error| format!("模型执行失败: {error}"))
+}
 
-const QUICK_REQ_REQUIREMENT_SYSTEM: &str = r#"将用户意图整理为简洁、可追踪、可验收的中文需求。
-先用 req list(reason=deduplicate_registration) 检查已有条目，必要时 get。
-复合诉求拆成多个可独立验收的行为，每条调用 req add；不要强制把一次输入塞进一条。
-使用 title 和 requirement 对象：statement、acceptance[{text}]，可选 kind(functional/non_functional)、questions、links。
-正文说明条件、系统行为和可观测结果；验收写触发和观察结果，可覆盖同一行为的正常、失败和边界场景。
-原话由系统保存并共享来源，不重复填原始描述/来源/发现记录。ID、验收项编号由工具分配。
-不编造功能、阈值、技术方案或批准。信息不足写具体 questions，保留草稿；复杂度、标签和优先级不确定就省略，不能因输入少而写复杂度小。
-若标签已明确，pick ONE tag from [核心|后端|前端|模型|发布|流程]；未知时省略。
-实现步骤、批次计划、进展和完成证据不属于需求正文。不要新增自由字段。
-保留用户明确的否定约束；需要复用的工程参数说明单位及出处，未给值就记录待定问题。
-返回工具实际保存或复用的全部 ID；部分失败如实说明，不声称全部完成。"#;
+fn task_issue(result: &Result<kanzei_core::RunSummary, String>) -> Option<String> {
+    match result {
+        Err(error) => Some(error.clone()),
+        Ok(summary) if summary.halted_by_user => Some("本次执行已停止".into()),
+        Ok(summary) => summary.incomplete_reason().map(str::to_owned),
+    }
+}
+
+fn task_report(receipt: String, result: &Result<kanzei_core::RunSummary, String>) -> String {
+    match result {
+        Ok(summary) if !summary.text.trim().is_empty() => {
+            format!("{receipt}\n\nAgent 说明：\n{}", summary.text.trim())
+        }
+        _ => receipt,
+    }
+}
 
 #[tauri::command]
 pub(crate) async fn quick_req(
@@ -44,237 +110,107 @@ pub(crate) async fn quick_req_with_coordinator(
     description: String,
     kind: Option<String>,
 ) -> Result<String, String> {
-    let description = description.trim().to_string();
-    if description.is_empty() {
+    if description.trim().is_empty() {
         return Err("描述不能为空".into());
     }
-    let capture: &'static str = match kind.as_deref() {
+    let capture = match kind.as_deref() {
         Some("defect") => "defect",
-        _ => "req",
+        Some("req") | None => "req",
+        Some(other) => return Err(format!("未知登记类型: {other}")),
     };
-    let cwd = crate::normalized_project_root(std::path::Path::new(&project_dir));
-    let project_root = cwd.clone();
-    let config = Arc::new(
-        KanzeiConfig::load_at_root(&project_root).map_err(|e| format!("登记配置失败: {e}"))?,
-    );
-    // R-171 批4:quick_req 是独立写入口(直接写 requirements/defects),必须接入
-    // 项目级写仲裁——若主对话 writer run 正在写,这里排队等待,不能绕过协调器
-    // (验收⑤/设计不变量 8)。RAII:子代理跑完(或失败)即释放。
+    let root = crate::normalized_project_root(std::path::Path::new(&project_dir));
+    let config = Arc::new(KanzeiConfig::load_at_root(&root).map_err(|error| error.to_string())?);
     let _lease = coordinator
         .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            write_scope: project_root.clone(),
+            write_scope: root.clone(),
             run_id: format!("quick_req_{}", crate::run::now_ms()),
             process_id: "quick_req".into(),
-            reason: "quick capture write".into(),
+            reason: "tracker registration".into(),
         })
         .await
-        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
+        .map_err(|error| format!("无法获取项目写租约: {error}"))?;
+    let source = crate::tracker_capture::save_source(&root, &description)?;
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
+        profile: ProfileKind::DevAuto,
+        cwd: root.clone(),
+        project_root: root.clone(),
         config: config.clone(),
     };
     let mut harness = Harness::default();
-    let source_reference = if capture == "req" {
-        crate::requirement_capture::save_source(&project_root, &description)?
-    } else {
-        String::new()
-    };
     harness.add(crate::harness_ext::QuickCaptureComponent {
         capture,
-        source_reference,
+        source: source.clone(),
     });
-    let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
-    let system = if capture == "defect" {
-        QUICK_REQ_DEFECT_SYSTEM
-    } else {
-        QUICK_REQ_REQUIREMENT_SYSTEM
-    };
+    let snapshot = harness.resolve(&rctx).map_err(|error| error.to_string())?;
     let agent = kanzei_harness::AgentDef {
         name: "quickcapture".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
         steps: 0,
-        system: system.into(),
+        system: if capture == "defect" {
+            QUICK_DEFECT_SYSTEM
+        } else {
+            QUICK_REQUIREMENT_SYSTEM
+        }
+        .into(),
     };
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(p) => ProxyConfig::Explicit(p.to_string()),
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let mut tool_errors = Vec::new();
+    let mut on_event = |event: RunEvent| {
+        if let RunEvent::ToolEnd {
+            name,
+            ok: false,
+            content,
+            ..
+        } = event
+        {
+            if name == capture {
+                tool_errors.push(content);
+            }
+        }
     };
-    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let tool_ctx = ToolCtx {
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
-        ..Default::default()
-    };
-    let doc_kind = if capture == "defect" {
+    let result = run_button_agent(
+        &config,
+        &snapshot,
+        &agent,
+        &ctx,
+        &description,
+        kanzei_harness::orchestration::ExecutionPolicy::Default,
+        &mut on_event,
+    )
+    .await;
+    let ids = source.ids()?;
+    let issue = task_issue(&result);
+    if ids.is_empty() {
+        let details = issue
+            .or_else(|| (!tool_errors.is_empty()).then(|| tool_errors.join("；")))
+            .unwrap_or_else(|| "没有登记或复用任何条目".into());
+        return Err(format!("登记未完成: {details}"));
+    }
+    let kind = if capture == "defect" {
         &DEFECTS
     } else {
         &REQUIREMENTS
     };
-    let store = DocStore::open(&project_root, doc_kind);
-    let before: std::collections::HashSet<String> = store
-        .load()
-        .map_err(|e| e.to_string())?
-        .iter()
-        .map(|e| e.id.clone())
-        .collect();
-    let prompt = format!("描述(原文):\n{description}");
-    let mut failures = Vec::new();
-    for role in ["fast", "primary"] {
-        let resolved = match config.resolve_model(role) {
-            Ok(resolved) => resolved,
-            Err(error) => {
-                failures.push(format!("{role} 模型配置失败: {error}"));
-                continue;
-            }
-        };
-        let route = match kanzei_core::build_route(&resolved, &proxy).await {
-            Ok(route) => route,
-            Err(error) => {
-                failures.push(format!("{role} 模型路由失败: {error}"));
-                continue;
-            }
-        };
-        let runner_config = RunnerConfig {
-            hosted_tools: Vec::new(),
-            digest_model: None,
-            intensity: kanzei_harness::HarnessIntensity::Autonomous,
-            model: resolved.model.clone(),
-            max_tokens: config.limits.subagent_max_tokens(),
-            reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: config.service_tier_for(&resolved),
-            context_limit: resolved.provider.context_limit,
-            limits: config.limits.clone(),
-            recall: None,
-            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-            ask_policy: kanzei_core::AskPolicy::NonInteractive,
-            halt: None,
-        };
-        let mut tool_errors = Vec::new();
-        let mut reused_ids = Vec::new();
-        let mut on_event = |event: RunEvent| {
-            if let RunEvent::ToolEnd {
-                name,
-                ok: true,
-                content,
-                ..
-            } = &event
-            {
-                if name == capture {
-                    if let Some(id) = content
-                        .strip_prefix("existing ")
-                        .and_then(|s| s.split_whitespace().next())
-                    {
-                        reused_ids.push(id.to_string());
-                    }
-                }
-            }
-            if let RunEvent::ToolEnd {
-                name,
-                ok: false,
-                content,
-                code,
-                ..
-            } = event
-            {
-                if name == capture {
-                    let error = format!(
-                        "{}: {}",
-                        match code.as_deref() {
-                            Some("TRACKER_INPUT_INVALID" | "TRACKER_ENGINE_FIELD") | None =>
-                                "条目校验失败",
-                            Some(code) => code,
-                        },
-                        content.chars().take(1600).collect::<String>()
-                    );
-                    if !tool_errors.contains(&error) {
-                        tool_errors.push(error);
-                    }
-                }
-            }
-        };
-        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
-            Box::pin(async move {
-                match request {
-                    kanzei_core::AskRequest::Permission { .. } => {
-                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
-                    }
-                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
-                }
-            })
-        };
-        let result = run_once_with_parts(
-            &client,
-            &route,
-            &snapshot,
-            &agent,
-            &runner_config,
-            &tool_ctx,
-            &prompt,
-            None,
-            &[],
-            None,
-            None,
-            &mut on_event,
-            &mut ask,
-        )
-        .await;
-        // A tool may persist the entry before a later provider error. Check the
-        // actual receipt before falling back, so retry never creates a duplicate.
-        let after = store
-            .load()
-            .map_err(|e| format!("读取登记结果失败，请先查看需求列表: {e}"))?;
-        let saved: Vec<_> = after
+    let store = DocStore::open(&root, kind);
+    let mut entries = store.load().map_err(|error| error.to_string())?;
+    entries.extend(store.load_archive().map_err(|error| error.to_string())?);
+    let mut receipts = Vec::new();
+    for id in ids {
+        let entry = entries
             .iter()
-            .filter(|e| !before.contains(&e.id) || reused_ids.contains(&e.id))
-            .collect();
-        if !saved.is_empty() {
-            if let Err(error) = &result {
-                tool_errors.push(format!("模型在登记途中中断: {error}"));
-            }
-            let receipt = saved
-                .iter()
-                .map(|entry| format!("{} {}", entry.id, entry.title))
-                .collect::<Vec<_>>()
-                .join("\n");
-            return Ok(if tool_errors.is_empty() {
-                receipt
-            } else {
-                format!("{receipt}\n部分登记失败: {}", tool_errors.join("；"))
-            });
-        }
-        // A rejected business precondition does not become valid by changing
-        // models. Keep the user's draft and return one actionable diagnostic.
-        if !tool_errors.is_empty() {
-            return Err(format!("登记工具拒绝: {}", tool_errors.join("；")));
-        }
-        let failure = match result {
-            Err(error) => format!("{role} 模型执行失败: {error}"),
-            Ok(_) => format!("{role} 未生成条目，请检查描述或模型返回"),
-        };
-        failures.push(failure);
+            .find(|entry| entry.id == id)
+            .ok_or_else(|| format!("登记回执 {id} 对应的条目不存在"))?;
+        receipts.push(format!("{} {}", entry.id, entry.title));
     }
-    Err(format!("登记失败: {}", failures.join("；")))
+    let receipt = task_report(receipts.join("\n"), &result);
+    Ok(match issue {
+        Some(issue) => format!("{receipt}\n部分登记失败: {issue}"),
+        None => receipt,
+    })
 }
 
-/// R-252 验收③/⑤:想法拆解子代理的系统提示——读原想法全文、拆成需求/缺陷,
-/// 保留原话限定词、不编造验收与复现;只产出条目,不自己动想法状态(主进程收口)。
-const IDEA_SPLIT_SYSTEM: &str = r#"Read idea get <id> first. Split the original into independently verifiable requirements and defects.
-For req add use title and requirement{statement,acceptance:[{text}],source:{reference:<idea id>},questions:[],links:[]}.
-Preserve original qualifiers, do not invent requirements, thresholds or approvals. Unknown inputs stay concrete questions and draft; never lower complexity to bypass completeness. Priority, tag and complexity are optional estimates.
-For defect add preserve the original text verbatim in 原始描述, keep qualifier words like 用户/桌面端/CLI, provide severity, priority and 标签, and 复现 only when actually described; never invent or pad one; otherwise record specific 待澄清 questions.
-Do not pad with Discovery Record, implementation plans or progress. One requirement ID per behavior, multiple acceptance scenarios are allowed.
-Do NOT update the idea's own status; the main process verifies the actual created IDs. Then reply with all new IDs."#;
-
-/// R-252 验收⑤:人点「拆解」按钮后派出的子代理命令。照 quick_req 模式:
-/// 写租约 + 组件挂 req/defect/idea + before/after 差集取真实新增 ID。
-/// 子代理只负责产出 R-/D- 条目;主进程在差集拿到真实新增 ID 后,把该想法
-/// 转 split 并写 refs(经 actions::update_close 的 refs 硬门禁校验)。
-/// 主体抽成 [`idea_split_with_coordinator`] 以便 fake server 集成测试直接调用。
 #[tauri::command]
 pub(crate) async fn idea_split(
     state: tauri::State<'_, AppState>,
@@ -284,190 +220,111 @@ pub(crate) async fn idea_split(
     idea_split_with_coordinator(state.coordinator.clone(), project_dir, id).await
 }
 
-/// idea_split 主体(coordinator 注入,测试可绕过 tauri::State 直接调用)。
 pub(crate) async fn idea_split_with_coordinator(
     coordinator: Arc<kanzei_core::orchestration::MemoryCoordinator>,
     project_dir: String,
     id: String,
 ) -> Result<String, String> {
-    let id = id.trim().to_string();
+    let id = id.trim();
     if !id.starts_with("I-") {
-        return Err(format!("`{id}` 不是想法编号(I-xxx)"));
+        return Err(format!("`{id}` 不是想法编号"));
     }
-    let cwd = crate::normalized_project_root(std::path::Path::new(&project_dir));
-    let project_root = cwd.clone();
-    let config = Arc::new(KanzeiConfig::load_at_root(&project_root).map_err(|e| e.to_string())?);
-    // 想法必须真实存在且处于 inbox(inbox 才能拆;split/dropped 是终态)。
-    let idea_store = DocStore::open(&project_root, &IDEAS);
+    let root = crate::normalized_project_root(std::path::Path::new(&project_dir));
+    let config = Arc::new(KanzeiConfig::load_at_root(&root).map_err(|error| error.to_string())?);
+    let _lease = coordinator
+        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
+            write_scope: root.clone(),
+            run_id: format!("idea_split_{}", crate::run::now_ms()),
+            process_id: "idea_split".into(),
+            reason: "idea decomposition".into(),
+        })
+        .await
+        .map_err(|error| format!("无法获取项目写租约: {error}"))?;
+    let idea_store = DocStore::open(&root, &IDEAS);
     let idea = idea_store
         .load()
-        .map_err(|e| e.to_string())?
+        .map_err(|error| error.to_string())?
         .into_iter()
-        .find(|e| e.id == id)
+        .find(|entry| entry.id == id)
         .ok_or_else(|| format!("想法 {id} 不存在"))?;
     if idea.status != "inbox" {
         return Err(format!(
-            "想法 {id} 当前状态是 {};只有 inbox 想法可以拆解。",
+            "想法 {id} 当前状态是 {}，只有收件箱中的想法可以拆解",
             idea.status
         ));
     }
-    // 与 quick_req 同源:独立写入口必须接入项目级写仲裁,不绕过协调器。
-    let _lease = coordinator
-        .acquire_writer_lease(kanzei_harness::orchestration::WriterLeaseRequest {
-            write_scope: project_root.clone(),
-            run_id: format!("idea_split_{}", crate::run::now_ms()),
-            process_id: "idea_split".into(),
-            reason: "idea split write".into(),
-        })
-        .await
-        .map_err(|e| format!("无法获取项目写租约: {e}"))?;
+    let original = kanzei_memory::docstore::render(&IDEAS, std::slice::from_ref(&idea));
+    let source = crate::tracker_capture::save_source(&root, &original)?;
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
+        profile: ProfileKind::DevAuto,
+        cwd: root.clone(),
+        project_root: root.clone(),
         config: config.clone(),
     };
     let mut harness = Harness::default();
-    harness.add(crate::harness_ext::IdeaSplitComponent);
-    let snapshot = harness.resolve(&rctx).map_err(|e| e.to_string())?;
+    harness.add(crate::harness_ext::IdeaSplitComponent {
+        idea,
+        source: source.clone(),
+    });
+    let snapshot = harness.resolve(&rctx).map_err(|error| error.to_string())?;
     let agent = kanzei_harness::AgentDef {
         name: "idea-split".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "fast".into(),
         mode: kanzei_harness::AgentMode::Subagent,
         steps: 0,
         system: IDEA_SPLIT_SYSTEM.into(),
     };
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(p) => ProxyConfig::Explicit(p.to_string()),
-    };
-    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let tool_ctx = ToolCtx {
-        cwd: cwd.clone(),
-        project_root: project_root.clone(),
-        ..Default::default()
-    };
-    // before/after 差集:requirements + defects 两条线都要看,取真实新增 ID。
-    let before_ids = |kind: &'static kanzei_memory::docstore::DocKind| -> Result<std::collections::HashSet<String>, String> {
-        Ok(DocStore::open(&project_root, kind)
-            .load()
-            .map_err(|e| e.to_string())?
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let mut on_event = |_event: RunEvent| {};
+    let result = run_button_agent(
+        &config,
+        &snapshot,
+        &agent,
+        &ctx,
+        &format!("将想法 {id} 拆解为需求或缺陷条目。"),
+        kanzei_harness::orchestration::ExecutionPolicy::Default,
+        &mut on_event,
+    )
+    .await;
+    let issue = task_issue(&result);
+    let current = idea_store
+        .load()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|entry| entry.id == id)
+        .ok_or_else(|| format!("原想法 {id} 已不存在"))?;
+    if current.status == "split" {
+        let refs = current
+            .fields
             .iter()
-            .map(|e| e.id.clone())
-            .collect())
-    };
-    let before_req = before_ids(&REQUIREMENTS)?;
-    let before_def = before_ids(&DEFECTS)?;
-    // 想法全文是拆解的输入(子代理先 `idea get <id>` 读原话);提示词不含 system 全文。
-    let prompt = format!("拆解想法 {id}:先 idea get {id} 读全文,再产出需求/缺陷条目。");
-    let mut last_error = String::from("没有可用的 fast 或 primary 模型");
-    for role in ["fast", "primary"] {
-        let resolved = match config.resolve_model(role) {
-            Ok(value) => value,
-            Err(error) => {
-                last_error = error.to_string();
-                continue;
-            }
-        };
-        let route = match kanzei_core::build_route(&resolved, &proxy).await {
-            Ok(value) => value,
-            Err(error) => {
-                last_error = error.to_string();
-                continue;
-            }
-        };
-        let runner_config = RunnerConfig {
-            hosted_tools: Vec::new(),
-            digest_model: None,
-            intensity: kanzei_harness::HarnessIntensity::Autonomous,
-            model: resolved.model.clone(),
-            max_tokens: config.limits.subagent_max_tokens(),
-            reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: config.service_tier_for(&resolved),
-            context_limit: resolved.provider.context_limit,
-            limits: config.limits.clone(),
-            recall: None,
-            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-            ask_policy: kanzei_core::AskPolicy::NonInteractive,
-            halt: None,
-        };
-        let mut on_event = |_event: RunEvent| {};
-        let mut ask = |request: kanzei_core::AskRequest| -> AskFuture {
-            Box::pin(async move {
-                match request {
-                    kanzei_core::AskRequest::Permission { .. } => {
-                        kanzei_core::AskResponse::Permission(kanzei_core::AskReply::AllowOnce)
-                    }
-                    kanzei_core::AskRequest::Question { .. } => kanzei_core::AskResponse::Cancelled,
-                }
-            })
-        };
-        let _ = run_once_with_parts(
-            &client,
-            &route,
-            &snapshot,
-            &agent,
-            &runner_config,
-            &tool_ctx,
-            &prompt,
-            None,
-            &[],
-            None,
-            None,
-            &mut on_event,
-            &mut ask,
-        )
-        .await;
-        // 差集:req/defect 两条线新增的 ID 就是真实拆解产出。
-        let new_req: Vec<String> = DocStore::open(&project_root, &REQUIREMENTS)
-            .load()
-            .map_err(|e| e.to_string())?
-            .iter()
-            .filter(|e| !before_req.contains(&e.id))
-            .map(|e| e.id.clone())
-            .collect();
-        let new_def: Vec<String> = DocStore::open(&project_root, &DEFECTS)
-            .load()
-            .map_err(|e| e.to_string())?
-            .iter()
-            .filter(|e| !before_def.contains(&e.id))
-            .map(|e| e.id.clone())
-            .collect();
-        let mut produced = new_req;
-        produced.extend(new_def);
-        if produced.is_empty() {
-            last_error = "子代理没有产出任何新的需求/缺陷条目".into();
-            continue;
-        }
-        // 主进程收口:把想法转 split 并写 refs(触发硬门禁,refs 必须是真实 R/D)。
-        let tool = kanzei_tools::tracker::TrackerTool {
-            tool_name: "idea",
-            noun: "idea",
-            kind: &IDEAS,
-            requires_refs: None,
-        };
-        let gate = tool
-            .execute(
-                serde_json::json!({
-                    "action": "update",
-                    "id": id,
-                    "status": "split",
-                    "refs": produced,
-                }),
-                &tool_ctx,
-            )
-            .await;
-        if gate.is_error {
-            return Err(format!(
-                "拆解产出 {produced:?} 但转 split 被门禁拒绝: {}",
-                gate.content
-            ));
-        }
-        return Ok(format!("{id} → {}", produced.join(" ")));
+            .find(|(key, _)| key == "refs")
+            .map(|(_, value)| value.as_str())
+            .ok_or_else(|| format!("想法 {id} 的完成状态缺少产出引用"))?;
+        let receipt = task_report(format!("{id} → {refs}"), &result);
+        return Ok(match issue {
+            Some(issue) => format!("{receipt}\n状态已保存，后续模型执行未完整结束: {issue}"),
+            None => receipt,
+        });
     }
-    Err(format!("拆解失败: {last_error}"))
+    let ids = source.ids()?;
+    if ids.is_empty() {
+        return Err(format!(
+            "拆解未完成: {}",
+            issue.unwrap_or_else(|| "没有登记、复用条目或提交完成引用".into())
+        ));
+    }
+    let receipt = task_report(
+        format!(
+            "{id} 已登记 {}；想法仍在收件箱，拆解尚未确认完成。",
+            ids.join(" ")
+        ),
+        &result,
+    );
+    Ok(match issue {
+        Some(issue) => format!("{receipt}\n本次执行未完成: {issue}"),
+        None => receipt,
+    })
 }
 
 #[cfg(test)]
@@ -476,98 +333,7 @@ mod capture_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        IDEA_SPLIT_SYSTEM, QUICK_CAPTURE_TAGS, QUICK_REQ_DEFECT_SYSTEM,
-        QUICK_REQ_REQUIREMENT_SYSTEM,
-    };
-
-    // R-112 验收④:quick capture 自动建议分类——两条 system 提示必须引导子代理
-    // 从受控词表里选一个标签,且词表与引擎侧 check_tag 的 DocKind.tags 保持一致。
-    #[test]
-    fn quick_capture_prompts_suggest_controlled_vocabulary_tag() {
-        for prompt in [QUICK_REQ_DEFECT_SYSTEM, QUICK_REQ_REQUIREMENT_SYSTEM] {
-            assert!(
-                prompt.contains("标签"),
-                "提示必须让子代理填「标签」字段: {prompt}"
-            );
-            assert!(
-                prompt.contains(QUICK_CAPTURE_TAGS),
-                "提示必须带上受控词表 {QUICK_CAPTURE_TAGS}: {prompt}"
-            );
-            assert!(
-                prompt.contains("pick ONE tag"),
-                "提示必须要求单选: {prompt}"
-            );
-        }
-        // 词表与引擎侧校验真源一致:Req/Defect 的 DocKind.tags 就是这份词表。
-        use kanzei_memory::docstore::{DEFECTS, REQUIREMENTS};
-        let expected: Vec<&str> = QUICK_CAPTURE_TAGS.split('|').collect();
-        assert_eq!(REQUIREMENTS.tags.unwrap().to_vec(), expected);
-        assert_eq!(DEFECTS.tags.unwrap().to_vec(), expected);
-    }
-
-    // D-205 验收①+②(快记信息保真)机械回归:prompt 层禁止编造复现、推断不出写
-    // 待澄清问题清单、保留原文关键限定词——这些是防 D-204 类伪复现的 prompt 防线,
-    // 必须被契约测试锁死,防止后续文案改动悄悄把防线改回退。
-    #[test]
-    fn quick_capture_defect_prompt_forbids_fabricated_repro_and_keeps_qualifiers() {
-        let p = QUICK_REQ_DEFECT_SYSTEM;
-        assert!(
-            p.contains("NEVER invent or pad one"),
-            "复现字段必须禁止编造/填充: {p}"
-        );
-        assert!(
-            p.contains("待澄清"),
-            "推断不出复现时必须写「待澄清」而非编造: {p}"
-        );
-        assert!(
-            p.contains("questions the user must answer"),
-            "待澄清必须带具体问题清单: {p}"
-        );
-        assert!(
-            p.contains("keep qualifier words"),
-            "必须保留原文关键限定词(用户/桌面端/CLI 等): {p}"
-        );
-        assert!(
-            p.contains("original text verbatim"),
-            "原始描述必须逐字保留原文: {p}"
-        );
-    }
-
-    // R-252 验收③/⑤:idea_split 系统提示的契约锁——子代理必须 ①先读想法全文
-    // (idea get)再产出 ②产出走 req add/defect add ③保留原话限定词/原始描述逐字
-    // ④不自己动想法状态(转 split 由主进程收口,经 refs 硬门禁)。这些是「拆解
-    // 必须真实产出且可追溯」的 prompt 防线,文案改动不得悄悄拆掉。
-    #[test]
-    fn idea_split_prompt_contract_guards_real_splitting() {
-        let p = IDEA_SPLIT_SYSTEM;
-        assert!(p.contains("idea get"), "提示必须让子代理先读想法全文: {p}");
-        assert!(
-            p.contains("req add") && p.contains("defect add"),
-            "提示必须让子代理用 req add / defect add 产出条目: {p}"
-        );
-        assert!(
-            p.contains("original text verbatim"),
-            "原始描述必须逐字保留原文: {p}"
-        );
-        assert!(
-            p.contains("keep qualifier words"),
-            "必须保留原文关键限定词: {p}"
-        );
-        assert!(
-            p.contains("Do NOT update the idea's own status"),
-            "子代理不得自己转 split——主进程收口才经过 refs 硬门禁: {p}"
-        );
-        assert!(
-            p.contains("never invent or pad one"),
-            "复现字段禁止编造: {p}"
-        );
-    }
-
-    // R-252 验收⑤:idea_split 子代理跑通一次真实拆解(fake server 集成测试)。
-    // 桩服务器按序响应:①子代理读想法全文(idea get)→ ②产出 req add → ③产出
-    // defect add → ④结束。真实链路的全部落盘(requirements.md/defects.md 新增、
-    // 想法转 split + refs 经硬门禁)都是生产代码执行,不是桩。
+    // The local provider drives real tools and explicitly completes the selected idea.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn idea_split_runs_subagent_and_marks_idea_split_with_real_refs() {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -612,7 +378,7 @@ mod tests {
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        // 子代理调用序列:idea get → req add → defect add → 结束文本。
+        // The agent reads, registers, and explicitly submits completion refs.
         let server = tokio::spawn(async move {
             let tool_call = |name: &str, args: serde_json::Value| {
                 serde_json::json!({
@@ -621,7 +387,7 @@ mod tests {
                         "delta": {
                             "tool_calls": [{
                                 "index": 0,
-                                "id": format!("call_{name}"),
+                                "id": format!("call_{name}_{}", args["action"].as_str().unwrap()),
                                 "type": "function",
                                 "function": { "name": name, "arguments": args.to_string() }
                             }]
@@ -637,32 +403,31 @@ mod tests {
             );
             let resp2 = tool_call(
                 "req",
-                // D-681:中/大需求必须同时带 `来源`(含用户原话引用)与 `发现记录`
-                // (单行 JSON,七个非空字段)。这条桩响应刻意保持「中」档位——它就是
-                // 用来钉住 idea_split 走得通 R-313 门禁的;改成小档位会让这条回归失效。
-                serde_json::json!({ "action": "add", "title": "冒烟需求", "priority": "P2",
-                    "complexity": "中", "fields": {
-                        "标签": "后端", "验收": "一条验收", "原始描述": "想法原文",
-                        "来源": "用户原话「想法原文」",
-                        "发现记录": "{\"Intent\":\"验证拆解产出需求\",\"Explicit\":\"想法原文\",\"Assumptions\":\"无\",\"Ambiguities\":\"待澄清\",\"领域对象\":\"想法\",\"最小成功闭环\":\"拆出一条需求\",\"延后决策\":\"无\"}"
-                    } }),
+                serde_json::json!({
+                    "action":"add","title":"冒烟需求","priority":"P2","tag":"后端",
+                    "requirement":{"statement":"用户请求时，系统应保存拆解结果。","acceptance":[{"text":"保存后可读取拆解结果"}]}
+                }),
             );
             let resp3 = tool_call(
                 "defect",
                 serde_json::json!({ "action": "add", "title": "冒烟缺陷", "severity": "medium",
-                    "priority": "P2", "fields": { "标签": "前端", "复现": "待澄清", "原始描述": "想法原文" } }),
+                    "priority": "P2", "tag":"前端", "fields": { "复现": "待澄清" } }),
+            );
+            let complete = tool_call(
+                "idea",
+                serde_json::json!({"action":"update","id":"I-001","status":"split","refs":["R-001","D-001"]}),
             );
             let resp4 = serde_json::json!({
                 "choices": [{ "index": 0, "delta": { "content": "R-001 D-001" }, "finish_reason": "stop" }],
                 "usage": { "prompt_tokens": 10, "completion_tokens": 5 }
             });
-            for resp in [resp1, resp2, resp3, resp4] {
+            for resp in [resp1, resp2, resp3, complete, resp4] {
                 serve_response(&listener, resp).await;
             }
         });
 
         // 项目夹具:kanzei.toml 指向桩 provider;ideas.md 含一条 inbox 想法;
-        // requirements/defects 空(差集从空出发,新增即产出)。
+        // Empty target stores make source-bound records straightforward to inspect.
         let project = std::env::temp_dir().join(format!(
             "kz-idea-split-e2e-{}-{}",
             std::process::id(),
@@ -737,11 +502,7 @@ mod tests {
     }
 }
 
-const DEFECT_REVIEW_SYSTEM: &str = "You are a read-only defect review agent. You only have read, glob, and grep. \\
-Read .kanzei/project/defects.md first, then verify every active defect against relevant code, tests, and design documents. \\
-Reply in Chinese Markdown with: 1. summary and active defect count; 2. categories; 3. likely duplicates with IDs; \\
-4. impact of each defect; 5. suggested priority with reasons; 6. verifiable evidence using exact file paths, functions, \\
-and line numbers; 7. concrete next steps. Do not modify files, run commands, update trackers, or claim unverified facts.";
+const DEFECT_REVIEW_SYSTEM: &str = "只读审查当前项目的活动缺陷。结合相关代码、测试和设计判断缺陷是否仍成立，指出重复、影响与优先级，并给出可定位的证据和后续建议。按发现组织报告，区分已核实与待核实；阅读测试源码不等于运行测试。";
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -758,7 +519,9 @@ pub(crate) fn defect_review_snapshot(
     harness
         .add(kanzei_tools::SubagentBase)
         .add(crate::ConfigComponent);
-    harness.resolve(rctx)
+    let mut context = rctx.clone();
+    context.profile = ProfileKind::Readonly;
+    harness.resolve(&context)
 }
 
 pub(crate) fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<String, String> {
@@ -766,7 +529,15 @@ pub(crate) fn defect_review_report(summary: &kanzei_core::RunSummary) -> Result<
     if report.is_empty() {
         Err("审查模型没有返回报告".into())
     } else {
-        Ok(report.to_string())
+        let issue = if summary.halted_by_user {
+            Some("审查已停止")
+        } else {
+            summary.incomplete_reason()
+        };
+        Ok(match issue {
+            Some(issue) => format!("{report}\n\n审查未完成：{issue}"),
+            None => report.into(),
+        })
     }
 }
 
@@ -777,7 +548,10 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
     let config = Arc::new(KanzeiConfig::load_at_root(&project_root).map_err(|e| e.to_string())?);
     let defects = DocStore::open(&project_root, &DEFECTS)
         .load()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|entry| !DEFECTS.terminal.contains(&entry.status.as_str()))
+        .collect::<Vec<_>>();
     if defects.is_empty() {
         return Ok(DefectReviewResult {
             empty: true,
@@ -786,7 +560,7 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
         });
     }
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: cwd.clone(),
         project_root: project_root.clone(),
         config: config.clone(),
@@ -795,82 +569,30 @@ pub(crate) async fn defect_review(project_dir: String) -> Result<DefectReviewRes
     let mut agent = kanzei_tools::explore_agent();
     agent.name = "defect-review".into();
     agent.system = DEFECT_REVIEW_SYSTEM.into();
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => ProxyConfig::Disabled,
-        Some("env") | None => ProxyConfig::Env,
-        Some(value) => ProxyConfig::Explicit(value.to_string()),
-    };
-    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
-    let tool_ctx = ToolCtx {
-        cwd,
-        project_root,
-        ..Default::default()
-    };
-    let prompt = format!("审查当前项目 defects.md 中的 {} 条活动缺陷。逐条核对真实代码、测试和调用方，输出约定的 Markdown 报告。", defects.len());
-    let mut last_error = "没有可用的 fast 或 primary 模型".to_string();
-    for role in ["fast", "primary"] {
-        let resolved = match config.resolve_model(role) {
-            Ok(value) => value,
-            Err(error) => {
-                last_error = error.to_string();
-                continue;
-            }
-        };
-        let route = match kanzei_core::build_route(&resolved, &proxy).await {
-            Ok(value) => value,
-            Err(error) => {
-                last_error = error.to_string();
-                continue;
-            }
-        };
-        let runner_config = RunnerConfig {
-            hosted_tools: Vec::new(),
-            digest_model: None,
-            intensity: kanzei_harness::HarnessIntensity::Autonomous,
-            max_tokens: config.limits.subagent_max_tokens(),
-            reasoning: kanzei_llm::ReasoningEffort::Off,
-            service_tier: config.service_tier_for(&resolved),
-            context_limit: resolved.provider.context_limit,
-            limits: config.limits.clone(),
-            model: resolved.model,
-            recall: None,
-            execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
-            ask_policy: kanzei_core::AskPolicy::NonInteractive,
-            halt: None,
-        };
-        let mut on_event = |_event: RunEvent| {};
-        let mut ask = |_request: kanzei_core::AskRequest| -> AskFuture {
-            Box::pin(async { kanzei_core::AskResponse::Permission(kanzei_core::AskReply::Deny) })
-        };
-        match run_once_with_parts(
-            &client,
-            &route,
-            &snapshot,
-            &agent,
-            &runner_config,
-            &tool_ctx,
-            &prompt,
-            None,
-            &[],
-            None,
-            None,
-            &mut on_event,
-            &mut ask,
-        )
-        .await
-        {
-            Ok(summary) => match defect_review_report(&summary) {
-                Ok(report) => {
-                    return Ok(DefectReviewResult {
-                        empty: false,
-                        report,
-                        defect_count: defects.len(),
-                    })
-                }
-                Err(error) => last_error = error,
-            },
-            Err(error) => last_error = error.to_string(),
-        }
-    }
-    Err(format!("缺陷自动审查失败:{last_error}"))
+    let tool_ctx = ToolCtx::new(cwd, project_root);
+    let prompt = format!(
+        "审查活动缺陷 {}。记录文件：{}。给出发现与依据。",
+        defects
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>()
+            .join("、"),
+        DEFECTS.rel_path
+    );
+    let mut on_event = |_event: RunEvent| {};
+    let summary = run_button_agent(
+        &config,
+        &snapshot,
+        &agent,
+        &tool_ctx,
+        &prompt,
+        kanzei_harness::orchestration::ExecutionPolicy::ReadOnly,
+        &mut on_event,
+    )
+    .await?;
+    Ok(DefectReviewResult {
+        empty: false,
+        report: defect_review_report(&summary)?,
+        defect_count: defects.len(),
+    })
 }

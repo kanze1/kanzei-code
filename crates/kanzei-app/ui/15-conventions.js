@@ -9,6 +9,7 @@ import { refreshDocs } from "./14-docs-actions.js";
 
 let view = null;
 let request = 0;
+const edits = new Map();
 
 export function conventionsPrompt(exists) {
   return "请根据本项目生成简短的项目约束与规范：先读取项目清单、README、已有规范、测试与发布配置，保留用户决定；规则附实际文件来源，未确定事项标为待定。只写项目特有的技术栈、架构约束、真实构建/测试入口，不复制通用开工、登记和进度流程。" +
@@ -16,7 +17,7 @@ export function conventionsPrompt(exists) {
     "本次只整理规范，不顺带修改业务代码或推进队列。";
 }
 
-/// 需求页「更多 → 开发规范…」入口上的状态注(UX-007):原来写在侧栏分区里(那块从不可见)的「N 个章节 / 有新建议稿」
+/// 需求页「更多 → 项目规范…」入口上的状态注(UX-007):原来写在侧栏分区里(那块从不可见)的「N 个章节 / 有新建议稿」
 /// 现在写在入口上;有建议稿待审阅时「更多」按钮亮一个琥珀点——Agent 起草完规范,用户得能看出来。
 /// 每次文档快照渲染时调用,命令面板读同一个 data-state。
 export function syncConventionsEntry(conv) {
@@ -33,10 +34,13 @@ export function syncConventionsEntry(conv) {
   else more?.removeAttribute("data-pending");
 }
 
-export async function generateConventions() {
-  const project = currentProject;
+export async function generateConventions(project = currentProject) {
   if (!project) return;
   try {
+    if (currentProject !== project) {
+      const { openProjectSpace } = await import("./12-workbench.js");
+      if (!await openProjectSpace(project, "chat", { activate: true })) return;
+    }
     const snapshot = await invoke("conventions_read", { projectDir: project });
     if (currentProject !== project) return;
     if (snapshot.proposal) return toast(t("已有建议稿，请先在规范页审阅、保存或放弃。"));
@@ -47,6 +51,10 @@ export async function generateConventions() {
 }
 
 function paint() {
+  $("conventions-project").textContent = view.snapshot.path;
+  const generateLabel = currentProject === view.project ? "让 Agent 生成建议" : "切换到此项目并生成建议";
+  $("conventions-generate").dataset.i18nKey = generateLabel;
+  $("conventions-generate").textContent = t(generateLabel);
   const editor = $("conventions-editor");
   const preview = $("conventions-preview");
   editor.classList.toggle("hidden", !view.editing);
@@ -61,26 +69,34 @@ function paint() {
   if (!view.editing) renderMarkdownInto(preview, view.snapshot.content || t("尚无项目规范。"));
 }
 
-export async function openConventions() {
-  const project = currentProject;
+export async function openConventions(project = currentProject) {
   if (!project) {
     toast(t("先在左侧「项目」里添加并选择一个目录"));
     return;
   }
-  if (view?.editing && view.project === project) {
+  const generation = ++request;
+  if (view?.editing) {
+    view.content = $("conventions-editor").value;
+    edits.set(view.project, view);
+  }
+  if (edits.has(project)) {
+    view = edits.get(project);
+    $("conventions-editor").value = view.content;
+    $("conventions-current").classList.toggle("hidden", !view.draft);
+    if (view.draft) renderMarkdownInto($("conventions-current"), view.snapshot.content);
+    paint();
     openDialog($("conventions-dialog"), { initialFocus: "#conventions-editor" });
     return;
   }
-  const generation = ++request;
   try {
     const snapshot = await invoke("conventions_read", { projectDir: project });
-    if (generation !== request || project !== currentProject) return;
+    if (generation !== request) return;
     view = { project, snapshot, editing: false, draft: false, expected: snapshot.hash };
     $("conventions-current").classList.add("hidden");
     $("conventions-editor").value = snapshot.content;
     paint();
     openDialog($("conventions-dialog"), { initialFocus: "#conventions-close" });
-  } catch (error) { toastError(String(error)); }
+  } catch (error) { if (generation === request) toastError(String(error)); }
 }
 
 defer(() => {
@@ -116,6 +132,7 @@ defer(() => {
         projectDir: pending.project, content, expectedHash: pending.expected,
         proposalHash: pending.draft ? pending.snapshot.proposal.hash : null,
       });
+      edits.delete(pending.project);
       if (view !== pending) return;
       pending.snapshot = { ...pending.snapshot, content, hash, exists: true, proposal: pending.draft ? null : pending.snapshot.proposal };
       pending.expected = hash;
@@ -132,6 +149,7 @@ defer(() => {
     const pending = view;
     try {
       await invoke("conventions_discard", { projectDir: pending.project, expectedHash: pending.snapshot.proposal.hash });
+      edits.delete(pending.project);
       if (view !== pending) return;
       pending.snapshot.proposal = null;
       pending.draft = false;
@@ -142,7 +160,8 @@ defer(() => {
     } catch (error) { toastError(String(error)); }
   });
   $("conventions-generate").addEventListener("click", () => {
+    const project = view.project;
     closeSurface($("conventions-dialog"));
-    void generateConventions();
+    void generateConventions(project);
   });
 });

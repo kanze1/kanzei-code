@@ -24,20 +24,20 @@ struct SymbolsInput {
     /// 只输出标记为公共的符号。Rust 按 pub、JS 按列 0 或 export 近似判定;默认全量。
     #[serde(default)]
     public_only: bool,
-    /// R-234 B2:按子串查询文本候选(file:line),最多显示 50 行,不是已验证的调用或引用。
+    /// 按子串查询文本候选(file:line),最多显示 50 行,不是已验证的调用或引用。
     /// 可能命中注释、字符串、定义和同名符号,也可能漏掉别名调用;零命中不能证明无调用者。
     #[serde(default)]
     callers: Option<String>,
-    /// R-265:查「这个符号定义在哪」——输入裸名或限定路径
+    /// 查「这个符号定义在哪」——输入裸名或限定路径
     /// (如 `try_lock_exclusive` 或 `crate::atomic_file::try_lock_exclusive`),
     /// 限定路径仅取末段,全树按名查找声明候选,并给出 Rust re-export 线索。
     /// 与 callers 互斥(同时给出会显式报错)。
     #[serde(default)]
     define: Option<String>,
-    /// R-310 B3:按 workspace crate 生成实时分层地图(ident 使用 Cargo 的 `-`→`_`约定)。
+    /// 按 workspace crate 生成实时分层地图(ident 使用 Cargo 的 `-`→`_`约定)。
     #[serde(default, rename = "crate")]
     crate_name: Option<String>,
-    /// R-310 B3:按模块路径过滤分层地图,如 `runner` 或 `runner::drive`。
+    /// 按模块路径过滤分层地图,如 `runner` 或 `runner::drive`。
     #[serde(default)]
     module: Option<String>,
 }
@@ -64,23 +64,9 @@ impl Tool for SymbolsTool {
     }
 
     fn description(&self) -> String {
-        "Line-based code outline (R-234/R-324), not AST/LSP: list recognized declarations \
-         with line numbers and heuristic visibility for Rust or JavaScript/ESM \
-         (.rs/.js/.mjs), without returning full source. May miss multiline syntax or \
-         JS method shorthand; does not resolve scope or type bindings. For JS, `pub` \
-         means column 0 or an export prefix, not verified global/module visibility. \
-         Use the outline to choose what to read. Full file listings are available via \
-         `tool_search select:files`. Params: path (file or dir, relative to cwd), filter \
-         (substring match on symbol name), public_only, callers (text substring — \
-         candidate lines only, capped at 50; may include comments, strings, definitions \
-         and same-name symbols, and miss aliases; not verified callers or references; \
-         zero matches do not prove there are no callers), define (bare or qualified \
-         name — match the final :: segment across scanned declarations, with Rust \
-         re-export hints; mutually exclusive with callers), crate (workspace crate ident, \
-         `-` becomes `_`) and module (module path prefix) for a live crate→module→public \
-         symbol map. Map queries rescan the current worktree, so commits never leave a \
-         stale persisted index behind.)"
-            .into()
+        "Scan current Rust and JavaScript/ESM declarations with line numbers and heuristic visibility. \
+         filter selects names; define matches the final name segment and Rust re-export hints; callers is a capped text search, not resolved references. \
+         crate/module returns a current worktree map. Multiline declarations and method shorthand may be missed; JS pub marks column-zero/exported syntax, not verified scope.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -1463,8 +1449,8 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-265:crate ident → 源码目录映射(`-`→`_`)。
-    /// R-310 B3:分层查询只输出 public symbol,并且第二次查询反映当前文件内容，
+    /// crate ident → 源码目录映射(`-`→`_`)。
+    /// 分层查询只输出 public symbol,并且第二次查询反映当前文件内容，
     /// 证明它是机器实时生成而不是提交前一次性写死的索引。
     #[tokio::test]
     async fn repo_map_按crate与module查询并随当前文件增量更新() {
@@ -1585,7 +1571,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-265:限定路径 define 输出 crate 源码目录提示。
+    /// 限定路径 define 输出 crate 源码目录提示。
     #[test]
     fn define_限定路径_输出crate目录提示() {
         let dir = std::env::temp_dir().join(format!(

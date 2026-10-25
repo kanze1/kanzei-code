@@ -11,6 +11,7 @@ description = "原子写与文件锁"
 group = "基础"
 
 [dependencies]
+serde.workspace = true
 sha2.workspace = true
 tracing.workspace = true
 tempfile = { workspace = true, optional = true }

@@ -38,7 +38,7 @@ fn snapshot(root: &Path, tools: Vec<Arc<dyn Tool>>) -> Arc<kanzei_harness::Harne
     harness.add(Policy(tools));
     harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.into(),
             project_root: root.into(),
             config: Arc::new(Default::default()),
@@ -51,7 +51,7 @@ fn tools(root: &Path) -> Vec<Arc<dyn Tool>> {
     harness.add(kanzei_tools::BaseComponent);
     harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.into(),
             project_root: root.into(),
             config: Arc::new(Default::default()),
@@ -349,7 +349,7 @@ async fn searches_exclude_denied_and_unapproved_descendants_without_leaking_name
 
 #[tokio::test]
 async fn cancelling_compaction_preserves_history_and_prevents_retry_or_main_requests() {
-    for phase in ["headers", "stream", "retry"] {
+    for phase in ["headers", "stream"] {
         let home = crate::common::TestHome::new(phase);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -362,11 +362,7 @@ async fn cancelling_compaction_preserves_history_and_prevents_retry_or_main_requ
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let request = read_request(&mut socket).await;
                 assert_eq!(request["model"], "digest-probe");
-                let attempt = seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if phase == "retry" && attempt == 0 {
-                    send_response(&mut socket, json!({"choices":[{"index":0,"delta":{"content":"bad summary"},"finish_reason":"stop"}]})).await;
-                    continue;
-                }
+                seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 if phase == "stream" {
                     socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\n").await.unwrap();
                 }
@@ -442,10 +438,7 @@ async fn cancelling_compaction_preserves_history_and_prevents_retry_or_main_requ
             expected
         );
         assert!(result.overflow_traces.is_empty());
-        assert_eq!(
-            requests.load(std::sync::atomic::Ordering::SeqCst),
-            if phase == "retry" { 2 } else { 1 }
-        );
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(
             compacted_events.load(std::sync::atomic::Ordering::SeqCst),
             0

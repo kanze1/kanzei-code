@@ -23,9 +23,9 @@ impl Component for BashFixture {
 
 struct CountingRecall(Arc<AtomicUsize>);
 impl RecallPolicy for CountingRecall {
-    fn retrieve(&self, _trigger: &RecallTrigger) -> Vec<RecallHit> {
+    fn retrieve(&self, _trigger: &RecallTrigger) -> Result<Vec<RecallHit>, String> {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Vec::new()
+        Ok(Vec::new())
     }
 }
 
@@ -87,7 +87,7 @@ async fn assert_long_command_contract(call_count: usize) {
     harness.add(BashFixture);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),
@@ -95,7 +95,7 @@ async fn assert_long_command_contract(call_count: usize) {
         .unwrap();
     let agent = kanzei_harness::AgentDef {
         name: "guard-fixture".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "fixture".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 3,

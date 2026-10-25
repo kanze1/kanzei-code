@@ -65,6 +65,7 @@ pub fn filter_message_history(messages: &[Message]) -> Vec<Message> {
                 .collect();
             (!parts.is_empty()).then_some(Message {
                 role: message.role,
+                origin: message.origin,
                 parts,
             })
         })

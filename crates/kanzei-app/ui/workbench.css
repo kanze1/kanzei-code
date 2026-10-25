@@ -15,18 +15,18 @@ body[data-attention-open="true"] .workbench-session-link[aria-current="true"]:ho
 /* 「项目」标题右侧的「＋」:零项目时侧栏唯一的添加入口(UX-152),有项目时也随手可点。 */
 #workbench-add-project { flex: none; margin-right: -6px; }
 #workbench-conversation-actions { display: none; flex-direction: column; align-items: stretch; gap: var(--sp-1); margin: 0 0 15px; }
-body[data-space="dev"] #workbench-conversation-actions,
+body[data-space="dev-auto"] #workbench-conversation-actions,
 body[data-space="research"][data-view="chat"] #workbench-conversation-actions { display: flex; }
 #workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; font-size: 13px; padding: 10px 11px; color: var(--fg-strong); background: var(--surface-selected); border-radius: 7px; }
 #workbench-chat-history { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; margin: 0; }
 #workbench-chat-history svg { width: 18px; height: 18px; }
 #workbench-project-list { min-height: 0; }
 #workbench-conversation-scroll { min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
-body[data-space="dev"] #workbench-navigation { height: 100%; display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; }
-body[data-space="dev"] #workbench-navigation > :not(#workbench-conversation-scroll) { flex-shrink: 0; }
-body[data-space="dev"] #workbench-conversation-scroll { flex: 1; }
-body[data-space="dev"] #sidebar > .sidebar-section, body[data-space="dev"] #workspace-bar { display: none; }
-/* 侧栏收起后里面的东西一个都不该再被 Tab 聚到(UX-124):上面 body[data-space="dev"] #workbench-navigation 的 display:flex 比
+body[data-space="dev-auto"] #workbench-navigation { height: 100%; display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; }
+body[data-space="dev-auto"] #workbench-navigation > :not(#workbench-conversation-scroll) { flex-shrink: 0; }
+body[data-space="dev-auto"] #workbench-conversation-scroll { flex: 1; }
+body[data-space="dev-auto"] #sidebar > .sidebar-section, body[data-space="dev-auto"] #workspace-bar { display: none; }
+/* 侧栏收起后里面的东西一个都不该再被 Tab 聚到(UX-124):上面 body[data-space="dev-auto"] #workbench-navigation 的 display:flex 比
    #sidebar.collapsed > * 特异性高,收起后导航仍在、只是被宽度 0 裁掉——键盘还能聚到 9 个控件。这里压回 display:none,
    03-shell.js syncSidebar 同时给 #sidebar 设 inert(读屏与焦点都认)。 */
 #sidebar.collapsed > * { display: none !important; }

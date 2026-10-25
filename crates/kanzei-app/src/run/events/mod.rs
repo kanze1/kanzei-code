@@ -6,9 +6,7 @@
 //! 两者与装配/执行/落库正交:加一个事件类型或改投影方式,不必读懂整个运行主链路
 //! (照 files_view.rs 模式)。
 //!
-//! 危险点(搬迁纪律):⑦R-143 的两个 `AtomicBool` 有 swap 语义(`round_pending.swap(false)`
-//! 是「取并清」,不是「读」)——拆 sink 时这对状态整体归 `MetricsSink`,不分开。
-//! ⑧D-361 的 `subagent_tools` 是跨模块状态:这里边跑边收,run_task 轮末合并进
+//! `subagent_tools` 是跨模块状态:这里边跑边收,run_task 轮末合并进
 //! tools_vec 供鞭挞判定——`MetricsSink` 持有同一个 `Arc`,run_task 仍可读回。
 //! ⑩`UiEventSink` 的 emit 闭包捕获 window + session_id,经 `Arc<dyn Fn>` 收纳。
 
@@ -412,13 +410,10 @@ impl TraceSink {
     }
 }
 
-/// R-253 批8:metrics sink——commit 检测位(R-143)与子代理工具画像(D-361)。
-/// ⑦:两个 `AtomicBool` 的 swap 语义必须整体归本 sink;⑧:`subagent_tools` 是
-/// 跨模块状态,run_task 轮末仍要读,故持有同一个 `Arc`。
+/// 工具结果、完成声明与运行指标的投影；提交按工具调用 ID 确认，不触发推送。
 pub(crate) struct MetricsSink {
     tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>>,
-    round_committed: Arc<std::sync::atomic::AtomicBool>,
-    round_pending: Arc<std::sync::atomic::AtomicBool>,
+    round_committed: std::sync::atomic::AtomicBool,
     subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
     /// D-654:主轮真实执行过的工具名——鞭挞画像的真源。轮中上下文压缩会把
     /// `summary.messages` 结构性删短,按 `prior.len()` 切片会把本轮真实调用切掉
@@ -454,8 +449,6 @@ pub(crate) struct MetricsSink {
 impl MetricsSink {
     pub(crate) fn new(
         tool_started: Arc<Mutex<HashMap<String, std::time::Instant>>>,
-        committed_this_round: Arc<std::sync::atomic::AtomicBool>,
-        pending_commit_call: Arc<std::sync::atomic::AtomicBool>,
         subagent_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
         round_tools: Arc<Mutex<std::collections::BTreeSet<String>>>,
         round_closed: Arc<std::sync::atomic::AtomicU32>,
@@ -463,8 +456,7 @@ impl MetricsSink {
     ) -> Self {
         Self {
             tool_started,
-            round_committed: committed_this_round,
-            round_pending: pending_commit_call,
+            round_committed: std::sync::atomic::AtomicBool::new(false),
             subagent_tools,
             round_tools,
             pending_closes: Mutex::new(std::collections::HashSet::new()),
@@ -501,12 +493,10 @@ impl MetricsSink {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     }
-    /// R-143:git commit 调用意图登记(成功与否由 ToolEnd ok 收口)。
-    fn note_commit_intent(&self, name: &str, input: &serde_json::Value) {
-        if name == "git" && input["action"].as_str() == Some("commit") {
-            self.round_pending
-                .store(true, std::sync::atomic::Ordering::Relaxed);
-        }
+    /// A completion declaration predating newly admitted input cannot close that work.
+    fn note_input_committed(&self) {
+        self.pending_handoffs.lock().unwrap().clear();
+        *self.round_handoff.lock().unwrap() = None;
     }
     /// D-173:按 id 记工具开始时刻,供 ToolEnd 算耗时。
     fn note_tool_started(&self, id: &str) {
@@ -548,8 +538,8 @@ impl MetricsSink {
             }
         }
     }
-    /// R-143:git commit 结束后解析提交结果;返回该工具耗时(取并清开始时刻)。
-    fn resolve_tool_end(&self, id: &str, name: &str, ok: bool) -> Option<u128> {
+    /// 按调用 ID 收口工具结果，并返回实际执行耗时。
+    fn resolve_tool_end(&self, id: &str, ok: bool) -> Option<u128> {
         let transaction_call = self.transaction_calls.lock().unwrap().remove(id);
         if let Some((call_name, input)) = transaction_call {
             if call_name == "test_record" {
@@ -575,7 +565,12 @@ impl MetricsSink {
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-            if call_name == "git" && input["action"].as_str() == Some("commit") && ok {
+            if call_name == "git"
+                && matches!(input["action"].as_str(), Some("commit" | "finalize"))
+                && ok
+            {
+                self.round_committed
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 self.files_staged
                     .store(false, std::sync::atomic::Ordering::Relaxed);
                 self.commit_pending
@@ -592,19 +587,6 @@ impl MetricsSink {
         if let Some(declaration) = self.pending_handoffs.lock().unwrap().remove(id) {
             if ok {
                 *self.round_handoff.lock().unwrap() = Some(declaration);
-            }
-        }
-        if name == "git" {
-            if ok
-                && self
-                    .round_pending
-                    .swap(false, std::sync::atomic::Ordering::Relaxed)
-            {
-                self.round_committed
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
-            } else if !ok {
-                self.round_pending
-                    .store(false, std::sync::atomic::Ordering::Relaxed);
             }
         }
         self.tool_started
@@ -715,8 +697,7 @@ pub(crate) fn build_event_handler(
                 } else if metrics.maybe_winddown(step, max_steps)
                     && trace.record_transaction_winddown(step, max_steps, 2)
                 {
-                    // 延长的同时置收尾信号,core 会在这几步注入「只落盘,
-                    // 不要接着写」的指令——光给步数不给指令,模型会继续实现。
+                    // 延长时发布真实收尾预算，供 Agent 保存可继续的状态；不强制提交或发布。
                     budget_extension.store(2, std::sync::atomic::Ordering::Relaxed);
                     winddown.store(true, std::sync::atomic::Ordering::Relaxed);
                     trace.record(json!({
@@ -743,6 +724,7 @@ pub(crate) fn build_event_handler(
                 ui.emit("kz:response-interrupted", json!({}))
             }
             RunEvent::InputMessageCommitted { input_id, .. } => {
+                metrics.note_input_committed();
                 ui.emit("kz:input-received", json!({"inputId":input_id}))
             }
             RunEvent::AssistantMessageCommitted { step, message, commit } => {
@@ -777,7 +759,6 @@ pub(crate) fn build_event_handler(
                 summary,
                 input,
             } => {
-                metrics.note_commit_intent(&name, &input);
                 metrics.note_tool_started(&id);
                 metrics.note_round_tool(&id, &name, &input);
                 trace.record(json!({
@@ -806,7 +787,7 @@ pub(crate) fn build_event_handler(
                 display,
                 artifact,
             } => {
-                let duration_ms = metrics.resolve_tool_end(&id, &name, ok);
+                let duration_ms = metrics.resolve_tool_end(&id, ok);
                 metrics.note_question_end(&name, display.as_ref());
                 let mut trace_payload = json!({
                     "kind": "tool.completed", "id": id, "name": name, "ok": ok,
@@ -1382,7 +1363,7 @@ mod tests {
         for requirement in [ContextRequirement::Optional, ContextRequirement::Required] {
             handler(RunEvent::ContextSources {
                 sources: vec![ContextSourceReport {
-                    key: "dev/decisions".into(),
+                    key: "development/decisions".into(),
                     requirement,
                     refresh_each_step: false,
                     status: ContextSourceStatus::Failed,
@@ -1402,7 +1383,10 @@ mod tests {
         for status in &statuses {
             assert_eq!(status["sessionId"], "source-session");
             assert_eq!(status["stage"], "上下文");
-            assert!(status["detail"].as_str().unwrap().contains("dev/decisions"));
+            assert!(status["detail"]
+                .as_str()
+                .unwrap()
+                .contains("development/decisions"));
             assert!(status["detail"].as_str().unwrap().contains("invalid UTF-8"));
         }
         assert!(statuses[0]["detail"].as_str().unwrap().contains("继续运行"));
@@ -1423,7 +1407,7 @@ mod tests {
             assert_eq!(trace.payload["run_id"], "source-run");
             let event = &trace.payload["events"][0];
             assert_eq!(event["kind"], "context.sources");
-            assert_eq!(event["sources"][0]["key"], "dev/decisions");
+            assert_eq!(event["sources"][0]["key"], "development/decisions");
             assert_eq!(event["sources"][0]["status"], "failed");
             assert_eq!(event["sources"][0]["error"], "decisions.md: invalid UTF-8");
         }
@@ -1455,8 +1439,6 @@ mod tests {
         let round_handoff = Arc::new(Mutex::new(None));
         let sink = MetricsSink::new(
             Arc::new(Mutex::new(HashMap::new())),
-            Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            Arc::new(std::sync::atomic::AtomicBool::new(false)),
             Arc::new(Mutex::new(std::collections::BTreeSet::new())),
             round_tools.clone(),
             round_closed.clone(),
@@ -1492,12 +1474,29 @@ mod tests {
     fn handoff成功才置位_失败不算声明() {
         let ((sink, _, _), handoff) = mk_metrics_sink_full();
         sink.note_round_tool("h1", "work", &json!({"action":"handoff","handoff_scope":"work_item","handoff_target":"R-379","criterion":"source ready","evidence_refs":["test:1"]}));
-        sink.resolve_tool_end("h1", "work", false);
+        sink.resolve_tool_end("h1", false);
         assert!(handoff.lock().unwrap().is_none(), "失败的 handoff 不得置位");
 
         sink.note_round_tool("h2", "work", &json!({"action":"handoff","handoff_scope":"work_item","handoff_target":"R-379","criterion":"source ready","evidence_refs":["test:1"]}));
-        sink.resolve_tool_end("h2", "work", true);
+        sink.resolve_tool_end("h2", true);
         assert!(handoff.lock().unwrap().is_some(), "成功的 handoff 必须置位");
+    }
+
+    #[test]
+    fn new_input_invalidates_prior_completion_and_pending_intents() {
+        let ((sink, _, _), handoff) = mk_metrics_sink_full();
+        let input = json!({"action":"handoff","handoff_scope":"request","handoff_target":"input-a","criterion":"done","evidence_refs":["test:1"]});
+        sink.note_round_tool("old", "work", &input);
+        sink.resolve_tool_end("old", true);
+        assert!(handoff.lock().unwrap().is_some());
+        sink.note_round_tool("pending", "work", &input);
+        sink.note_input_committed();
+        assert!(handoff.lock().unwrap().is_none());
+        sink.resolve_tool_end("pending", true);
+        assert!(handoff.lock().unwrap().is_none());
+        sink.note_round_tool("new", "work", &input);
+        sink.resolve_tool_end("new", true);
+        assert!(handoff.lock().unwrap().is_some());
     }
 
     /// work 的其它动作不得被误判成 handoff。
@@ -1506,7 +1505,7 @@ mod tests {
         let ((sink, _, _), handoff) = mk_metrics_sink_full();
         for action in ["next", "claim", "complete", "checkpoint"] {
             sink.note_round_tool("x", "work", &json!({"action": action}));
-            sink.resolve_tool_end("x", "work", true);
+            sink.resolve_tool_end("x", true);
         }
         assert!(handoff.lock().unwrap().is_none());
     }
@@ -1519,14 +1518,14 @@ mod tests {
             "work",
             &json!({"action":"handoff", "criterion":"R-379 done", "evidence_refs":["test:1"]}),
         );
-        sink.resolve_tool_end("legacy", "work", true);
+        sink.resolve_tool_end("legacy", true);
         assert!(
             receipt.lock().unwrap().is_none(),
             "旧的无范围调用不得形成停机信号"
         );
         for (id, scope, target) in [("goal", "goal", "publish"), ("local", "work_item", "R-379")] {
             sink.note_round_tool(id, "work", &json!({"action":"handoff", "handoff_scope":scope, "handoff_target":target, "criterion":"source ready", "evidence_refs":["test:1"]}));
-            sink.resolve_tool_end(id, "work", true);
+            sink.resolve_tool_end(id, true);
         }
         let declaration = receipt.lock().unwrap().clone().unwrap();
         assert_eq!(
@@ -1543,9 +1542,9 @@ mod tests {
     fn 事务延长只在收尾事实齐备时触发且只触发一次() {
         let (sink, _, _) = mk_metrics_sink();
         sink.note_round_tool("test", "test_record", &json!({"status": "passed"}));
-        sink.resolve_tool_end("test", "test_record", true);
+        sink.resolve_tool_end("test", true);
         sink.note_round_tool("stage", "git", &json!({"action": "stage"}));
-        sink.resolve_tool_end("stage", "git", true);
+        sink.resolve_tool_end("stage", true);
         assert!(sink.maybe_extend_transaction(32, 32));
         assert!(!sink.maybe_extend_transaction(32, 32));
     }
@@ -1554,20 +1553,20 @@ mod tests {
     fn 事务延长失败后补跑成功仍永久拒绝() {
         let (failed_test, _, _) = mk_metrics_sink();
         failed_test.note_round_tool("t1", "test_record", &json!({"status": "failed"}));
-        failed_test.resolve_tool_end("t1", "test_record", false);
+        failed_test.resolve_tool_end("t1", false);
         failed_test.note_round_tool("t2", "test_record", &json!({"status": "passed"}));
-        failed_test.resolve_tool_end("t2", "test_record", true);
+        failed_test.resolve_tool_end("t2", true);
         failed_test.note_round_tool("s1", "git", &json!({"action": "stage"}));
-        failed_test.resolve_tool_end("s1", "git", true);
+        failed_test.resolve_tool_end("s1", true);
         assert!(!failed_test.maybe_extend_transaction(32, 32));
 
         let (failed_stage, _, _) = mk_metrics_sink();
         failed_stage.note_round_tool("t", "test_record", &json!({"status": "passed"}));
-        failed_stage.resolve_tool_end("t", "test_record", true);
+        failed_stage.resolve_tool_end("t", true);
         failed_stage.note_round_tool("s1", "git", &json!({"action": "stage"}));
-        failed_stage.resolve_tool_end("s1", "git", false);
+        failed_stage.resolve_tool_end("s1", false);
         failed_stage.note_round_tool("s2", "git", &json!({"action": "stage"}));
-        failed_stage.resolve_tool_end("s2", "git", true);
+        failed_stage.resolve_tool_end("s2", true);
         assert!(!failed_stage.maybe_extend_transaction(32, 32));
     }
 
@@ -1575,24 +1574,24 @@ mod tests {
     fn 事务延长遇到失败源码编辑或审批时拒绝() {
         let (failed_test, _, _) = mk_metrics_sink();
         failed_test.note_round_tool("test", "test_record", &json!({"status": "failed"}));
-        failed_test.resolve_tool_end("test", "test_record", false);
+        failed_test.resolve_tool_end("test", false);
         failed_test.note_round_tool("stage", "git", &json!({"action": "stage"}));
-        failed_test.resolve_tool_end("stage", "git", true);
+        failed_test.resolve_tool_end("stage", true);
         assert!(!failed_test.maybe_extend_transaction(32, 32));
 
         let (edited, _, _) = mk_metrics_sink();
         edited.note_round_tool("test", "test_record", &json!({"status": "passed"}));
-        edited.resolve_tool_end("test", "test_record", true);
+        edited.resolve_tool_end("test", true);
         edited.note_round_tool("stage", "git", &json!({"action": "stage"}));
-        edited.resolve_tool_end("stage", "git", true);
+        edited.resolve_tool_end("stage", true);
         edited.note_round_tool("edit", "edit", &json!({"path": "src/lib.rs"}));
         assert!(!edited.maybe_extend_transaction(32, 32));
 
         let (approved, _, _) = mk_metrics_sink();
         approved.note_round_tool("test", "test_record", &json!({"status": "passed"}));
-        approved.resolve_tool_end("test", "test_record", true);
+        approved.resolve_tool_end("test", true);
         approved.note_round_tool("stage", "git", &json!({"action": "stage"}));
-        approved.resolve_tool_end("stage", "git", true);
+        approved.resolve_tool_end("stage", true);
         approved.note_approval();
         assert!(!approved.maybe_extend_transaction(32, 32));
     }
@@ -1619,10 +1618,9 @@ mod tests {
         let (committed, _, _) = mk_metrics_sink();
         committed.note_round_tool("e1", "edit", &json!({"path": "src/lib.rs"}));
         committed.note_round_tool("s", "git", &json!({"action": "stage"}));
-        committed.resolve_tool_end("s", "git", true);
+        committed.resolve_tool_end("s", true);
         committed.note_round_tool("c", "git", &json!({"action": "commit"}));
-        committed.note_commit_intent("git", &json!({"action": "commit"}));
-        committed.resolve_tool_end("c", "git", true);
+        committed.resolve_tool_end("c", true);
         assert!(
             !committed.maybe_winddown(32, 32),
             "本轮已经提交过,现场不会丢,不需要落盘延长"
@@ -1644,6 +1642,26 @@ mod tests {
             !once.maybe_winddown(34, 34),
             "共用一次性闸门,一轮只延长一次"
         );
+    }
+
+    #[test]
+    fn commit_observation_requires_the_matching_successful_tool_call() {
+        let (sink, _, _) = mk_metrics_sink();
+        sink.note_round_tool("commit", "git", &json!({"action":"commit"}));
+        sink.note_round_tool("status", "git", &json!({"action":"status"}));
+        sink.resolve_tool_end("status", true);
+        assert!(!sink
+            .round_committed
+            .load(std::sync::atomic::Ordering::Relaxed));
+        sink.resolve_tool_end("commit", false);
+        assert!(!sink
+            .round_committed
+            .load(std::sync::atomic::Ordering::Relaxed));
+        sink.note_round_tool("finalize", "git", &json!({"action":"finalize"}));
+        sink.resolve_tool_end("finalize", true);
+        assert!(sink
+            .round_committed
+            .load(std::sync::atomic::Ordering::Relaxed));
     }
 
     /// 收尾落盘写的是**另一个**事件类型——R-319 的 rollout 基线数的是
@@ -1758,9 +1776,9 @@ mod tests {
         sink.note_round_tool("c1", "req", &json!({"action": "close", "id": "R-001"}));
         sink.note_round_tool("c2", "defect", &json!({"action": "close", "id": "D-001"}));
         sink.note_round_tool("c3", "req", &json!({"action": "update", "id": "R-002"}));
-        let _ = sink.resolve_tool_end("c1", "req", true);
-        let _ = sink.resolve_tool_end("c2", "defect", false);
-        let _ = sink.resolve_tool_end("c3", "req", true);
+        let _ = sink.resolve_tool_end("c1", true);
+        let _ = sink.resolve_tool_end("c2", false);
+        let _ = sink.resolve_tool_end("c3", true);
         assert_eq!(
             round_closed.load(std::sync::atomic::Ordering::Relaxed),
             1,

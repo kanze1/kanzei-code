@@ -198,7 +198,7 @@ assert.match(js, /function entryTags\(entry\)/);
 assert.match(js, /function syncTagFilter\(select, entries, selected = "all"\)/);
 assert.match(js, /function workPriorityStorageKey\(\)/);
 assert.match(js, /workPriority: selectedWorkPriority\(\)/);
-assert.match(js, /function addUserMessage\(text, promptAttachments = \[\]\)/);
+assert.match(js, /function addUserMessage\(text, promptAttachments = \[\], origin = "human"\)/);
 assert.match(html, /id="continue-panel"[\s\S]*id="continue-prompt"/);
 assert.match(html, /id="continue-toggle"[\s\S]*id="continue-btn"/);
 assert.match(css, /#continue-panel[\s\S]*grid-template-columns: auto minmax\(0, 1fr\)/);
@@ -319,7 +319,7 @@ assert.match(js, /t\("实际差异"\)/);
   }
   // ③ 无限循环只挂在状态选择器上,且时长走 token。选择器按顶层逗号切(:is(...) 里的逗号不算),
   // 每一段都必须带状态门,否则基类一匹配就永远在跑——空闲时也在耗电,就是 agent-pulse 的老毛病。
-  const STATE_GATE = /\.running|\.pending|\.is-live|\.suspected-stuck|\[data-state=|\[data-phase=|\[data-kz-activity=|\[data-running=|\[data-voice-state=|\[data-live=|\[data-waiting=|\[aria-busy=|:not\(\.hidden\)/;
+  const STATE_GATE = /\.running|\.pending|\.is-live|\.awaiting-(?:approval|answer)\b|\[data-state=|\[data-phase=|\[data-kz-activity=|\[data-running=|\[data-voice-state=|\[data-live=|\[data-waiting=|\[aria-busy=|:not\(\.hidden\)/;
   const splitSelectors = (selector) => {
     const parts = [];
     let depth = 0;

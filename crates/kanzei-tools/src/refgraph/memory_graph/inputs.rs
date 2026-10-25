@@ -205,20 +205,7 @@ pub fn collect_context_inputs(
         }
     }
     inputs.tracker = linked_tracker_inputs(project_root, &inputs.memories)?;
-    let files = match std::fs::read_dir(code_root.join("docs/design")) {
-        Ok(files) => Some(files),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    if let Some(files) = files {
-        for file in files {
-            let name = file?.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".md") {
-                inputs.design_docs.push(name);
-            }
-        }
-        inputs.design_docs.sort();
-    }
+    // 模型的项目知识投影不猜测仓库文档目录；设计导航由项目索引文件拥有。
     Ok(inputs)
 }
 

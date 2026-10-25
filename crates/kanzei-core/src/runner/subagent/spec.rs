@@ -1,20 +1,15 @@
-//! task 工具的描述和输入 schema；人格枚举来自本轮实际可选名册。
+//! 只读 task 工具的描述与参数；角色枚举取自本轮实际名册。
 
 use kanzei_llm::ToolSpec;
 
-/// R-327:按运行时可选人格生成 task 的 schema。
-///
-/// `agent` 的 enum **由名册决定而不是硬编码**:名册里只有默认人格时(CLI 单运行、
-/// 测试桩)整个参数不出现,模型看到的 schema 与引入前逐字节一致;接了名册才多这
-/// 一个可选项。硬编码枚举会让「schema 说有、运行时没有」——模型照着选一个不存在
-/// 的人格,而回落是静默的,它永远不知道自己没选中。
+/// 可选角色取自实际名册；有多个角色时提供选择参数。
 pub(crate) fn task_spec_for(agent_names: &[String]) -> ToolSpec {
     let mut spec = task_spec();
     if agent_names.len() > 1 {
         spec.input_schema["properties"]["agent"] = serde_json::json!({
             "type": "string",
             "enum": agent_names,
-            "description": "Which read-only subagent persona to use. `explore` = fast model, mechanical search. `plan` = main model, establishes constraints and returns a concrete plan with file:line evidence. All personas share the same read-only toolset and have no step limit; the prompt and model differ. Defaults to the first one."
+            "description": "选择本次名册中的只读角色；explore 侧重检索，plan 侧重分析与规划。省略时使用名册首项。"
         });
     }
     spec
@@ -23,44 +18,26 @@ pub(crate) fn task_spec_for(agent_names: &[String]) -> ToolSpec {
 pub(crate) fn task_spec() -> ToolSpec {
     ToolSpec {
         name: "task".into(),
-        description: "Delegate a narrow read-only exploration task (find files, call \
-                      sites, usages; read and summarize code; inspect git status/diff/\
-                      log — R-218) to a subagent with ONLY read/glob/grep/files and \
-                      git read-only subcommands. It cannot write/edit files, run bash, \
-                      stage/commit/merge git changes, or publish/release; those \
-                      authority-bearing actions belong to the primary agent. Params: \
-                      prompt (self-contained instruction saying exactly what to find and \
-                      what to report back); optional description: a short 3-8 word label \
-                      the user sees for this delegation; optional model: \"fast\" (default, local model, \
-                      mechanical searches) | \"primary\" (tasks needing code comprehension); \
-                      optional schema: a JSON Schema — when given, the subagent must answer \
-                      with JSON matching it and you receive the validated object instead of \
-                      prose, so you never have to parse a summary. \
-                      Multiple task calls in one turn run in parallel — when you have several \
-                      independent scouting/finding questions (different files, regions, or \
-                      aspects of the codebase), dispatch them as SEPARATE task calls in the \
-                      SAME turn (up to max_tasks_per_turn) instead of one at a time; parallel \
-                      dispatch is significantly faster than serial scouting."
-            .into(),
+        description: "将独立的只读检索或分析任务委派给子 Agent，返回调查结果。可读取文件、符号和 Git 状态、差异与历史；不提供写文件、执行 shell 或递归委派的能力。".into(),
         input_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "Self-contained task: what to find and exactly what to report back"
+                    "description": "子任务目标、调查范围、必要上下文和预期结果。"
                 },
                 "description": {
                     "type": "string",
-                    "description": "Short 3-8 word label shown to the user for this delegation, e.g. \"Find auth call sites\"."
+                    "description": "供用户识别此子任务的简短标签。"
                 },
                 "model": {
                     "type": "string",
                     "enum": ["fast", "primary"],
-                    "description": "fast = local small model (default); primary = main model"
+                    "description": "配置中的 fast 或 primary 模型档位；省略时使用所选角色的模型档位。"
                 },
                 "schema": {
                     "type": "object",
-                    "description": "Optional JSON Schema the answer must match. Supported keywords: type, required, properties, items, enum. Use it whenever you want structured data back rather than a written summary."
+                    "description": "可选的结果 JSON Schema，支持 type、required、properties、items、enum，用于约束结构化返回结果。"
                 }
             },
             "required": ["prompt"]

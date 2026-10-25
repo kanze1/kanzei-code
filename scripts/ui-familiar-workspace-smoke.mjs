@@ -56,7 +56,7 @@ try {
   check(await page.locator('.management-goal-tree [role="treeitem"]').count() > 0, "Management defaults to tracker roots even without work nodes");
   await page.locator(".management-work-views").getByRole("button", { name: "列表", exact: true }).click();
   await page.locator(".management-row").first().waitFor();
-  check(await page.locator(".management-tabs button").count() === 4, "Requirements, defects, deliveries and map are peer pages");
+  check((await page.locator(".management-tabs button").allTextContents()).join(",") === "需求,缺陷,交付,项目地图,项目规范", "Management exposes its four data pages and the project rules editor");
   check((await page.locator(".management-row").first().innerText()).includes("R-"), "Management consumes real document snapshot entries");
   check(!/\d+\s*\/\s*\d+/.test(await page.locator(".management-row").first().innerText()), "Batch progress has no visible numeric fractions");
   await page.locator('.management-tools input[type="search"]').fill("R-365");
@@ -215,7 +215,7 @@ try {
   check(await page.locator("body").getAttribute("data-app-scope") === "global", "Memory management is a global page");
   await page.locator('#activitybar [data-view="settings"]').click();
   await page.locator("#sg-project-tools > summary").click();
-  check(await page.getByRole("button", { name: "开发规范", exact: true }).isVisible(), "Project conventions and run history are reachable through settings");
+  check(await page.getByRole("button", { name: "项目规范", exact: true }).isVisible(), "Project rules remain reachable through settings");
   check((await page.locator("#settings-toc").innerText()).includes("项目工具"), "Settings table of contents includes project tools");
   for (const theme of ["dark", "light"]) for (const width of [1440, 1000, 390]) {
     await page.setViewportSize({ width, height: 900 });

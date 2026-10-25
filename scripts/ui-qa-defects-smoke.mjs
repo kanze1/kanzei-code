@@ -101,7 +101,7 @@ try {
   await section("drag", { scene: "startup" }, async (app) => {
     const { page } = app;
     for (let i = 0; i < 3; i += 1) {
-      await page.evaluate(async (index) => (await import("/01-core.js")).invoke("process_create", { projectDir: "C:/Users/kanzei/Documents/kanzei code", profile: index === 0 ? "readonly" : "dev" }), i);
+      await page.evaluate(async (index) => (await import("/01-core.js")).invoke("process_create", { projectDir: "C:/Users/kanzei/Documents/kanzei code", profile: index === 0 ? "readonly" : "dev-auto" }), i);
     }
     await page.evaluate(async () => (await import("/09-sessions.js")).refreshProcesses());
     const rows = page.locator("#workbench-project-list .workbench-session-list .workbench-session-link");

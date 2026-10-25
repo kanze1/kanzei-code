@@ -99,11 +99,11 @@ export function collectPaletteEntries() {
   // 原来点的是被隐藏的侧栏里的 #req-quick/#defect-quick,表单进了 0×0 的容器,点了毫无反应。
   action(t("记需求"), "documents-new-req");
   action(t("记缺陷"), "documents-new-defect");
-  // 开发规范(UX-007):入口在需求页「更多」菜单里,面板给一条直达;状态(有建议稿待审阅 / 未创建)写在候选的细字上。
+  // 项目规范(UX-007):入口在需求页「更多」菜单里,面板给一条直达;状态(有建议稿待审阅 / 未创建)写在候选的细字上。
   if (document.body.dataset.space !== "research" && currentProject) {
     const conventions = $("documents-conventions-open");
     const conventionsState = conventions?.dataset.state;
-    push(t("动作"), t("开发规范…"), conventionsState === "proposal" ? t("有新建议稿 · 点击审阅") : conventionsState === "missing" ? t("未创建 · 可让 Agent 生成") : "", () => conventions?.click());
+    push(t("动作"), t("项目规范…"), conventionsState === "proposal" ? t("有新建议稿 · 点击审阅") : conventionsState === "missing" ? t("未创建 · 可让 Agent 生成") : "", () => conventions?.click());
   }
   push(t("动作"), t("聚焦输入"), "Ctrl/Cmd+K", () => promptBox.focus());
   return entries;

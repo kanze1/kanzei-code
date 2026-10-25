@@ -51,6 +51,9 @@ async fn direction_review_schedules_yield_then_replan_and_preserves_done_results
     );
     let policy = context::resolved_control_prompt(&root, &root, ctx.work_priority);
     assert!(policy.contains("apply_revision"));
+    assert!(!policy.contains("work claim"));
+    assert!(!policy.contains("work verify"));
+    assert!(!policy.contains("work refine"));
     let stale = WorkTool.execute(json!({"action":"apply_revision","id":id,"revision_id":request["revision_id"],"expected_versions":impact["versions"],"revision_decisions":[{"unit_id":id,"disposition":"retain","reason":"still valid"}]}),&ctx).await;
     assert!(stale.is_error);
     let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
@@ -59,10 +62,17 @@ async fn direction_review_schedules_yield_then_replan_and_preserves_done_results
         .unwrap();
     let impact = ok(&ctx, json!({"action":"impact","id":id})).await;
     let request = ok(&ctx,json!({"action":"begin_revision","id":id,"expected_versions":impact["versions"],"direction":"local first with offline support","reason":"refine direction"})).await;
+    let yielding = selection(&ctx);
     assert_eq!(
-        selection(&ctx).work_unit_context.unwrap().revision_action,
+        yielding.work_unit_context.as_ref().unwrap().revision_action,
         Some(WorkRevisionAction::Yield)
     );
+    let guidance = context::conditional_guidance(
+        &resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority).unwrap(),
+    );
+    assert!(guidance.contains("work revision_yield"));
+    assert!(!guidance.contains("work claim"));
+    assert!(!guidance.contains("work verify"));
     let claim = WorkTool
         .execute(json!({"action":"claim","id":id}), &ctx)
         .await;
@@ -189,10 +199,17 @@ async fn draft_goal_uses_system_identity_and_requires_criteria_before_execution(
     let goal = ok(&ctx, json!({"action":"create_unit","requirement_id":"R-001","objective":"personal agent","node":{"kind":"goal"}})).await;
     assert_eq!(goal["acceptance"], json!([]));
     assert!(!goal["base_revision"].as_str().unwrap().is_empty());
+    let planning = selection(&ctx);
     assert_eq!(
-        selection(&ctx).work_unit_context.unwrap().readiness.step,
+        planning.work_unit_context.as_ref().unwrap().readiness.step,
         kanzei_core::WorkNodeStep::Plan
     );
+    let guidance = context::conditional_guidance(
+        &resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority).unwrap(),
+    );
+    assert!(guidance.contains("work refine"));
+    assert!(!guidance.contains("work claim"));
+    assert!(!guidance.contains("work verify"));
     let rejected = WorkTool
         .execute(json!({"action":"claim","id":goal["unit_id"]}), &ctx)
         .await;

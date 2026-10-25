@@ -103,7 +103,7 @@ async fn task_crosses_legacy_default_and_explicit_step_limits() {
         harness.add(ProbeComponent(count.clone()));
         let snapshot = harness
             .resolve(&ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile: ProfileKind::DevAuto,
                 cwd: root.clone(),
                 project_root: root.clone(),
                 config: Arc::new(KanzeiConfig::default()),

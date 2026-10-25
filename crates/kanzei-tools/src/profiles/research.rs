@@ -1,21 +1,12 @@
-use anyhow::Context as _;
-use std::path::Path;
 use std::sync::Arc;
 
-use kanzei_harness::{rule, Effect, HarnessDraft, ResolveCtx};
+use kanzei_harness::{rule, Effect, HarnessDraft};
 
 use crate::tracker::{ResearchTrackerTool, TrackerTool};
-use kanzei_memory::docstore::{DocStore, DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
+use kanzei_memory::docstore::{DEFECTS, FINDINGS, REQUIREMENTS, SOURCES};
 
-/// Research 档位的工具面与回流工具注册。
-///
-/// 保持原 `ResearchProfile::contribute` 的注册顺序与资源配置；调用方仍是
-/// `ResearchProfile` 的真实 Harness 装配路径。
+/// Research tools and project draft feedback, composed by ResearchProfile.
 pub(crate) fn register_tools(draft: &mut HarnessDraft) {
-    draft.tools.insert(
-        "research_workflow",
-        Arc::new(crate::research_workflow::ResearchWorkflowTool::default()),
-    );
     draft.tools.insert(
         "source",
         Arc::new(TrackerTool {
@@ -92,32 +83,6 @@ pub(crate) fn register_tools(draft: &mut HarnessDraft) {
 
 /// Research 档位的权限与专用工具资源注册。
 pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
-    for action in [
-        "get",
-        "survey_complete",
-        "publish_map",
-        "define_mvp",
-        "prepare_compute",
-        "environment_ready",
-        "record_mvp",
-        "interpret",
-        "define_full",
-        "record_full",
-        "submit_analysis",
-        "paper_init",
-        "submit_paper",
-        "review_paper",
-        "compile_paper",
-        "request_input",
-    ] {
-        let resource = format!(
-            "{}:{action}",
-            if action == "get" { "read" } else { "write" }
-        );
-        draft
-            .permissions
-            .push(rule("research_workflow", &resource, Effect::Allow));
-    }
     draft
         .permissions
         .push(rule("memory_search", "*", Effect::Allow));
@@ -163,7 +128,6 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
             .permissions
             .push(rule(action, "*.kanzei/research/*", Effect::Allow));
         for (file, tool) in [
-            ("workflow.json", "research_workflow"),
             ("loop.json", "research_loop"),
             ("budget.json", "research_verify"),
             ("plan.json", "research_plan"),
@@ -171,7 +135,7 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
             draft.permissions.push_managed_hard_deny(
                 rule(action, &format!("*.kanzei/research/*/{file}"), Effect::Deny),
                 Some(tool),
-                Some("研究控制状态只能通过对应专用工具更新，AUTO 选题和预算由用户入口完成"),
+                Some("结构化研究状态通过对应专用工具更新"),
             );
         }
     }
@@ -252,242 +216,5 @@ pub(crate) fn configure_permissions(draft: &mut HarnessDraft) {
         draft
             .permissions
             .push(rule("research_index", resource, Effect::Allow));
-    }
-}
-
-fn research_topics(project_root: &Path) -> anyhow::Result<Vec<String>> {
-    let research_root = project_root.join(".kanzei/research");
-    let entries = match std::fs::read_dir(&research_root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("读取研究目录 {}", research_root.display()))
-        }
-    };
-    let mut topics = Vec::new();
-    for entry in entries {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        // Only validated topic names belong to this index; other directories are assets.
-        if let Some(topic) = entry
-            .file_name()
-            .to_str()
-            .filter(|topic| DocStore::validate_topic(topic).is_ok())
-        {
-            topics.push(topic.to_string());
-        }
-    }
-    topics.sort();
-    Ok(topics)
-}
-
-/// Source/Finding 已按 topic 分目录写入，研究上下文必须把 topic 真源与迁移前的
-/// flat 遗留一起投影。scope 写进每一行，避免不同 topic 的 S-/F- 局部编号碰撞后
-/// 失去归属；500 条预算在全部 scope 间共享，不会随 topic 数量无界膨胀。
-fn research_index_of(
-    ctx: &ResolveCtx,
-    kind: &'static kanzei_memory::docstore::DocKind,
-    label: &str,
-) -> anyhow::Result<Option<String>> {
-    const INDEX_LIMIT: usize = 500;
-    let mut stores = vec![(
-        "legacy-flat".to_string(),
-        DocStore::open(&ctx.project_root, kind),
-    )];
-    for topic in research_topics(&ctx.project_root)? {
-        let store = DocStore::open_topic(&ctx.project_root, kind, &topic)?;
-        stores.push((topic, store));
-    }
-
-    let mut open = Vec::new();
-    let mut closed = 0usize;
-    for (scope, store) in stores {
-        let entries = store
-            .load()
-            .with_context(|| format!("读取 {label} [{scope}]"))?;
-        closed += entries
-            .iter()
-            .filter(|entry| kind.terminal.contains(&entry.status.as_str()))
-            .count();
-        closed += store
-            .load_archive()
-            .with_context(|| format!("读取 {label} [{scope}] 归档"))?
-            .len();
-        open.extend(
-            entries
-                .into_iter()
-                .filter(|entry| !kind.terminal.contains(&entry.status.as_str()))
-                .map(|entry| (scope.clone(), entry)),
-        );
-    }
-    if open.is_empty() && closed == 0 {
-        return Ok(None);
-    }
-
-    let mut lines = open
-        .iter()
-        .take(INDEX_LIMIT)
-        .map(|(scope, entry)| format!("[{scope}] {} [{}] {}", entry.id, entry.status, entry.title))
-        .collect::<Vec<_>>();
-    if open.len() > INDEX_LIMIT {
-        let folded = open
-            .iter()
-            .skip(INDEX_LIMIT)
-            .map(|(scope, entry)| format!("{scope}/{}", entry.id))
-            .collect::<Vec<_>>();
-        lines.push(format!(
-            "… +{} more open ({}); use the source/finding tracker with the shown topic scope",
-            open.len() - INDEX_LIMIT,
-            folded.join(", ")
-        ));
-    }
-    Ok(Some(format!(
-        "{label} ({} open, {closed} closed; topic + legacy-flat):\n{}",
-        open.len(),
-        lines.join("\n")
-    )))
-}
-
-/// 文档索引:非终态条目一行一个,预算封顶。
-pub(crate) fn index_of(
-    ctx: &ResolveCtx,
-    kind: &'static kanzei_memory::docstore::DocKind,
-    label: &str,
-) -> anyhow::Result<Option<String>> {
-    if matches!(kind.prefix, "S" | "F") {
-        return research_index_of(ctx, kind, label);
-    }
-    const INDEX_LIMIT: usize = 500;
-    let store = DocStore::open(&ctx.project_root, kind);
-    let entries = store.load().with_context(|| format!("读取 {label}"))?;
-    if entries.is_empty() {
-        return Ok(None);
-    }
-    let open: Vec<&kanzei_memory::docstore::Entry> = entries
-        .iter()
-        .filter(|e| !kind.terminal.contains(&e.status.as_str()))
-        .collect();
-    // 已完成的会被移入归档文件,closed 计数要把两处都算上。
-    let closed = entries.len() - open.len()
-        + store
-            .load_archive()
-            .with_context(|| format!("读取 {label} 归档"))?
-            .len();
-    let mut lines: Vec<String> = open
-        .iter()
-        .take(INDEX_LIMIT)
-        .map(|e| {
-            let sev = e
-                .severity
-                .as_ref()
-                .map(|s| format!("/{s}"))
-                .unwrap_or_default();
-            format!("{} [{}{sev}] {}", e.id, e.status, e.title)
-        })
-        .collect();
-    if open.len() > INDEX_LIMIT {
-        let folded: Vec<&str> = open
-            .iter()
-            .skip(INDEX_LIMIT)
-            .map(|e| e.id.as_str())
-            .collect();
-        lines.push(format!(
-            "… +{} more open ({}), read `{}` or use the tracker list tool for the full queue",
-            open.len() - INDEX_LIMIT,
-            folded.join(", "),
-            kind.rel_path
-        ));
-    }
-    Ok(Some(format!(
-        "{label} ({} open, {closed} closed):\n{}",
-        open.len(),
-        lines.join("\n")
-    )))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::index_of;
-    use kanzei_harness::{KanzeiConfig, ProfileKind, ResolveCtx};
-    use kanzei_memory::docstore::{DocStore, Entry, FINDINGS, SOURCES};
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    fn test_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "kz-research-index-{label}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ))
-    }
-
-    fn entry(id: &str, title: &str, status: &str) -> Entry {
-        Entry {
-            id: id.into(),
-            title: title.into(),
-            status: status.into(),
-            severity: None,
-            fields: vec![],
-        }
-    }
-
-    fn ctx(root: PathBuf) -> ResolveCtx {
-        ResolveCtx {
-            profile: ProfileKind::Research,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        }
-    }
-
-    /// D-570 回归:topic 目录与迁移前 flat 遗留必须同时投影,且同一会话内
-    /// 新写入的 topic 条目在下一次渲染立即可见(不缓存旧快照)。
-    #[test]
-    fn research_index_聚合flat遗留和topic并能回读同会话新条目() {
-        let root = test_root("sources");
-        let flat = DocStore::open(&root, &SOURCES);
-        flat.save(&[entry("S-001", "flat legacy source", "active")])
-            .unwrap();
-        let topic = DocStore::open_topic(&root, &SOURCES, "r221-chain").unwrap();
-        topic
-            .save(&[entry("S-001", "topic source", "active")])
-            .unwrap();
-
-        let first = index_of(&ctx(root.clone()), &SOURCES, "Sources")
-            .unwrap()
-            .unwrap();
-        assert!(first.contains("flat legacy source"));
-        assert!(first.contains("[r221-chain] S-001 [active] topic source"));
-
-        topic
-            .save(&[
-                entry("S-001", "topic source", "active"),
-                entry("S-002", "new same-session source", "active"),
-            ])
-            .unwrap();
-        let second = index_of(&ctx(root.clone()), &SOURCES, "Sources")
-            .unwrap()
-            .unwrap();
-        assert!(second.contains("[r221-chain] S-002 [active] new same-session source"));
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn research_index_同时覆盖topic_findings() {
-        let root = test_root("findings");
-        let topic = DocStore::open_topic(&root, &FINDINGS, "r221-chain").unwrap();
-        topic
-            .save(&[entry("F-001", "topic finding", "draft")])
-            .unwrap();
-        let index = index_of(&ctx(root.clone()), &FINDINGS, "Findings")
-            .unwrap()
-            .unwrap();
-        assert!(index.contains("[r221-chain] F-001 [draft] topic finding"));
-        std::fs::remove_dir_all(root).ok();
     }
 }

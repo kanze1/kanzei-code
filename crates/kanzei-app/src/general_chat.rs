@@ -14,14 +14,14 @@ pub(crate) fn is_general_root(root: &Path) -> bool {
 }
 
 pub(crate) fn supports_profile(profile: &str) -> bool {
-    matches!(profile, "dev" | "isolated")
+    matches!(profile, "dev-auto" | "dev-pair" | "isolated")
 }
 
 pub(crate) fn normalize_profile(profile: Option<String>) -> Option<String> {
     Some(
         profile
             .filter(|value| supports_profile(value))
-            .unwrap_or_else(|| "dev".into()),
+            .unwrap_or_else(|| "dev-auto".into()),
     )
 }
 
@@ -220,18 +220,6 @@ pub(crate) async fn general_chat_link(
     link_to_project(&state, &process_id, Path::new(&project_dir)).await
 }
 
-/// Apply the shared projectless scope after app-specific components.
-pub(crate) struct GeneralChatBoundary;
-impl kanzei_harness::Component for GeneralChatBoundary {
-    fn contribute(
-        &self,
-        draft: &mut kanzei_harness::HarnessDraft,
-        ctx: &kanzei_harness::ResolveCtx,
-    ) -> anyhow::Result<()> {
-        kanzei_harness::Component::contribute(&kanzei_tools::GeneralChatProfile, draft, ctx)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,8 +242,26 @@ mod tests {
                     let state = crate::AppState::default();
                     let root = PathBuf::from(open(&state).unwrap());
                     assert!(is_general_root(&root));
+                    let global_memory = kanzei_memory::memory::MemoryStore::global().unwrap();
+                    global_memory
+                        .add(
+                            "preference",
+                            "General 全局偏好",
+                            "General 输出适用",
+                            "EXPLICIT_GLOBAL_PREFERENCE_V1",
+                            "user",
+                            &[],
+                            None,
+                            true,
+                        )
+                        .unwrap();
+                    // The conversation store is never a project preference source.
+                    std::fs::create_dir_all(root.join(".kanzei/memory")).unwrap();
+                    std::fs::write(root.join(".kanzei/memory/M-001.md"),
+                        "---\nid: M-001\nscope: project\ncategory: preference\ntitle: 伪项目偏好\nstatus: active\nsource: user\n---\nGENERAL_PROJECT_PREFERENCE_MUST_NOT_LOAD\n"
+                    ).unwrap();
                     let p = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
-                    assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev"));
+                    assert_eq!(p.profile.lock().unwrap().as_deref(), Some("dev-auto"));
                     assert!(p.subagent_mode.lock().unwrap().enabled());
                     *p.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
                     enforce(&p);
@@ -320,7 +326,7 @@ mod tests {
                         kanzei_harness::Effect::Deny,
                     ));
                     let ctx = kanzei_harness::ResolveCtx {
-                        profile: kanzei_harness::ProfileKind::Dev,
+                        profile: kanzei_harness::ProfileKind::DevAuto,
                         cwd: root.clone(),
                         project_root: root,
                         config: std::sync::Arc::new(config),
@@ -329,6 +335,30 @@ mod tests {
                         crate::run::assembly::build_run_harness(ctx.profile, false, None)
                             .resolve(&ctx)
                             .unwrap();
+                    let preferences = snapshot
+                        .refreshable_system_baseline_with_report()
+                        .unwrap()
+                        .0;
+                    assert!(preferences.contains("EXPLICIT_GLOBAL_PREFERENCE_V1"));
+                    assert!(!preferences.contains("GENERAL_PROJECT_PREFERENCE_MUST_NOT_LOAD"));
+                    let entries = global_memory.load_all_checked().unwrap();
+                    global_memory
+                        .update(
+                            &entries[0].1.id,
+                            None,
+                            None,
+                            Some("EXPLICIT_GLOBAL_PREFERENCE_V2"),
+                            None,
+                            None,
+                            false,
+                        )
+                        .unwrap();
+                    let refreshed = snapshot
+                        .refreshable_system_baseline_with_report()
+                        .unwrap()
+                        .0;
+                    assert!(refreshed.contains("EXPLICIT_GLOBAL_PREFERENCE_V2"));
+                    assert!(!refreshed.contains("EXPLICIT_GLOBAL_PREFERENCE_V1"));
                     let tools: Vec<_> = snapshot
                         .materialize_tools()
                         .iter()
@@ -361,12 +391,18 @@ mod tests {
                         assert!(!tools.contains(&name), "project tool leaked: {name}");
                     }
                     assert!(snapshot.agents().len() > 1);
-                    assert!(snapshot
-                        .select_primary_agent(Some("general"))
-                        .unwrap()
-                        .system
-                        .contains("create the actual file"));
-                    assert!(snapshot.select_primary_agent(Some("dev")).is_ok());
+                    let general = snapshot.select_primary_agent(Some("general")).unwrap();
+                    assert!(!general.system.trim().is_empty());
+                    for name in [
+                        kanzei_harness::DEV_AUTO_AGENT,
+                        kanzei_harness::DEV_PAIR_AGENT,
+                    ] {
+                        assert_eq!(
+                            snapshot.select_primary_agent(Some(name)).unwrap().system,
+                            general.system,
+                            "default primary {name} must use the projectless instructions"
+                        );
+                    }
                     assert!(snapshot.skills().get("personal:general-fixture").is_some());
                     assert_eq!(
                         snapshot.agents().get("persona-fixture").unwrap().system,
@@ -393,12 +429,21 @@ mod tests {
                         kanzei_harness::source("team/inbox", |_| Some("STEERING".into())),
                     );
                     kanzei_harness::Component::contribute(
-                        &kanzei_tools::GeneralChatProfile,
+                        &kanzei_tools::GeneralChatScope,
                         &mut draft,
                         &ctx,
                     )
                     .unwrap();
                     assert!(draft.context.get("team/inbox").is_some());
+                    let environment = draft.context.get("core/env").unwrap();
+                    assert!(environment.refresh_each_step());
+                    let text = environment.baseline(&ctx).unwrap().unwrap();
+                    assert!(text.contains("无项目对话，workspace="));
+                    assert!(text.contains("conversation_store="));
+                    assert!(text.contains("本机当前日期："));
+                    assert!(text.contains("UTC偏移："));
+                    assert!(!text.contains("project_root="));
+                    assert!(draft.context.get("core/project-state").is_none());
                     assert!(!is_general_root(&home.join("real-project")));
                 });
                 std::fs::remove_dir_all(home).unwrap();

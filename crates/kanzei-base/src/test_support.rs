@@ -92,10 +92,11 @@ pub fn in_subprocess(test_name: &str, environment: &[(&str, &OsStr)], test: impl
 }
 
 pub fn isolated_test(module: &str, name: &str, test: impl FnOnce()) {
-    let (_, module) = module
-        .split_once("::")
-        .expect("test module below crate root");
-    in_subprocess(&format!("{module}::{name}"), &[], test);
+    let test_name = match module.split_once("::") {
+        Some((_, module)) => format!("{module}::{name}"),
+        None => name.to_owned(),
+    };
+    in_subprocess(&test_name, &[], test);
 }
 
 pub fn is_isolated_test() -> bool {

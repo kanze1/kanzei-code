@@ -68,7 +68,7 @@ try {
   check(await invoke("general_chat_location") === root, "Existing projectless storage is discoverable without navigation");
   const target = await closedChat(root, "旧对话可管理");
   const neighbor = await closedChat(root, "保留这段对话");
-  const generalPeer = await invoke("process_create", { projectDir: root, profile: "dev" });
+  const generalPeer = await invoke("process_create", { projectDir: root, profile: "dev-auto" });
   check((await invoke("process_closed_list", { projectDir: root })).length === 2, "Both closed conversations are retained in SQLite");
   await close(); await start();
   await page.evaluate(async root => {
@@ -105,7 +105,7 @@ try {
   const projectMain = (await invoke("process_list", { projectDir: prefs.current }))[0];
   const generalMain = (await invoke("process_list", { projectDir: root })).find(item => item.id === generalPeer.id);
   const linkedPeer = await invoke("general_chat_link", { processId: generalMain.id, projectDir: prefs.current });
-  check(linkedPeer.kind === "conversation" && linkedPeer.profile === "dev", "Linking projectless history creates an ordinary project conversation");
+  check(linkedPeer.kind === "conversation" && linkedPeer.profile === "dev-auto", "Linking projectless history creates an ordinary project conversation");
   await invoke("process_purge", { projectDir: prefs.current, processId: linkedPeer.id });
   check(projectMain.kind === "conversation" && generalMain.kind === "conversation" && !("authority" in projectMain) && !("authority" in generalMain), "Native project and projectless conversations have one peer model without authority ranks");
   await invoke("process_rename", { projectDir: prefs.current, processId: projectMain.id, title: "原生项目标题核验" });
@@ -147,7 +147,7 @@ try {
   try { await invoke("process_rename", { projectDir: root, processId: target.id, title: "不能复活" }); } catch { refused = true; }
   check(refused, "Stale rename cannot recreate a deleted conversation");
   for (const [projectDir, first] of [[prefs.current, projectMain], [root, generalMain]]) {
-    const peer = await invoke("process_create", { projectDir, profile: "dev" });
+    const peer = await invoke("process_create", { projectDir, profile: "dev-auto" });
     await invoke("process_close", { processId: first.id });
     check((await invoke("process_closed_list", { projectDir })).some(p => p.id === first.id), "First conversation closes through the same backend lifecycle");
     await invoke("process_purge", { projectDir, processId: first.id });

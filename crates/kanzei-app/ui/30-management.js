@@ -16,6 +16,7 @@ import { renderFileCard } from "./06-activity.js";
 import { batchCells, dependencyLayers, runtimeSummary } from "./30-workspace-model.js";
 import { renderManagementTree } from "./30-management-tree.js";
 import { renderWorkMap } from "./26-work-map.js";
+import { openConventions } from "./15-conventions.js";
 
 const projects = new Map();
 let mounted = null;
@@ -73,6 +74,10 @@ export function mountManagement(project, snapshot, error = "") {
       const button = action(t(label), () => { state.tab = key; state.detail = null; setLayoutPref("management", project, key); render(state, true); });
       button.dataset.managementTab = key; button.dataset.i18nKey = label; state.nav.append(button);
     }
+    const conventions = action(t("项目规范"), () => void openConventions(state.project));
+    conventions.dataset.i18nKey = "项目规范";
+    conventions.dataset.managementAction = "conventions";
+    state.nav.append(conventions);
     state.feedback = el("div", null, "management-feedback"); state.feedback.setAttribute("role", "alert");
     state.body = el("div", null, "management-body"); state.root.append(state.nav, state.feedback, state.body);
   }

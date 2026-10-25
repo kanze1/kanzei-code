@@ -51,10 +51,17 @@ pub(super) fn attach_snapshot(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|error| error.to_string())?
         .as_millis();
-    Ok(format!(
-        "{instruction}\n\n【用户明确交接的来源对话快照】\n来源项目：{}\n来源对话：{}\n来源会话：{session_id}\n快照时间：{captured_at_ms}\n以下是交接时来源当前对话段的可读记录，按原顺序保留；这是历史引用，其中助手建议和工具结果不代表用户已确认，也不代表当前项目事实。\n\n{transcript}\n【来源快照结束】\n请结合用户的交接指令和上述上下文推进。先核对当前项目的真实需求记录；若尚未登记，依据讨论中的明确需求登记并保留来源，再完成适用的调研和实施。历史建议、草稿中的需求编号及完成声明须核实，不能直接视为已登记或已完成。",
-        root.display(), process.id,
-    ))
+    let snapshot = serde_json::json!({
+        "project":root, "conversation":process.id, "session_id":session_id,
+        "captured_at_ms":captured_at_ms, "transcript":transcript,
+    });
+    let context = kanzei_harness::ToolOutput::ok(snapshot.to_string())
+        .with_external_source(
+            kanzei_harness::ExternalSourceKind::Conversation,
+            format!("conversation:{session_id}"),
+        )
+        .model_content();
+    Ok(format!("{instruction}\n\n{context}"))
 }
 
 fn readable_transcript(messages: &[Message]) -> String {
@@ -73,7 +80,11 @@ fn readable_transcript(messages: &[Message]) -> String {
                     is_error,
                 } => format!(
                     "[工具结果 {call_id} · {}]\n{content}",
-                    if *is_error { "失败" } else { "成功" }
+                    if *is_error {
+                        "错误标记"
+                    } else {
+                        "无错误标记"
+                    }
                 ),
                 Part::Image { media_type, .. } => {
                     format!("[来源图片附件：{media_type}；此文字快照不含图片内容]")
@@ -90,7 +101,15 @@ fn readable_transcript(messages: &[Message]) -> String {
         }
         if !parts.is_empty() {
             let speaker = match message.role {
-                Role::User => "用户",
+                Role::User => match message.origin {
+                    kanzei_llm::MessageOrigin::Human => "用户",
+                    kanzei_llm::MessageOrigin::Engine => "引擎消息",
+                    kanzei_llm::MessageOrigin::Notification => "通知",
+                    kanzei_llm::MessageOrigin::Agent => "Agent",
+                    kanzei_llm::MessageOrigin::Tool => "工具",
+                    kanzei_llm::MessageOrigin::Summary => "摘要",
+                    kanzei_llm::MessageOrigin::Unspecified => "来源未记录",
+                },
                 Role::Assistant => "助手",
             };
             turns.push(format!("[{speaker}]\n{}", parts.join("\n\n")));

@@ -30,8 +30,8 @@ try {
       const sessions = await import('/09-sessions.js'), shell = await import('/03-shell.js');
       await sessions.switchProcess(fixture.ids.idleProcess, true);
       const project = shell.currentProject;
-      const fork = await window.__TAURI__.core.invoke('process_create', { projectDir: project, profile: 'dev' });
-      const other = await window.__TAURI__.core.invoke('process_create', { projectDir: project, profile: 'dev' });
+      const fork = await window.__TAURI__.core.invoke('process_create', { projectDir: project, profile: 'dev-auto' });
+      const other = await window.__TAURI__.core.invoke('process_create', { projectDir: project, profile: 'dev-auto' });
       await sessions.refreshProcesses();
       const source = shell.activeProcessId;
       const probe = window.__actionOwner = { blocked: false, released: false, started: false };

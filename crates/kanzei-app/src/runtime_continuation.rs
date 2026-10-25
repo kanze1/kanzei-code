@@ -62,18 +62,17 @@ pub(crate) fn arm(app: &tauri::AppHandle, payload: &Value) {
         if options
             .profile
             .as_deref()
-            .is_none_or(|profile| profile == "dev")
+            .is_none_or(|profile| matches!(profile, "dev-auto" | "dev-pair"))
         {
             if let Some(mode) = crate::prefs::load_prefs()
                 .process_auto_state
                 .get(&process.id)
                 .and_then(|value| value["mode"].as_str())
             {
-                options.agent = match mode {
-                    "dev-pair" => Some("dev-pair".into()),
-                    "dev-auto" => Some("dev".into()),
-                    _ => options.agent,
-                };
+                if matches!(mode, "dev-auto" | "dev-pair") {
+                    options.agent = Some(mode.into());
+                    options.profile = Some(mode.into());
+                }
                 options.execution_batch = options.agent.as_deref() != Some("dev-pair");
             }
         }

@@ -630,7 +630,7 @@ export async function switchProcess(processId, forceReload = false) {
   const forProject = currentProject;
   const isCurrentSwitch = () =>
     switchGeneration === processSwitchGeneration && currentProject === forProject && activeProcessId === processId;
-  // 后端只保存 dev/research;前端的 dev-auto 档位由 profile-select 的 change 事件
+  // 后端保存当前 profile；模式选择由 profile-select 的 change 事件
   // 在**用户改动时**绑定到当时的进程,这里不再重复写一次。
   //
   // D-290:原来这里拿 `$("profile-select").value` 当「旧进程的用户意图」写盘。选择器
@@ -1388,7 +1388,7 @@ export function renderProjects(prefs, { activate = true } = {}) {
   prefs ??= { current: null, projects: [], names: {} };
   lastProjectPrefs = prefs ?? { current: null, projects: [], names: {} };
   remember_development_project(prefs.current);
-  if (activate && active_space === "dev") activate_execution_root(prefs.current);
+  if (activate && active_space === "dev-auto") activate_execution_root(prefs.current);
   const projectLabel = $("project-label");
   const currentProjectLabel = prefs.current
     ? (prefs.names?.[prefs.current] || baseName(prefs.current))
@@ -1433,7 +1433,7 @@ export async function enterProject(prefs, options = {}) {
     return;
   }
   const valid = options.isCurrent ?? (() => true);
-  if (active_space === "research" || workspace_switch_pending) await switch_workspace("dev", { isCurrent: valid });
+  if (active_space === "research" || workspace_switch_pending) await switch_workspace("dev-auto", { isCurrent: valid });
   if (!valid()) return;
   const previous = currentProject;
   const target = prefs.current;

@@ -48,7 +48,7 @@ const app=await nativeApp(process.argv[2],output,"实时搜索质量观察",asyn
 },"[web]\nsearch_backend=\"duckduckgo\"\n");
 try{
   const line=await app.createConversation();
-  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_SEARCH_QUALITY: 对四个明确对象各搜索一次，保留缺失和失败。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
+  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,prompt:"NATIVE_SEARCH_QUALITY: 对四个明确对象各搜索一次，保留缺失和失败。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:true});
   await until(async()=>{assert.equal(app.errors.length,0,app.errors.join("; "));return finished && (await app.invoke("collaboration_snapshot",{projectDir:app.project})).find(row=>row.process_id===line.id)?.status==="completed";},"Live search and body observations finish",180000);
   assert.equal(receipt.queries.length,4);
   const groups=receipt.queries.map((query,index)=>{

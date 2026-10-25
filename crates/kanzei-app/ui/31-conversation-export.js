@@ -1,3 +1,4 @@
+import { messageSource } from "./00-message-source.js";
 // Pure, structured Markdown export. The backend supplies the visible transcript.
 const fence = (text, language = "") => {
   const runs = String(text).match(/`+/g) || [];
@@ -7,7 +8,8 @@ const fence = (text, language = "") => {
 export function conversationMarkdown({ name, project, sessionId, messages }) {
   const lines = [`# ${String(name || "Conversation").replace(/\n/g, " ")}`, "", `- Project: ${project}`, `- Session: ${sessionId}`, ""];
   for (const message of messages || []) {
-    lines.push(`## ${message.role === "user" && message.parts?.some(part => part.type === "tool_result") ? "Tool results" : ({ user: "User", assistant: "Assistant", system: "System" })[message.role] || message.role}`, "");
+    const author = { human: "User", assistant: "Assistant", tool: "Tool results", engine: "Engine context", summary: "History summary", notification: "Notification", agent: "Agent", unspecified: "Source not recorded" }[messageSource(message)];
+    lines.push(`## ${author || "Source not recorded"}`, "");
     for (const part of message.parts || []) {
       if (part.type === "text") lines.push(part.text, "");
       else if (["thinking", "reasoning"].includes(part.type)) lines.push("<details><summary>Thinking</summary>", "", part.text || part.thinking || "", "", "</details>", "");

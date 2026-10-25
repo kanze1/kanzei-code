@@ -15,7 +15,6 @@ use kanzei_harness::config::KanzeiConfig;
 use kanzei_harness::defs::ProfileKind;
 use kanzei_harness::{ResolveCtx, ToolCtx};
 use kanzei_llm::{LlmClient, ProxyConfig};
-use kanzei_tools::ReadonlyProfile;
 
 mod events;
 mod finalize;
@@ -200,11 +199,16 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     for warning in config.bash_permission_warnings() {
         eprintln!("\x1b[33m{warning}\x1b[0m");
     }
+    let requested_agent = std::env::var("KANZEI_AGENT").ok();
     let profile: ProfileKind = match std::env::var("KANZEI_PROFILE") {
         Ok(_) if readonly => ProfileKind::Readonly,
         Ok(p) => p.parse().map_err(|e: String| anyhow::anyhow!(e))?,
         Err(_) if readonly => ProfileKind::Readonly,
-        Err(_) => config.default_profile(),
+        Err(_) => match requested_agent.as_deref() {
+            Some("dev-auto") => ProfileKind::DevAuto,
+            Some("dev-pair") => ProfileKind::DevPair,
+            _ => config.default_profile().map_err(anyhow::Error::msg)?,
+        },
     };
     let rctx = ResolveCtx {
         profile,
@@ -213,18 +217,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         config: config.clone(),
     };
 
-    // 装配顺序即覆盖顺序:内置 → profile → 用户 markdown → 用户 toml(用户永远最后、永远赢)。
-    // R-256 批4:与桌面共用 kanzei_runtime::build_harness(对照表 #5 公共部分单点),
-    // CLI 独有 Readonly 经 middle 注入(顺序与原来一致:Research 后、Markdown 前)。
-    let mut harness = kanzei_runtime::build_harness(
-        profile,
-        |harness| {
-            harness.add(ReadonlyProfile);
-        },
-        |_harness| {},
-    );
-    let requested_agent = std::env::var("KANZEI_AGENT").ok();
-    if requested_agent.as_deref().is_none_or(|name| name == "dev") {
+    // 同名 Agent:内置 → 全局 Markdown → 已批准项目 Markdown。
+    // ConfigComponent 贡献权限规则，不定义或覆盖 Agent 正文。
+    let mut harness = kanzei_runtime::build_harness(profile, |_| {}, |_| {});
+    if requested_agent
+        .as_deref()
+        .is_none_or(|name| name == kanzei_harness::DEV_AUTO_AGENT)
+    {
         harness.add(kanzei_tools::work::WorkControlContext(
             kanzei_harness::auto_run::WorkPriority::DefectFirst,
         ));
@@ -277,7 +276,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
             ),
             "cli".into(),
         );
-    ctx.project_workflow = agent.name == "dev";
+    ctx.project_workflow = agent.name == kanzei_harness::DEV_AUTO_AGENT;
     // R-256:RunnerConfig 构造与桌面共用 kanzei_runtime::build_runner_config(对照表 #12)。
     ctx.execution_coordinator = Some(kanzei_harness::orchestration::ExecutionCoordinator::new(
         std::sync::Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
@@ -288,6 +287,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         &config,
         None,
         &ctx.project_root,
+        rctx.profile,
         if autonomous {
             kanzei_core::AskPolicy::NonInteractive
         } else {
@@ -340,6 +340,8 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         store.finish_input(&promoted.input_id, false)?;
         anyhow::bail!("队首输入需要桌面执行上下文，未执行；本次 CLI 输入仍在队列中");
     }
+    ctx.input_origin = promoted.origin;
+    ctx.input_attachments = promoted.attachments.clone();
     let prompt = promoted.prompt.clone();
     if promoted.input_id != input_id {
         // Invocation flags belong to its new input, not an older queued message.
@@ -364,7 +366,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     commit_cli_user(
         &typed_writer,
         &promoted.input_id,
-        kanzei_llm::Message::user_text(&prompt),
+        kanzei_core::input_message(ctx.input_origin, &prompt, &ctx.input_attachments, &[]),
     )?;
     let run_started = std::time::Instant::now();
     // 本轮开始墙钟毫秒:R-161 回填 recall_events 的 episode_id 用(开跑预检索
@@ -406,15 +408,13 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     // D-185:提示块不再拼进 prompt,改由 run_once 作为本轮 system 一次性注入——
     // 拼进 prompt 会随 User message 进 messages → 落 conversations → 下轮回灌累积。
     // CLI 的 `kz run` 一律是用户显式发起的一轮,prompt 就是真实检索键(非自动轮)。
-    let memory_hints = kanzei_memory::memory::prompt_hints_for_run(
+    let memory_hints = kanzei_runtime::task_memory_hints(
+        &config,
+        rctx.profile,
         &ctx.project_root,
         &prompt,
-        // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-        kanzei_memory::embed::embedder_from_config(&config)
-            .ok()
-            .flatten(),
         ctx.run_id.as_deref(),
-    );
+    )?;
     let run_prompt = prompt.clone();
     let typed_flush_writer = Arc::downgrade(&typed_writer);
     let typed_flush_task = tokio::spawn(async move {
@@ -432,20 +432,24 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
         }
     });
     let run_result = tokio::select! {
-        result = kanzei_core::run_once(
+        result = async {
+            let mut run_ctx = ctx.clone();
+            run_ctx.invoked_skills = kanzei_harness::skills::invoked_context(&snapshot, &run_prompt)?;
+            kanzei_core::run_once(
             &client,
             &route,
             &snapshot,
             &agent,
             &runner_config,
-            &ctx,
+            &run_ctx,
             &run_prompt,
             memory_hints.as_deref(),
             &prior,
             subagent_rt.as_ref(),
             &mut on_event,
             &mut ask,
-        ) => result,
+            ).await
+        } => result,
         _ = tokio::signal::ctrl_c() => {
             // 收尾逻辑在 SessionStore::finalize_interrupt 内原子完成并有测试覆盖;
             // 这里只负责把信号接到该入口。

@@ -1,3 +1,4 @@
+pub use kanzei_base::MessageOrigin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -67,6 +68,8 @@ pub enum Part {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
+    #[serde(default, skip_serializing_if = "MessageOrigin::is_unspecified")]
+    pub origin: MessageOrigin,
     pub parts: Vec<Part>,
 }
 
@@ -74,6 +77,7 @@ impl Message {
     pub fn user_text(text: impl Into<String>) -> Self {
         Message {
             role: Role::User,
+            origin: MessageOrigin::Human,
             parts: vec![Part::Text { text: text.into() }],
         }
     }
@@ -81,6 +85,7 @@ impl Message {
     pub fn assistant(parts: Vec<Part>) -> Self {
         Message {
             role: Role::Assistant,
+            origin: MessageOrigin::Unspecified,
             parts,
         }
     }
@@ -89,7 +94,30 @@ impl Message {
     pub fn tool_results(parts: Vec<Part>) -> Self {
         Message {
             role: Role::User,
+            origin: MessageOrigin::Tool,
             parts,
+        }
+    }
+
+    pub fn context_text(origin: MessageOrigin, text: impl Into<String>) -> Self {
+        Self {
+            role: Role::User,
+            origin,
+            parts: vec![Part::Text { text: text.into() }],
+        }
+    }
+
+    /// Provider roles do not carry authorship; preserve it when serializing context text.
+    pub fn model_text<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        if self.role == Role::Assistant || self.origin == MessageOrigin::Human {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            std::borrow::Cow::Owned(format!(
+                "[conversation_context]\n{}",
+                serde_json::json!({
+                    "origin": self.origin.as_str(), "authority":"context_only", "text":text,
+                })
+            ))
         }
     }
 }
@@ -232,6 +260,40 @@ pub struct LlmRequest {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn transport_roles_do_not_fabricate_human_authorship() {
+        use super::{Message, MessageOrigin};
+        let historical: Message = serde_json::from_value(serde_json::json!({
+            "role":"user","parts":[{"type":"text","text":"unknown input"}]
+        }))
+        .unwrap();
+        assert_eq!(historical.origin, MessageOrigin::Unspecified);
+        let projected = historical.model_text("unknown input");
+        assert!(projected.contains("unspecified"));
+        for origin in [
+            MessageOrigin::Engine,
+            MessageOrigin::Notification,
+            MessageOrigin::Summary,
+            MessageOrigin::Agent,
+        ] {
+            let input = "text with </conversation> and \"quotes\"";
+            let message = Message::context_text(origin, input);
+            let projected = message.model_text(input);
+            let frame: serde_json::Value =
+                serde_json::from_str(projected.strip_prefix("[conversation_context]\n").unwrap())
+                    .unwrap();
+            assert_eq!(frame["origin"], origin.as_str());
+            assert_eq!(frame["text"], input);
+            let recovered: Message =
+                serde_json::from_str(&serde_json::to_string(&message).unwrap()).unwrap();
+            assert_eq!(recovered.origin, origin);
+        }
+        assert_eq!(
+            Message::user_text("  human text  ").model_text("  human text  "),
+            "  human text  "
+        );
+    }
+
     use super::*;
 
     #[test]

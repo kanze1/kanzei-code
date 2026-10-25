@@ -46,7 +46,6 @@ pub const TOOL_AREAS: &[(&str, &str)] = &[
     ("research_plan", "kanzei-tools/research_plan"),
     ("research_runner", "kanzei-tools/research_runner"),
     ("research_verify", "kanzei-tools/research_verify"),
-    ("research_workflow", "kanzei-tools/research_workflow"),
     ("research_write", "kanzei-tools/research_write"),
     ("memory_note", "kanzei-memory/memory"),
     ("memory_search", "kanzei-memory/memory"),
@@ -59,7 +58,6 @@ pub const TOOL_AREAS: &[(&str, &str)] = &[
     ("memory_get", "kanzei-memory/memory"),
     ("memory_read", "kanzei-memory/memory"),
     ("memory_archive", "kanzei-memory/memory"),
-    ("memory_inbox_clear", "kanzei-memory/memory"),
     ("memory_inbox_discard", "kanzei-memory/memory"),
     ("ui_console", "kanzei-app"),
     ("ui_dom", "kanzei-app"),
@@ -189,7 +187,7 @@ mod tests {
         use kanzei_harness::{Component, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx};
         let root = PathBuf::from("C:/kanzei-tool-areas-test");
         let mut names = std::collections::BTreeSet::new();
-        for profile in [ProfileKind::Dev, ProfileKind::Research] {
+        for profile in [ProfileKind::DevAuto, ProfileKind::Research] {
             let ctx = ResolveCtx {
                 profile,
                 cwd: root.clone(),
@@ -198,7 +196,9 @@ mod tests {
             };
             let mut draft = HarnessDraft::default();
             crate::BaseComponent.contribute(&mut draft, &ctx).unwrap();
-            crate::DevProfile.contribute(&mut draft, &ctx).unwrap();
+            crate::DevelopmentProfile
+                .contribute(&mut draft, &ctx)
+                .unwrap();
             crate::ResearchProfile.contribute(&mut draft, &ctx).unwrap();
             kanzei_memory::memory::MemoryManagerComponent
                 .contribute(&mut draft, &ctx)

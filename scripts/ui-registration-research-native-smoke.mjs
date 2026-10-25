@@ -18,7 +18,7 @@ for (const dir of [project, appHome, path.join(run, "webview"), path.join(profil
 await writeFile(path.join(appHome, "app.json"), JSON.stringify({ projects: [], current: null, theme: "dark" }));
 await writeFile(path.join(project, "original.txt"), "original content");
 const description = "管理番剧收藏，保存个人评分，并同步到 Windows 和 Android。";
-const questionLabel = "番剧收藏需要支持哪些设备？", replyLabel = "Windows 与 Android";
+const questionLabel = "收藏与评分的数据保存在哪里？", replyLabel = "自建私有数据库";
 const checks = [], requests = [], errors = [], allowedFixtureOperations = [];
 const check = (value, label) => { assert(value, label); checks.push(label); };
 let artifactPath, asked = false, preparationTurns = 0;
@@ -35,31 +35,28 @@ const model = task.server(http.createServer(async (req, res) => {
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   try {
     const data = JSON.parse(raw), messages = data.messages || [];
-    const system = JSON.stringify(messages.filter(message => message.role === "system"));
     const lastUser = messages.findLastIndex(message => message.role === "user");
     const prompt = JSON.stringify(messages[lastUser]?.content || "");
     const tail = messages.slice(lastUser + 1).filter(message => message.role === "tool");
-    const kind = system.includes("You capture ONE requirement") ? "capture"
-      : system.includes("You own one delegated task") || prompt.includes("你是只读勘察代理") || prompt.includes("你是只读复核代理") ? "unexpected-child"
-        : prompt.includes("用户回答异步问题") ? "answer" : prompt.includes("先完成 R-001") ? "preparation" : "other";
+    const tools = (data.tools || []).map(tool => tool.function?.name);
+    const kind = tools.length === 1 && tools[0] === "req" ? "capture"
+      : tools.length > 0 && tools.every(name => ["read", "glob", "grep", "files", "git", "symbols"].includes(name)) ? "unexpected-child"
+        : prompt.includes("用户回答异步问题") ? "answer" : prompt.includes("R-001") ? "preparation" : "other";
     requests.push({ kind, messages, model: data.model });
     if (kind === "capture") {
       if (tail.length) answer(res, "R-001 整理番剧收藏与评分");
-      else answer(res, null, { action: "add", title: "整理番剧收藏与评分", complexity: "中", tag: "核心", priority: "P1", fields: {
-        "原始描述": description, "验收": "收藏和评分可保存并读取，设备同步范围经确认",
-        "来源": `用户原话「${description}」`, "发现记录": JSON.stringify({ Intent: "管理番剧收藏和个人评分", Explicit: description,
-          Assumptions: "无新增假设", Ambiguities: "同步服务部署位置待用户说明", "领域对象": "番剧、收藏和个人评分",
-          "最小成功闭环": "保存一条收藏和评分后读取", "延后决策": "同步服务的具体部署位置" }),
-      } });
+      else answer(res, null, { action: "add", title: "整理番剧收藏与评分", complexity: "中", tag: "核心", priority: "P1",
+        requirement: { statement: "用户收藏番剧或保存个人评分时，系统应保留记录，并支持 Windows 与 Android 同步。",
+          acceptance: [{ text: "收藏与评分可保存、读取，并能在 Windows 与 Android 同步。" }] } });
     } else if (kind === "preparation") {
-      artifactPath ||= prompt.match(/再读取调研文件 ([^\s。]+)/)?.[1];
+      artifactPath ||= prompt.match(/现有调研文件：([^。]+)/)?.[1];
       if (!tail.length) { preparationTurns += 1; answer(res, null, { action: "get", id: "R-001" }); }
       else if (tail.length === 1) answer(res, null, { path: artifactPath }, "read");
       else if (!asked) {
         asked = true;
-        answer(res, null, { question: questionLabel, options: [replyLabel, "仅 Windows"], background: true }, "question");
+        answer(res, null, { question: questionLabel, options: [replyLabel, "仅本机保存"], background: true }, "question");
       } else answer(res, "已读取原始需求和待补齐的调研文件，继续独立调研；尚未领取实施或宣称调研完成。");
-    } else if (kind === "answer") answer(res, `已收到设备范围：${replyLabel}。调研仍待补齐，尚未领取实施。`);
+    } else if (kind === "answer") answer(res, `已收到存储选择：${replyLabel}。调研仍待补齐，尚未领取实施。`);
     else answer(res, "原生验收没有安排子任务或实施。");
   } catch (error) { errors.push(String(error)); answer(res, "LOCAL_SERVER_ERROR"); }
 }));
@@ -112,14 +109,14 @@ try {
   await idle();
   const saved = await entry(), disk = await readFile(path.join(project, ".kanzei/project/requirements.md"), "utf8");
   check(saved?.status === "todo" && saved.prior_art?.status === "pending", "Core capture is persisted as todo with pending research before implementation");
-  check(disk.includes("R-001") && disk.includes(description), "The original request is saved in the actual requirement file");
+  check(disk.includes("R-001") && await readFile(path.join(project, saved.requirement.spec.source.reference), "utf8") === description, "The real requirement retains its exact original source");
   check((await readFile(path.join(project, artifactPath), "utf8")).includes("status: pending"), "Capture creates an actual pending prior-art artifact");
   check(requests.filter(request => request.kind === "capture").every(request => request.model === "fast"), "Successful capture does not repeat registration through the primary model");
   check(await page.locator("#prompt").inputValue() === "", "Successful registration clears the submitted draft");
   await page.locator("#project-chat-work .sw-work-entry").first().waitFor({ state: "visible" });
   check((await page.locator("#project-chat-work").innerText()).includes("待调研"), "The native conversation shows the registered requirement and its pending research badge");
   const preparation = requests.find(request => request.kind === "preparation"), prompt = JSON.stringify(preparation.messages.findLast(message => message.role === "user")?.content);
-  check(prompt.includes("R-001") && prompt.includes("原始描述") && prompt.includes("外部已有实现") && prompt.includes("仓内既有设计") && prompt.includes("验证通过") && prompt.includes("待我处理"), "Actual main model receives the research instructions and question destination");
+  check(prompt.includes("R-001") && prompt.includes(artifactPath), "The main model receives the selected requirement and its research source");
   const tools = requests.filter(request => request.kind === "preparation").flatMap(request => request.messages.filter(message => message.role === "tool"));
   check(tools.some(message => JSON.stringify(message.content).includes(description)) && tools.some(message => JSON.stringify(message.content).includes("status: pending")), "The main model reads the real saved requirement and research artifact through tools");
   const pending = (await invoke("softwire_questions")).find(question => question.question === questionLabel);

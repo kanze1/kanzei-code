@@ -39,7 +39,7 @@ const model = task.server(http.createServer(async (req, res) => {
   if (holding) return;
   if (!data.messages.some(message => message.role === "tool")) {
     reply(res, { tool_calls: [{ index: 0, id: "job-discard-1", type: "function", function: {
-      name: "memory_inbox_discard", arguments: JSON.stringify({ fingerprint: "native-note-1", decision: "noop" }) } }] });
+      name: "memory_inbox_discard", arguments: JSON.stringify({ note_id: data.tools.find(tool => tool.function.name === "memory_inbox_discard").function.parameters.properties.note_id.enum[0], decision: "noop" }) } }] });
   } else reply(res, { content: "整理完成：这一条没有需要长期保留的信息。" });
 }));
 await new Promise(resolve => model.listen(0, "127.0.0.1", resolve));
@@ -100,9 +100,9 @@ try {
   check((await invoke("runtime_status")).pid === first.owner_pid, "Stopping a memory job and reloading leave the same detached runtime alive");
   await page.locator("#memory-job-progress").filter({ hasText: "整理已停止，可继续" }).waitFor();
   check((await invoke("memory_job_status", { projectDir: project })).job.id === first.id, "Native reload retains the previous cancellation checkpoint");
-  const line = await invoke("process_create", { projectDir: project, profile:"dev", model:"stub:test", subagentMode:"off" });
+  const line = await invoke("process_create", { projectDir: project, profile:"dev-auto", model:"stub:test", subagentMode:"off" });
   auditDb = new DatabaseSync(path.join(project,".kanzei/state.db"),{ readOnly:true });
-  await invoke("run_prompt",{ projectDir:project,processId:line.id,prompt:"只需简短回答 NATIVE_BACKGROUND_GUARD。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false });
+  await invoke("run_prompt",{ projectDir:project,processId:line.id,prompt:"只需简短回答 NATIVE_BACKGROUND_GUARD。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false });
   let automatic;
   await until(() => {
     automatic = auditDb.prepare("SELECT json_extract(payload_json,'$.payload.status') AS status,json_extract(payload_json,'$.payload.job.id') AS job_id FROM session_events WHERE json_extract(payload_json,'$.payload.trigger')='automatic' ORDER BY sequence DESC LIMIT 1").get();

@@ -1201,12 +1201,12 @@ mod tests {
             .await;
         assert!(missing_path.is_error, "{}", missing_path.content);
         assert!(
-            missing_path.content.contains("缺少必填参数 `path`"),
+            missing_path.content.contains("missing field `path`"),
             "{}",
             missing_path.content
         );
         assert!(
-            missing_path.content.contains("Example (one line)"),
+            !missing_path.content.contains("Example"),
             "{}",
             missing_path.content
         );

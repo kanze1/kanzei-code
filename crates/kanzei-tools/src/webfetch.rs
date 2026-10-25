@@ -84,6 +84,10 @@ pub async fn fetch_bytes(url: &str, ctx: &ToolCtx, max_bytes: usize) -> Result<R
 }
 #[async_trait]
 impl Tool for WebFetchTool {
+    // Source pages and acquisition receipts are engine-owned observation records.
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "webfetch"
     }

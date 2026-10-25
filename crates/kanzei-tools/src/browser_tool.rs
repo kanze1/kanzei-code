@@ -80,7 +80,11 @@ impl kanzei_harness::Tool for BrowserTool {
     }
 
     fn description(&self) -> String {
-        description()
+        "Observe and operate a browser page with screenshots, DOM, console and source receipts. \
+     Open a URL, local path or HTML; omit navigation fields to retain the page. Local files grant frontend assets; opening a directory also grants its non-sensitive data files. \
+     Omit backend to keep the conversation's selection; pane/headless explicitly changes it. \
+     connect attaches a user-authorized local CDP browser (Node.js 22+). Connected actions use connection_id, page_id and expected_url from pages; frame actions also bind frame identity. \
+     source saves rendered article content with source receipts.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {

@@ -23,7 +23,7 @@ export async function openGeneralChat({ newChat = false } = {}) {
   cancelProjectNavigation();
   const valid = workbenchNavigationGuard();
   try {
-    if (!await switch_workspace("dev", { isCurrent: valid }) || !valid()) return false;
+    if (!await switch_workspace("dev-auto", { isCurrent: valid }) || !valid()) return false;
     const root = await invoke("general_chat_open");
     if (!valid()) return false;
     setGeneralChatRoot(root);

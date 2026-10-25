@@ -93,7 +93,14 @@ mod tests {
         let f = Fixture::new();
         let store = f.store();
         store
-            .admit_batch_input("s", "implementation", "implement", Delivery::Queue)
+            .admit_batch_input(
+                "s",
+                "implementation",
+                "implement",
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
         store
             .admit_input("s", "research", "prepare prior art", Delivery::Queue)
@@ -125,10 +132,24 @@ mod tests {
         let f = Fixture::new();
         let store = f.store();
         store
-            .admit_batch_input("s", "batch", "continue batch", Delivery::Queue)
+            .admit_batch_input(
+                "s",
+                "batch",
+                "continue batch",
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
         store
-            .admit_work_input("s", "work", "continue R-1", "R-001")
+            .admit_work_input(
+                "s",
+                "work",
+                "continue R-1",
+                "R-001",
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
         for id in ["batch", "work"] {
             let input = store.promote_next_input("s").unwrap().unwrap();
@@ -166,7 +187,14 @@ mod tests {
         let f = Fixture::new();
         let store = f.store();
         store
-            .admit_batch_input("s", "async:reply", "saved answer", Delivery::Queue)
+            .admit_batch_input(
+                "s",
+                "async:reply",
+                "saved answer",
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
         let input = store.promote_next_input("s").unwrap().unwrap();
         let mode = resolve(&f.0, "s", Some(&input), true, true).unwrap();
@@ -184,6 +212,8 @@ mod tests {
     fn missing_metadata_is_an_error_instead_of_a_guessed_batch_mode() {
         let f = Fixture::new();
         let unknown = AdmittedInput {
+            origin: kanzei_base::MessageOrigin::Unspecified,
+            attachments: Vec::new(),
             input_id: "missing".into(),
             session_id: "s".into(),
             prompt: "prepare".into(),

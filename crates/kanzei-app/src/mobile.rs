@@ -42,7 +42,7 @@ fn random_token(prefix: &str) -> Result<String, String> {
 }
 
 fn generate_device_credentials() -> Result<(String, String), String> {
-    Ok((random_token("dev")?, random_token("kz-device")?))
+    Ok((random_token("dev-auto")?, random_token("kz-device")?))
 }
 
 fn mobile_json_response(status: &str, body: &serde_json::Value) -> Vec<u8> {

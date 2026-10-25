@@ -527,7 +527,7 @@ const closedSignature = (project) => [closedOpen(project), closedCache.get(proje
 /// 打开某项目的某段对话:别的项目先进入它,再切到目标会话;不在对话页就回到对话页。
 export async function openSession(project, processId) {
   if (!project || !processId) return false;
-  if (!sameProject(project, currentProject) || active_space !== "dev") {
+  if (!sameProject(project, currentProject) || active_space !== "dev-auto") {
     if (!await (isGeneralChat(project) ? openGeneralChat() : openProjectSpace(project, "chat"))) return false;
   }
   const isCurrent = workbenchNavigationGuard(), view = document.body.dataset.view;
@@ -535,13 +535,13 @@ export async function openSession(project, processId) {
   // A completed history read is not permission to undo a newer navigation or
   // report a superseded selection as ready to its handoff callers.
   if (!isCurrent() || document.body.dataset.view !== view || !sameProject(project, currentProject)
-    || active_space !== "dev" || activeProcessId !== processId) return false;
+    || active_space !== "dev-auto" || activeProcessId !== processId) return false;
   ensureChatView(); // 切会话不能只在后台生效:不在对话页就跳回去(UX-052 / D15;已在对话页是空操作)。
   return true;
 }
 /// 在某项目里新建讨论 / 独立任务:别的项目先进入它;不在对话页先回到对话页(新对话要看得见)。
 async function enterChat(project) {
-  if (!sameProject(project, currentProject) || active_space !== "dev") {
+  if (!sameProject(project, currentProject) || active_space !== "dev-auto") {
     if (!await (isGeneralChat(project) ? openGeneralChat() : openProjectSpace(project, "chat"))) return false;
   }
   ensureChatView();

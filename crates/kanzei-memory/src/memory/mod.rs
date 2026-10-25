@@ -32,8 +32,7 @@ pub use inbox::{
 pub use index::{IndexHit, IndexQuery, MemoryIndex, RetrievalTiming, SqliteMemoryIndex};
 pub use ledger::DeduplicationReport;
 pub use manager::{
-    consolidation_prompt, inbox_manager_agent, manager_agent, MemoryManagerComponent,
-    MemoryStaleTool,
+    consolidation_prompt, inbox_manager_agent, MemoryManagerComponent, MemoryStaleTool,
 };
 pub use privacy::{redact_credentials, reject_credentials, REDACTED_CREDENTIAL};
 pub use relevance::lexical_weight as query_relevance;
@@ -585,7 +584,7 @@ pub struct FingerprintIndex {
 }
 
 impl FingerprintIndex {
-    /// 全量构建(启动扫描):遍历两级 store 的 active 条目,取 fingerprint 建索引。
+    /// 从项目库 active 条目构建指纹索引。
     /// 返回索引到的指纹条数(无指纹条目不计)。
     pub fn build(project_root: &std::path::Path) -> std::collections::HashMap<String, Vec<String>> {
         let mut map: std::collections::HashMap<String, Vec<String>> =
@@ -649,29 +648,30 @@ impl FingerprintIndex {
     }
 }
 
-/// R-162 事件触发召回策略(tools 侧实现,注入 RunnerConfig.recall)。
-///
-/// 检索分级(设计 §3.2,超时降级不阻塞):
-/// - Tier0 fingerprint 精确匹配:内存 FingerprintIndex(p95<5ms)。指纹 = `[fp:tool|kind]`
-///   或条目正文 `[fp:...]` 标记;命中即返回,不往下查。
-/// - Tier1 BM25:miss 时用错误原文+目标构 query 走统一检索门面 SqliteMemoryIndex::search_lexical(p95<10ms)。
-/// - ReRetrieve:同 (tool,kind) 本轮失败 ≥2 次时换 query(加目标文件与意图词),
-///   禁止把上一次的原 top-k 原样重塞。
-/// - 超时降级:Tier1 若超预算直接返回空(不阻塞主循环)。
-///
-/// 命中 → RecallHit(Packet 文本素材);record_trigger 落 state.db recall_events
-/// (trigger_type=event_recall,policy_action=fingerprint|lexical|reretrieve)。
+type RecallSnapshot = std::collections::HashMap<String, (PathBuf, MemoryEntry)>;
+
+fn recall_source(path: &std::path::Path, entry: &MemoryEntry, observed: &str) -> String {
+    format!(
+        "{}; file={}; revision={}; updated={}; {}",
+        entry.source,
+        path.display(),
+        entry_revision(entry),
+        entry.updated,
+        observed
+    )
+}
+
+/// 失败召回：项目指纹快照优先，未命中时通过有界后台检索读取当前条目。
+/// 线索保留各自的来源路径、版本与观察时机，不决定本次修复步骤。
 pub struct FailureRecallPolicy {
     project_root: std::path::PathBuf,
-    /// Tier0 指纹索引(启动扫描一次,写时增量由记忆写入侧负责重建)。
+    /// 从同一份构建时快照生成；运行期间不声称自动更新。
     index: std::collections::HashMap<String, Vec<String>>,
-    /// 全部 active 条目(构建时快照,id → entry 供命中后取正文/元数据)。
-    entries: std::collections::HashMap<String, MemoryEntry>,
+    entries: Result<RecallSnapshot, String>,
     search: Result<std::sync::Arc<recall_search::RecallSearch>, String>,
 }
 
-/// Tier1 BM25 单次检索的耗时预算(毫秒):超过视为降级,返回空不阻塞主循环。
-/// 设计 §3.2:p95<10ms;这里留 3 倍余量做硬闸。
+/// 后台检索的等待预算；超时保留为错误，不继续阻塞运行循环。
 const TIER1_BUDGET: std::time::Duration = std::time::Duration::from_millis(30);
 
 /// 构造当前触发实际使用的查询。重复失败显式加入修复意图词，避免把
@@ -689,19 +689,23 @@ fn recall_query(trigger: &kanzei_core::RecallTrigger) -> String {
 }
 
 impl FailureRecallPolicy {
-    /// 启动扫描:构建 fingerprint 索引 + 条目快照(project + global 两级)。
-    /// FingerprintIndex::build 已建好指纹→id 索引,这里只补条目快照,
-    /// 不要再手动 push 索引(否则同 id 重复进桶,tier0 返回重复命中)。
+    /// 指纹与条目元数据来自同一次项目源扫描；读取错误保留为错误。
     pub fn new(project_root: &std::path::Path) -> Self {
-        let index = FingerprintIndex::build(project_root);
-        let mut entries: std::collections::HashMap<String, MemoryEntry> =
-            std::collections::HashMap::new();
-        // R-194:全局记忆废弃,失败召回快照只收项目 store 的 active 条目。
-        for (_, entry) in MemoryStore::project(project_root).load_all() {
-            if entry.status != "active" {
-                continue;
+        let entries: Result<RecallSnapshot, String> = MemoryStore::project(project_root)
+            .load_all_checked()
+            .map(|entries| {
+                entries
+                    .into_iter()
+                    .filter(|(_, entry)| entry.status == "active")
+                    .map(|(path, entry)| (entry.id.clone(), (path, entry)))
+                    .collect()
+            })
+            .map_err(|error| format!("{error:#}"));
+        let mut index = std::collections::HashMap::new();
+        if let Ok(entries) = &entries {
+            for (_, entry) in entries.values() {
+                FingerprintIndex::insert_into(&mut index, entry);
             }
-            entries.insert(entry.id.clone(), entry.clone());
         }
         Self {
             project_root: project_root.to_path_buf(),
@@ -711,69 +715,40 @@ impl FailureRecallPolicy {
         }
     }
 
-    /// 指纹精确匹配(Tier0)。指纹来源:失败分类 (tool, kind) 拼成 `[fp:tool|kind]`;
-    /// 也兼容条目正文里的裸 `[fp:...]` 标记(同一把 key)。
-    /// 两侧都过 `normalize_fp_marker`:存量条目里的标记是收紧口径之前生成的,
-    /// 不归一就等于每次改指纹规则都把既有记忆集体踢出复发检测。
+    /// 索引与查询统一归一化，不再维护第二条正文扫描路径。
     fn tier0(&self, tool: &str, kind: &str) -> Vec<String> {
         let key = kanzei_core::normalize_fp_marker(&format!("[fp:{tool}|{kind}]"));
         let mut ids = self.index.get(&key).cloned().unwrap_or_default();
-        if !ids.is_empty() {
-            return ids;
-        }
-        // 兼容正文裸标记:遍历快照做一次归一后比对(条目数小,可接受)。
-        // 取全部标记而不只是第一条——一条记忆常覆盖同族的多个错误原文
-        // (M-029 就同时挂着 git merge / restore / rebase 三条)。
-        for (id, entry) in &self.entries {
-            let matched = entry
-                .field("fingerprint")
-                .map(|fp| vec![fp.to_string()])
-                .unwrap_or_else(|| fp_markers(&entry.body))
-                .iter()
-                .any(|fp| kanzei_core::normalize_fp_marker(fp) == key);
-            if matched {
-                ids.push(id.clone());
-            }
-        }
+        ids.sort();
         ids
     }
 
     /// Tier1 BM25:错误原文 + 目标构 query。重复失败时加入意图词，且排除上一轮候选。
-    /// 超过预算返回空(超时降级)。
+    /// 超过预算返回错误，与正常零命中区分。
     fn tier1(
         &self,
         trigger: &kanzei_core::RecallTrigger,
         excluded_ids: &[String],
-    ) -> Vec<kanzei_core::RecallHit> {
+    ) -> Result<Vec<kanzei_core::RecallHit>, String> {
         let deadline = std::time::Instant::now() + TIER1_BUDGET;
         let query = recall_query(trigger);
         let excluded: std::collections::HashSet<&str> =
             excluded_ids.iter().map(String::as_str).collect();
         let mut hits = Vec::new();
-        let worker = match &self.search {
-            Ok(worker) => worker,
-            Err(error) => {
-                tracing::error!(error=%error, "failure recall search owner unavailable");
-                return Vec::new();
-            }
-        };
+        let worker = self.search.as_ref().map_err(Clone::clone)?;
         // Ranking stays in SqliteMemoryIndex. Blocking source/index maintenance
         // belongs to the bounded owner, not the runner's synchronous callback.
-        let retrieved = match worker.search(&self.project_root, query, deadline) {
-            Ok(hits) => hits,
-            Err(error) => {
-                tracing::warn!(error=%error, "failure recall search did not complete");
-                return Vec::new();
-            }
-        };
+        let retrieved = worker
+            .search(&self.project_root, query, deadline)
+            .map_err(|error| format!("{error:#}"))?;
         for hit in retrieved {
-            if self.entries.contains_key(&hit.id) && !excluded.contains(hit.id.as_str()) {
+            if !excluded.contains(hit.entry.id.as_str()) {
                 hits.push(kanzei_core::RecallHit {
-                    id: hit.id.clone(),
-                    category: hit.category.clone(),
-                    action: hit.action.clone(),
-                    status: hit.status.clone(),
-                    source: format!("memory_search:{}", hit.id),
+                    id: hit.entry.id.clone(),
+                    category: hit.entry.category.clone(),
+                    description: hit.entry.description.clone(),
+                    status: hit.entry.status.clone(),
+                    source: recall_source(&hit.path, &hit.entry, "检索时读取"),
                     policy_action: if trigger.failure_count >= 2 {
                         "reretrieve".into()
                     } else {
@@ -782,25 +757,22 @@ impl FailureRecallPolicy {
                 });
             }
         }
-        hits
+        Ok(hits)
     }
 
-    /// 把命中 id 拼成 Packet 素材(Tier0 命中时用快照条目正文)。
-    fn materialize(&self, ids: &[String]) -> Vec<kanzei_core::RecallHit> {
+    /// 指纹命中使用构建时元数据，明确标注快照时机与版本。
+    fn materialize(entries: &RecallSnapshot, ids: &[String]) -> Vec<kanzei_core::RecallHit> {
         let mut out = Vec::new();
         for id in ids {
-            let Some(entry) = self.entries.get(id) else {
+            let Some((path, entry)) = entries.get(id) else {
                 continue;
             };
             out.push(kanzei_core::RecallHit {
                 id: entry.id.clone(),
                 category: entry.category.clone(),
-                action: entry.description.clone(),
+                description: entry.description.clone(),
                 status: entry.status.clone(),
-                source: format!(
-                    "memory:{}",
-                    entry.fingerprint().unwrap_or_else(|| entry.id.clone())
-                ),
+                source: recall_source(path, entry, "策略构建时快照，当前有效性未核验"),
                 policy_action: "fingerprint".into(),
             });
         }
@@ -809,11 +781,15 @@ impl FailureRecallPolicy {
 }
 
 impl kanzei_core::RecallPolicy for FailureRecallPolicy {
-    fn retrieve(&self, trigger: &kanzei_core::RecallTrigger) -> Vec<kanzei_core::RecallHit> {
-        // 首次失败优先 Tier0 指纹精确匹配(p95<5ms)。
+    fn retrieve(
+        &self,
+        trigger: &kanzei_core::RecallTrigger,
+    ) -> Result<Vec<kanzei_core::RecallHit>, String> {
+        let entries = self.entries.as_ref().map_err(Clone::clone)?;
+        // 首次失败优先使用内存指纹索引。
         let tier0_ids = self.tier0(&trigger.tool, &trigger.kind);
         if trigger.failure_count < 2 && !tier0_ids.is_empty() {
-            return self.materialize(&tier0_ids);
+            return Ok(Self::materialize(entries, &tier0_ids));
         }
         // ReRetrieve(内容④):同 (tool,kind) 失败 ≥2 次时必须换 query，且
         // 排除上一轮原始候选；没有新候选就真实 miss，不重复重塞旧 Packet。
@@ -828,7 +804,7 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
                 .filter(|id| !excluded.iter().any(|old| old == id))
                 .collect();
             if !fresh_tier0.is_empty() {
-                return self.materialize(&fresh_tier0);
+                return Ok(Self::materialize(entries, &fresh_tier0));
             }
         }
         self.tier1(trigger, excluded)
@@ -837,16 +813,24 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
     fn record_trigger(
         &self,
         trigger: &kanzei_core::RecallTrigger,
-        retrieved: &[kanzei_core::RecallHit],
+        retrieval: Result<&[kanzei_core::RecallHit], &str>,
         injected: &[kanzei_core::RecallHit],
         elapsed_ms: u64,
         run_id: Option<&str>,
     ) {
         // policy_action 由 Retriever 随命中结果携带；miss 没有命中层级时记 miss。
-        let policy_action = retrieved
-            .first()
-            .map(|hit| hit.policy_action.as_str())
-            .unwrap_or("miss");
+        let (retrieved, error) = match retrieval {
+            Ok(hits) => (hits, None),
+            Err(error) => (&[][..], Some(error)),
+        };
+        let policy_action = if error.is_some() {
+            "unavailable"
+        } else {
+            retrieved
+                .first()
+                .map(|hit| hit.policy_action.as_str())
+                .unwrap_or("miss")
+        };
         let retrieved_ids: Vec<&str> = retrieved.iter().map(|h| h.id.as_str()).collect();
         let injected_ids: Vec<&str> = injected.iter().map(|h| h.id.as_str()).collect();
         let (Ok(retrieved_json), Ok(injected_json)) = (
@@ -861,6 +845,7 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
             "kind": trigger.kind,
             "count": trigger.failure_count,
             "previous_retrieved_ids": trigger.previous_retrieved_ids,
+            "error": error,
         })
         .to_string();
         let path = self.project_root.join(".kanzei").join("state.db");
@@ -1278,7 +1263,7 @@ pub fn reconcile_candidates(
     Ok(project)
 }
 
-/// 开跑预检索(R-106):拿本轮的检索键对两级记忆做混合检索(lexical BM25 +
+/// 开跑预检索：用本轮任务检索项目记忆(lexical BM25 +
 /// 可选 dense embedder + RRF,R-233),命中则返回提示块(只给索引行不给正文,
 /// 拉正文是模型自己的决定)。无命中返回 None。
 ///
@@ -1320,7 +1305,7 @@ pub fn record_memory_search_telemetry(
     project_root: &std::path::Path,
     query: &str,
     hits: &[SearchHit],
-    injected: bool,
+    injected: &[SearchHit],
     channel: &str,
     timing: &index::RetrievalTiming,
     run_id: Option<&str>,
@@ -1332,6 +1317,10 @@ pub fn record_memory_search_telemetry(
     };
     let ids: Vec<&str> = hits.iter().map(|hit| hit.entry.id.as_str()).collect();
     let Ok(ids_json) = serde_json::to_string(&ids) else {
+        return;
+    };
+    let injected_ids: Vec<&str> = injected.iter().map(|hit| hit.entry.id.as_str()).collect();
+    let Ok(injected_json) = serde_json::to_string(&injected_ids) else {
         return;
     };
     let now = std::time::SystemTime::now()
@@ -1350,7 +1339,7 @@ pub fn record_memory_search_telemetry(
         query,
         candidate_ids: &ids_json,
         retrieved_ids: &ids_json,
-        injected_ids: if injected { &ids_json } else { "[]" },
+        injected_ids: &injected_json,
         lexical_ms: timing.lexical_ms,
         embed_ms: timing.embed_ms,
         vector_ms: timing.vector_ms,
@@ -1446,7 +1435,7 @@ fn prompt_hints_scoped(
             project_root,
             prompt,
             &[],
-            false,
+            &[],
             channel,
             &index::RetrievalTiming::default(),
             run_id,
@@ -1463,8 +1452,9 @@ fn prompt_hints_scoped(
     let (found, timing) = match retrieval {
         Ok(result) => result,
         Err(error) => {
-            tracing::error!(error=%error, "memory recall unavailable");
-            return Some(format!("[memory retrieval unavailable] {error:#}. Existing project knowledge was not searched; do not interpret this as no matching memory."));
+            tracing::error!(error=%format!("{error:#}"), "memory recall unavailable");
+            let diagnostic = "[memory retrieval unavailable] 项目记忆未完成检索，不能据此判断没有匹配；错误见运行日志。";
+            return (diagnostic.chars().count() <= budget).then(|| diagnostic.to_string());
         }
     };
     if let Some(run_id) = run_id {
@@ -1480,7 +1470,7 @@ fn prompt_hints_scoped(
             project_root,
             prompt,
             &[],
-            false,
+            &[],
             channel,
             &timing,
             run_id,
@@ -1494,51 +1484,58 @@ fn prompt_hints_scoped(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     hits.truncate(3);
-    // hints 不持久化到消息历史，每轮独立组装；跨运行去重会造成下一轮缺失。
-    // 层级概览不再注入平铺事实行，因此每个任务提示都必须自带召回钩子。
-    let mut remaining = budget;
-    let mut folded = 0;
-    let mut lines = Vec::new();
-    for hit in &hits {
-        let line = format!(
-            "{} [{}/{}] {} — {}\n  file: {}",
-            hit.entry.id,
-            hit.entry.scope,
-            hit.entry.category,
-            hit.entry.title,
-            hit.entry.description,
-            hit.path.display()
-        );
-        let cost = line.chars().count() + 1;
-        if cost > remaining {
-            folded += 1;
-            continue;
-        }
-        remaining -= cost;
-        lines.push(line);
-    }
-    if folded > 0 {
-        lines.push(format!(
-            "预算未列出 {folded} 条相关记忆；memory_search 可展开。"
-        ));
-    }
-    let block = format!(
-        "<memory-hints>\n与本任务可能相关的既有记忆(memory_search 或 read 返回的 file 查看正文):\n{}\n</memory-hints>",
-        lines.join("\n")
-    );
-    // R-125 的 legacy memory_recalls 已停写，保留 recalls()/mark_recall_fetched()
-    // 供历史 index.db 留读与 ReadTool 回填；当前真源是 state.db recall_events。
+    let (block, injected) = render_task_hints(&hits, budget);
     record_memory_search_telemetry(
         project_root,
         prompt,
         &hits,
-        true,
+        &injected,
         channel,
         &timing,
         run_id,
         "memory_search",
     );
-    Some(block)
+    (!block.is_empty()).then_some(block)
+}
+
+fn render_task_hints(hits: &[SearchHit], budget: usize) -> (String, Vec<SearchHit>) {
+    let mut text = String::from("<memory-hints>\n本轮检索的历史线索；按需回读。\n");
+    let ending = |folded| {
+        if folded == 0 {
+            "</memory-hints>".to_string()
+        } else {
+            format!("预算未列出 {folded} 条；可按需检索。\n</memory-hints>")
+        }
+    };
+    let mut used = text.chars().count() + ending(hits.len()).chars().count();
+    if used > budget {
+        return (String::new(), Vec::new());
+    }
+    let (mut injected, mut folded) = (Vec::new(), 0);
+    for hit in hits {
+        let line = format!(
+            "{} [{}/{}] {} — {}\n  file: {}\n  source={}; updated={}; revision={}\n",
+            hit.entry.id,
+            hit.entry.scope,
+            hit.entry.category,
+            hit.entry.title,
+            hit.entry.description,
+            hit.path.display(),
+            hit.entry.source,
+            hit.entry.updated,
+            entry_revision(&hit.entry)
+        );
+        let cost = line.chars().count();
+        if used + cost <= budget {
+            used += cost;
+            text.push_str(&line);
+            injected.push(hit.clone());
+        } else {
+            folded += 1;
+        }
+    }
+    text.push_str(&ending(folded));
+    (text, injected)
 }
 
 /// 今天的日期(YYYY-MM-DD,UTC)。civil-from-days 算法,不引 chrono。
@@ -2293,7 +2290,7 @@ mod tests {
             &dir,
             "要发版",
             &hits,
-            true,
+            &hits,
             "lexical",
             &index::RetrievalTiming::default(),
             Some("read-run"),
@@ -2363,10 +2360,11 @@ mod tests {
             _ => panic!("expected add"),
         };
         add("sop", "发版短条目", "发版发布安装更新必读"); // M-001
-        add("fact", "发版长条目", &"发版流程细节".repeat(20)); // M-002,索引行显著更长
+        add("fact", "发版长条目", &"发版流程细节".repeat(200)); // M-002,索引行显著更长
         add("preference", "发版定调", "发版发布安装更新必读"); // M-003
 
-        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 240, None).unwrap();
+        let block = prompt_hints_with_budget(&dir, "帮我把这一批发版出去", 700, None).unwrap();
+        assert!(block.chars().count() <= 700);
         assert!(
             block.contains("M-001 [project/sop]") || block.contains("M-003 [project/preference]"),
             "任务提示必须带召回钩子: {block}"
@@ -2376,7 +2374,7 @@ mod tests {
             "不能指向已经退役的常驻索引: {block}"
         );
         assert!(block.contains("预算未列出"), "折叠必须可见: {block}");
-        let full = prompt_hints_with_budget(&dir, "发版发布安装更新", 1000, None).unwrap();
+        let full = prompt_hints_with_budget(&dir, "发版发布安装更新", 5000, None).unwrap();
         assert!(full.contains("M-003"), "相关约束必须可检索: {full}");
         for (path, entry) in store.load_all() {
             assert!(
@@ -2385,9 +2383,18 @@ mod tests {
                 entry.id
             );
         }
+        let before_tiny = store.usage_counts();
         let tiny = prompt_hints_with_budget(&dir, "发版发布安装更新", 80, None).unwrap();
+        assert!(tiny.chars().count() <= 80);
         assert!(tiny.contains("预算未列出"));
         assert!(!tiny.contains("file:"), "预算不足时不能截断路径: {tiny}");
+        let after_tiny = store.usage_counts();
+        for (_, entry) in store.load_all_checked().unwrap() {
+            let before = &before_tiny[&entry.id];
+            let after = &after_tiny[&entry.id];
+            assert_eq!(after.recalled, before.recalled + 1);
+            assert_eq!(after.injected, before.injected, "折叠条目不能记成已注入");
+        }
         assert!(
             store.recalls(10).is_empty(),
             "prompt_hints 生产路径不得继续写入 legacy memory_recalls"
@@ -2682,7 +2689,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
+                true, // 指纹来自上面的真实 inbox note；该参数不绕过来源或晋升校验。
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -2697,15 +2704,88 @@ source: user
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 1);
-        let hits = policy.retrieve(&t);
+        let hits = policy.retrieve(&t).unwrap();
         assert_eq!(hits.len(), 1, "Tier0 指纹必须恰好命中一条: {hits:?}");
         assert_eq!(hits[0].category, "sop");
         assert!(
-            hits[0].action.contains("先 read 重建"),
-            "Packet 行动行要取条目 description: {}",
-            hits[0].action
+            hits[0].description.contains("先 read 重建"),
+            "适用线索应取条目 description: {}",
+            hits[0].description
         );
         std::fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn fingerprint_hints_identify_the_exact_snapshot_instead_of_claiming_current_validity() {
+        let root = temp_memory_root("fingerprint-version");
+        let store = MemoryStore::project(&root);
+        let marker = "[fp:edit|old_string not found]";
+        store
+            .append_note("fixture source", marker, "sop", &[])
+            .unwrap();
+        for _ in 0..3 {
+            store.bump_recurrence(marker);
+        }
+        let entry = match store
+            .add(
+                "sop",
+                "快照版本",
+                "旧检索线索",
+                "[fp:edit|old_string not found]",
+                "user",
+                &[],
+                None,
+                true,
+            )
+            .unwrap()
+        {
+            AddOutcome::Added(entry) => entry,
+            _ => panic!("new fixture entry"),
+        };
+        let policy = FailureRecallPolicy::new(&root);
+        store
+            .update(
+                &entry.id,
+                None,
+                Some("新检索线索"),
+                None,
+                Some("deprecated"),
+                None,
+                false,
+            )
+            .unwrap();
+        let hits = policy
+            .retrieve(&trigger("edit", "old_string not found", "lib.rs", 1))
+            .unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].description, "旧检索线索");
+        assert!(hits[0].source.contains(&entry_revision(&entry)));
+        assert!(hits[0].source.contains("file=") && hits[0].source.contains("当前有效性未核验"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn failed_snapshot_is_recorded_as_unavailable_instead_of_a_match_miss() {
+        let root = temp_memory_root("recall-source-error");
+        std::fs::write(root.join(".kanzei/memory/M-001-invalid.md"), [0xff, 0xfe]).unwrap();
+        let policy = FailureRecallPolicy::new(&root);
+        let trigger = trigger("edit", "old_string not found", "lib.rs", 1);
+        let result = policy.retrieve(&trigger);
+        assert!(result.is_err());
+        policy.record_trigger(
+            &trigger,
+            result.as_deref().map_err(String::as_str),
+            &[],
+            0,
+            Some("failed-source-run"),
+        );
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let log = store.event_recall_log().unwrap();
+        assert_eq!(log[0].2, "unavailable");
+        assert!(log[0].1.contains("M-001-invalid.md"));
+        drop(store);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2757,7 +2837,9 @@ source: user
             !rows.is_empty(),
             "Tier1 BM25 必须命中无指纹但描述相关的事实条目"
         );
-        assert!(rows.iter().any(|row| row.id == cid));
+        assert!(rows
+            .iter()
+            .any(|row| row.entry.id == cid && row.path.is_file()));
         assert_eq!(
             store.hits_map(),
             before_hits,
@@ -2766,7 +2848,14 @@ source: user
 
         let mut reretrieve = trigger("bash", "cargo test 需要 HTTPS_PROXY 代理", "", 2);
         reretrieve.previous_retrieved_ids = vec![cid.clone()];
-        let reretrieve_hits = policy.retrieve(&reretrieve);
+        // Exclusion is deterministic; real owner/ranking and deadline behavior are exercised separately.
+        let fast = recall_search::RecallSearch::spawn(move |_, _| Ok(rows.clone())).unwrap();
+        let previous =
+            std::mem::replace(&mut policy.search, Ok(std::sync::Arc::new(fast))).unwrap();
+        std::sync::Arc::try_unwrap(previous)
+            .unwrap_or_else(|_| panic!("owner still shared"))
+            .finish();
+        let reretrieve_hits = policy.retrieve(&reretrieve).unwrap();
         assert!(
             reretrieve_hits.is_empty(),
             "重查不得重复返回上一轮唯一候选: {reretrieve_hits:?}"
@@ -2809,8 +2898,9 @@ source: user
         assert!(
             returned
                 .expect("recall waited for the memory lock instead of its deadline")
-                .is_empty(),
-            "timed-out recall must not inject a result"
+                .unwrap_err()
+                .contains("deadline"),
+            "timed-out recall must retain its failure, rather than report a match miss"
         );
         std::fs::remove_dir_all(root).ok();
     }
@@ -2837,7 +2927,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
+                true, // 指纹来自上面的真实 inbox note；该参数不绕过来源或晋升校验。
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -2852,9 +2942,9 @@ source: user
         store.promote(&cid, &[(eid, None, None)], None).unwrap();
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("edit", &kind, "main.rs", 2);
-        let hits = policy.retrieve(&t);
+        let hits = policy.retrieve(&t).unwrap();
         assert!(!hits.is_empty());
-        policy.record_trigger(&t, &hits, &hits, 3, Some("run"));
+        policy.record_trigger(&t, Ok(&hits), &hits, 3, Some("run"));
         // state.db 里应能查到 event_recall 记录(trigger/action/延迟)。
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
@@ -2879,20 +2969,27 @@ source: user
         let root = temp_memory_root("misslabel");
         let policy = FailureRecallPolicy::new(&root);
         let t = trigger("bash", "some brand new failure", "build.rs", 1);
-        let hits = policy.retrieve(&t);
-        assert!(hits.is_empty(), "空库必然 miss");
-        policy.record_trigger(&t, &hits, &hits, 1, Some("run"));
+        // Telemetry consumes an explicit empty result; real ranking and bounded
+        // search ownership are exercised by the retrieval tests above.
+        let hits = Vec::new();
+        policy.record_trigger(&t, Ok(&hits), &hits, 1, Some("run"));
         // 伪造 tier1 命中(不依赖真实 BM25,预算降级会让并行测试偶发红,D-293)。
         let tier1_hit = kanzei_core::RecallHit {
             id: "M-X".into(),
             category: "sop".into(),
-            action: "先看断言".into(),
+            description: "先看断言".into(),
             status: "active".into(),
             source: "memory_search:M-X".into(),
             policy_action: "reretrieve".into(),
         };
         let t3 = trigger("bash", "some brand new failure", "build.rs", 3);
-        policy.record_trigger(&t3, std::slice::from_ref(&tier1_hit), &[], 7, Some("run"));
+        policy.record_trigger(
+            &t3,
+            Ok(std::slice::from_ref(&tier1_hit)),
+            &[],
+            7,
+            Some("run"),
+        );
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
         let log = sstore.event_recall_log().unwrap();
@@ -2984,7 +3081,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
+                true, // 指纹来自上面的真实 inbox note；该参数不绕过来源或晋升校验。
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索。
@@ -3000,14 +3097,14 @@ source: user
         let policy = FailureRecallPolicy::new(&root);
         // 第一次失败(fingerprint 命中,policy_action=fingerprint)。
         let t1 = trigger("edit", &kind, "main.rs", 1);
-        let hits1 = policy.retrieve(&t1);
+        let hits1 = policy.retrieve(&t1).unwrap();
         assert_eq!(hits1.len(), 1);
-        policy.record_trigger(&t1, &hits1, &hits1, 2, Some("run"));
+        policy.record_trigger(&t1, Ok(&hits1), &hits1, 2, Some("run"));
         // 第三次失败:tier0 仍命中 → 标签仍是 fingerprint(同轮去重后注入为空)。
         let t3 = trigger("edit", &kind, "main.rs", 3);
-        let hits3 = policy.retrieve(&t3);
+        let hits3 = policy.retrieve(&t3).unwrap();
         assert_eq!(hits3.len(), 1, "指纹仍命中");
-        policy.record_trigger(&t3, &hits3, &[], 4, Some("run"));
+        policy.record_trigger(&t3, Ok(&hits3), &[], 4, Some("run"));
 
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();
@@ -3045,7 +3142,7 @@ source: user
                 "memory-manager",
                 &[],
                 None,
-                true, // fixture 自造指纹验证 Tier0 索引,非真实写入口径(force 跳过 R-216 指纹闸)
+                true, // 指纹来自上面的真实 inbox note；该参数不绕过来源或晋升校验。
             )
             .unwrap();
         // R-165:manager 编译产物须 promote 带证据才 active 可检索(Packet 注入只看 active)。
@@ -3079,13 +3176,18 @@ source: user
         let kanzei_llm::Part::ToolResult { content, .. } = &results[0] else {
             panic!("expected ToolResult");
         };
-        // 记忆命中以 Packet 文本追加进结果,模型下一轮即可见。
+        // 失败线索进入待回喂的结果文本，实际发送内容由请求 manifest 记录。
         assert!(
-            content.contains("[记忆命中"),
+            content.contains("[记忆线索"),
             "工具失败结果必须携带记忆 Packet: {content}"
         );
-        assert!(content.contains("行动: edit 替换失败时必读"), "{content}");
-        assert!(content.contains("状态: active"), "{content}");
+        assert!(
+            content.contains("适用线索: edit 替换失败时必读"),
+            "{content}"
+        );
+        assert!(content.contains("记录状态: active"), "{content}");
+        assert!(content.contains("file=") && content.contains("revision="));
+        assert!(content.contains("策略构建时快照，当前有效性未核验"));
         // 遥测同链路落库。
         let path = root.join(".kanzei").join("state.db");
         let sstore = kanzei_core::SessionStore::open(&path).unwrap();

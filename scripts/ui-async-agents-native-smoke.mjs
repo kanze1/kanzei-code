@@ -89,7 +89,7 @@ let browser, page, owner;
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
 const command = input => invoke("agent_team_command", { projectDir: project, processId: owner.id, input });
 const jobs = () => command({ action: "list" });
-const prompt = (text, extra = {}) => invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev", agent: "dev-pair", model: "stub:interactive-main", prompt: text, autoAllow: false, autonomous: false, ...extra });
+const prompt = (text, extra = {}) => invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev-pair", agent: "dev-pair", model: "stub:interactive-main", prompt: text, autoAllow: false, autonomous: false, ...extra });
 const running = async () => (await invoke("process_list", { projectDir: project })).find(p => p.id === owner.id)?.running;
 async function until(fn, label) {
   const end = Date.now() + 45000;
@@ -112,7 +112,7 @@ try {
   const prefs = await invoke("projects_init", { path: project, name: "异步协作验收" });
   await page.evaluate(async prefs => (await import("./09-sessions.js")).enterProject(prefs), prefs);
   check((await invoke("process_list", { projectDir: project })).length === 0, "Project initialization creates no empty conversation");
-  owner = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:interactive-main" });
+  owner = await invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:interactive-main" });
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, owner.id);
   await page.evaluate(async () => {
     window.asyncProgress = [];
@@ -192,7 +192,7 @@ try {
   const processId = /^process_id: (\S+)$/m.exec(handoff.content)[1];
   check(/pid: (\d+)/.exec(handoff.content)[1] === /HANDOFF_PREFIX:(\d+)/.exec(prefix)[1], "The handed-off shell keeps the original OS process, with no rerun");
   check(!requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages).includes(processId)), "Main answers the new input before the blocked shell finishes");
-  const other = await invoke("process_create", { projectDir: project, profile: "dev" });
+  const other = await invoke("process_create", { projectDir: project, profile: "dev-auto" });
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, other.id);
   await writeFile(path.join(project, "handoff-release.txt"), "release the existing process");
   await until(() => requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages.findLast(m => m.role === "user")).includes(processId)), "Handoff completion callback"); await idle();

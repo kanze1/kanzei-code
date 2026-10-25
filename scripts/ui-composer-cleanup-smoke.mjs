@@ -79,7 +79,7 @@ try {
   await page.evaluate(async project => {
     const f = await window.__kzPreview.fixtures();
     window.__kzPreview.setCommand("process_list", args => args.projectDir === project
-      ? [{ id: "d|dream-other", session_id: "dream-other", label: "做梦来源对话", profile: "dev", running: false }]
+      ? [{ id: "d|dream-other", session_id: "dream-other", label: "做梦来源对话", profile: "dev-auto", running: false }]
       : f.commands.process_list(args));
     window.__kzPreview.setCommand("memory_dream", () => ({ report: { status: "completed" }, pending: 1 }));
   }, otherProject);

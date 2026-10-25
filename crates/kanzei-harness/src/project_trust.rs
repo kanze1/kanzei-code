@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_SOURCE_BYTES: u64 = 1024 * 1024;
 
 #[derive(Serialize)]
 pub struct SourceStatus {
@@ -67,6 +67,14 @@ impl ProjectSources {
         let mut files = Vec::new();
         let mut manifest = Sha256::new();
         for name in names {
+            if name.starts_with(".kanzei/agents/") {
+                let path = std::path::absolute(root.join(&name))?;
+                let resource = crate::permission::FileResource::resolve(root, &path)?;
+                anyhow::ensure!(
+                    resource.sensitivity().is_none(),
+                    "Agent source {name} resolves to a protected file"
+                );
+            }
             let mut bytes = Vec::new();
             dir.open(&name)?
                 .take(MAX_SOURCE_BYTES + 1)

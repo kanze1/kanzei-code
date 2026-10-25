@@ -22,7 +22,7 @@ const { payloads, project: projectA } = vm.runInNewContext(`${fixture}\n({payloa
 const projectB = "C:/smoke/second-project";
 const projectNames = { [projectA]: "Markdown 阅读器", [projectB]: "独立对照项目" };
 const projects = { current: projectA, projects: [projectA, projectB], names: projectNames };
-const seedProcess = { ...payloads.process_list[0], profile: "dev", subagent_mode: "off", running: false };
+const seedProcess = { ...payloads.process_list[0], profile: "dev-auto", subagent_mode: "off", running: false };
 const processes = new Map([
   [projectA, [
     { ...seedProcess, id: "d|reader", session_id: "session-reader", origin_project: projectA, project_dir: projectA },
@@ -35,8 +35,8 @@ let uiPreferences = {
   ...payloads.ui_prefs_get,
   // 旧偏好保留；普通冷启动不应为它进入研究、读取旧对话。
   workspace_state: {
-    [projectA]: { dev: { view: "chat", process_id: "d|reader" } },
-    "@research-library": { space: "dev", research: { view: "research", page: "overview", topic: "alpha-study" } },
+    [projectA]: { "dev-auto": { view: "chat", process_id: "d|reader" } },
+    "@research-library": { space: "dev-auto", research: { view: "research", page: "overview", topic: "alpha-study" } },
   },
 };
 let snapshotRevision = 1;

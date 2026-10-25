@@ -130,7 +130,8 @@ pub const MEMORY: DocKind = DocKind {
 };
 
 /// 设计决策(R-110):讨论与设计的沉淀——像需求/缺陷一样可追踪、可引用、可检索。
-/// accepted 是常驻态(决策生效中);被新决策取代时 superseded 并归档,拒绝即 rejected。
+/// accepted 表示记录已接受，进入当前决策索引；不证明实现或验收状态。
+/// 被新决策取代时 superseded 并归档，拒绝为 rejected。
 pub const DECISIONS: DocKind = DocKind {
     rel_path: ".kanzei/project/decisions.md",
     heading: "Decisions",
@@ -144,12 +145,8 @@ pub const DECISIONS: DocKind = DocKind {
     reopen_from: &[],
 };
 
-/// 原始想法收件箱(R-252):用户侧未经拆解的设计需求/想法,原样录入不过模型;
-/// 由人点「拆解」派子代理转成 requirements/defects 条目。旧的长期目标线已于
-/// 同批退役(R-252 验收②:现存条目推 dropped 并归档,全仓 grep 零残留)。
-/// 状态机 inbox → split/dropped:split=已拆解出 R/D(转 split 有 refs 硬门禁,
-/// 见 tracker actions::update_close),dropped=用户放弃。想法不是待办——
-/// 取活引擎(work)与鞭挞推进指令都不看这条线。
+/// 想法收件箱：inbox 提供背景，split/dropped 为终态。
+/// split 需关联真实的需求/缺陷引用；读取或收录想法不自动生成工作项。
 pub const IDEAS: DocKind = DocKind {
     rel_path: ".kanzei/project/ideas.md",
     heading: "Ideas",

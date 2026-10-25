@@ -26,17 +26,9 @@ impl Tool for PlotTool {
     }
 
     fn description(&self) -> String {
-        "Render a scientific plot from a Vega-Lite JSON spec and return a PNG through the image \
-         channel. Params: spec (Vega-Lite JSON spec string) or spec_file (path to a .json spec in \
-         workdir); optional out (output stem, default 'plot'); optional width/height (numbers, \
-         injected into the spec top level; vega engine only). Uses vl-convert (official Rust CLI, \
-         zero-install); if not installed it reports download guidance instead of crashing. The SVG \
-         is also saved to workdir for your use. JSON spec errors are reported with enough context \
-         to fix in one pass. Color: pass palette (hex array) directly, or ask the built-in \
-         scientific palette subsystem (R-275) with palette_name (e.g. \
-         \"viridis\"/\"okabe_ito\") or palette_type (seq|div|qual|cyclic) + palette_n; palette \
-         array wins when both given."
-            .into()
+        "Render scientific plots with Vega-Lite, PGFPlots or matplotlib; return an image and saved artifacts. \
+         Engine-specific inputs and installed dependencies are required; missing prerequisites return diagnostics. \
+         Palette arrays override palette selectors; semantic compatibility and color-count limits are checked.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -52,32 +44,32 @@ impl Tool for PlotTool {
                 "engine": {
                     "type": "string",
                     "enum": ["vega", "pgfplots", "matplotlib"],
-                    "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,走 R-273 latex 通道)| matplotlib(Python 脚本→PNG,检测到 uv/Python 才启用)"
+                    "description": "渲染引擎:vega(默认,Vega-Lite spec→PNG)| pgfplots(TikZ/PGFPlots 代码→PDF+PNG,使用 latex 通道)| matplotlib(Python 脚本→PNG,检测到 uv/Python 才启用)"
                 },
                 "tikz": { "type": "string", "description": "pgfplots 引擎用:TikZ/PGFPlots 代码片段(含 axis 环境)" },
                 "python": { "type": "string", "description": "matplotlib 引擎用:Python 绘图脚本(用 matplotlib 保存 <out>.png)" },
                 "palette": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "R-274 验收④:色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle;与 palette_name/palette_type 二选一,本数组优先"
+                    "description": "色板(hex 颜色数组,如 [\"#4C72B0\",\"#DD8452\"])——Vega-Lite 注入 spec scale.range,matplotlib 注入 rcParams prop_cycle;与 palette_name/palette_type 二选一,本数组优先"
                 },
                 "palette_name": {
                     "type": "string",
-                    "description": "R-275 批1:内置科学配色板名(如 viridis/cividis/twilight/okabe_ito/petroff10/tol_bright/colorbrewer_set2/colorbrewer_dark2/colorbrewer_blues/colorbrewer_rdbu),零运行时联网"
+                    "description": "内置科学配色板名(如 viridis/cividis/twilight/okabe_ito/petroff10/tol_bright/colorbrewer_set2/colorbrewer_dark2/colorbrewer_blues/colorbrewer_rdbu),零运行时联网"
                 },
                 "palette_type": {
                     "type": "string",
                     "enum": ["seq", "div", "qual", "cyclic"],
-                    "description": "R-275 批1:按类型查询内置板——seq 有序连续/div 有中点发散/qual 无序分类/cyclic 周期"
+                    "description": "按类型查询内置板——seq 有序连续/div 有中点发散/qual 无序分类/cyclic 周期"
                 },
                 "palette_n": {
                     "type": "integer",
-                    "description": "R-275 批1:色数(与 palette_type 搭配;默认该类型内置最大档数;qual 超长请求被拒并给分面建议)"
+                    "description": "色数(与 palette_type 搭配;默认该类型内置最大档数;qual 超长请求被拒并给分面建议)"
                 },
                 "palette_feature": {
                     "type": "string",
                     "enum": ["nominal", "sequential", "diverging", "cyclic"],
-                    "description": "R-275 批2:数据特征→推荐色板(nominal 无序分类→qual/sequential 有序连续→seq/diverging 有中点→div/cyclic 周期→cyclic);与 palette_name 同给时按特征做硬禁忌检查(jet/rainbow 用于连续量被机械拒绝)"
+                    "description": "数据特征→推荐色板(nominal 无序分类→qual/sequential 有序连续→seq/diverging 有中点→div/cyclic 周期→cyclic);与 palette_name 同给时按特征做硬禁忌检查(jet/rainbow 用于连续量被机械拒绝)"
                 },
                 "palette_import_format": {
                     "type": "string",
@@ -128,7 +120,7 @@ impl Tool for PlotTool {
                 "TikZ/Python 是按需适配器，请明确指定 engine",
             );
         }
-        // R-274 验收④:色板注入——palette 是 hex 颜色数组(如 ["#4C72B0","#DD8452"])。
+        // 色板注入——palette 是 hex 颜色数组(如 ["#4C72B0","#DD8452"])。
         // Vega-Lite 注入 spec 的 encoding.color.scale.range;matplotlib 注入 rcParams。
         let palette: Vec<String> = input["palette"]
             .as_array()
@@ -138,7 +130,7 @@ impl Tool for PlotTool {
                     .collect()
             })
             .unwrap_or_default();
-        // R-275 批1:内置科学配色查询——未显式传 palette 数组时,按 palette_name 或
+        // 内置科学配色查询——未显式传 palette 数组时,按 palette_name 或
         // palette_type+palette_n 从内置库解析(零运行时联网,数据转录自官方上游)。
         let palette = match resolve_palette(&input, palette) {
             Ok(p) => p,
@@ -154,7 +146,7 @@ impl Tool for PlotTool {
             Ok(p) => p,
             Err(e) => return ToolOutput::error(format!("workdir 校验失败: {e}")),
         };
-        // R-274 批2:PGFPlots 轨——TikZ/PGFPlots 代码走 R-273 latex 通道(零新增依赖,
+        // R-274 批2:PGFPlots 轨——TikZ/PGFPlots 代码使用 latex 通道(零新增依赖,
         // 图字体与论文正文一致,验收②)。
         if engine == "pgfplots" {
             let tikz = input["tikz"].as_str().unwrap_or_default().to_string();
@@ -318,7 +310,7 @@ enum Renderer {
 
 /// Vega-Lite spec → PNG + SVG。返回 ToolOutput(图片经 images 通道回模型,SVG 落盘)。
 ///
-/// R-274 验收④:`palette` 非空时注入 spec 的 encoding.color.scale.range——
+/// `palette` 非空时注入 spec 的 encoding.color.scale.range——
 /// 图中系列颜色与色板逐色一致。
 /// D-392:width/height 注入 spec 顶层(Vega-Lite 合法字段);SVG 真落盘
 /// (vl-convert vl2svg 子命令,不再是「SVG 已落盘」假承诺)。
@@ -795,7 +787,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-274 验收④:matplotlib 轨注入指定色板后,图中系列颜色与色板逐色一致(机械断言)。
+    /// matplotlib 轨注入指定色板后,图中系列颜色与色板逐色一致(机械断言)。
     /// 脚本打印 prop_cycle 前 N 色,断言输出包含色板 hex 对应 RGB。
     #[test]
     #[ignore = "external: 本机无 uv"]
@@ -825,7 +817,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// R-275 批1:内置板名解析——palette_name 返回该板全色(验收⑥联通前置:
+    /// 内置板名解析——palette_name 返回该板全色(验收⑥联通前置:
     /// 内置板经 plot 工具注入渲染,图中颜色与板逐色一致)。
     #[test]
     fn palette_name解析内置板() {
@@ -840,7 +832,7 @@ mod tests {
         assert_eq!(colors2, vec!["#4C72B0".to_string()]);
     }
 
-    /// R-275 批1:palette_type+palette_n 查询(验收②四类各返回正确类型色板)。
+    /// palette_type+palette_n 查询(验收②四类各返回正确类型色板)。
     #[serial]
     #[test]
     fn palette_type查询内置板() {
@@ -856,7 +848,7 @@ mod tests {
         assert_eq!(cc.len(), 9, "cyclic 默认取该类型最大档");
     }
 
-    /// R-275 批1:非法参数诊断明确(未知板名点名可用名 / 非法类型点名取值 /
+    /// 非法参数诊断明确(未知板名点名可用名 / 非法类型点名取值 /
     /// qual 超长给分面建议)。
     #[serial]
     #[test]
@@ -872,7 +864,7 @@ mod tests {
         assert!(err3.contains("改分面"), "qual 超长给分面建议: {err3}");
     }
 
-    /// R-275 批2:palette_feature 推荐(四类特征→正确类型色板);jet 用于连续量被拒。
+    /// palette_feature 推荐(四类特征→正确类型色板);jet 用于连续量被拒。
     #[serial]
     #[test]
     fn palette_feature推荐与禁忌() {

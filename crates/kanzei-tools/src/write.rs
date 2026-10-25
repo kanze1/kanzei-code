@@ -473,7 +473,7 @@ fn diff_language(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{diff_display, WriteTool};
-    use crate::{BaseComponent, DevProfile};
+    use crate::{BaseComponent, DevelopmentProfile};
     use kanzei_core::{AskFuture, AskReply, AskRequest, AskResponse, RunnerConfig};
     use kanzei_harness::{
         rule, ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
@@ -1120,7 +1120,7 @@ mod tests {
             kanzei_harness::Effect::Ask,
         ));
         let resolve_ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(config),
@@ -1128,7 +1128,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&resolve_ctx).unwrap();
         let agent = snapshot.select_primary_agent(None).unwrap();

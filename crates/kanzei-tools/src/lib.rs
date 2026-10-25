@@ -59,6 +59,7 @@ mod managed;
 pub use managed::MANAGED_ROOTS;
 pub mod palette;
 mod plot_tool;
+mod preferences;
 /// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
 pub mod preview_server;
 pub mod prior_art;
@@ -74,14 +75,14 @@ mod read;
 mod read_receipt_tests;
 /// 记忆知识图谱与引用抽取的纯函数(R-368 B1 子集;docs/design/memory_knowledge_graph.md)。
 pub mod refgraph;
-pub mod research_control;
+pub mod research_budget;
 pub mod research_environment;
 pub mod research_index;
 pub mod research_loop;
 pub mod research_plan;
 pub mod research_runner;
+pub mod research_topic;
 pub mod research_verify;
-pub mod research_workflow;
 pub mod research_write;
 mod search_walk;
 mod web_content;
@@ -115,8 +116,8 @@ pub use git::observe as git_observe;
 /// 从 `merge_ff` 已在用的那一个抽出来复用。
 pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
-    frontend_inspection_guidance, prompt_tool_mentions, prompt_tool_search_selects, DevProfile,
-    GeneralChatProfile, IsolatedProfile, ReadonlyProfile, ResearchProfile, DEV_DEFERRED_TOOLS,
+    DevelopmentProfile, GeneralChatProfile, GeneralChatScope, IsolatedProfile, ReadonlyProfile,
+    ResearchProfile, DEVELOPMENT_DEFERRED_TOOLS,
 };
 pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
@@ -135,9 +136,8 @@ pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
     tool: &dyn Tool,
     input: serde_json::Value,
 ) -> Result<T, kanzei_harness::ToolOutput> {
-    let raw = input.to_string();
     serde_json::from_value(input)
-        .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
+        .map_err(|e| kanzei_harness::tool::repair_hint(tool, &e.to_string()))
 }
 
 /// 为路径类工具生成可执行的缺失路径诊断：只扫描目标同目录的文件，避免把

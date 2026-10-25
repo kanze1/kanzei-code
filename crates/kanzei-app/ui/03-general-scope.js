@@ -21,7 +21,7 @@ export function rememberConversationMode(mode) {
   });
 }
 export function syncGeneralChatView(view = document.body.dataset.view, translate = text => text) {
-  const general = document.body.dataset.space === "dev" && isGeneralChat();
+  const general = document.body.dataset.space === "dev-auto" && isGeneralChat();
   document.body.dataset.generalChat = String(general);
   const autonomous = document.querySelector('#profile-select option[value="dev-auto"]');
   if (autonomous) autonomous.hidden = general;

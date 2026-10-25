@@ -2275,40 +2275,16 @@ prunable gitdir file points to non-existent location
             serde_json::json!(["clippy", "--workspace", "--", "-D", "warnings"])
         );
 
-        // ⑥ 注入 dev 提示词的 Cargo 工程规范(CARGO_CONVENTIONS §1.4a)必须如实描述上面的分工:
-        //    旧文案把提交门禁写成 all-targets clippy,弱模型据此误判「提交成功=测试代码
-        //    lint 已过」(D-758 叙述失实)。门禁再改,规范文本也跟着变红。
-        let conventions = kanzei_harness::CARGO_CONVENTIONS;
-        assert!(
-            conventions.contains("cargo clippy --workspace -- -D warnings"),
-            "规范 §1.4 必须写出提交门禁的真实 clippy 命令(不含测试目标)"
-        );
-        assert!(
-            conventions.contains("gate_checklists_align_across_git_and_local_verify"),
-            "规范 §1.4 引用的守护测试名必须是真实存在的本测试"
-        );
-        let commit_gate_line = conventions
-            .lines()
-            .find(|line| line.contains("提交前代码门禁"))
-            .expect("规范 §1.4 缺提交前代码门禁条款");
-        assert!(
-            !commit_gate_line.contains("clippy --workspace --all-targets"),
-            "规范不得再宣称提交门禁跑 --all-targets clippy: {commit_gate_line}"
-        );
-        //    「clippy 本机分工」条款里描述提交门禁的那一子句(到第一个 `;` 为止)同样不得
-        //    回退成 all-targets。
-        let division_line = conventions
-            .lines()
-            .find(|line| line.contains("clippy 本机分工"))
-            .expect("规范 §1.4 缺 clippy 本机分工条款");
-        let commit_clause = division_line
-            .split_once("提交门禁与")
-            .map(|(_, rest)| rest.split(';').next().unwrap_or(rest))
-            .expect("clippy 本机分工条款须描述提交门禁");
-        assert!(
-            !commit_clause.contains("--all-targets"),
-            "分工条款不得宣称提交门禁跑 --all-targets clippy: {commit_clause}"
-        );
+        // Repository documentation describes the same local gate contract.
+        let contributing = include_str!("../../../CONTRIBUTING.md");
+        for command in [
+            "cargo check --workspace --all-targets",
+            "cargo fmt --all -- --check",
+            "cargo clippy --workspace -- -D warnings",
+            "cargo clippy -p <crate> --all-targets -- -D warnings",
+        ] {
+            assert!(contributing.contains(command), "{command}");
+        }
     }
 
     #[test]

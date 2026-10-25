@@ -26,8 +26,6 @@ pub(crate) struct AppPrefs {
     #[serde(default)]
     pub(crate) work_priority: HashMap<String, String>,
     #[serde(default)]
-    pub(crate) auto_max: Option<u32>,
-    #[serde(default)]
     pub(crate) continue_prompt: Option<String>,
     #[serde(default)]
     pub(crate) process_auto_state: HashMap<String, Value>,
@@ -273,7 +271,6 @@ fn apply_ui_prefs(
     prefs: &mut AppPrefs,
     theme: Option<String>,
     work_priority: Option<HashMap<String, String>>,
-    auto_max: Option<u32>,
     continue_prompt: Option<String>,
     process_auto_state: Option<HashMap<String, Value>>,
 ) {
@@ -282,9 +279,6 @@ fn apply_ui_prefs(
     }
     if let Some(v) = work_priority {
         prefs.work_priority.extend(v);
-    }
-    if let Some(v) = auto_max {
-        prefs.auto_max = Some(v);
     }
     if let Some(v) = continue_prompt {
         prefs.continue_prompt = Some(v);
@@ -403,7 +397,6 @@ pub fn ui_prefs_get() -> serde_json::Value {
         "theme": p.theme,
         "backdrop": p.backdrop,
         "work_priority": p.work_priority,
-        "auto_max": p.auto_max,
         "continue_prompt": p.continue_prompt,
         "process_auto_state": p.process_auto_state,
         "workspace_state": p.workspace_state,
@@ -437,7 +430,7 @@ fn merge_workspace_state(state: &mut HashMap<String, Value>, patch: HashMap<Stri
         let bucket = current.as_object_mut().unwrap();
         for (section, value) in update {
             let target = bucket.entry(section.clone()).or_insert(Value::Null);
-            if section == "dev" || section == "research" {
+            if section == "dev-auto" || section == "research" {
                 merge_fields(target, value);
             } else if section == "topic_states" && value.is_object() {
                 if !target.is_object() {
@@ -465,7 +458,6 @@ pub fn ui_prefs_set(
     theme: Option<String>,
     backdrop: Option<Value>,
     work_priority: Option<HashMap<String, String>>,
-    auto_max: Option<u32>,
     continue_prompt: Option<String>,
     process_auto_state: Option<HashMap<String, Value>>,
     workspace_state: Option<HashMap<String, Value>>,
@@ -479,7 +471,6 @@ pub fn ui_prefs_set(
         &mut prefs,
         theme,
         work_priority,
-        auto_max,
         continue_prompt,
         process_auto_state,
     );
@@ -561,7 +552,6 @@ pub(crate) mod failure_tests {
                                         None,
                                         None,
                                         None,
-                                        None,
                                         Some(
                                             json!({format!("worker-{worker}"): {"revision": revision}}),
                                         ),
@@ -595,7 +585,7 @@ pub(crate) mod failure_tests {
         let mut json = normal;
         json.pop();
         let mut typed = good.clone();
-        typed["auto_max"] = json!("not-a-u32");
+        typed["theme"] = json!(42);
         vec![
             ("utf8", utf8),
             ("json", json),
@@ -629,7 +619,6 @@ pub(crate) mod failure_tests {
     fn save_theme() -> Result<(), String> {
         ui_prefs_set(
             Some("light".into()),
-            None,
             None,
             None,
             None,
@@ -746,7 +735,6 @@ mod run_control_delta_tests {
             None,
             priority.map(|value| serde_json::from_value(value).unwrap()),
             None,
-            None,
             auto.map(|value| serde_json::from_value(value).unwrap()),
             None,
             None,
@@ -794,8 +782,8 @@ mod run_control_delta_tests {
                     save_controls(
                         Some(json!({"A": "requirement-first"})),
                         Some(json!({
-                            "p|A": {"enabled": true, "paused": false, "stopAfterRound": false, "maxRounds": 7, "mode": "dev-pair"},
-                            "p|B": {"enabled": false, "maxRounds": 9},
+                            "p|A": {"enabled": true, "paused": false, "stopAfterRound": false, "mode": "dev-pair"},
+                            "p|B": {"enabled": false},
                             "p|C": {"enabled": true, "mode": "dev-auto"}
                         })),
                     );
@@ -816,7 +804,6 @@ mod run_control_delta_tests {
                         restored["process_auto_state"]["p|A"]["stopAfterRound"],
                         false
                     );
-                    assert_eq!(restored["process_auto_state"]["p|A"]["maxRounds"], 7);
                     assert_eq!(restored["process_auto_state"]["p|A"]["mode"], "dev-pair");
                     assert!(!restored["process_auto_state"]
                         .as_object()
@@ -898,7 +885,6 @@ mod workspace_state_tests {
             None,
             None,
             None,
-            None,
             Some(serde_json::from_value(patch).unwrap()),
             None,
             None,
@@ -920,36 +906,35 @@ mod workspace_state_tests {
                         None,
                         None,
                         None,
-                        None,
                         Some(json!({"splits": {"sidebar": 320}})),
                         None,
                     )
                     .unwrap();
                     save_workspace(json!({
-                        "project-A": {"dev": {"view": "chat", "process_id": "d|A"}},
-                        "project-B": {"dev": {"view": "chat", "process_id": "d|B"}}
+                        "project-A": {"dev-auto": {"view": "chat", "process_id": "d|A"}},
+                        "project-B": {"dev-auto": {"view": "chat", "process_id": "d|B"}}
                     }));
                     // Two windows read the same snapshot, then send only their own changes.
                     let a = ui_prefs_get();
                     let b = ui_prefs_get();
                     assert_eq!(a["workspace_state"], b["workspace_state"]);
-                    save_workspace(json!({"project-A": {"dev": {"view": "lines"}}}));
-                    save_workspace(json!({"project-B": {"dev": {"view": "arch"}}}));
+                    save_workspace(json!({"project-A": {"dev-auto": {"view": "lines"}}}));
+                    save_workspace(json!({"project-B": {"dev-auto": {"view": "arch"}}}));
                     let restored = ui_prefs_get();
                     assert_eq!(
-                        restored["workspace_state"]["project-A"]["dev"]["view"],
+                        restored["workspace_state"]["project-A"]["dev-auto"]["view"],
                         "lines"
                     );
                     assert_eq!(
-                        restored["workspace_state"]["project-B"]["dev"]["view"],
+                        restored["workspace_state"]["project-B"]["dev-auto"]["view"],
                         "arch"
                     );
                     assert_eq!(
-                        restored["workspace_state"]["project-A"]["dev"]["process_id"],
+                        restored["workspace_state"]["project-A"]["dev-auto"]["process_id"],
                         "d|A"
                     );
                     assert_eq!(
-                        restored["workspace_state"]["project-B"]["dev"]["process_id"],
+                        restored["workspace_state"]["project-B"]["dev-auto"]["process_id"],
                         "d|B"
                     );
                     assert_eq!(restored["theme"], "dark");
@@ -971,7 +956,7 @@ mod workspace_state_tests {
             || {
                 with_home("topics", || {
                     save_workspace(json!({"@research-library": {
-                        "space": "dev", "research": {"category": "research", "process_id": "p|old"},
+                        "space": "dev-auto", "research": {"category": "research", "process_id": "p|old"},
                         "topic_states": {"origin": {"page": "overview"}}
                     }}));
                     let a = ui_prefs_get();
@@ -1005,7 +990,7 @@ mod workspace_state_tests {
                         .as_object()
                         .unwrap()
                         .contains_key("process_id"));
-                    assert_eq!(library["space"], "dev");
+                    assert_eq!(library["space"], "dev-auto");
                     let raw: Value =
                         serde_json::from_str(&std::fs::read_to_string(prefs_path()).unwrap())
                             .unwrap();
@@ -1101,12 +1086,11 @@ mod tests {
         let mut wp = HashMap::new();
         wp.insert("proj-a".into(), "requirement-first".into());
         let mut pa = HashMap::new();
-        pa.insert("proc-1".into(), json!({ "enabled": true, "maxRounds": 5 }));
+        pa.insert("proc-1".into(), json!({ "enabled": true }));
         apply_ui_prefs(
             &mut p,
             Some("light".into()),
             Some(wp),
-            Some(7),
             Some("继续".into()),
             Some(pa),
         );
@@ -1115,7 +1099,6 @@ mod tests {
             p.work_priority.get("proj-a").map(String::as_str),
             Some("requirement-first")
         );
-        assert_eq!(p.auto_max, Some(7));
         assert_eq!(p.continue_prompt.as_deref(), Some("继续"));
         assert_eq!(p.process_auto_state["proc-1"]["enabled"], json!(true));
     }
@@ -1127,7 +1110,6 @@ mod tests {
         assert_eq!(p.projects, vec!["p1"]);
         assert!(p.theme.is_none());
         assert!(p.work_priority.is_empty());
-        assert!(p.auto_max.is_none());
         assert!(p.process_auto_state.is_empty());
         assert!(p.workspace_state.is_empty());
     }
@@ -1135,9 +1117,9 @@ mod tests {
     #[test]
     fn workspace_preferences_preserve_each_project_and_space() {
         let mut p = AppPrefs::default();
-        p.workspace_state.insert("project-a".into(), json!({"space":"research","dev":{"process_id":"dev-a","view":"chat"},"research":{"process_id":"research-a","topic":"topic-a","page":"writing","view":"research"}}));
+        p.workspace_state.insert("project-a".into(), json!({"space":"research","dev-auto":{"process_id":"dev-a","view":"chat"},"research":{"process_id":"research-a","topic":"topic-a","page":"writing","view":"research"}}));
         p.workspace_state
-            .insert("project-b".into(), json!({"space":"dev"}));
+            .insert("project-b".into(), json!({"space":"dev-auto"}));
         let restored: AppPrefs = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
         assert_eq!(restored.workspace_state, p.workspace_state);
         assert_eq!(
@@ -1285,7 +1267,7 @@ mod tests {
             prefs.names.insert(path.into(), format!("名 {path}"));
             prefs
                 .workspace_state
-                .insert(path.into(), json!({ "space": "dev" }));
+                .insert(path.into(), json!({ "space": "dev-auto" }));
             prefs
                 .work_priority
                 .insert(path.into(), "requirement-first".into());
@@ -1347,7 +1329,7 @@ mod tests {
             theme: Some("dark".into()),
             ..Default::default()
         };
-        apply_ui_prefs(&mut p, None, None, None, None, None);
+        apply_ui_prefs(&mut p, None, None, None, None);
         assert_eq!(p.theme.as_deref(), Some("dark"));
     }
 }

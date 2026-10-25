@@ -30,6 +30,7 @@ pub trait Component: Send + Sync {
 
 #[derive(Default)]
 pub struct HarnessDraft {
+    pub agent_sources: Vec<crate::agent_sources::AgentSource>,
     pub agents: Registry<AgentDef>,
     pub tools: Registry<Arc<dyn Tool>>,
     /// R-364 B2:延迟目录中的工具名仍留在完整执行表里,只影响模型首轮 specs。
@@ -115,6 +116,7 @@ pub struct HarnessSnapshot {
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct HarnessRegistryReport {
+    pub agent_sources: Vec<crate::agent_sources::AgentSource>,
     pub agents: Vec<RegistrationReport>,
     pub tools: Vec<RegistrationReport>,
     pub skills: Vec<RegistrationReport>,
@@ -136,6 +138,10 @@ impl HarnessSnapshot {
 
     pub fn agents(&self) -> &Registry<AgentDef> {
         &self.draft.agents
+    }
+
+    pub fn agent_sources(&self) -> &[crate::agent_sources::AgentSource] {
+        &self.draft.agent_sources
     }
 
     pub fn skills(&self) -> &Registry<SkillDef> {
@@ -184,6 +190,7 @@ impl HarnessSnapshot {
     /// 可观察的装配结果;与运行时注册表同源,不重新扫描配置目录推测胜者。
     pub fn registry_report(&self) -> HarnessRegistryReport {
         HarnessRegistryReport {
+            agent_sources: self.draft.agent_sources.clone(),
             agents: self.draft.agents.report(),
             tools: self.draft.tools.report(),
             skills: self.draft.skills.report(),
@@ -191,12 +198,13 @@ impl HarnessSnapshot {
         }
     }
 
-    /// 工具物化:整体 deny 的 action 直接摘掉(模型根本看不见,硬门禁第一层)。
+    /// Materialize tools admitted by both the ruleset and profile capability boundary.
     pub fn materialize_tools(&self) -> Vec<Arc<dyn Tool>> {
         self.draft
             .tools
             .iter()
             .filter(|(name, _)| !self.draft.permissions.action_fully_denied(name))
+            .filter(|(_, tool)| profile_allows_tool(self.ctx.profile, tool.as_ref()))
             .map(|(_, t)| Arc::clone(t))
             .collect()
     }
@@ -218,7 +226,11 @@ impl HarnessSnapshot {
     pub fn is_deferred(&self, name: &str) -> bool {
         self.deferred_loading_enabled()
             && self.draft.deferred_tools.contains(name)
-            && self.draft.tools.get(name).is_some()
+            && self
+                .draft
+                .tools
+                .get(name)
+                .is_some_and(|tool| profile_allows_tool(self.ctx.profile, tool.as_ref()))
             && !self.draft.permissions.action_fully_denied(name)
     }
 
@@ -317,7 +329,8 @@ impl HarnessSnapshot {
         Ok((sections.join("\n\n"), report))
     }
 
-    /// 权限评估入口(拦截器在 core 侧调用)。
+    /// Resource ruleset evaluation. An Allow does not bypass capability admission;
+    /// core separately checks readonly support and the operation's access scope.
     pub fn evaluate(&self, action: &str, resource: &str) -> Effect {
         self.draft.permissions.evaluate(action, resource)
     }
@@ -331,21 +344,16 @@ impl HarnessSnapshot {
         self.draft.permissions.evaluate_with_rule(action, resource)
     }
 
-    /// 档位权限快照(R-102):列出每个已注册工具的整体决策。
+    /// Profile permissions include unavailable readonly capabilities. Mixed tools
+    /// still require per-operation admission, which cannot be inferred from `*`.
     ///
-    /// 快照语义 = 该工具在 `*` 资源上的最终效果(Allow/Deny/Ask),以及它是否被
-    /// 整体摘除(硬 deny 会让模型根本看不见这个工具)。批3 的档位权限快照测试
-    /// 用它做断言:readonly 档位下 write/edit/bash 必须是 Deny,read/glob/grep/task 放行。
+    /// Reports the wildcard resource effect and whole-tool exclusion; it does
+    /// not claim that every operation of a mixed tool is executable.
     pub fn permission_snapshot(&self) -> Vec<PermissionSnapshot> {
-        permission_snapshot_of(&self.draft)
+        permission_snapshot_of(&self.draft, self.ctx.profile)
     }
 
-    /// 被硬门禁拒绝时回喂模型的下一步指引(D-173)。
-    ///
-    /// 三种情形必须说三种话:有专用工具就点名它;声明为"暂无专用工具"的资源族
-    /// 必须如实说成能力未实现,并明确堵死绕行;不属于任何托管族的普通 deny
-    /// 保持原样。旧文案一律说 "use the dedicated tool for it",在架构索引这类
-    /// 没有工具的资源上就是假信息——模型照做失败后转而用 shell 绕过。
+    /// Describe the actual managed owner and its visibility in this execution scope.
     pub fn denial_hint(&self, action: &str, resource: &str) -> String {
         match self.draft.permissions.managed_for(action, resource) {
             Some(managed) => {
@@ -360,35 +368,17 @@ impl HarnessSnapshot {
                     .map(|n| format!(" ({n})"))
                     .unwrap_or_default();
                 match managed.required_tool.as_deref() {
-                    Some(tool) if self.draft.permissions.action_fully_denied(tool) => format!(
-                        "This resource is policy-managed{note}, but its dedicated `{tool}` tool \
-                         is disabled by the current ruleset and is not callable. No permitted \
-                         dedicated write channel is available. Do not route around this gate."
+                    Some(tool) if !self.materialize_tools().iter().any(|candidate| candidate.name() == tool) => format!(
+                        "This resource is policy-managed{note}. Its owning tool `{tool}` is unavailable in this execution scope."
                     ),
                     Some(tool) if self.is_deferred(tool) => format!(
-                        "This resource is policy-managed{note}. The ONLY legal write channel is the deferred \
-                         `{tool}` tool. Load it first with the resident `tool_search` query \
-                         `select:{tool}`, then use it. Do not route around this gate."
+                        "This resource is policy-managed{note}; writes use `{tool}`. Its schema is available through tool_search query `select:{tool}`; direct calls also load it."
                     ),
-                    Some(tool) => format!(
-                        "This resource is policy-managed{note}. The ONLY legal write channel is \
-                         the `{tool}` tool — use it instead. Do not route around this gate."
-                    ),
-                    None => format!(
-                        "This resource is policy-managed{note} and NO dedicated tool exists for \
-                         it yet — this is an unimplemented capability, not a permission you can \
-                         work around. Do NOT reach it through the shell (redirects, \
-                         Set-Content/Out-File, [System.IO.File]::WriteAllText, python/node \
-                         one-liners, git checkout of a crafted blob): shell writes to this path \
-                         are detected and rolled back. Record the capability gap (`defect add`) \
-                         and tell the user, then move on."
-                    ),
+                    Some(tool) => format!("This resource is policy-managed{note}; writes use `{tool}`."),
+                    None => format!("This resource is policy-managed{note}; no owning write tool is registered."),
                 }
             }
-            None => format!(
-                "`{action}` on this resource is denied by the ruleset. If you believe it should \
-                 be allowed, say so to the user — do not look for another route to the same effect."
-            ),
+            None => format!("The current ruleset denies `{action}` on this resource."),
         }
     }
 }
@@ -419,21 +409,30 @@ pub fn rule(action: &str, resource: &str, effect: Effect) -> Rule {
 pub struct PermissionSnapshot {
     pub action: String,
     pub effect: Effect,
-    /// 硬 deny 会让工具整体摘除——模型根本看不见它。
+    /// Excluded by a hard deny or the profile capability boundary.
     pub fully_denied: bool,
 }
 
-/// 快照遍历逻辑:HarnessSnapshot::permission_snapshot 与测试共用同一实现。
-fn permission_snapshot_of(draft: &HarnessDraft) -> Vec<PermissionSnapshot> {
+/// Profile tool visibility is shared by materialization and permission diagnostics.
+fn profile_allows_tool(profile: ProfileKind, tool: &dyn Tool) -> bool {
+    profile != ProfileKind::Readonly
+        || tool.read_only_support() != crate::tool::ReadOnlySupport::Unsupported
+}
+
+fn permission_snapshot_of(draft: &HarnessDraft, profile: ProfileKind) -> Vec<PermissionSnapshot> {
     let mut names: Vec<String> = draft.tools.iter().map(|(n, _)| n.to_string()).collect();
-    // task 是 runner 内建子代理工具,不在工具注册表里;补进快照让只读档位的
-    // "task 放行" 可被同一条断言覆盖。
+    // The runner owns task registration; this row reports its resource policy,
+    // not whether delegation is installed or a writable role is eligible.
     names.push("task".into());
     names.sort();
     names
         .into_iter()
         .map(|action| {
-            let fully_denied = draft.permissions.action_fully_denied(&action);
+            let fully_denied = draft.permissions.action_fully_denied(&action)
+                || draft
+                    .tools
+                    .get(&action)
+                    .is_some_and(|tool| !profile_allows_tool(profile, tool.as_ref()));
             let effect = if fully_denied {
                 Effect::Deny
             } else {
@@ -453,10 +452,13 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    struct TestTool(&'static str);
+    struct TestTool(&'static str, crate::tool::ReadOnlySupport);
 
     #[async_trait::async_trait]
     impl Tool for TestTool {
+        fn read_only_support(&self) -> crate::tool::ReadOnlySupport {
+            self.1
+        }
         fn name(&self) -> &'static str {
             self.0
         }
@@ -478,7 +480,7 @@ mod tests {
     fn resolve_ctx() -> ResolveCtx {
         let root = PathBuf::from("C:/r364-harness-test");
         ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -486,7 +488,53 @@ mod tests {
     }
 
     fn test_tool(name: &'static str) -> Arc<dyn Tool> {
-        Arc::new(TestTool(name))
+        Arc::new(TestTool(name, crate::tool::ReadOnlySupport::Unsupported))
+    }
+
+    #[test]
+    fn readonly_capabilities_match_initial_tools_deferred_catalog_and_permission_report() {
+        use crate::tool::ReadOnlySupport;
+        struct Catalog;
+        impl Component for Catalog {
+            fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
+                for (name, support) in [
+                    ("observation", ReadOnlySupport::ReadOnly),
+                    ("control", ReadOnlySupport::ControlPlane),
+                    ("mutation", ReadOnlySupport::Unsupported),
+                ] {
+                    draft
+                        .tools
+                        .insert(name, Arc::new(TestTool(name, support)) as Arc<dyn Tool>);
+                    draft.deferred_tools.insert(name.into());
+                    draft.permissions.push(rule(name, "*", Effect::Allow));
+                }
+                draft.tools.insert(
+                    crate::tool_search::TOOL_SEARCH,
+                    Arc::new(crate::ToolSearchTool) as Arc<dyn Tool>,
+                );
+                Ok(())
+            }
+        }
+        let mut ctx = resolve_ctx();
+        ctx.profile = ProfileKind::Readonly;
+        let mut harness = Harness::default();
+        harness.add(Catalog);
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let tools = snapshot.materialize_tools();
+        assert!(!tools.iter().any(|tool| tool.name() == "mutation"));
+        assert!(tools.iter().any(|tool| tool.name() == "observation"));
+        assert!(tools.iter().any(|tool| tool.name() == "control"));
+        assert!(!snapshot.is_deferred("mutation"));
+        let catalog = snapshot.deferred_catalog().unwrap();
+        assert!(!catalog.contains("mutation"));
+        assert!(catalog.contains("observation"));
+        let report = snapshot.permission_snapshot();
+        let mutation = report
+            .iter()
+            .find(|entry| entry.action == "mutation")
+            .unwrap();
+        assert!(mutation.fully_denied);
+        assert_eq!(mutation.effect, Effect::Deny);
     }
 
     #[test]
@@ -495,7 +543,7 @@ mod tests {
         for (name, profile, mode) in [
             (
                 "dev-only",
-                crate::ProfileScope::Dev,
+                crate::ProfileScope::Development,
                 crate::AgentMode::Primary,
             ),
             (
@@ -531,7 +579,8 @@ mod tests {
             draft,
         };
         for profile in [
-            ProfileKind::Dev,
+            ProfileKind::DevAuto,
+            ProfileKind::DevPair,
             ProfileKind::Research,
             ProfileKind::Readonly,
         ] {
@@ -545,7 +594,7 @@ mod tests {
             );
             assert_eq!(
                 snapshot.select_primary_agent(Some("dev-only")).is_ok(),
-                profile == ProfileKind::Dev
+                profile.is_development()
             );
             assert_eq!(
                 snapshot.select_primary_agent(Some("research-only")).is_ok(),
@@ -602,7 +651,7 @@ mod tests {
             .unwrap()
             .contains("deferred — deferred tool."));
         let catalog = snapshot.deferred_catalog().unwrap();
-        assert!(catalog.contains("resident `tool_search`"));
+        assert!(catalog.contains("Load schemas with tool_search"));
         assert!(catalog.contains("select:name1,name2"));
         assert!(catalog.contains("direct calls also auto-load"));
     }
@@ -684,7 +733,7 @@ mod tests {
                 let hint = snapshot.denial_hint("write", "C:/project/.kanzei/project/item.md");
                 assert_eq!(visible, exception.is_some());
                 assert_eq!(
-                    hint.contains("disabled by the current ruleset"),
+                    hint.contains("unavailable in this execution scope"),
                     !visible,
                     "{hint}"
                 );
@@ -698,9 +747,34 @@ mod tests {
                 } else if deferred {
                     assert!(hint.contains("select:managed_write"), "{hint}");
                 } else {
-                    assert!(hint.contains("use it instead"), "{hint}");
+                    assert!(hint.contains("writes use `managed_write`"), "{hint}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn managed_denial_does_not_offer_a_tool_excluded_by_readonly_scope() {
+        let mut draft = HarnessDraft::default();
+        draft
+            .tools
+            .insert("managed_write", test_tool("managed_write"));
+        draft.permissions.push_managed_hard_deny(
+            rule("write", "*.kanzei/project/*", Effect::Deny),
+            Some("managed_write"),
+            None,
+        );
+        let mut ctx = resolve_ctx();
+        ctx.profile = ProfileKind::Readonly;
+        let snapshot = HarnessSnapshot { ctx, draft };
+        assert!(snapshot.materialize_tools().is_empty());
+        let hint = snapshot.denial_hint("write", "C:/project/.kanzei/project/item.md");
+        assert!(
+            hint.contains("unavailable in this execution scope"),
+            "{hint}"
+        );
+        for extra in ["writes use", "select:managed_write", "defect add", "Retry"] {
+            assert!(!hint.contains(extra), "{hint}");
         }
     }
 
@@ -784,7 +858,7 @@ mod tests {
         draft.tools.insert("bash", Arc::new(DummyTool));
         draft.tools.insert("write", Arc::new(DummyTool));
 
-        let snap = permission_snapshot_of(&draft);
+        let snap = permission_snapshot_of(&draft, ProfileKind::DevAuto);
         let read = snap.iter().find(|s| s.action == "read").unwrap();
         assert_eq!(read.effect, Effect::Allow);
         assert!(!read.fully_denied);
@@ -831,7 +905,7 @@ mod tests {
         });
         let snapshot = harness
             .resolve(&ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile: ProfileKind::DevAuto,
                 cwd: PathBuf::from("C:/test"),
                 project_root: PathBuf::from("C:/test"),
                 config: Arc::new(KanzeiConfig::default()),

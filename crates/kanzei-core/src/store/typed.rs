@@ -1164,7 +1164,12 @@ impl TypedWriterState {
                         None,
                         SessionFact::SteeringMessageCommitted {
                             input_id: input.input_id.clone(),
-                            message: Message::user_text(input.prompt.clone()),
+                            message: crate::input_message(
+                                input.origin,
+                                &input.prompt,
+                                &input.attachments,
+                                &[],
+                            ),
                         },
                     )
                 })

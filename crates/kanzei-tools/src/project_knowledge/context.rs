@@ -11,6 +11,7 @@ struct Budget {
     limit: usize,
     folded: usize,
     changed: usize,
+    unreadable: usize,
 }
 
 impl Budget {
@@ -74,7 +75,7 @@ fn memory_context(
         let Ok(raw) =
             std::fs::read_to_string(Path::new(&knowledge.project_root).join(&memory.path))
         else {
-            out.changed += 1;
+            out.unreadable += 1;
             continue;
         };
         if crate::content_hash(raw.as_bytes()) != memory.revision {
@@ -113,6 +114,7 @@ fn memory_context(
     // Preserve space for purpose summaries; bodies never become partial constraints.
     let limit = out.limit * 4 / 5;
     for (memory, body, _, _) in records {
+        let source_path = Path::new(&knowledge.project_root).join(&memory.path);
         let links = memory
             .links
             .iter()
@@ -128,13 +130,16 @@ fn memory_context(
             .collect::<Vec<_>>()
             .join(", ");
         let record = format!(
-            "\n{} [{}] {}\n适用: {}\n关联: {links}\n来源: {}; file: {}\nrefs: {}\n{}\n",
+            "\n{} [{}] {}\n适用: {}\n关联: {links}\n来源: {}; file: {}\n记录状态: {}; updated: {}; revision: {}\nrefs: {}\n{}\n",
             memory.id,
             memory.kind,
             memory.title,
             memory.description,
             memory.source,
-            memory.path,
+            source_path.display(),
+            memory.status,
+            memory.updated,
+            memory.revision,
             memory.refs.join(" "),
             body.trim()
         );
@@ -143,7 +148,9 @@ fn memory_context(
             out.push(
                 &format!(
                     "{} {} · 正文未加载: {}\n",
-                    memory.id, memory.title, memory.path
+                    memory.id,
+                    memory.title,
+                    source_path.display()
                 ),
                 limit,
             );
@@ -197,7 +204,10 @@ fn purposes(knowledge: &ProjectKnowledge, target: &str, token: &str, out: &mut B
         )
     });
     for (_, purpose) in rows {
-        let line = format!("用途说明 [{}; AI 摘要]: {}\n", purpose.path, purpose.text);
+        let line = format!(
+            "用途说明 [{}; 采样时指纹匹配的摘要]: {}\n",
+            purpose.path, purpose.text
+        );
         if !out.push(&line, out.limit) {
             out.folded += 1;
         }
@@ -214,25 +224,45 @@ pub(super) fn render(
         return Err("此项目未启用层级项目知识；可在项目架构页开启并初始化。".into());
     }
     let Some(token) = area else {
-        return Ok(knowledge.overview(budget));
+        return knowledge.overview(budget);
     };
     let id = knowledge.resolve_area(token).ok_or_else(|| {
         format!("未找到项目区域 `{token}`；使用 architecture action=context 查看可用区域。")
     })?;
     let header = format!(
-        "<project-context area=\"{id}\">\n代码树: {}\n",
-        knowledge.code_root
+        "<project-context area=\"{id}\">\ncode_root: {}\nproject_root: {}\n本次采样的结构、关联与记录，按当前任务判断适用性。\n",
+        knowledge.code_root, knowledge.project_root
     );
-    // Footer has a fixed reserve; reject impossible budgets instead of truncating facts.
-    if header.chars().count() + 160 > budget {
+    let ending = |folded, changed, unreadable| {
+        format!(
+        "\n预算未加载: {folded} 项；来源修订变化: {changed} 项；来源不可读: {unreadable} 项；来源诊断: {} 项。弱关联为推断，记录状态不证明当前代码行为。\n</project-context>", knowledge.warnings.len()
+    )
+    };
+    let maximum_folded = knowledge.areas.len()
+        + knowledge.memories.len()
+        + knowledge
+            .areas
+            .iter()
+            .map(|area| area.purposes.len())
+            .sum::<usize>()
+        + knowledge.warnings.len();
+    let reserved = ending(
+        maximum_folded,
+        knowledge.memories.len(),
+        knowledge.memories.len(),
+    )
+    .chars()
+    .count();
+    if header.chars().count() + reserved > budget {
         return Err("上下文预算不足以容纳区域、来源和折叠说明。".into());
     }
     let mut out = Budget {
         used: 0,
         text: String::new(),
-        limit: budget - 160,
+        limit: budget - reserved,
         folded: 0,
         changed: 0,
+        unreadable: 0,
     };
     out.push(&header, out.limit);
     structure(knowledge, &id, &mut out);
@@ -243,6 +273,12 @@ pub(super) fn render(
         &mut out,
     );
     purposes(knowledge, &id, token, &mut out);
-    out.text.push_str(&format!("\n预算未加载: {} 项；来源修订不匹配或不可读: {} 项。弱关联为推断，职责和边界须核对来源与代码。\n</project-context>", out.folded, out.changed));
+    for warning in &knowledge.warnings {
+        if !out.push(&format!("来源诊断: {warning}\n"), out.limit) {
+            out.folded += 1;
+        }
+    }
+    out.text
+        .push_str(&ending(out.folded, out.changed, out.unreadable));
     Ok(out.text)
 }

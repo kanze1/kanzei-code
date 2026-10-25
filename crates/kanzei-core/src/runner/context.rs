@@ -1,7 +1,7 @@
 //! 上下文预算域(R-155 B4):预算估算与校准(budgeted_tokens/estimate_prompt_tokens/
 //! update_calibration)、trim_tail、纪要渲染与质量校验(render_for_digest/
-//! digest_acceptable/extract_file_names/clip)、周期盘点(is_budget_checkpoint)。
-//! is_text_user_message 由上下文裁剪与 compaction 共用，保持 pub(super);
+//! digest_acceptable/extract_file_names/clip)。
+//! is_input_message 由上下文裁剪与 compaction 共用，保持 pub(super);
 //! MAX_FUTILE_COMPACTIONS 留 mod.rs(pub(super))。
 
 use crate::runner::compaction::dropped_trace;
@@ -21,15 +21,6 @@ pub(crate) const COLD_START_CALIBRATION: f64 = 2.0;
 pub(crate) fn conservative_calibration() -> f64 {
     COLD_START_CALIBRATION
 }
-/// 盘点检查点:第 20/40 步,之后每 40 步一次(80/120/160…)。
-///
-/// 旧实现 `matches!(step, 20 | 40 | 80)` 是有限清单——第 80 步之后的长 run 永不再
-/// 盘点,而无步数上限的自举 run 恰恰是最需要盘点的(D-206 顺带修:与压缩总量配额
-/// 同型,把"周期性动作"写成了"有限次动作")。
-pub(crate) fn is_budget_checkpoint(step: u32) -> bool {
-    step == 20 || (step >= 40 && step.is_multiple_of(40))
-}
-
 /// 主动压缩后,最近这部分历史逐字保留的预算占比(相对 context_limit)。
 /// 主动压缩发生在还有余量的时候,没理由像应急路径那样推倒重来——保住近期
 /// 工作区,模型才知道自己刚做了什么,不会压完就原地重做。
@@ -42,41 +33,62 @@ pub(crate) const DIGEST_SOURCE_CHARS: usize = 24_000;
 /// 把消息渲染成给"纪要模型"看的文本。工具调用必须带上工具名与关键入参——
 /// 只留工具输出而不知道是谁产生的,压缩完等于一堆无主的结果(D-181)。
 pub(crate) fn render_for_digest(messages: &[Message]) -> String {
-    let mut out = String::new();
+    let mut records = Vec::new();
     for message in messages {
-        let role = match message.role {
-            Role::User => "user",
-            Role::Assistant => "assistant",
-        };
         for part in &message.parts {
-            match part {
-                Part::Text { text } => {
-                    out.push_str(&format!("[{role}] {}\n", clip(text, 2_000)));
-                }
-                Part::ToolCall { name, input, .. } => {
-                    out.push_str(&format!(
-                        "[tool-call] {name} {}\n",
-                        clip(&input.to_string(), 400)
-                    ));
-                }
+            let body = match part {
+                Part::Text { text } => serde_json::json!({
+                    "kind": if text.starts_with(kanzei_harness::EXTERNAL_SOURCE_PREFIX) { "source_data" } else { "text" },
+                    "text": clip(text, 2_000),
+                }),
+                Part::ToolCall { id, name, input } => serde_json::json!({
+                    "kind":"tool_call", "call_id":id, "name":name, "input_excerpt":clip(&input.to_string(), 400),
+                }),
                 Part::ToolResult {
-                    content, is_error, ..
-                } => {
-                    out.push_str(&format!(
-                        "[tool-result{}] {}\n",
-                        if *is_error { " ERROR" } else { "" },
-                        clip(content, 1_200)
-                    ));
+                    call_id,
+                    content,
+                    is_error,
+                } => serde_json::json!({
+                    "kind":"tool_result", "call_id":call_id, "is_error":is_error, "content_excerpt":clip(content, 1_200),
+                }),
+                Part::Image { media_type, .. } | Part::Document { media_type, .. } => {
+                    serde_json::json!({
+                        "kind":"attachment", "media_type":media_type, "body_included":false,
+                    })
                 }
-                _ => {}
-            }
+                Part::Hosted {
+                    channel,
+                    protocol,
+                    kind,
+                    ..
+                } => serde_json::json!({
+                    "kind":"hosted_result", "channel":channel, "protocol":protocol, "result_kind":kind, "body_included":false,
+                }),
+                Part::Reasoning { .. } => continue,
+            };
+            records.push(
+                serde_json::json!({"role":message.role,"origin":message.origin,"part":body})
+                    .to_string(),
+            );
         }
     }
-    // 超长时保留末尾(最近的)。
-    let chars: Vec<char> = out.chars().collect();
-    if chars.len() > DIGEST_SOURCE_CHARS {
-        return chars[chars.len() - DIGEST_SOURCE_CHARS..].iter().collect();
+    // Keep complete records so clipping cannot strip source labels or call IDs.
+    let mut size = 0;
+    let mut first = records.len();
+    while first > 0 {
+        let next = records[first - 1].chars().count() + 1;
+        if size + next > DIGEST_SOURCE_CHARS {
+            break;
+        }
+        size += next;
+        first -= 1;
     }
+    let mut out = if first > 0 {
+        format!("{{\"omitted_earlier_records\":{first}}}\n")
+    } else {
+        String::new()
+    };
+    out.push_str(&records[first..].join("\n"));
     out
 }
 /// 按**字符**截断。原实现用字节余额去 take 字符数,中文场景下实际长度会超出
@@ -151,6 +163,7 @@ pub(crate) fn estimate_prompt_tokens_for_protocol(
                     Part::Image { .. } | Part::Document { .. } => {
                         (ATTACHMENT_TOKEN_COST * 4) as usize
                     }
+                    Part::Text { text } => json_bytes(&Part::Text { text: message.model_text(text).into_owned() }),
                     other => json_bytes(other),
                 })
                 .sum::<usize>()
@@ -297,20 +310,15 @@ pub(crate) fn trim_tail_for_protocol(
         if budgeted_tokens_for_protocol(system, messages, specs, calibration, protocol) <= budget {
             break;
         }
-        let Some(head_index) = messages.iter().position(is_text_user_message) else {
+        let Some(head_index) = messages.iter().position(is_input_message) else {
             break;
         };
-        let Some(current_index) = messages.iter().rposition(is_text_user_message) else {
+        let Some(current_index) = messages.iter().rposition(is_input_message) else {
             break;
         };
-        // head 之后、当前用户消息之前最靠前的一条 = tail 最旧端。纪要消息
-        // (以 "(系统:" 开头)是中段的替代品,不是可回收物,跳过。
-        let target = (head_index + 1..current_index).find(|&i| {
-            !messages[i]
-                .parts
-                .iter()
-                .any(|p| matches!(p, Part::Text { text } if text.starts_with("(系统:")))
-        });
+        // A typed summary replaces the middle segment and is retained as a unit.
+        let target = (head_index + 1..current_index)
+            .find(|&i| messages[i].origin != kanzei_llm::MessageOrigin::Summary);
         let Some(i) = target else {
             break;
         };
@@ -329,7 +337,7 @@ pub(crate) fn trim_tail_for_protocol(
 }
 
 /// 从文本中提取常见源码/文档文件 basename(如 runner.rs、style.css)。
-/// 用于纪要质量校验:纪要必须保留中段出现过的关键文件,否则判定不可信。
+/// Used only as a bounded summary plausibility check; it does not verify content.
 pub(crate) fn extract_file_names(text: &str) -> HashSet<String> {
     const EXTS: &[&str] = &[
         "rs", "md", "toml", "json", "js", "ts", "css", "html", "mjs", "ps1", "sql", "db", "yml",
@@ -360,33 +368,8 @@ pub(crate) fn extract_file_names(text: &str) -> HashSet<String> {
     out
 }
 
-/// 把消息段拼成质量校验用的语料(文本 + 工具名/入参 + 工具结果)。
-pub(crate) fn message_corpus(messages: &[Message]) -> String {
-    let mut source = String::new();
-    for message in messages {
-        for part in &message.parts {
-            match part {
-                Part::Text { text } => source.push_str(text),
-                Part::ToolCall { name, input, .. } => {
-                    source.push_str(name);
-                    source.push_str(&input.to_string());
-                }
-                Part::ToolResult { content, .. } => source.push_str(content),
-                _ => {}
-            }
-        }
-        source.push('\n');
-    }
-    source
-}
-
-/// 纪要质量门槛(R-236 B2 升级为双向):长度下限 + recall + precision。
-///
-/// - **recall**(D-181 原有):fast 模型纪要最常见的失败是泛化成"进行了一些修改",
-///   一个文件都不提——语料里出现过 ≥2 个文件而纪要一个都没提 → 不可信。
-/// - **precision**(B2 新增):反向防编造——纪要提到的文件**过半**在语料里不存在,
-///   说明文件清单是幻觉出来的(实体级忠实度校验,先例见 arXiv:2102.09130),同样
-///   不可信。不达标由调用方重试一次或回落原文节选(节选是原文,不可能编)。
+/// Reject empty or implausible file-name summaries. This bounded check does not
+/// establish factual accuracy, instruction coverage, execution or acceptance.
 pub(crate) fn digest_acceptable(corpus: &str, digest: &str) -> bool {
     if digest.chars().count() < 60 {
         return false;
@@ -414,12 +397,19 @@ pub(crate) fn digest_acceptable(corpus: &str, digest: &str) -> bool {
     }
     true
 }
-pub(super) fn is_text_user_message(message: &Message) -> bool {
+/// Input anchors include delegated tasks and engine continuations, without granting human authority.
+pub(super) fn is_input_message(message: &Message) -> bool {
     message.role == Role::User
-        && message
-            .parts
-            .iter()
-            .any(|part| matches!(part, Part::Text { .. }))
+        && !matches!(
+            message.origin,
+            kanzei_llm::MessageOrigin::Summary | kanzei_llm::MessageOrigin::Tool
+        )
+        && message.parts.iter().any(|part| {
+            matches!(
+                part,
+                Part::Text { .. } | Part::Image { .. } | Part::Document { .. }
+            )
+        })
 }
 
 #[cfg(test)]
@@ -507,6 +497,7 @@ mod tests {
         // 约 1MB base64:旧口径(整段序列化 len/4)会估出 ~26 万 token。
         let big_image = Message {
             role: kanzei_llm::Role::User,
+            origin: kanzei_base::MessageOrigin::Human,
             parts: vec![Part::Image {
                 media_type: "image/png".into(),
                 data: "A".repeat(1_000_000),
@@ -630,8 +621,9 @@ mod tests {
     fn trim_tail只收最旧端且不动首尾与纪要() {
         let system = vec![String::new()];
         let mut messages = vec![Message::user_text("任务定义:修复 D-123 的空指针")];
-        messages.push(Message::user_text(
-            "(系统:此前 40 条消息已压缩为纪要,基于它继续)\n改动了 runner.rs 的压缩逻辑,store.rs 待处理",
+        messages.push(Message::context_text(
+            kanzei_llm::MessageOrigin::Summary,
+            "[历史摘要] 40 条历史消息的接续纪要\n改动了 runner.rs 的压缩逻辑,store.rs 待处理",
         ));
         for i in 0..30 {
             messages.push(Message::user_text(format!(
@@ -715,18 +707,6 @@ mod tests {
             }
         }
     }
-    /// D-206:检查点是周期性动作,不是有限清单。旧实现 20|40|80 之后永不盘点,
-    /// 无步数上限的自举 run 后半程恰恰最需要。
-    #[test]
-    fn 盘点检查点长跑不熄火() {
-        use super::is_budget_checkpoint;
-        for step in [20, 40, 80, 120, 160, 400] {
-            assert!(is_budget_checkpoint(step), "第 {step} 步应盘点");
-        }
-        for step in [1, 19, 21, 39, 41, 79, 81, 119, 399] {
-            assert!(!is_budget_checkpoint(step), "第 {step} 步不该盘点");
-        }
-    }
     /// D-203:trim_tail 必须用**校准口径**够预算线,与调用方同一把尺子。
     /// a119eeb 把校准乘在了三个调用点上,trim_tail 内部却用原始估算——
     /// calibration>1 时它提前收手,调用方视角仍超线,下一步立刻再压,
@@ -791,7 +771,7 @@ mod tests {
                 is_error: false,
             }]),
         ];
-        let corpus = message_corpus(&middle);
+        let corpus = render_for_digest(&middle);
         // 泛化纪要:一个文件都不提 → recall 失守,不可信。
         assert!(!digest_acceptable(
             &corpus,
@@ -812,7 +792,7 @@ mod tests {
         // 太短 → 不可信。
         assert!(!digest_acceptable(&corpus, "修了 bug。"));
         // 语料几乎没文件 → 长度门槛兜底,不误杀(纪要足够具体)。
-        let bare_corpus = message_corpus(&[Message::user_text("纯对话轮次,没有文件操作")]);
+        let bare_corpus = render_for_digest(&[Message::user_text("纯对话轮次,没有文件操作")]);
         assert!(digest_acceptable(
             &bare_corpus,
             "讨论了方案 A 与方案 B 的取舍,结论是 A 优于 B:改动面最小、风险可控,且与既有抽象保持一致;\

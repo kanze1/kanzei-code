@@ -1,18 +1,7 @@
-//! 项目状态事实(UI2-0926 #13,docs/design/project_workspace.md §2)。
-//!
-//! 「MD文件保存」现场:用户新建了一个空目录让 agent 做 Flutter 应用,agent 拿到的环境信息
-//! 只有「系统、目录、shell」一行,于是派子代理「勘察现有仓库」、发现是空的、又发现没装
-//! Flutter,最后反过来问用户「实际仓库在哪」。缺的是几条引擎能直接探测出来的事实:
-//! 这是不是空项目、有没有 Git(没有的话哪些功能不可用)、用什么技术栈、工具链在不在。
-//!
-//! 一处计算、两处消费:[`render`] 进 agent 上下文(`core/project-state`,所有档位),
-//! [`ProjectFacts`] 序列化后给桌面端(横幅、「无 Git」芯片、并行线入口)。
-//!
-//! 约束:
-//! - **不 spawn 任何进程**(git 状态读 `.git` 目录,工具链按 PATH 找文件),遍历有上限;
-//! - 结果按根缓存 30 秒,bash 每跑完一条命令就让缓存作废(它可能装了工具、建了文件);
-//! - 渲染只依赖事实本身(排序、无时间戳),事实不变文本就不变——不打断 prompt 缓存;
-//! - 渲染不超过 [`RENDER_BUDGET`] 个字符。
+//! 有界项目探测，同时供模型上下文与桌面界面使用。
+//! 代码布局、Git 和工具链来自代码树；需求关键词线索来自主项目资产，不代表选定方案。
+//! 探测不启动进程，按代码根与项目根缓存；失效或超过 TTL 后重采样。
+//! 渲染保持事实与行为规则分离，字符预算见 [`RENDER_BUDGET`]。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -58,7 +47,7 @@ const IGNORED_FILES: &[&str] = &["desktop.ini", "thumbs.db", ".ds_store"];
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Layout {
-    /// `.kanzei` 之外没有任何文件:新项目,就在这里搭工程。
+    /// 有界采样未发现忽略目录之外的工程文件。
     Greenfield,
     /// 只有零星几个文件(≤3)且没有清单文件。
     Sparse,
@@ -124,17 +113,23 @@ pub enum Discovery {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ProjectFacts {
+    /// 实际探测的代码树根。
     pub root: String,
+    /// 项目需求与知识资产的来源根，可与代码树不同。
+    pub project_root: String,
     pub layout: Layout,
     /// `.kanzei` 与忽略目录之外的文件数(遍历有上限,是下界)。
     pub files: usize,
     pub git: GitState,
     /// 按清单文件识别出的技术栈(排序、去重)。
     pub stacks: Vec<String>,
-    /// 空项目时,从活动 tracker 条目的文字里推断出的计划技术栈。
+    /// 从活动需求关键词推断的技术栈线索，不代表已选定的计划。
     pub planned: Vec<PlannedStack>,
+    /// 需求来源读取失败与未发现关键词分别表达。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub planned_error: Option<String>,
     pub toolchains: Vec<Toolchain>,
-    /// 有工具链缺失时,本机可用的包管理器(winget/choco/scoop)。
+    /// 有工具未定位时，在 PATH 中定位到的包管理器文件。
     pub installers: Vec<String>,
 }
 
@@ -156,9 +151,10 @@ impl ProjectFacts {
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 type CacheEntry = (Instant, u64, ProjectFacts);
+type ProjectCache = Mutex<HashMap<(String, String), CacheEntry>>;
 
-fn cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, CacheEntry>>> = OnceLock::new();
+fn cache() -> &'static ProjectCache {
+    static CACHE: OnceLock<ProjectCache> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -168,8 +164,13 @@ pub fn invalidate() {
 }
 
 /// 带缓存的探测(30 秒或 [`invalidate`] 之前复用)。
-pub fn probe_cached(root: &Path) -> ProjectFacts {
-    let key = crate::path_form::simplify(root).display().to_string();
+pub fn probe_cached(root: &Path, project_root: &Path) -> ProjectFacts {
+    let key = (
+        crate::path_form::simplify(root).display().to_string(),
+        crate::path_form::simplify(project_root)
+            .display()
+            .to_string(),
+    );
     let generation = GENERATION.load(Ordering::Relaxed);
     if let Ok(cache) = cache().lock() {
         if let Some((at, cached_generation, facts)) = cache.get(&key) {
@@ -178,7 +179,7 @@ pub fn probe_cached(root: &Path) -> ProjectFacts {
             }
         }
     }
-    let facts = probe(root);
+    let facts = probe(root, project_root);
     if let Ok(mut cache) = cache().lock() {
         cache.insert(key, (Instant::now(), generation, facts.clone()));
     }
@@ -192,25 +193,28 @@ pub fn git_state_of(root: &Path) -> GitState {
 }
 
 /// 不带缓存的探测。
-pub fn probe(root: &Path) -> ProjectFacts {
+pub fn probe(root: &Path, project_root: &Path) -> ProjectFacts {
     probe_with_locations(
         root,
+        project_root,
         &crate::shell::fresh_path(),
         &toolchains::Locations::from_environment(),
     )
 }
 
 /// 探测,工具链按给定 PATH 查找(测试用伪 PATH)。
-pub fn probe_with_path(root: &Path, path: &std::ffi::OsStr) -> ProjectFacts {
-    probe_with_locations(root, path, &toolchains::Locations::default())
+pub fn probe_with_path(root: &Path, project_root: &Path, path: &std::ffi::OsStr) -> ProjectFacts {
+    probe_with_locations(root, project_root, path, &toolchains::Locations::default())
 }
 
 fn probe_with_locations(
     root: &Path,
+    project_root: &Path,
     path: &std::ffi::OsStr,
     locations: &toolchains::Locations,
 ) -> ProjectFacts {
     let root = crate::path_form::simplify(root);
+    let project_root = crate::path_form::simplify(project_root);
     let files = count_content_files(&root);
     let stacks = detect_stacks(&root);
     let layout = if files == 0 {
@@ -221,10 +225,13 @@ fn probe_with_locations(
         Layout::Existing
     };
     let git = git_state(&root);
-    let planned = if stacks.is_empty() {
-        planned_stacks(&root)
+    let (planned, planned_error) = if stacks.is_empty() {
+        match planned_stacks(&project_root) {
+            Ok(planned) => (planned, None),
+            Err(error) => (Vec::new(), Some(error)),
+        }
     } else {
-        Vec::new()
+        (Vec::new(), None)
     };
     let mut wanted: Vec<&str> = vec!["git"];
     for stack in stacks
@@ -253,11 +260,13 @@ fn probe_with_locations(
     };
     ProjectFacts {
         root: root.display().to_string(),
+        project_root: project_root.display().to_string(),
         layout,
         files,
         git,
         stacks,
         planned,
+        planned_error,
         toolchains,
         installers,
     }
@@ -478,8 +487,8 @@ fn detect_stacks(root: &Path) -> Vec<String> {
     stacks
 }
 
-/// 空项目时从活动需求的文字里推断计划技术栈(关键词表,忽略大小写)。
-fn planned_stacks(root: &Path) -> Vec<PlannedStack> {
+/// 从活动需求关键词提取线索；不解释否定、取舍或用户授权。
+fn planned_stacks(root: &Path) -> Result<Vec<PlannedStack>, String> {
     use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
     const KEYWORDS: &[(&str, &[&str])] = &[
         ("flutter", &["flutter", "dart"]),
@@ -504,11 +513,14 @@ fn planned_stacks(root: &Path) -> Vec<PlannedStack> {
         ("java", &["java", "kotlin", "spring"]),
         ("dotnet", &[".net", "c#", "dotnet", "wpf", "maui"]),
     ];
-    let Ok(entries) = DocStore::open(root, &REQUIREMENTS).load() else {
-        return Vec::new();
-    };
+    let entries = DocStore::open(root, &REQUIREMENTS)
+        .load()
+        .map_err(|error| error.to_string())?;
     let mut out: Vec<PlannedStack> = Vec::new();
     for entry in entries {
+        if REQUIREMENTS.terminal.contains(&entry.status.as_str()) {
+            continue;
+        }
         let mut text = entry.title.to_lowercase();
         for (_, value) in &entry.fields {
             text.push(' ');
@@ -527,7 +539,7 @@ fn planned_stacks(root: &Path) -> Vec<PlannedStack> {
         }
     }
     out.sort_by(|a, b| a.stack.cmp(&b.stack));
-    out
+    Ok(out)
 }
 
 /// 词边界匹配(ASCII 字母数字为词内字符):「rust」不命中「trusted」。
@@ -582,25 +594,31 @@ fn toolchains_for(stack: &str, root: &Path) -> &'static [&'static str] {
 /// agent 上下文里的项目状态块(≤ [`RENDER_BUDGET`] 字符)。
 pub fn render(facts: &ProjectFacts) -> String {
     let mut lines: Vec<String> = Vec::new();
-    lines.push(format!("root: {}", facts.root));
+    lines.push(format!("code_root: {}", facts.root));
+    if facts.root != facts.project_root {
+        lines.push(format!("project_root: {}", facts.project_root));
+    }
     lines.push(match facts.layout {
-        Layout::Greenfield => "layout: 空项目(除 .kanzei 外没有文件)——就在这个目录搭工程,不要向用户索要「实际仓库路径」".to_string(),
+        Layout::Greenfield => "layout: 采样未发现工程文件（已排除开发与构建目录）".to_string(),
         // 文件数只进 ProjectFacts(给界面),不进文本:bash 每跑完一条命令就作废缓存,agent 每建/删
         // 一个文件都会改写系统提示,整段对话的 prompt 缓存随之失效(复核 major)。
-        Layout::Sparse => "layout: 几乎为空(无工程清单)——在这里搭工程".to_string(),
+        Layout::Sparse => "layout: 少量文件，未识别工程清单".to_string(),
         Layout::Existing => "layout: 已有工程".to_string(),
     });
     lines.push(match &facts.git {
-        GitState::None => "git: 无——并行线/工作树、提交与差异不可用;需要时用 git 工具 action=init 建库".to_string(),
-        GitState::Parent { toplevel } => format!(
-            "git: 本目录不是仓库,位于上级仓库 {toplevel} 内——git 工具拒绝操作上级仓库;需要版本管理先 git action=init"
-        ),
-        GitState::Repo { branch, has_commits } => {
-            let branch = branch.as_deref().unwrap_or("(分离 HEAD)");
+        GitState::None => "git: 未发现独立仓库".to_string(),
+        GitState::Parent { toplevel } => {
+            format!("git: 当前代码根未独立建库，上级仓库为 {toplevel}")
+        }
+        GitState::Repo {
+            branch,
+            has_commits,
+        } => {
+            let branch = branch.as_deref().unwrap_or("(未知或分离 HEAD)");
             if *has_commits {
                 format!("git: 仓库,分支 {branch}")
             } else {
-                format!("git: 仓库,分支 {branch},还没有提交(并行线要先有一次提交)")
+                format!("git: 仓库,分支 {branch},尚无提交")
             }
         }
     });
@@ -617,9 +635,12 @@ pub fn render(facts: &ProjectFacts) -> String {
             .iter()
             .map(|p| format!("{}({})", p.stack, p.from))
             .collect();
-        format!(";计划: {}", list.join(", "))
+        format!(";需求关键词线索（未确认）: {}", list.join(", "))
     };
     lines.push(format!("stack: {detected}{planned}"));
+    if let Some(error) = &facts.planned_error {
+        lines.push(format!("需求关键词线索读取失败: {error}"));
+    }
     let tools: Vec<String> = facts
         .toolchains
         .iter()
@@ -633,16 +654,21 @@ pub fn render(facts: &ProjectFacts) -> String {
         "toolchains: {} (仅定位文件，未验证版本)",
         tools.join(" · ")
     ));
-    let mut out = format!("<project-state>\n{}\n", lines.join("\n"));
+    let mut out = format!(
+        "<project-state>\n有界探测，缓存最长 {} 秒；不代表实时完整状态。\n{}\n",
+        CACHE_TTL.as_secs(),
+        lines.join("\n")
+    );
     if !facts.missing().is_empty() {
-        out.push_str("未定位不等于未安装：先核查项目配置、已有 SDK 路径并运行 --version；确认缺失后再决定安装。\n");
+        out.push_str("未定位不等于未安装。\n");
     }
     out.push_str("</project-state>");
     if out.chars().count() > RENDER_BUDGET {
         // 极端情况(超长路径):整体截断,保留收尾标签。
-        let keep = RENDER_BUDGET - "…\n</project-state>".chars().count();
+        let ending = "…[项目概览已裁剪]\n</project-state>";
+        let keep = RENDER_BUDGET - ending.chars().count();
         let head: String = out.chars().take(keep).collect();
-        out = format!("{head}…\n</project-state>");
+        out = format!("{head}{ending}");
     }
     out
 }
@@ -673,14 +699,18 @@ mod tests {
         let root = temp_root("greenfield");
         std::fs::write(root.join("desktop.ini"), "x").unwrap();
         std::fs::write(root.join(".kanzei").join("state.db"), "x").unwrap();
-        let facts = probe_with_path(&root, &empty_path());
+        let facts = probe_with_path(&root, &root, &empty_path());
         assert_eq!(facts.layout, Layout::Greenfield);
         assert_eq!(facts.files, 0);
         // 临时目录的上级可能恰好是仓库(比如 CI 的工作目录),只断言不是「自己是仓库」。
         assert!(!facts.git.is_repo(), "{:?}", facts.git);
         let text = render(&facts);
-        assert!(text.contains("就在这个目录搭工程"), "{text}");
-        assert!(text.contains("不要向用户索要"), "{text}");
+        assert!(text.contains("采样未发现工程文件"), "{text}");
+        assert!(
+            !text.contains("搭工程"),
+            "observations cannot choose implementation steps"
+        );
+        assert!(text.contains("缓存最长 30 秒"), "{text}");
         assert!(!text.contains(r"\\?\"), "{text}");
         assert!(text.chars().count() <= RENDER_BUDGET);
         std::fs::remove_dir_all(&root).ok();
@@ -693,7 +723,7 @@ mod tests {
         std::fs::create_dir_all(root.join("web")).unwrap();
         std::fs::write(root.join("web").join("package.json"), "{}").unwrap();
         std::fs::write(root.join("web").join("pnpm-lock.yaml"), "").unwrap();
-        let facts = probe_with_path(&root, &empty_path());
+        let facts = probe_with_path(&root, &root, &empty_path());
         assert_ne!(facts.layout, Layout::Greenfield);
         assert_eq!(facts.stacks, vec!["flutter".to_string(), "node".into()]);
         let names: Vec<&str> = facts.toolchains.iter().map(|t| t.name.as_str()).collect();
@@ -733,20 +763,20 @@ mod tests {
             }
             other => panic!("应判为上级仓库: {other:?}"),
         }
-        let text = render(&probe_with_path(&child, &empty_path()));
-        assert!(text.contains("git 工具拒绝操作上级仓库"), "{text}");
+        let text = render(&probe_with_path(&child, &child, &empty_path()));
+        assert!(text.contains("当前代码根未独立建库，上级仓库为"), "{text}");
         std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
-    fn 空项目从活动需求推断计划栈() {
+    fn 无清单时提供未确认的活动需求关键词线索() {
         let root = temp_root("planned");
         std::fs::write(
             root.join(".kanzei").join("project").join("requirements.md"),
-            "# Requirements\n\n## R-001 移动端 Markdown 阅读器 [doing]\n- 优先级: P1\n- 技术栈: Flutter + Drift\n",
+            "# Requirements\n\n## R-001 移动端 Markdown 阅读器 [doing]\n- 优先级: P1\n- 技术栈: Flutter + Drift\n\n## R-002 旧服务 [done]\n- 技术栈: Rust\n",
         )
         .unwrap();
-        let facts = probe_with_path(&root, &empty_path());
+        let facts = probe_with_path(&root, &root, &empty_path());
         assert_eq!(
             facts.planned,
             vec![PlannedStack {
@@ -755,6 +785,7 @@ mod tests {
             }]
         );
         let text = render(&facts);
+        assert!(text.contains("需求关键词线索（未确认）"), "{text}");
         assert!(text.contains("flutter(R-001)"), "{text}");
         assert!(text.contains("flutter: 未定位"), "{text}");
         assert!(text.contains("未定位不等于未安装"), "{text}");
@@ -764,6 +795,54 @@ mod tests {
             text.chars().count()
         );
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn 工作树探测使用代码根而需求与缓存按项目根隔离() {
+        let code = temp_root("worktree-code");
+        let project_a = temp_root("worktree-project-a");
+        let project_b = temp_root("worktree-project-b");
+        for (root, stack) in [
+            (&code, "Python"),
+            (&project_a, "Flutter"),
+            (&project_b, "Rust"),
+        ] {
+            std::fs::write(
+                root.join(".kanzei/project/requirements.md"),
+                format!("# Requirements\n\n## R-001 应用 [doing]\n- 技术栈: {stack}\n"),
+            )
+            .unwrap();
+        }
+        // 主项目的代码清单不属于本次工作树的文件观测。
+        std::fs::write(project_a.join("Cargo.toml"), "[workspace]\n").unwrap();
+        let facts = probe_with_path(&code, &project_a, &empty_path());
+        assert_eq!(
+            facts.root,
+            crate::path_form::simplify(&code).display().to_string()
+        );
+        assert_eq!(
+            facts.project_root,
+            crate::path_form::simplify(&project_a).display().to_string()
+        );
+        assert_eq!(facts.layout, Layout::Greenfield);
+        assert!(facts.stacks.is_empty());
+        assert_eq!(facts.planned[0].stack, "flutter");
+        assert_eq!(probe_cached(&code, &project_a).planned, facts.planned);
+        assert_eq!(probe_cached(&code, &project_b).planned[0].stack, "rust");
+        for root in [&code, &project_a, &project_b] {
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn 需求来源读取失败不能当作没有关键词线索() {
+        let root = temp_root("requirements-read-error");
+        std::fs::create_dir(root.join(".kanzei/project/requirements.md")).unwrap();
+        let facts = probe_with_path(&root, &root, &empty_path());
+        assert!(facts.planned.is_empty());
+        assert!(facts.planned_error.is_some());
+        assert!(render(&facts).contains("需求关键词线索读取失败"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -777,7 +856,7 @@ mod tests {
         #[cfg(not(windows))]
         std::fs::write(bin.join("flutter"), "#!/bin/sh").unwrap();
         let path = std::env::join_paths([bin.clone()]).unwrap();
-        let facts = probe_with_path(&root, &path);
+        let facts = probe_with_path(&root, &root, &path);
         let flutter = facts
             .toolchains
             .iter()
@@ -796,12 +875,14 @@ mod tests {
     #[test]
     fn 渲染稳定_事实不变文本不变_且有上限() {
         let facts = ProjectFacts {
-            root: format!(r"C:\{}", "长".repeat(400)),
+            root: format!(r"C:\{}", "长".repeat(800)),
+            project_root: "project".into(),
             layout: Layout::Existing,
             files: 12,
             git: GitState::None,
             stacks: vec!["node".into()],
             planned: Vec::new(),
+            planned_error: None,
             toolchains: vec![Toolchain {
                 name: "node".into(),
                 found: None,
@@ -817,6 +898,7 @@ mod tests {
             first.chars().count()
         );
         assert!(first.ends_with("</project-state>"));
+        assert!(first.contains("项目概览已裁剪"));
     }
 
     /// 复核 major:文件数进了文本,agent 每建一个文件系统提示就变,整段对话的 prompt 缓存失效。
@@ -829,10 +911,10 @@ mod tests {
         for index in 0..5 {
             std::fs::write(root.join("src").join(format!("m{index}.rs")), "").unwrap();
         }
-        let before = probe_with_path(&root, &empty_path());
+        let before = probe_with_path(&root, &root, &empty_path());
         assert_eq!(before.layout, Layout::Existing);
         std::fs::write(root.join("src").join("new_module.rs"), "pub fn f() {}").unwrap();
-        let after = probe_with_path(&root, &empty_path());
+        let after = probe_with_path(&root, &root, &empty_path());
         assert_ne!(
             before.files, after.files,
             "文件数照常进 ProjectFacts(界面用)"
@@ -845,9 +927,9 @@ mod tests {
 
         let sparse = temp_root("render-sparse");
         std::fs::write(sparse.join("notes.txt"), "x").unwrap();
-        let one = probe_with_path(&sparse, &empty_path());
+        let one = probe_with_path(&sparse, &sparse, &empty_path());
         std::fs::write(sparse.join("todo.txt"), "y").unwrap();
-        let two = probe_with_path(&sparse, &empty_path());
+        let two = probe_with_path(&sparse, &sparse, &empty_path());
         assert_eq!((one.layout, two.layout), (Layout::Sparse, Layout::Sparse));
         assert_eq!(
             render(&one),
@@ -879,12 +961,12 @@ mod tests {
     #[test]
     fn 缓存在_invalidate_后重新探测() {
         let root = temp_root("cache");
-        let first = probe_cached(&root);
+        let first = probe_cached(&root, &root);
         assert_eq!(first.layout, Layout::Greenfield);
         std::fs::write(root.join("main.py"), "print(1)").unwrap();
         // (「30 秒内复用」不在这里断言:同进程并行跑的 bash 测试随时会 invalidate。)
         invalidate();
-        assert_ne!(probe_cached(&root).layout, Layout::Greenfield);
+        assert_ne!(probe_cached(&root, &root).layout, Layout::Greenfield);
         std::fs::remove_dir_all(&root).ok();
     }
 

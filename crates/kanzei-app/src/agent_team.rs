@@ -123,8 +123,10 @@ async fn execute_impl(
                 kanzei_harness::ProfileKind::Research
             } else if profile.as_deref() == Some("readonly") {
                 kanzei_harness::ProfileKind::Readonly
+            } else if profile.as_deref() == Some("dev-pair") {
+                kanzei_harness::ProfileKind::DevPair
             } else {
-                kanzei_harness::ProfileKind::Dev
+                kanzei_harness::ProfileKind::DevAuto
             },
             cwd: code_root.clone(),
             project_root: root.clone(),

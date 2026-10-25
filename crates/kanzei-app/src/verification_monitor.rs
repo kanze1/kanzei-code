@@ -123,6 +123,7 @@ fn admit_wake_input(
             &prompt,
             kanzei_core::Delivery::Queue,
             Some("verification_monitor"),
+            &[],
         )
         .map_err(|error| error.to_string())?;
     if input.session_id != session_id || input.prompt != prompt {
@@ -299,7 +300,7 @@ mod tests {
                     &state,
                     &project,
                     None,
-                    Some("dev".into()),
+                    Some("dev-auto".into()),
                     None,
                     None,
                 )

@@ -14,9 +14,7 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
     if scope == "all" || scope == "project" {
         out.push(MemoryStore::project(&ctx.project_root));
     }
-    // R-194:全局(用户级)记忆废弃——scope=global/all 不再返回全局 store。
-    // 全局库 0 active、0 召回且候选与项目重复,跨项目偏好由配置文件与
-    // 系统提示承载;保留显式报错让调用方知道该 scope 已不可用。
+    // 普通知识检索只消费项目库；用户保存的全局偏好由独立上下文装配。
     out
 }
 
@@ -27,7 +25,7 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
 fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
     let state = kanzei_core::project_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state).ok()?;
-    // R-194:全局记忆废弃,AVAILABLE 段只数项目 store 的 active 条目。
+    // 知识检索的 AVAILABLE 段只数项目 store 的 active 条目。
     let active = super::MemoryStore::project(&ctx.project_root)
         .load_all()
         .into_iter()
@@ -63,7 +61,7 @@ impl Tool for MemorySearchTool {
     }
 
     fn description(&self) -> String {
-        "Search project knowledge by query (facts, constraints, environment and procedures). Optional scope=project|all, category, status and limit. For hierarchy and module dependencies use architecture action=context, area=module or file path. Read the returned file path for the full entry; scope=global is retired.".into()
+        "Search project knowledge by query (facts, constraints, environment and procedures). Optional scope=project|all, category, status and limit. For hierarchy and module dependencies use architecture action=context, area=module or file path. Read the returned file path for the full entry. Saved global preferences enter a separate context source; this search does not query the global store.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -79,11 +77,10 @@ impl Tool for MemorySearchTool {
         if !["all", "global", "project"].contains(&scope) {
             return ToolOutput::error("scope must be all | global | project");
         }
-        // R-194:全局记忆废弃——scope=global 不再检索任何内容,明确提示去向。
+        // 全局偏好的装配与普通知识检索是不同通道。
         if scope == "global" {
             return ToolOutput::ok(
-                "(全局/用户级记忆已于 R-194 废弃:全局库 0 召回、0 active 且候选与项目重复,\
-                 跨项目偏好由配置文件与系统提示承载。请用 scope=project 检索项目记忆)",
+                "全局库不参与知识检索；用户保存的全局偏好由 core/preferences 装配，完整条目可按其中的来源路径读取。项目知识使用 scope=project。",
             );
         }
         let status = match input.status.as_deref() {
@@ -112,17 +109,14 @@ impl Tool for MemorySearchTool {
             &ctx.project_root,
             &input.query,
             &all_hits,
-            !all_hits.is_empty(),
+            &all_hits,
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
             ctx.run_id.as_deref(),
             "memory_search",
         );
         if all_hits.is_empty() {
-            return ToolOutput::ok(format!(
-                "(no memory matched `{}` — if you learn something reusable here, record it with memory_note)",
-                input.query
-            ));
+            return ToolOutput::ok(format!("(no project memory matched `{}`)", input.query));
         }
         let rendered: Vec<String> = all_hits
             .iter()
@@ -614,7 +608,7 @@ mod tests {
                 &ctx.project_root,
                 "要发版了",
                 &hits,
-                false,
+                &[],
                 "lexical",
                 &crate::memory::index::RetrievalTiming::default(),
                 Some("stats-run"),
@@ -630,7 +624,7 @@ mod tests {
             &ctx.project_root,
             "要发版了",
             std::slice::from_ref(&funnel_hit),
-            true,
+            std::slice::from_ref(&funnel_hit),
             "lexical",
             &crate::memory::index::RetrievalTiming::default(),
             Some("stats-run"),
@@ -663,13 +657,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_result_nudges_note_and_invalid_enum_errors() {
+    async fn empty_result_reports_no_match_and_invalid_enum_errors() {
         let (dir, ctx) = ctx();
         let none = MemorySearchTool
             .execute(json!({"query": "不存在的词条", "scope": "project"}), &ctx)
             .await;
         assert!(!none.is_error);
-        assert!(none.content.contains("memory_note"), "{}", none.content);
+        assert!(
+            none.content.contains("no project memory matched"),
+            "{}",
+            none.content
+        );
+        assert!(!none.content.contains("memory_note"), "{}", none.content);
         let telemetry =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&ctx.project_root))
                 .unwrap();

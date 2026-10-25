@@ -59,7 +59,7 @@ class Element {
 
 function mergePrefs(target, patch) {
   const next = clone(target);
-  for (const key of ["theme", "backdrop", "work_priority", "auto_max", "continue_prompt", "process_auto_state", "workspace_state"]) {
+  for (const key of ["theme", "backdrop", "work_priority", "continue_prompt", "process_auto_state", "workspace_state"]) {
     if (patch[key] !== undefined && patch[key] !== null) next[key] = clone(patch[key]);
   }
   if (["list", "graph"].includes(patch.memory_view)) next.memory_view = patch.memory_view;

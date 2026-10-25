@@ -1,27 +1,24 @@
-//! 验证与提交节奏域(R-257 B5):Cadence 结构与四个档位枚举、逐键 overlay。
-//! 自 config.rs 原样迁出,零行为变更。
+//! 验证、提交和推送的节奏偏好，以及按显式键合并的配置合同。
 
 use serde::{Deserialize, Serialize};
 
-/// 验证与提交节奏(R-157):把 conventions §1.4 的节奏参数从提示词硬化成可调配置。
-/// 每个字段都带 serde default,旧配置没有 `[cadence]` 节时行为与 §1.4 当前默认
-/// 逐项一致(conventions §4 向后兼容);层叠合并照既有规矩——项目层只覆盖显式写的键。
+/// 开发档提供给模型的节奏偏好，不构成操作授权或后台调度。
+/// 缺省值由类型定义；项目层仅覆盖显式写入的键。项目验证门禁独立执行。
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct Cadence {
-    /// 全量测试触发档位。默认 EntryClose:条目关闭前一次(发版前 verify.ps1 是
-    /// 独立硬门禁,不受本参数影响,见 A-010)。
+    /// 全量测试安排，默认条目关闭前。
     #[serde(default)]
     pub full_test: FullTestCadence,
-    /// full_test == EveryNBatches 时的批次间隔 n。
+    /// EveryNBatches 的正整数间隔；未配置时不自行补成每批执行。
     #[serde(default)]
     pub full_test_batches: Option<u32>,
-    /// 定向测试:每次提交前必跑(默认)| off。
+    /// 定向测试：每次提交前（默认）或按任务自主决定。
     #[serde(default)]
     pub targeted_test: TargetedTestCadence,
-    /// 提交粒度:每条目一提交 | 每批一提交(默认,多批大条目按批提交)。
+    /// 已授权提交的组织粒度，默认按实际工作批次。
     #[serde(default)]
     pub commit: CommitCadence,
-    /// push 频率:条目完成后 push(默认)| 每提交后 push | 定期(与 R-143 并轨)。
+    /// 已授权推送的安排，默认条目完成后；由 Agent 通过 Git 工具执行。
     #[serde(default)]
     pub push: PushCadence,
 }
@@ -29,46 +26,46 @@ pub struct Cadence {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FullTestCadence {
-    /// 条目关闭前一次(§1.4 默认)。
+    /// 条目关闭前。
     #[default]
     EntryClose,
     /// 每次提交前全量。
     EveryCommit,
     /// 每 n 批全量一次,间隔见 Cadence::full_test_batches。
     EveryNBatches,
-    /// 只发版前跑(verify.ps1 硬门禁,本地开发不跑全量)。
+    /// 发布前；发布入口及门禁由项目定义。
     ReleaseOnly,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TargetedTestCadence {
-    /// 每次提交前必跑(§1.4 默认)。
+    /// 每次提交前。
     #[default]
     EveryCommit,
-    /// 关闭定向测试(不推荐;改动面与验证匹配的判断交给模型)。
+    /// 不设置固定触发频率，由 Agent 根据改动与验收选择。
     Off,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitCadence {
-    /// 多批大条目每批一提交(§1.4 默认)。
+    /// 按 Agent 实际划分的工作批次组织提交。
     #[default]
     PerBatch,
-    /// 整条目一提交(复杂度小的条目适用)。
+    /// 按条目组织提交。
     PerEntry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PushCadence {
-    /// 条目完成后 push(§1.4 默认)。
+    /// 条目完成后推送。
     #[default]
     PerEntry,
-    /// 每提交后顺手 push。
+    /// 每次提交后推送。
     PerCommit,
-    /// 定期自动 push(与 R-143 自举循环自动 push 并轨)。
+    /// 根据项目约定安排推送；不启动定时器或轮末自动推送。
     Periodic,
 }
 

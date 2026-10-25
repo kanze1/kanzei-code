@@ -28,7 +28,6 @@ pub(crate) fn parse_input<T: serde::de::DeserializeOwned>(
     tool: &dyn kanzei_harness::Tool,
     input: serde_json::Value,
 ) -> Result<T, kanzei_harness::ToolOutput> {
-    let raw = input.to_string();
     serde_json::from_value(input)
-        .map_err(|e| kanzei_harness::tool::repair_hint(tool, &raw, &e.to_string()))
+        .map_err(|e| kanzei_harness::tool::repair_hint(tool, &e.to_string()))
 }

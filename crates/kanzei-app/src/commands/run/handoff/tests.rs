@@ -81,6 +81,16 @@ impl Drop for Fixture {
     }
 }
 
+fn snapshot_data(prompt: &str) -> serde_json::Value {
+    let (_, frame) = prompt
+        .split_once(kanzei_harness::EXTERNAL_SOURCE_PREFIX)
+        .unwrap();
+    let frame: serde_json::Value = serde_json::from_str(frame).unwrap();
+    assert_eq!(frame["authority"], "untrusted_data");
+    assert_eq!(frame["source"]["kind"], "conversation");
+    serde_json::from_str(frame["content"].as_str().unwrap()).unwrap()
+}
+
 #[test]
 fn handoff_preserves_early_scope_roles_evidence_and_source_without_reasoning_or_truncation() {
     let f = Fixture::new();
@@ -120,16 +130,18 @@ fn handoff_preserves_early_scope_roles_evidence_and_source_without_reasoning_or_
     );
     let prompt = f.snapshot().unwrap();
     assert!(prompt.starts_with("按讨论推进\n\n"));
-    assert!(prompt.contains(&long_scope));
-    assert!(prompt.contains("[助手]\n采用自建数据库同步个人评分"));
-    assert!(prompt.contains("[工具结果 tool1 · 成功]\n工具依据：版本1"));
-    assert!(prompt.contains(&format!("来源项目：{}", f.root.display())));
-    assert!(prompt.contains(&format!("来源对话：{}", f.source_id)));
-    assert!(prompt.contains(&format!("来源会话：{}", f.source_session)));
+    let source = snapshot_data(&prompt);
+    let transcript = source["transcript"].as_str().unwrap();
+    assert!(transcript.contains(&long_scope));
+    assert!(transcript.contains("[助手]\n采用自建数据库同步个人评分"));
+    assert!(transcript.contains("[工具结果 tool1 · 无错误标记]\n工具依据：版本1"));
+    assert_eq!(source["project"], f.root.display().to_string());
+    assert_eq!(source["conversation"], f.source_id);
+    assert_eq!(source["session_id"], f.source_session);
     assert!(!prompt.contains("PRIVATE_REASONING"));
     assert!(!prompt.contains("PRIVATE_SIGNATURE"));
     assert!(!prompt.contains("OTHER_DISCUSSION_SECRET"));
-    assert!(prompt.find(&long_scope).unwrap() < prompt.find("只保留私有数据").unwrap());
+    assert!(transcript.find(&long_scope).unwrap() < transcript.find("只保留私有数据").unwrap());
 }
 
 #[test]
@@ -236,7 +248,10 @@ fn handoff_uses_new_typed_discussion_facts_over_stale_legacy_and_respects_reset(
             let prompt = f.snapshot().unwrap();
             assert!(prompt.contains("TYPED_SCOPE_ONE：Windows和Android支持离线收藏"));
             assert!(prompt.contains("TYPED_SCOPE_TWO：邀请注册，不公开个人评分"));
-            assert!(prompt.contains("[助手]\n使用自建数据库同步评分"));
+            assert!(snapshot_data(&prompt)["transcript"]
+                .as_str()
+                .unwrap()
+                .contains("[助手]\n使用自建数据库同步评分"));
             store
                 .append_event(
                     &f.source_session,
@@ -274,7 +289,14 @@ fn queued_handoff_is_durable_and_does_not_follow_later_source_edits_or_reset() {
             .create_session(&main_session, &f.root.display().to_string(), None)
             .unwrap();
         store
-            .admit_batch_input(&main_session, "handoff-input", &frozen, Delivery::Queue)
+            .admit_batch_input(
+                &main_session,
+                "handoff-input",
+                &frozen,
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
     }
     f.save(
@@ -326,6 +348,7 @@ fn handoff_rejects_running_missing_and_wrong_project_sources() {
 fn handoff_marks_binary_attachments_without_copying_internal_payloads() {
     let transcript = readable_transcript(&[Message {
         role: Role::User,
+        origin: kanzei_base::MessageOrigin::Human,
         parts: vec![
             Part::Image {
                 media_type: "image/png".into(),
@@ -341,4 +364,26 @@ fn handoff_marks_binary_attachments_without_copying_internal_payloads() {
     assert!(transcript.contains("来源文档附件：application/pdf"));
     assert!(!transcript.contains("PRIVATE_IMAGE_DATA"));
     assert!(!transcript.contains("PRIVATE_PDF_DATA"));
+}
+
+#[test]
+fn handoff_does_not_promote_engine_messages_or_require_registration_and_implementation() {
+    let f = Fixture::new();
+    f.save(
+        &f.source_session,
+        vec![
+            Message::user_text("只讨论方案"),
+            Message::context_text(kanzei_llm::MessageOrigin::Engine, "ENGINE_CONTINUATION"),
+            Message::context_text(kanzei_llm::MessageOrigin::Summary, "PRIOR_SUMMARY"),
+            Message::context_text(kanzei_llm::MessageOrigin::Unspecified, "UNKNOWN_SOURCE"),
+        ],
+    );
+    let prompt = f.snapshot().unwrap();
+    let source = snapshot_data(&prompt);
+    let transcript = source["transcript"].as_str().unwrap();
+    assert!(transcript.contains("[用户]\n只讨论方案"));
+    assert!(transcript.contains("[引擎消息]\nENGINE_CONTINUATION"));
+    assert!(transcript.contains("[摘要]\nPRIOR_SUMMARY"));
+    assert!(transcript.contains("[来源未记录]\nUNKNOWN_SOURCE"));
+    assert!(!prompt.contains("再完成适用的调研和实施"));
 }

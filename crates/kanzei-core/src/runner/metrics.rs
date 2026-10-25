@@ -1,7 +1,6 @@
 //! 运行指标域(R-155 B2):summarize_* / FailureSignal / RunMetrics / CompletedEntry /
-//! is_git_query。is_git_query 提 pub(crate)(双归属:指标+冗余,R-100 机械闸门)。
+//! is_git_query。调用与结果分类来自本轮事实，不推断工作价值。
 
-use super::redundancy::RedundancyKind;
 use kanzei_llm::{Message, Part};
 
 /// 统计本轮工具调用；调用方传 `RunSummary::round_messages`，避免重复累计历史。
@@ -32,7 +31,7 @@ pub struct FailureSignal {
     pub recovered_by: Option<String>,
 }
 
-/// 一轮的调用画像(R-099):判断"冗余治理有没有效"所需的最小可比量。
+/// 一轮的调用画像：工具、终端、查询与结果的实际计数。
 /// 全部来自本轮消息切片,不含历史——混进 prior 会让基线一路虚高。
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RunMetrics {
@@ -41,7 +40,7 @@ pub struct RunMetrics {
     /// 其中被判定为 git 查询的次数(status/diff/log/show)。
     pub git_calls: usize,
     /// git 查询"组"数:连续的 git 查询算一组。同样是 6 次查询,
-    /// 分散在 6 处比挤成 1 组糟得多——组数才反映节奏问题。
+    /// 组数只描述调用顺序，不判断这些查询是否必要。
     pub git_groups: usize,
     /// edit / multiedit 调用次数与其中失败(未命中)次数。
     pub edit_calls: usize,
@@ -56,15 +55,6 @@ pub struct RunMetrics {
     pub tool_rejections: usize,
     #[serde(default)]
     pub edit_rejections: usize,
-    /// 冗余机械提醒计数：当前生成 Git 查询输出重复、缺陷记录已有路径两类。
-    /// 消费共享类别标记；标记引入前的轨迹按已发布的历史文案读取。
-    #[serde(default)]
-    pub redundant_git: usize,
-    /// 兼容历史的重复全量测试提醒；当前引擎不生成该类提醒。
-    #[serde(default)]
-    pub redundant_test: usize,
-    #[serde(default)]
-    pub redundant_task: usize,
 }
 
 impl RunMetrics {
@@ -75,11 +65,6 @@ impl RunMetrics {
         } else {
             self.edit_misses as f64 / self.edit_calls as f64
         }
-    }
-
-    /// 冗余提醒总数，包含旧轨迹中的测试提醒。
-    pub fn redundant_total(&self) -> usize {
-        self.redundant_git + self.redundant_test + self.redundant_task
     }
 }
 
@@ -121,12 +106,6 @@ pub fn summarize_metrics(messages: &[Message]) -> RunMetrics {
                     ..
                 } => {
                     if !*is_error {
-                        match RedundancyKind::from_content(content) {
-                            Some(RedundancyKind::Git) => metrics.redundant_git += 1,
-                            Some(RedundancyKind::Test) => metrics.redundant_test += 1,
-                            Some(RedundancyKind::Task) => metrics.redundant_task += 1,
-                            None => {}
-                        }
                         continue;
                     }
                     if is_expected_tool_rejection(content) {
@@ -158,7 +137,7 @@ pub(crate) fn is_expected_tool_rejection(content: &str) -> bool {
         .is_some_and(kanzei_harness::ToolOutcome::is_expected_rejection)
 }
 
-pub(crate) fn is_git_query(input: &serde_json::Value) -> bool {
+fn is_git_query(input: &serde_json::Value) -> bool {
     const QUERIES: &[&str] = &["git status", "git diff", "git log", "git show", "git blame"];
     let command = input
         .get("command")
@@ -549,7 +528,7 @@ mod tests {
             call("e3", "edit", "path", "src/lib.rs"),
             result(
                 "e3",
-                "[tool_outcome=blocked_by_workflow code=BATCH_CLOSING]\n收尾后继续",
+                "[tool_outcome=blocked_by_workflow code=WORK_ITEM_BLOCKED]\n收尾后继续",
                 true,
             ),
         ];
@@ -559,37 +538,6 @@ mod tests {
         assert_eq!(metrics.failed_calls, 0);
         assert_eq!(metrics.edit_misses, 0);
         assert!(summarize_failures(&messages).is_empty());
-    }
-
-    #[test]
-    fn 冗余提醒_按类别计数进度量() {
-        // R-100:summarize_metrics 按 [冗余提醒] 前缀归类计数。
-        let messages = vec![
-            bash("g1", "git status"),
-            result("g1", "nothing to commit", false),
-            bash("g2", "git status"),
-            result(
-                "g2",
-                "nothing to commit\n[冗余提醒] 工作树与上次 git status/diff 无变化,这次查询可省",
-                false,
-            ),
-            bash("b1", "cargo test --workspace"),
-            result(
-                "b1",
-                "ok\n[冗余提醒] 自上次全量测试以来工作树无变更,这次测试可省",
-                false,
-            ),
-            call("t1", "task", "prompt", "看 D-001,读 crates/app/main.rs"),
-            result("t1", "done\n[冗余提醒] 缺陷 D-001 记录已含文件路径 crates/app/main.rs,直接 read 该文件即可,无需 task 重新探索", false),
-        ];
-        let m = summarize_metrics(&messages);
-        assert_eq!(m.redundant_git, 1);
-        assert_eq!(m.redundant_test, 1);
-        assert_eq!(m.redundant_task, 1);
-        assert_eq!(m.redundant_total(), 3);
-        // 失败结果里即使带提醒字样也不计数。
-        let failed = vec![result("x", "[冗余提醒] 缺陷", true)];
-        assert_eq!(summarize_metrics(&failed).redundant_total(), 0);
     }
 
     #[test]

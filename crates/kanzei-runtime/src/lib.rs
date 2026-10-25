@@ -1,5 +1,7 @@
 //! Shared composition root for CLI, desktop and scheduled execution.
 //! Capability crates do not construct runners or depend on this crate.
+#[cfg(test)]
+mod memory_tests;
 pub mod schedules;
 
 use std::sync::Arc;
@@ -13,12 +15,11 @@ use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx};
 use kanzei_llm::{ProxyConfig, Route};
 
-use kanzei_tools::{BaseComponent, DevProfile, ResearchProfile};
+use kanzei_tools::{BaseComponent, DevelopmentProfile, ResearchProfile};
 
-/// R-256 批4:两端共用的 harness 装配(对照表 #5 公共部分:Base/Dev/Research/
-/// Markdown/Config 在此单点)。端独有组件经 `middle`/`tail` 注入,顺序与两端原装配
-/// 逐字节一致:CLI 的 Readonly 在 Research 后(→middle),桌面的 FrontendTools 同
-/// 位置、TrackerWritePolicy/Collaboration 在 Config 后(→tail)。
+/// Shared capability composition. Built-in Agent templates precede custom
+/// Markdown definitions; config contributes permission rules. The final
+/// projectless projection removes project capabilities without rewriting Agents.
 pub fn build_harness(
     profile: kanzei_harness::ProfileKind,
     middle: impl FnOnce(&mut Harness),
@@ -33,22 +34,24 @@ pub fn build_harness(
     }
     harness
         .add(BaseComponent)
-        .add(DevProfile)
-        .add(ResearchProfile);
+        .add(DevelopmentProfile)
+        .add(ResearchProfile)
+        .add(kanzei_tools::ReadonlyProfile)
+        .add(kanzei_tools::GeneralChatProfile);
     middle(&mut harness);
     harness.add(MarkdownComponent).add(ConfigComponent);
     tail(&mut harness);
-    harness.add(kanzei_tools::GeneralChatProfile);
+    harness.add(kanzei_tools::GeneralChatScope);
     harness
 }
 
-/// R-256:两端共用的 RunnerConfig 构造(对照表 #12——CLI 内联与桌面 build_runner_config
-/// 字段逐项重复)。与桌面原 `run/assembly.rs::build_runner_config` 行为逐字节一致。
+/// CLI、桌面与定时任务共用运行配置；隔离档位不安装项目记忆召回。
 pub fn build_runner_config(
     resolved: &ResolvedModel,
     config: &KanzeiConfig,
     reasoning_override: Option<&str>,
     project_root: &std::path::Path,
+    profile: kanzei_harness::ProfileKind,
     ask_policy: kanzei_core::AskPolicy,
     halt: Option<kanzei_core::CancellationToken>,
 ) -> RunnerConfig {
@@ -65,15 +68,38 @@ pub fn build_runner_config(
         service_tier: config.service_tier_for(resolved),
         context_limit: resolved.provider.context_limit,
         limits: config.limits.clone(),
-        // R-162 事件触发召回:工具失败瞬间注入相关记忆 Packet(验收⑤ 桌面端/CLI 侧)。
-        recall: Some(Box::new(kanzei_memory::memory::FailureRecallPolicy::new(
-            project_root,
-        ))),
-        // R-171:CLI 单运行实例用默认策略;桌面端多进程场景才启用串行写。
-        execution_policy: kanzei_harness::orchestration::ExecutionPolicy::Default,
+        recall: (profile != kanzei_harness::ProfileKind::Isolated).then(|| {
+            Box::new(kanzei_memory::memory::FailureRecallPolicy::new(
+                project_root,
+            )) as Box<dyn kanzei_core::RecallPolicy>
+        }),
+        execution_policy: if profile == kanzei_harness::ProfileKind::Readonly {
+            kanzei_harness::ExecutionPolicy::ReadOnly
+        } else {
+            kanzei_harness::ExecutionPolicy::Default
+        },
         ask_policy,
         halt,
     }
+}
+
+/// 任务提示只检索调用方提供的任务；显式嵌入配置错误不伪装成未配置。
+pub fn task_memory_hints(
+    config: &KanzeiConfig,
+    profile: kanzei_harness::ProfileKind,
+    project_root: &std::path::Path,
+    query: &str,
+    run_id: Option<&str>,
+) -> anyhow::Result<Option<String>> {
+    if profile == kanzei_harness::ProfileKind::Isolated {
+        return Ok(None);
+    }
+    Ok(kanzei_memory::memory::prompt_hints_for_run(
+        project_root,
+        query,
+        kanzei_memory::embed::embedder_from_config(config)?,
+        run_id,
+    ))
 }
 
 pub async fn build_digest_model(
@@ -203,8 +229,7 @@ pub async fn build_subagent_runtime(
             host: None,
             ask_policy: None,
         },
-        // R-327:模型可选的只读人格名册。CLI 与桌面共用这条装配,所以两端同源。
-        // 只放只读人格——writer 由编排器按阶段派发,不进模型可选集合。
+        // 基础名册提供只读角色；桌面宿主的 task 定义按档位额外提供可写角色。
         roster,
         snapshot: sub_snapshot,
         agent: kanzei_tools::explore_agent(),

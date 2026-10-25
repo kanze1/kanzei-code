@@ -186,12 +186,9 @@ impl Tool for TestRecordTool {
 
     fn description(&self) -> String {
         format!(
-            "Record a test run into the managed ledger `{TEST_RUNS_REL}` \
-             (raw write/edit are denied there). Prefer bash with its test object to execute and record \
-             in one call; use this tool only for tests executed outside that path. title (what was run), \
-             status (running/passed/failed/skipped), optional command and summary. Terminal \
-             statuses (passed/failed/skipped) are auto-archived into `{TEST_RUNS_ARCHIVE_REL}` \
-             on snapshot; the sidebar lists active + archived runs."
+            "Read or record test evidence in `{TEST_RUNS_REL}` through its managed ledger. \
+             bash.test automatically records a foreground command's running state, outcome, duration and log; \
+             use this tool for externally obtained evidence with its actual result and references."
         )
     }
 

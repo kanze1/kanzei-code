@@ -139,9 +139,9 @@ try {
   await invoke("projects_init", { path: project, name: "表单与动态正文原生验收" });
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await page.locator(".workbench-project-name").filter({ hasText: "表单与动态正文原生验收" }).click();
-  const create = () => invoke("process_create", { projectDir: project, profile: "dev", model: "stub:test", subagentMode: "off" });
+  const create = () => invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:test", subagentMode: "off" });
   const select = id => page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, id);
-  const start = (line, marker, autonomous = false) => invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${marker}：填写本地 React 表单，检查错误、纠正后提交，授权上传 attachment.txt，并保存当前渲染正文。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous, autoAllow: true });
+  const start = (line, marker, autonomous = false) => invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${marker}：填写本地 React 表单，检查错误、纠正后提交，授权上传 attachment.txt，并保存当前渲染正文。`, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous, autoAllow: true });
   const foreground = await create(); await select(foreground.id); await start(foreground, "NATIVE_FORM_ACCEPTANCE");
   await until(async () => { await progress([foreground]); return rounds.pane.length === actions.length && heldResponse; }, "Foreground form and source complete", 90000);
   const foregroundEvidence = await validateRound(foreground, "pane");
@@ -171,7 +171,7 @@ try {
   check(rounds.setup[1].startsWith("backend: pane"), "Explicit backend selection switches an existing headless conversation into its own internal pane");
   const stalePage = browser.contexts()[0].pages().find(target => target.url().includes(".localhost:") && !target.isClosed()); assert(stalePage);
   const staleUrl = stalePage.url();
-  await invoke("run_prompt", { projectDir: project, processId: explicit.id, prompt: "NATIVE_FORM_ACCEPTANCE_STALE：修改姓名字段。", profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false });
+  await invoke("run_prompt", { projectDir: project, processId: explicit.id, prompt: "NATIVE_FORM_ACCEPTANCE_STALE：修改姓名字段。", profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false });
   let staleAsk;
   await until(async () => { staleAsk = (await invoke("pending_asks_get", { projectDir: project, processId: explicit.id })).find(ask => ask.action === "browser"); return Boolean(staleAsk); }, "Browser action waits for actual approval");
   await invoke("preview_close");

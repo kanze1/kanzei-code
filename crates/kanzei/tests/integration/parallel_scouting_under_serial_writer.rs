@@ -143,7 +143,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
 
     let config = Arc::new(KanzeiConfig::load(&project).unwrap_or_else(|_| KanzeiConfig::default()));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -182,7 +182,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
 
     let agent = kanzei_harness::AgentDef {
         name: "dev-pair".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "mock".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 4,

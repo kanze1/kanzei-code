@@ -67,7 +67,7 @@ async function harness({ storage = new Map() } = {}) {
     ['./00-frame.js', synthetic({ installDragHandle() {} })],
     ['./04-structured-parse.js', synthetic({ stripInternalHandoff: value => value, fillTemplate: (value, fields) => value.replace(/\{(\w+)\}/g, (_, key) => fields[key]) })],
     ['./00-surface.js', synthetic({ closeSurface: menu => { closeCalls.push(menu); }, openMenu: (_anchor, items) => { calls.push({ type: 'menu', items }); }, openPopover: (anchor, menu) => { calls.push({ type: 'popover', anchor, menu }); } })],
-    ['./08-auto.js', synthetic({ lineAgent: () => ({ agent: 'dev' }), currentAutoRounds: () => 0, autoContinueTimers: new Map(), awaitingUserSessions: new Set() })],
+    ['./08-auto.js', synthetic({ lineAgent: () => ({ agent: 'dev-auto' }), currentAutoRounds: () => 0, autoContinueTimers: new Map(), awaitingUserSessions: new Set() })],
     ['./08-compose-runtime.js', synthetic({ renderAttachments() {}, lineAutoConfig: id => configurations.get(id) ?? { enabled: false, paused: false, stopAfterRound: false }, setLineAutoState: (id, patch) => { const gate = deferred(); pending.push({ id, patch: { ...patch }, ...gate }); return gate.promise; }, processUpdateQueues: new Map() })],
     ['./25-softwire-view.js', synthetic({ node, button, lineLabel: value => value })],
     ['./09-sessions.js', synthetic({ activate_execution_root() {}, processSwitchGeneration: 0, refreshProcesses() {}, renderParallelTaskStatus() {}, switchProcess() {} })],
@@ -86,7 +86,7 @@ async function harness({ storage = new Map() } = {}) {
   // Exact controller hook; scope switching itself is the complete real owner.
   document.addEventListener('kz:before-composer-scope', () => composer.leave());
   workspace.sync_composer_scope();
-  const line = { project: shellValues.currentProject, id: 'p-A', session_id: 's-A', label: 'A', profile: 'dev' };
+  const line = { project: shellValues.currentProject, id: 'p-A', session_id: 's-A', label: 'A', profile: 'dev-auto' };
   const resolved = [];
   const runner = modules.get('./25-softwire-run.js').namespace.createRunControl({ resolve: async destination => { resolved.push({ ...destination }); return destination; }, changed() {} });
   const target = (module = 'main', fields = {}) => ({ project: shellValues.currentProject, processId: shellValues.activeProcessId, sessionId: 's-A', module, label: 'A', ...fields });
@@ -143,7 +143,7 @@ await check('normal run toggle sends only chosen A identity and intent', 'PASS',
   const h = await harness(); h.runner.sync(h.line); h.runner.element.querySelector('#sw-run-toggle').dispatchEvent({ type: 'click' }); await drain(); assert.equal(h.pending.length, 1); assert.equal(h.pending[0].id, 'p-A'); assert.deepEqual(h.pending[0].patch, { enabled: true, paused: false, stopAfterRound: false }); h.pending[0].accept(); await drain(); assert.equal(h.runner.element.querySelector('.sw-run-status').dataset.error, 'false'); return { args: h.pending[0].patch, id: h.pending[0].id };
 });
 await check('A rejected control ACK must not display A failure on later selected B', 'FAIL', async () => {
-  const h = await harness(); h.runner.sync(h.line); h.runner.element.querySelector('#sw-run-toggle').dispatchEvent({ type: 'click' }); await drain(); h.runner.sync({ project: 'C:/project-B', id: 'p-B', session_id: 's-B', label: 'B', profile: 'dev' }); h.pending[0].reject(new Error('A permission refused')); await drain(); const status = h.runner.element.querySelector('.sw-run-status'); assert.equal(status.dataset.error, 'false'); assert(!status.textContent.includes('A permission refused')); return { status: status.textContent };
+  const h = await harness(); h.runner.sync(h.line); h.runner.element.querySelector('#sw-run-toggle').dispatchEvent({ type: 'click' }); await drain(); h.runner.sync({ project: 'C:/project-B', id: 'p-B', session_id: 's-B', label: 'B', profile: 'dev-auto' }); h.pending[0].reject(new Error('A permission refused')); await drain(); const status = h.runner.element.querySelector('.sw-run-status'); assert.equal(status.dataset.error, 'false'); assert(!status.textContent.includes('A permission refused')); return { status: status.textContent };
 });
 await check('same selected A receives its rejection visibly', 'PASS', async () => {
   const h = await harness(); h.runner.sync(h.line); h.runner.element.querySelector('#sw-run-toggle').dispatchEvent({ type: 'click' }); await drain(); h.pending[0].reject(new Error('A permission refused')); await drain(); const status = h.runner.element.querySelector('.sw-run-status'); assert.equal(status.dataset.error, 'true'); assert(status.textContent.includes('A permission refused')); return { status: status.textContent };

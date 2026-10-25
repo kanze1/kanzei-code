@@ -34,7 +34,7 @@ pub(crate) struct SettingsPayload {
 }
 
 /// 设置页节奏表单载荷:留空(None)即"用内置默认",保存时该键从 [cadence] 移除,
-/// 回落 serde default(conventions §1.4 当前值)。键名与 settings_get 返回的
+/// 回落配置层级和类型默认值。键名与 settings_get 返回的
 /// Cadence 序列化一致(snake_case),前后端只此一份映射。
 #[derive(Deserialize, Default)]
 pub(crate) struct CadencePayload {
@@ -290,7 +290,7 @@ pub(crate) fn settings_apply_scalar_fields(
         "env",
     );
     let profile = settings_table(doc, "profile")?;
-    // readonly 也是合法档位(defs.rs ProfileKind)。设置页的下拉只列 dev/research,
+    // readonly 也是合法档位(defs.rs ProfileKind)。设置页的下拉只列 dev-auto/dev-pair/research,
     // 但文件里写着 readonly 的用户不能因为路过一次设置页就被静默降级成 dev——
     // 白名单少一个值,表现出来就是"我明明没动这一项,保存后它自己变了"。
     settings_set_or_reset(
@@ -300,9 +300,14 @@ pub(crate) fn settings_apply_scalar_fields(
             .profile_default
             .as_ref()
             .or(payload.profile.as_ref())
-            .filter(|p| matches!(p.as_str(), "dev" | "research" | "readonly"))
+            .filter(|p| {
+                matches!(
+                    p.as_str(),
+                    "dev-auto" | "dev-pair" | "research" | "readonly" | "isolated"
+                )
+            })
             .cloned(),
-        "dev",
+        "dev-auto",
     );
     Ok(())
 }
@@ -426,7 +431,7 @@ pub(crate) fn settings_apply_limits(
 
 /// [cadence] 节:载荷带节奏节时按表单落盘——枚举值按 serde snake_case 校名,
 /// 非法值不写(配置保持干净,坏值交给加载侧报错);全空 = 清空既有键,回落
-/// serde default(conventions §1.4 当前默认);载荷不带 cadence(旧前端)则整节不动。
+/// 配置层级和类型默认值；载荷未提供 cadence 时保留该组设置。
 pub(crate) fn settings_apply_cadence(
     doc: &mut toml_edit::DocumentMut,
     payload: &SettingsPayload,
@@ -467,7 +472,6 @@ pub(crate) fn settings_apply_cadence(
         ),
     ];
     let table = settings_table(doc, "cadence")?;
-    table.remove("verify_every_n");
     for (key, value) in entries {
         settings_set_or_remove(table, key, value.map(str::to_string));
     }
@@ -635,7 +639,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         let merged = &effective_config;
         json!({
             "proxy": merged.proxy.clone().unwrap_or_else(|| "env".into()),
-            "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev".into()),
+            "profileDefault": merged.profile.default.clone().unwrap_or_else(|| "dev-auto".into()),
             "limits": {
                 "maxTokens": merged.limits.max_tokens,
                 "subagentMaxTokens": merged.limits.subagent_max_tokens,
@@ -656,7 +660,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         // None 是未显式设置:前端按中文渲染,保存其它设置时仍不把默认值冻进配置。
         "language": config.language,
         "proxy": config.proxy.unwrap_or_else(|| "env".into()),
-        "profileDefault": config.profile.default.unwrap_or_else(|| "dev".into()),
+        "profileDefault": config.profile.default.unwrap_or_else(|| "dev-auto".into()),
         "reasoning": config.models.reasoning.unwrap_or_else(|| "off".into()),
         "codexFastMode": config.models.codex_fast_mode.unwrap_or(false), "providers": providers,
         // limits:发原始值(None = 表单留空),同时发一份生效默认值给占位符用——
@@ -691,8 +695,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             "rateLimitRetries": kanzei_harness::config::Limits::default().rate_limit_retries(),
             "streamRestarts": kanzei_harness::config::Limits::default().stream_restarts(),
         },
-        // 节奏(R-157):原值 + 生效默认值。前端把它渲染进继续文案规则 6,
-        // 让"全量什么时候跑/定向跑不跑/提交与 push 频率"随配置变化而非硬化在提示词里。
+        // 表单与默认值展示共用配置类型；开发档按模式将生效节奏提供给模型。
         "cadence": serde_json::to_value(&config.cadence).unwrap_or_else(|_| serde_json::json!({})),
         "cadenceDefaults": serde_json::to_value(kanzei_harness::config::Cadence::default())
             .unwrap_or_else(|_| serde_json::json!({})),
@@ -800,7 +803,7 @@ pub(crate) fn settings_bootstrap_file(path: &Path) -> Result<(), String> {
 #   push = \"per_entry\" | \"per_commit\" | \"periodic\"\n\
 #\n\
 # [profile]\n\
-#   default = \"dev\" | \"research\" | \"readonly\"\n\
+#   default = \"dev-auto\" | \"research\" | \"readonly\"\n\
 #\n\
 # [permissions]\n\
 #   non_interactive = \"deny\" | \"rules_only\" | \"allow_listed\"\n\
@@ -1355,7 +1358,7 @@ mod tests {
                 proxy: "env".into(),
                 reasoning: Some("high".into()),
                 codex_fast_mode: true,
-                profile_default: Some("dev".into()),
+                profile_default: Some("dev-auto".into()),
                 profile: None,
                 limits: Default::default(),
                 // 固定 provider 夹具，避免校验隐式依赖本机全局 provider 清单。
@@ -1824,7 +1827,7 @@ mod tests {
         payload.profile_default = Some("不存在的档".into());
         settings_save_at_path(payload, &path).unwrap();
         let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert_eq!(saved.profile.default.as_deref(), Some("dev"));
+        assert_eq!(saved.profile.default.as_deref(), Some("dev-auto"));
         let _ = std::fs::remove_file(path);
     }
 
@@ -1882,7 +1885,7 @@ mod tests {
             kanzei_harness::config::PushCadence::Periodic
         );
 
-        // 清空(cadence 节带全空字段)→ 键从文件移除,回落 §1.4 默认。
+        // 清空当前层的 cadence 字段，回落配置层级和类型默认值。
         settings_save_at_path(
             payload(Some(CadencePayload {
                 full_test: None,

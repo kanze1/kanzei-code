@@ -117,14 +117,14 @@ function entryUsable(entry) {
   if (!entry || entry.space !== active_space || !view_allowed(entry.view, entry.project) || entry.view === document.body.dataset.view) return false;
   // 已被移除的项目回不去了:跳过这一项继续往下找。
   const projects = lastProjectPrefs.projects ?? [];
-  return !entry.project || entry.space !== "dev" || ["workspace", "settings", "skills"].includes(entry.view) || !projects.length || projects.some((path) => sameProject(path, entry.project));
+  return !entry.project || entry.space !== "dev-auto" || ["workspace", "settings", "skills"].includes(entry.view) || !projects.length || projects.some((path) => sameProject(path, entry.project));
 }
 // 栈空时的兜底:研究空间回研究页;开发空间回(浏览中的)项目对话;没有项目就无处可回。
 function fallbackEntry() {
   if (active_space === "research") return { view: "research", project: null, processId: null, space: "research", scroll: 0 };
   const project = workbenchProject() || currentProject;
   if (!project) return null;
-  return { view: "chat", project, processId: sameProject(project, currentProject) ? activeProcessId : null, space: "dev", scroll: 0 };
+  return { view: "chat", project, processId: sameProject(project, currentProject) ? activeProcessId : null, space: "dev-auto", scroll: 0 };
 }
 function backTarget() {
   for (let i = navStack.length - 1; i >= 0; i -= 1) if (entryUsable(navStack[i])) return navStack[i];
@@ -140,7 +140,7 @@ async function goToEntry(entry) {
   navScrollRestore = entry.scroll > 0 ? { view: entry.view, top: entry.scroll, at: Date.now() } : null;
   try {
     const global = ["workspace", "settings", "skills"].includes(entry.view);
-    if (active_space === "dev" && !global && entry.project) {
+    if (active_space === "dev-auto" && !global && entry.project) {
       // 项目与来处不同:走统一的进项目事务(它内部再调 navigate_view,此时 navBacking 仍为真,不会重复入栈)。
       if (entry.view === "project" || !sameProject(entry.project, currentProject)) await openProjectSpace(entry.project, entry.view);
       else { setBrowsingProject(entry.project); navigate_view(entry.view); }
@@ -275,7 +275,7 @@ defer(() => {
   document.addEventListener("kz:view-changed", (event) => focusMainAfterViewChange(event.detail?.view));
   // 侧栏「新对话」在非对话页(需求 / 概览 / 文件…)点下去:动作照旧由 startNewConversation 做,这里负责把页面带回对话,
   // 不然只在后台悄悄建了条讨论(UX-005)。研究空间的新建课题会话自己会跳,不在此处理。
-  $("new-chat")?.addEventListener("click", () => { if (active_space === "dev") ensureChatView(); });
+  $("new-chat")?.addEventListener("click", () => { if (active_space === "dev-auto") ensureChatView(); });
 });
 
 // 焦点丢了(落在 body / 已摘除 / 已隐藏的元素上)才接手:对话页回输入框,其它页落到视图根(tabindex=-1,不画描边)。
@@ -302,11 +302,11 @@ export function focusMainAfterViewChange(view = document.body.dataset.view) {
 // 只绑带 data-view 的按钮:rail 上还有侧栏开合这类布局开关,它们不是视图。
 export function navigate_view(view, { prepared = false, reload = false } = {}) {
   if (!Object.hasOwn(views, view)) return;
-  if (!prepared && view === "chat" && active_space === "dev" && !currentProject && !workbenchProject()) return openGeneralChat();
+  if (!prepared && view === "chat" && active_space === "dev-auto" && !currentProject && !workbenchProject()) return openGeneralChat();
   if (!prepared && ["workspace", "settings", "memory", "skills"].includes(view)) cancelProjectNavigation();
   // A project selected in the workbench is only a browsing identity. Activate
   // execution explicitly before a project tool can use currentProject.
-  if (!prepared && !["workspace", "settings", "project", "memory", "skills"].includes(view) && active_space === "dev"
+  if (!prepared && !["workspace", "settings", "project", "memory", "skills"].includes(view) && active_space === "dev-auto"
       && workbenchProject() && (currentProject !== workbenchProject() || (view === "chat" && !activeSessionId))) {
     return openProjectSpace(workbenchProject(), view);
   }
@@ -954,7 +954,7 @@ export function formatRunMeta(meta) {
   if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
   if (meta.codexFastMode) parts.push("⚡\uFE0E"); // 文字字形,随状态栏文字色(彩色 emoji 不受主题控制)
   // ProfileKind 的各现役档位均显示本地化名称；未知新档位保留服务端名称。
-  if (meta.profile) parts.push({ dev: t("开发"), research: t("研究"), readonly: t("只读"), isolated: t("隔离执行") }[meta.profile] ?? meta.profile);
+  if (meta.profile) parts.push({ "dev-auto": t("长期维护与开发"), "dev-pair": t("结伴开发"), research: t("研究"), readonly: t("只读"), isolated: t("隔离执行") }[meta.profile] ?? meta.profile);
   return parts.filter(Boolean).join(" · ");
 }
 export function showRunMeta(meta) {

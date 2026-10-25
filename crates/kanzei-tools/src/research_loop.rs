@@ -60,14 +60,8 @@ fn load_state(root: &Path, topic: &str) -> Result<Option<ResearchLoopState>, Str
     }
     let text =
         std::fs::read_to_string(path).map_err(|error| format!("读取检索环状态失败: {error}"))?;
-    let mut state: ResearchLoopState =
+    let state: ResearchLoopState =
         serde_json::from_str(&text).map_err(|error| format!("检索环状态 JSON 无效: {error}"))?;
-    if crate::research_workflow::load(root, topic)?.is_some() {
-        let budget = crate::research_control::budget(root, topic)?;
-        state.max_rounds = budget.max_rounds;
-        state.max_tokens = budget.max_tokens;
-        state.max_concurrency = budget.max_concurrency;
-    }
     Ok(Some(state))
 }
 
@@ -78,7 +72,6 @@ pub(crate) fn validate_external_task(
     topic: &str,
     task_id: &str,
 ) -> Result<(), String> {
-    crate::research_control::require_survey(root, topic)?;
     let state = load_state(root, topic)?
         .ok_or_else(|| format!("topic `{topic}` 尚未启动检索环；先 research_loop start"))?;
     if state.status != "running" || state.phase != "search" {
@@ -137,7 +130,7 @@ impl Tool for ResearchLoopTool {
     }
 
     fn description(&self) -> String {
-        "研究调研适配器：AUTO 课题服从 research_workflow 的 Survey 阶段、暂停与预算；旧课题 start 需 approved 计划。add_evidence 接收压缩证据，reflect 收敛检索，add_finding 绑定来源；resume 读取调研工件及主流程恢复信息。".into()
+        "课题检索记录：start 使用已批准计划与检索预算，begin_search 登记任务，add_evidence 保存压缩证据，reflect 记录缺口，add_finding 绑定来源，resume 读取当前记录。".into()
     }
 
     fn input_schema(&self) -> Value {
@@ -179,27 +172,8 @@ impl Tool for ResearchLoopTool {
         if let Err(error) = state_path(&ctx.project_root, topic) {
             return ToolOutput::needs_correction("INVALID_TOPIC", error);
         }
-        if action != "resume" {
-            if let Err(error) = crate::research_control::require_survey(&ctx.project_root, topic) {
-                return ToolOutput::needs_correction("WORKFLOW_CONTROL", error);
-            }
-        }
         match action {
             "start" => {
-                let workflow = if ctx
-                    .project_root
-                    .join(".kanzei/research")
-                    .join(topic)
-                    .join("workflow.json")
-                    .exists()
-                {
-                    match crate::research_workflow::load(&ctx.project_root, topic) {
-                        Ok(state) => state,
-                        Err(error) => return ToolOutput::error(error),
-                    }
-                } else {
-                    None
-                };
                 let plan = match load_plan(&ctx.project_root, topic) {
                     Ok(Some(plan)) => plan,
                     Ok(None) => {
@@ -207,7 +181,7 @@ impl Tool for ResearchLoopTool {
                     }
                     Err(error) => return ToolOutput::error(error),
                 };
-                if plan.status != PlanStatus::Approved && workflow.is_none() {
+                if plan.status != PlanStatus::Approved {
                     return ToolOutput::needs_confirmation(
                         "PLAN_NOT_APPROVED",
                         format!("研究计划当前状态 {:?}，必须先由用户批准", plan.status),
@@ -218,7 +192,7 @@ impl Tool for ResearchLoopTool {
                     Ok(None) => {}
                     Err(error) => return ToolOutput::error(error),
                 }
-                let budget = match crate::research_control::budget(&ctx.project_root, topic) {
+                let budget = match crate::research_budget::load(&ctx.project_root, topic) {
                     Ok(budget) => budget,
                     Err(error) => return ToolOutput::error(error),
                 };
@@ -244,20 +218,7 @@ impl Tool for ResearchLoopTool {
                 }
             }
             "resume" => match load_state(&ctx.project_root, topic) {
-                Ok(Some(state)) => {
-                    let mut summary = state_summary(&state);
-                    match crate::research_control::workflow(&ctx.project_root, topic) {
-                        Ok(Some(workflow)) => {
-                            summary["controller"] = json!("research_workflow");
-                            summary["workflow_stage"] = json!(workflow.stage);
-                            summary["paused"] = json!(workflow.paused);
-                            summary["next_action"] = json!(workflow.guidance());
-                        }
-                        Ok(None) => {}
-                        Err(error) => return ToolOutput::error(error),
-                    }
-                    ToolOutput::ok(summary.to_string())
-                }
+                Ok(Some(state)) => ToolOutput::ok(state_summary(&state).to_string()),
                 Ok(None) => ToolOutput::error(format!("topic `{topic}` 尚未启动检索环")),
                 Err(error) => ToolOutput::error(error),
             },
@@ -587,6 +548,12 @@ mod tests {
         let project = root("approval");
         let ctx = ToolCtx::new(project.clone(), project.clone());
         save_plan(&project, &plan("loop-smoke", PlanStatus::AwaitingApproval)).unwrap();
+        // Retired controller files must neither authorize the plan nor block tool use.
+        std::fs::write(
+            project.join(".kanzei/research/loop-smoke/workflow.json"),
+            "obsolete non-JSON checkpoint",
+        )
+        .unwrap();
         let tool = ResearchLoopTool;
         let blocked = tool
             .execute(json!({ "action": "start", "topic": "loop-smoke" }), &ctx)

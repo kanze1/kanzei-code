@@ -33,10 +33,8 @@ import { latestDocsSnapshot, renderDocuments } from "./12-docs-pages.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { refreshGit } from "./15-views-misc.js";
 
-// ---------- R-184 B 面:任务级并行线路 ----------
-// 这里不另造状态仓库。agent 协作块和用户并列视图都读 collaboration_snapshot,
-// 其 branch / phase / tool / changed_files 来自后端当前运行态和 git 现场。
-export let collaborationLines = [];
+// 对话协作视图与模型上下文复用同一采样来源。运行事实属于对话，Git 变化属于工作树。
+export let collaborationConversations = [];
 export let linesRefreshInFlight = false;
 export let linesRefreshTimer = null;
 export let linesRefreshQueued = false;
@@ -44,17 +42,18 @@ export const LINES_REFRESH_IDLE_MS = 8000;
 export const LINES_REFRESH_RUNNING_MS = 3500;
 
 export function lineAgentCodes(lines) {
-  const codes = new Map();
-  let branchIndex = 0;
+  const codes = new Map(), trees = new Map();
   for (const line of [...lines].sort((a, b) => a.process_id.localeCompare(b.process_id))) {
-    if (!line.worktree_path) {
-      codes.set(line.process_id, "M");
-      continue;
-    }
-    codes.set(line.process_id, String.fromCharCode(65 + (branchIndex % 26)));
-    branchIndex += 1;
+    if (!line.worktree_path) { codes.set(line.process_id, "M"); continue; }
+    const root = normalizedChangedFile(line.worktree_path);
+    if (!trees.has(root)) trees.set(root, String.fromCharCode(65 + (trees.size % 26)));
+    codes.set(line.process_id, trees.get(root));
   }
   return codes;
+}
+
+function changedPaths(conversation) {
+  return [...new Set([...(conversation.uncommitted_files ?? []), ...(conversation.unmerged_files ?? [])])];
 }
 
 export function normalizedChangedFile(path) {
@@ -64,7 +63,7 @@ export function normalizedChangedFile(path) {
 export function lineConflictPairs(lines) {
   const byFile = new Map();
   for (const line of lines) {
-    for (const file of line.changed_files ?? []) {
+    for (const file of changedPaths(line)) {
       const key = normalizedChangedFile(file);
       const entry = byFile.get(key) ?? { file, lines: [] };
       if (!entry.lines.some((candidate) => candidate.process_id === line.process_id)) entry.lines.push(line);
@@ -77,6 +76,7 @@ export function lineConflictPairs(lines) {
       for (let right = left + 1; right < owners.length; right += 1) {
         const a = owners[left];
         const b = owners[right];
+        if (normalizedChangedFile(a.worktree_path || currentProject) === normalizedChangedFile(b.worktree_path || currentProject)) continue;
         const ids = [a.process_id, b.process_id].sort();
         const key = ids.join("\0");
         const pair = pairs.get(key) ?? { left: a, right: b, files: [] };
@@ -297,7 +297,7 @@ export function lineOverlapsFor(lines) {
   return byLine;
 }
 
-// 线路卡标题:用户命名(sessions.title,后端补上 title 字段后即生效)优先,主对话叫「主对话」,其余回落后端 label。
+// 对话列表的持久标题优先；协作快照的 label 使用同一命名来源。
 export function lineName(line, item = processItems.find((process) => process.id === line.process_id)) {
   const title = String(item?.title ?? "").trim();
   if (title) return title;
@@ -305,7 +305,7 @@ export function lineName(line, item = processItems.find((process) => process.id 
 }
 
 // 这条线此刻是不是在等人:有挂起的权限询问(等批准),或模型自己停下来等回答(引擎 Stop/AwaitingUser)。
-// 前端的待答队列是这件事的真源;后端 line_status 只看事件流与工作树有没有动静。
+// 待答事件可先于下一次协作采样到达，前端据此及时展示等待状态。
 export function lineWaitingFor(item) {
   if (!item?.session_id) return "";
   const pending = [...(askQueues.get(item.session_id) || [])];
@@ -318,15 +318,14 @@ export function lineWaitingFor(item) {
 export function lineStatusKey(line, lineRunning, waiting = "", stopping = false) {
   // 已点「停止」、等对话收尾:卡片立刻进「停止中」,不等下一轮轮询(此前点了毫无反馈、按钮还能重复点)。
   if (stopping) return "stopping";
-  // 等批准/等回答优先显示等待状态；后端也在静默超时判定前识别等待，避免误报卡住。
+  // 已收到的待答事件优先展示，后端状态在下一次采样时更新。
   if (waiting === "approval") return "awaiting_approval";
   if (waiting === "answer" && !lineRunning) return "awaiting_answer";
   const status = line.status;
-  if (["starting", "running", "queued", "awaiting_approval", "awaiting_answer", "suspected_stuck", "failed", "incomplete", "interrupted", "unavailable", "completed", "stopped", "idle"].includes(status)) {
+  if (["starting", "running", "queued", "awaiting_approval", "awaiting_answer", "failed", "incomplete", "interrupted", "unavailable", "completed", "stopped", "idle"].includes(status)) {
     return status;
   }
-  // 兼容旧快照/测试桩：后端升级前仍按既有 running 字段显示，不猜测卡住。
-  return lineRunning ? "running" : "idle";
+  return "unavailable";
 }
 
 export function lineStatusLabel(status) {
@@ -337,7 +336,6 @@ export function lineStatusLabel(status) {
     stopping: t("停止中…"),
     awaiting_approval: t("在等你批准"),
     awaiting_answer: t("在等你回答"),
-    suspected_stuck: t("疑似卡住"),
     failed: t("失败"),
     incomplete: t("未完成"),
     interrupted: t("已中断"),
@@ -412,33 +410,33 @@ function restoreLinesFocus(saved) {
 }
 
 export function renderLines(lines) {
-  collaborationLines = lines ?? [];
+  collaborationConversations = lines ?? [];
   const target = $("lines-list");
   const lineItem = (line) => processItems.find((process) => process.id === line.process_id);
   const lineIsRunning = (line) => {
     const item = lineItem(line);
     return item ? processRunning(item) : Boolean(line.running);
   };
-  const overlaps = lineOverlapsFor(collaborationLines);
-  const runningCount = collaborationLines.filter(lineIsRunning).length;
+  const overlaps = lineOverlapsFor(collaborationConversations);
+  const runningCount = collaborationConversations.filter(lineIsRunning).length;
   const changedCount = new Set(
-    collaborationLines.flatMap((line) => (line.changed_files ?? []).map(normalizedChangedFile)),
+    collaborationConversations.flatMap((line) => changedPaths(line).map(normalizedChangedFile)),
   ).size;
-  // 线路页的名词统一:每一条是一个「任务」(主对话也是其中一条);「线路」只留页面标题。
-  let summary = fillTemplate(t("{running} 个运行中 · 共 {total} 个任务 · {files} 个改动文件"), {
-    running: runningCount, total: collaborationLines.length, files: changedCount,
+  // 运行数量按对话统计；文件变化按工作树内容汇总。
+  let summary = fillTemplate(t("{running} 个运行中 · 共 {total} 个对话 · {files} 个改动文件"), {
+    running: runningCount, total: collaborationConversations.length, files: collaborationConversations.some(line => line.uncommitted_error || line.unmerged_error) ? t("未知") : changedCount,
   });
-  const overlapPairs = lineConflictPairs(collaborationLines).length;
-  if (overlapPairs) summary += ` · ⚠ ${fillTemplate(t("{n} 组任务有文件重叠"), { n: overlapPairs })}`;
+  const overlapPairs = lineConflictPairs(collaborationConversations).length;
+  if (overlapPairs) summary += ` · ⚠ ${fillTemplate(t("{n} 组对话涉及相同路径"), { n: overlapPairs })}`;
   const summaryNode = $("lines-summary");
   if (summaryNode.textContent !== summary) summaryNode.textContent = summary;
 
-  if (!collaborationLines.length) {
+  if (!collaborationConversations.length) {
     pendingLinesRender = null;
     lastLinesSignature = "";
     const empty = document.createElement("div");
     empty.className = "lines-empty";
-    empty.textContent = t("还没有可显示的任务。主对话开始工作后会出现在这里;点右上角「新建独立任务」可以再开一个并行的。");
+    empty.textContent = t("还没有可显示的对话。创建项目对话后会显示在这里。");
     target.replaceChildren();
     target.appendChild(empty);
     return;
@@ -448,9 +446,9 @@ export function renderLines(lines) {
   const entries = [...(latestDocsSnapshot?.requirements || []), ...(latestDocsSnapshot?.defects || [])];
   const signature = JSON.stringify([
     activeProcessId, languageIsEnglish(), linesModelCatalog?.length ?? -1, projectDefaultModel,
-    collaborationLines.map((line) => {
+    collaborationConversations.map((line) => {
       const item = lineItem(line);
-      const claimedIds = String(line.claim || "").match(/\b[RD]-[\w-]+\b/g) || [];
+      const claimedIds = line.tracker_entries ?? [];
       return [
         line, lineIsRunning(line), lineName(line, item), lineWaitingFor(item), lineIsStopping(item),
         item ? [lineAutoConfig(line.process_id), sessionState(item.session_id)?.auto_rounds ?? 0, item.model ?? null, item.tracker_writes ?? false]
@@ -461,13 +459,13 @@ export function renderLines(lines) {
     }),
   ]);
   const laneCount = target.querySelectorAll(".line-lane").length;
-  if (signature === lastLinesSignature && laneCount === collaborationLines.length) {
+  if (signature === lastLinesSignature && laneCount === collaborationConversations.length) {
     pendingLinesRender = null;
     return;
   }
   // 用户正停在某个线路卡的下拉/输入框里:这一轮不重建,记下来等 focusout 再补。
   if (linesBusyControl()) {
-    pendingLinesRender = collaborationLines;
+    pendingLinesRender = collaborationConversations;
     return;
   }
   pendingLinesRender = null;
@@ -493,13 +491,13 @@ export function renderLines(lines) {
     .map(panel => panel.closest(".line-lane")?.dataset.processId));
   target.replaceChildren();
 
-  const codes = lineAgentCodes(collaborationLines);
-  for (const line of collaborationLines) {
+  const codes = lineAgentCodes(collaborationConversations);
+  for (const line of collaborationConversations) {
     const item = lineItem(line);
     const lineRunning = lineIsRunning(line);
     const lane = document.createElement("article");
     const code = codes.get(line.process_id) ?? "?";
-    // 线路身份 = 字母代号本身(M/A/B…),不再按代号取色——身份色曾撞上琥珀/绿这些状态色。
+    // 字母代号标识工作树；共享同一工作树的对话使用相同代号。
     lane.className = `line-lane${line.process_id === activeProcessId ? " active" : ""}`;
     lane.dataset.processId = line.process_id;
 
@@ -529,13 +527,12 @@ export function renderLines(lines) {
 
     const claim = document.createElement("div");
     claim.className = "line-claim";
-    const claimedIds = String(line.claim || "").match(/\b[RD]-[\w-]+\b/g) || [];
+    const claimedIds = line.tracker_entries ?? [];
     const claimText = id => {
       const entry = entries.find(entry => entry.id === id);
       return entry ? `${id} · ${entry.title}` : id;
     };
-    // UI-0926 #4:快照里查得到的条目做成链接,一点直达单页里展开的详情;查不到(线路工作树里
-    // 刚登记、还没合并进主列表)就只写文字,不给一个点了落空的链接。
+    // 当前文档索引中存在的登记条目提供跳转，其余只显示编号。
     const claimNode = id => {
       if (!entries.some(entry => entry.id === id)) return document.createTextNode(claimText(id));
       const link = document.createElement("button");
@@ -551,15 +548,15 @@ export function renderLines(lines) {
       held.className = "line-held-items";
       held.open = expandedClaims.has(line.process_id);
       const summary = document.createElement("summary");
-      summary.textContent = `${t(line.worktree_path ? "工作树内负责" : "共享工作区内负责")} ${claimedIds.length} ${t("条")}`;
+      summary.textContent = `${t("登记条目")} ${claimedIds.length} ${t("条")}`;
       const list = document.createElement("ul");
       for (const id of claimedIds) { const item = document.createElement("li"); item.appendChild(claimNode(id)); list.appendChild(item); }
       held.append(summary, list); claim.appendChild(held);
     } else if (claimedIds.length) claim.appendChild(claimNode(claimedIds[0]));
-    else claim.textContent = t(line.claim || "未绑定条目"); // 后端给的「未绑定条目」是中文字面量,英文界面要翻
-    if (line.claim_error) {
+    else claim.textContent = t("未绑定条目");
+    if (line.tracker_error) {
       claim.classList.add("error");
-      claim.title = line.claim_error;
+      claim.title = line.tracker_error;
     }
 
     const facts = document.createElement("div");
@@ -576,16 +573,21 @@ export function renderLines(lines) {
     runtimeDetails.className = "line-runtime-details";
     runtimeDetails.open = expandedDetails.has(line.process_id);
     const runtimeSummary = document.createElement("summary");
-    runtimeSummary.textContent = t("独立任务详情");
+    runtimeSummary.textContent = t("对话详情");
     runtimeDetails.append(runtimeSummary,
       lineFact(t("分支"), line.branch || "—", "mono"),
       lineFact(t("工作树"), line.worktree_path || t("主工作区"), "mono"));
 
+    if (line.branch_error) {
+      const error = document.createElement("p"); error.className = "line-file-error";
+      error.textContent = line.branch_error; runtimeDetails.append(error);
+    }
+
     const changed = document.createElement("details");
     changed.className = "line-changed-files";
     const changedSummary = document.createElement("summary");
-    const files = line.changed_files ?? [];
-    changedSummary.textContent = `${files.length} ${t("个改动文件")}`;
+    const files = changedPaths(line);
+    changedSummary.textContent = `${t("未提交")} ${line.uncommitted_error ? "?" : (line.uncommitted_files ?? []).length} · ${t("分支差异")} ${line.unmerged_error ? "?" : (line.unmerged_files ?? []).length}`;
     // 文件交集徽标(B27):与其它线改了同一批文件时亮在改动文件那一行,点开清单里重叠的文件标琥珀。
     const overlap = overlaps.get(line.process_id) ?? [];
     const sharedFiles = new Set(overlap.flatMap((entry) => entry.files.map(normalizedChangedFile)));
@@ -596,7 +598,7 @@ export function renderLines(lines) {
         n: sharedFiles.size,
         who: overlap.map((entry) => lineName(entry.other)).join("、"),
       })}`;
-      conflictBadge.title = t("同一个文件被两个独立任务同时改了,合并时可能冲突。这里只比对文件名,改动在逻辑上是否冲突要读 diff 判断。");
+      conflictBadge.title = t("不同工作树在相同路径存在变化，整合时需检查实际差异。");
       changedSummary.append(" ", conflictBadge);
     }
     changed.appendChild(changedSummary);
@@ -610,10 +612,10 @@ export function renderLines(lines) {
       }
       changed.appendChild(list);
     }
-    if (line.changed_files_error) {
+    for (const message of [line.uncommitted_error, line.unmerged_error].filter(Boolean)) {
       const error = document.createElement("p");
       error.className = "line-file-error";
-      error.textContent = line.changed_files_error;
+      error.textContent = message;
       changed.appendChild(error);
     }
     changed.open = expandedChangedFiles.has(line.process_id);
@@ -642,7 +644,7 @@ export function renderLines(lines) {
       await switchProcess(line.process_id);
       // 「打开对话」就是要去那条线的对话:线路页上切完不跳转 = 白切(UX-052 / D15)。
       ensureChatView();
-      renderLines(collaborationLines);
+      renderLines(collaborationConversations);
     });
     actions.appendChild(open);
     // R-184 P5 收活五格:只有真实工作树上的线才有「收活」入口(主树没有可合并分支)。
@@ -724,7 +726,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   reportHead.innerHTML = `<span class="harvest-step-no">1</span><strong>${t("读报告")}</strong><span class="harvest-step-state ok">${t("已展示")}</span>`;
   const reportBody = document.createElement("div");
   reportBody.className = "harvest-step-body";
-  reportBody.textContent = `${t(line.claim || "未声明条目")} · ${localizedStage(line.phase || "空闲")} · ${(line.changed_files ?? []).length} ${t("个文件")}`;
+  reportBody.textContent = `${((line.tracker_entries ?? []).join(", ") || t("未绑定条目"))} · ${localizedStage(line.phase || "空闲")} · ${(changedPaths(line)).length} ${t("个文件")}`;
   const trackerPicker = document.createElement("label");
   trackerPicker.className = "harvest-tracker-picker";
   const trackerPickerText = document.createElement("span");
@@ -1187,7 +1189,7 @@ export async function refreshLines() {
     renderLines(lines);
     // 模型目录晚到:renderLines 的签名含目录长度,目录一到就按新选项重画;用户正停在下拉上时它自己会推迟。
     void catalog.then(() => {
-      if (currentProject === forProject && $("view-lines")?.classList.contains("active")) renderLines(collaborationLines);
+      if (currentProject === forProject && $("view-lines")?.classList.contains("active")) renderLines(collaborationConversations);
     });
   } catch (error) {
     if (currentProject === forProject) {
@@ -1201,7 +1203,7 @@ export async function refreshLines() {
       linesRefreshQueued = false;
       scheduleLinesRefresh(250);
     } else {
-      const running = collaborationLines.some((line) => line.running);
+      const running = collaborationConversations.some((line) => line.running);
       scheduleLinesRefresh(running ? LINES_REFRESH_RUNNING_MS : LINES_REFRESH_IDLE_MS);
     }
   }
@@ -1267,7 +1269,7 @@ defer(() => {
 // 视图签名里带着「是否停止中」,没变化时 renderLines 不会动 DOM。只在线路页开着时重画。
 defer(() => {
   document.addEventListener("kz:session-state-changed", () => {
-    if ($("view-lines")?.classList.contains("active") && collaborationLines.length) renderLines(collaborationLines);
+    if ($("view-lines")?.classList.contains("active") && collaborationConversations.length) renderLines(collaborationConversations);
   });
 });
 // 用户从线路卡里的下拉/输入框离开后,补一次被推迟的重绘(为什么推迟见 renderLines 前面的 linesBusyControl)。

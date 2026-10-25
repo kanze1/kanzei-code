@@ -287,10 +287,10 @@ async fn run_steps(
             let Step::Run(command) = step else {
                 unreachable!()
             };
-            messages.push(Message::user_text(format!(
-                "命令步骤 {}：\n{command}",
-                index + 1
-            )));
+            messages.push(Message::context_text(
+                kanzei_base::MessageOrigin::Notification,
+                format!("命令步骤 {}：\n{command}", index + 1),
+            ));
             let result = command_step(
                 root,
                 code_root,
@@ -323,7 +323,8 @@ async fn run_steps(
         "readonly" => ProfileKind::Readonly,
         "research" => ProfileKind::Research,
         "isolated" => ProfileKind::Isolated,
-        _ => ProfileKind::Dev,
+        "dev-pair" => ProfileKind::DevPair,
+        _ => ProfileKind::DevAuto,
     };
     let rctx = ResolveCtx {
         cwd: code_root.into(),
@@ -333,9 +334,7 @@ async fn run_steps(
     };
     let harness = crate::build_harness(
         profile,
-        |h| {
-            h.add(kanzei_tools::ReadonlyProfile);
-        },
+        |_| {},
         |h| {
             h.add(TrackerReadonly);
         },
@@ -371,6 +370,7 @@ async fn run_steps(
         &config,
         None,
         root,
+        profile,
         AskPolicy::NonInteractive,
         Some(cancel.clone()),
     );
@@ -383,6 +383,7 @@ async fn run_steps(
     let mut ctx = ToolCtx::new(code_root.into(), root.into())
         .with_session_id(session.into())
         .with_read_ledger(kanzei_harness::ReadLedger::default());
+    ctx.input_origin = kanzei_base::MessageOrigin::Notification;
     ctx.run_id = Some(run_id.into());
     ctx.process_id = Some(run_id.into());
     let state = kanzei_core::project_state_path(root);
@@ -420,6 +421,21 @@ async fn run_steps(
                 previous = output;
             }
             Step::Prompt(prompt) => {
+                // Only the configured task step selects skills. Prior command
+                // output remains data even when it contains a known $name.
+                ctx.invoked_skills =
+                    match kanzei_harness::skills::invoked_context(&snapshot, prompt) {
+                        Ok(skills) => skills,
+                        Err(error) => {
+                            let error = error.to_string();
+                            writer
+                                .lock()
+                                .unwrap()
+                                .finish(SessionTurnTerminal::Failed(error.clone()));
+                            writer_guard.0 = None;
+                            return Err(error);
+                        }
+                    };
                 let prompt = if previous.is_empty() {
                     prompt.clone()
                 } else {
@@ -429,9 +445,25 @@ async fn run_steps(
                     let mut writer = writer.lock().unwrap();
                     let input_id = format!("{run_id}-{index}");
                     let committed = if prompt_started {
-                        writer.steering_message(&input_id, Message::user_text(&prompt))
+                        writer.steering_message(
+                            &input_id,
+                            kanzei_core::input_message(
+                                ctx.input_origin,
+                                &prompt,
+                                &ctx.input_attachments,
+                                &[],
+                            ),
+                        )
                     } else {
-                        writer.user_message(&input_id, Message::user_text(&prompt))
+                        writer.user_message(
+                            &input_id,
+                            kanzei_core::input_message(
+                                ctx.input_origin,
+                                &prompt,
+                                &ctx.input_attachments,
+                                &[],
+                            ),
+                        )
                     };
                     if !committed {
                         let error = format!(

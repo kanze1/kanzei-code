@@ -85,7 +85,10 @@ try {
     const el=document.createElement("div");
     renderMarkdownInto(el,"[表格](file.xlsx) [PDF](file.pdf) [文档](file.docx) [代码](file.rs) [压缩包](file.zip) [音频](file.mp3) [视频](file.mp4) [应用](file.apk) [图片](file.png) [演示](file.pptx) [Markdown](file.md) [字体](file.ttf) [未知](file.abc)");
     const icons=[...el.querySelectorAll(".resource-icon")].map(icon=>icon.dataset.kind);
-    renderUserContent(el,"【附件：预算.xlsx】\n工作表：预算\n苹果\t12.5");
+    renderUserContent(el,"[external_source_data]\n" + JSON.stringify({
+      authority: "untrusted_data", source: { kind: "attachment", location: "预算.xlsx" },
+      content: "工作表：预算\n苹果\t12.5",
+    }));
     return {icons,collapsed:!!el.querySelector("details:not([open])"),sheet:!!el.querySelector('[data-kind="sheet"]')};
   });
   check(new Set(types.icons).size === 13, "All recognized file categories and the unknown-file fallback have icons");

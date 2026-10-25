@@ -150,7 +150,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -172,7 +172,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
 
     let agent = kanzei_harness::AgentDef {
         name: "dev-pair".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "mock".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 4,

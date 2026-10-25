@@ -22,8 +22,7 @@ import "./08-compose.js";
 import { refreshProcesses } from "./09-sessions.js";
 
 // ---------- 自动续跑状态与渲染 ----------
-// 自动推进状态:自动续跑轮次(手动发送归零);旧 maxRounds 仅保留兼容读取。
-export const DEFAULT_AUTO_CONTINUE_MAX = 10;
+// 自动推进状态：续跑轮数用于观察，手动发送时归零。
 export let autoRounds = 0;
 export let autoPaused = false;
 
@@ -97,17 +96,17 @@ export function selectedAgent() {
   if (processItems.find((item) => item.id === activeProcessId)?.profile === "research") return { profile: "research", agent: "research" };
   const mode = $("profile-select").value;
   if (mode === "isolated") return { profile: "isolated", agent: "isolated" };
-  if (mode === "dev-pair") return { profile: "dev", agent: "dev-pair" };
-  if (mode === "dev-auto") return { profile: "dev", agent: "dev" };
-  return { profile: "dev", agent: "dev-pair" };
+  if (mode === "dev-pair") return { profile: "dev-pair", agent: "dev-pair" };
+  if (mode === "dev-auto") return { profile: "dev-auto", agent: "dev-auto" };
+  return { profile: "dev-pair", agent: "dev-pair" };
 }
 
 // UI2-0926 #13:自动推进续跑轮按**这条线实际的档位**发。原先 sendAutoToSession 把 dev 两档一律写成
-// agent "dev",于是勾了自动推进的结伴线,续跑轮其实按自主档跑(Nudge、核查轮都开),与界面上「结伴档轻控制
+// agent "dev-auto",于是勾了自动推进的结伴线,续跑轮其实按自主档跑(Nudge、核查轮都开),与界面上「结伴档轻控制
 // 续跑,引擎不追加推进指令」的承诺相反。活动线读模式芯片(就是用户眼前那个值);后台线读本线记住的档位,
 // 回落规则与 applyProfileValue 相同(主线沿用全局偏好,并行线默认结伴)。
 export function lineAgent(item) {
-  if (!item) return { profile: "dev", agent: "dev-pair" };
+  if (!item) return { profile: "dev-pair", agent: "dev-pair" };
   if (item.profile === "readonly") return { profile: "readonly", agent: "readonly" };
   if (item.profile === "isolated") return { profile: "isolated", agent: "isolated" };
   if (item.profile === "research") return { profile: "research", agent: "research" };
@@ -117,7 +116,7 @@ export function lineAgent(item) {
   const mode = remembered && remembered !== "research"
     ? remembered
     : ["dev-pair", "dev-auto"].includes(globalChoice) ? globalChoice : "dev-pair";
-  return { profile: "dev", agent: mode === "dev-auto" ? "dev" : "dev-pair" };
+  return { profile: mode, agent: mode };
 }
 
 // UI2-0926 #13:模型在等你回答(引擎 Stop/AwaitingUser)。按会话记下:这时用户手动发出的消息就是回答,
@@ -144,7 +143,7 @@ export function focusPendingQuestion() {
 // auto_run.rs)。这里只是回显,判据必须与那边逐条一致——两处漂开就会出现「界面说
 // 结伴、引擎按自主跑」,而这正是本条目要消除的那类不可见错位。改一边必须改另一边。
 export function harnessIntensityOf(agentName) {
-  return agentName === "dev" ? "autonomous" : "paired";
+  return agentName === "dev-auto" ? "autonomous" : "paired";
 }
 
 // 逐条列出这一档下引擎会不会插手。用户抱怨的是「区别不够明显」,所以不能只写「轻/重」两个字——要把
@@ -199,22 +198,8 @@ export function syncWorkPriorityControl() {
   });
 }
 
-// 取活序只有一个真源:这个开关 → localStorage → work_priority → 引擎的
-// resolve_work_decision → <resolved-control-state>。
-//
-// 这里原先还把开关镜像成一条 preference 记忆(开发重心),理由写着「提示词由记忆
-// 生成,所以开关与提示词不可能再互相矛盾」。那个理由在当时成立,后来不成立了:
-// 取活提示由 tools/work/context.rs 从解析后的枚举生成 <resolved-control-state>。
-// preference 约束由 dev profile 的 <project-constraints> 按上下文预算加载；
-// 两者职责不同，把取活开关再镜像成约束记忆仍会制造第二份相互冲突的来源。
-//
-// 于是模型每轮同时收到两条都自称最高优先级的指令。而那条记忆改不动队列顺序
-// (引擎只读枚举),它唯一能起的作用是怂恿模型借 WorkInput.reason 偏离引擎裁决,
-// 并把一条过期理由写进审计记录。实测后果:同一条规则被反复复活三代
-// (M-002 → M-063 → M-070),每次退役后开关一切就再生一条。
-//
-// 所以镜像写入去掉,开关只写自己那份枚举。回显由上面 syncWorkPriorityControl
-// 从 localStorage 做——它本来就在做,记忆那份是会覆盖它的第二个回显源。
+// 取活顺序经 uiPrefs 保存到 work_priority，再由引擎投影为 resolved-control-state。
+// 已保存偏好由 core/preferences 独立加载；此控件不再镜像写入记忆。
 
 // 自动推进状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
 // 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是
@@ -329,14 +314,9 @@ export function setAutoStopReason(reason, stop_kind = "") {
   autoHint = "";
   renderAutoRun();
 }
-// R-363:研究按课题工作流续跑；阶段/等待判定仍由后端负责。
+// 自动续跑档位与后端共享控制器的准入保持一致。
 export function autoContinueAllowed() {
-  return ["dev", "research"].includes(selectedAgent().profile);
-}
-// 兼容旧状态/配置的读取接口。`auto_max` 仍可被旧前端状态携带,但不再是停止条件或界面设置。
-export function autoContinueMax() {
-  const stored = Number.parseInt(localStorage.getItem("kz-auto-max"), 10);
-  return Number.isFinite(stored) ? Math.min(100, Math.max(1, stored)) : DEFAULT_AUTO_CONTINUE_MAX;
+  return ["dev-auto", "dev-pair"].includes(selectedAgent().profile);
 }
 // R-322 B3:目标条件(Claude Code /goal 的形状)。真源是后端 AutoRunController.goal;
 // 输入框只是它的编辑入口,每次同步整串发过去,空串即撤销。
@@ -427,7 +407,7 @@ export function autoContinueBlockedReason(sessionId) {
     if (autoStopAfterRound) return "本轮后停";
     return null;
   }
-  const config = normalizeAutoState(processAutoState.get(item.id), item.id);
+  const config = normalizeAutoState(processAutoState.get(item.id));
   if (!config.enabled) return "自动推进已关闭";
   if (config.paused) return "已暂停";
   if (config.stopAfterRound) return "本轮后停";

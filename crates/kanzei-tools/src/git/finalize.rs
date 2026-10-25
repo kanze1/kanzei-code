@@ -197,7 +197,7 @@ async fn finalize_body(
             let entry_id = requirement_id
                 .or_else(|| crate::work::log::latest_claim_id(&ctx.project_root, ctx));
             if let Some(entry_id) = entry_id {
-                crate::work::log::append(
+                match crate::work::log::append(
                     &ctx.project_root,
                     "deliver",
                     Some(&entry_id),
@@ -208,8 +208,12 @@ async fn finalize_body(
                         "test_record_ids": test_record_ids,
                         "source": "engine",
                     }),
-                );
-                format!("\ndeliver recorded: {entry_id} @ {}", commit.trim())
+                ) {
+                    Ok(()) => format!("\ndeliver recorded: {entry_id} @ {}", commit.trim()),
+                    Err(error) => format!(
+                        "\nWarning: committed but delivery record could not be saved: {error}"
+                    ),
+                }
             } else {
                 "\nWarning: no bound claim found; commit remains legacy without a deliver record"
                     .to_string()

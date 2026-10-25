@@ -12,7 +12,7 @@ pub(crate) fn add_source_policy(draft: &mut HarnessDraft) {
     draft.context.insert(
         "core/exploration-policy",
         kanzei_harness::source("core/exploration-policy", |_| Some(
-            "Locate paths and symbols before reading large files. Read the relevant range to answer the current question, then expand only when evidence requires it. Reuse inspected evidence and task handoffs with exact paths, line references, source versions and unresolved questions. Re-read when the version changed or a specific claim needs verification. An engine observation_reference points to identical bytes retained in a later tool result in this request; it is not evidence that the file stayed unchanged between observations.".into()
+            "根据当前问题自主选择检索和读取范围，复用已有且仍适用的信息。来源发生变化、已有信息不足或具体结论需要核实时再回读；提供足以支持结论和后续工作的来源位置与版本信息。".into()
         )),
     );
     draft.context.insert(
@@ -24,8 +24,9 @@ pub(crate) fn add_source_policy(draft: &mut HarnessDraft) {
 }
 
 impl Component for BaseComponent {
-    fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
+    fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
         add_source_policy(draft);
+        crate::preferences::register(draft);
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft
             .tools
@@ -63,9 +64,10 @@ impl Component for BaseComponent {
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
         // R-217:websearch 注册进基础档位(dev 可用),默认 Ask——交互轮放行,
         // 自主轮 NonInteractive 下 Ask 即拒;域名白名单规则可精确放行。
-        draft
-            .tools
-            .insert("websearch", Arc::new(crate::websearch::WebSearchTool));
+        draft.tools.insert(
+            "websearch",
+            Arc::new(crate::websearch::WebSearchTool::new(ctx.profile)),
+        );
         // R-248:先行调研是 dev 的默认能力。start 写受控骨架、validate 只读核验；
         // 真实研究仍复用 research plan/loop/source/finding，不在这里分叉。
         draft
@@ -126,26 +128,16 @@ impl Component for BaseComponent {
         draft.context.insert(
             "core/env",
             refreshing_source("core/env", |ctx: &ResolveCtx| {
-                // UI2-0926 #13:路径一律 simplify 形态——鞭挞轮曾把 `\\?\C:\…` 写进这一行。
-                Some(format!(
-                    "Environment: OS {}, cwd {}, project root {}, shell {}, profile {:?}. {}",
-                    std::env::consts::OS,
-                    crate::path_form::simplify(&ctx.cwd).display(),
-                    crate::path_form::simplify(&ctx.project_root).display(),
-                    detected_shell().name,
-                    ctx.profile,
-                    calendar_facts(chrono::Local::now().fixed_offset()),
-                ))
+                Some(environment_context(ctx))
             }),
         );
-        // UI2-0926 #13:项目状态事实(所有档位)。轮内每步刷新(bash 可能刚装了工具、建了文件),
-        // 但探测结果有 30 秒缓存、bash 跑完即作废;事实不变时文本逐字节不变,不打断 prompt 缓存。
-        // 代码树是工作树线时按 cwd 探测(工作树自己的 .git 文件、自己的清单),否则按项目根。
+        // 每步读取有界探测结果；缓存有效期与失效行为由 project_state 拥有。
+        // 代码事实来自当前代码树，需求线索来自主项目资产。
         draft.context.insert(
             "core/project-state",
             refreshing_source("core/project-state", |ctx: &ResolveCtx| {
                 let tree = code_tree_root(&ctx.cwd, &ctx.project_root);
-                let facts = crate::project_state::probe_cached(&tree);
+                let facts = crate::project_state::probe_cached(&tree, &ctx.project_root);
                 Some(crate::project_state::render(&facts))
             }),
         );
@@ -153,14 +145,42 @@ impl Component for BaseComponent {
     }
 }
 
-fn calendar_facts(now: chrono::DateTime<chrono::FixedOffset>) -> String {
+/// 项目与无项目对话共用环境事实，日期按模型步骤刷新。
+pub(crate) fn environment_context(ctx: &ResolveCtx) -> String {
+    let cwd = crate::path_form::simplify(&ctx.cwd);
+    let project_root = crate::path_form::simplify(&ctx.project_root);
+    let scope = if kanzei_harness::is_general_conversation_root(&ctx.project_root) {
+        format!(
+            "无项目对话，workspace={}，conversation_store={}",
+            cwd.display(),
+            project_root.display()
+        )
+    } else {
+        format!(
+            "cwd={}，project_root={}",
+            cwd.display(),
+            project_root.display()
+        )
+    };
     format!(
-        "Current local date: {}; timezone UTC{}. Dates in external content are source claims, not the current date.",
-        now.format("%Y-%m-%d"), now.format("%:z")
+        "运行环境：OS={}，{scope}，shell={}，profile={}。{}",
+        std::env::consts::OS,
+        detected_shell().name,
+        ctx.profile.as_str(),
+        calendar_facts(chrono::Local::now().fixed_offset())
     )
 }
 
-/// 代码树根:cwd 在项目根之内(或相等)时就是项目根;否则(工作树线)是 cwd 自己。
+fn calendar_facts(now: chrono::DateTime<chrono::FixedOffset>) -> String {
+    format!(
+        "本机当前日期：{}；UTC偏移：{}。",
+        now.format("%Y-%m-%d"),
+        now.format("%:z")
+    )
+}
+
+/// 最近 Git 根识别独立工作树；项目子目录不扩大到项目根之外的外层仓库。
+/// 未发现独立仓库时，项目内用项目根，项目外用调用方提供的 cwd。
 pub(crate) fn code_tree_root(
     cwd: &std::path::Path,
     project_root: &std::path::Path,
@@ -180,14 +200,24 @@ pub(crate) fn code_tree_root(
         return cwd.to_path_buf();
     }
     let (cwd_key, root_key) = (key(cwd), key(project_root));
-    if cwd_key == root_key
-        || cwd_key.starts_with(&format!("{root_key}\\"))
-        || cwd.as_os_str().is_empty()
-    {
-        project_root.to_path_buf()
-    } else {
-        cwd.to_path_buf()
+    if cwd_key == root_key || cwd.as_os_str().is_empty() {
+        return project_root.to_path_buf();
     }
+    let repository = match crate::project_state::git_state_of(cwd) {
+        crate::project_state::GitState::Repo { .. } => Some(cwd.to_path_buf()),
+        crate::project_state::GitState::Parent { toplevel } => Some(toplevel.into()),
+        crate::project_state::GitState::None => None,
+    };
+    if let Some(repository) = repository {
+        let repository_key = key(&repository);
+        if repository_key == root_key || !root_key.starts_with(&format!("{repository_key}\\")) {
+            return repository;
+        }
+    }
+    if cwd_key.starts_with(&format!("{root_key}\\")) {
+        return project_root.to_path_buf();
+    }
+    cwd.to_path_buf()
 }
 
 #[cfg(test)]
@@ -196,10 +226,39 @@ mod tests {
     use kanzei_harness::{Harness, KanzeiConfig, ProfileKind};
 
     #[test]
+    fn code_root_preserves_nested_worktrees_without_expanding_a_project_into_its_parent_repository()
+    {
+        let directory = kanzei_base::test_support::TestDir::new("context-code-root");
+        let project = directory.join("project");
+        let worktree = project.join(".kanzei/worktrees/task");
+        let git_metadata = project.join(".git/worktrees/task");
+        std::fs::create_dir_all(project.join("src")).unwrap();
+        std::fs::create_dir_all(worktree.join("src")).unwrap();
+        std::fs::create_dir_all(&git_metadata).unwrap();
+        std::fs::write(
+            worktree.join(".git"),
+            format!("gitdir: {}\n", git_metadata.display()),
+        )
+        .unwrap();
+        assert_eq!(code_tree_root(&project.join("src"), &project), project);
+        assert_eq!(code_tree_root(&worktree.join("src"), &project), worktree);
+        let inner_project = project.join("packages/inner");
+        std::fs::create_dir_all(inner_project.join("src")).unwrap();
+        assert_eq!(
+            code_tree_root(&inner_project.join("src"), &inner_project),
+            inner_project
+        );
+        let external = directory.join("external");
+        std::fs::create_dir_all(external.join(".git")).unwrap();
+        std::fs::create_dir_all(external.join("src")).unwrap();
+        assert_eq!(code_tree_root(&external.join("src"), &project), external);
+    }
+
+    #[test]
     fn calendar_facts_use_the_local_day_and_preserve_cache_within_that_day() {
         let first = chrono::DateTime::parse_from_rfc3339("2026-10-18T00:01:00+08:00").unwrap();
         let later = chrono::DateTime::parse_from_rfc3339("2026-10-18T23:59:00+08:00").unwrap();
-        assert!(calendar_facts(first).contains("2026-10-18; timezone UTC+08:00"));
+        assert!(calendar_facts(first).contains("2026-10-18；UTC偏移：+08:00"));
         assert_eq!(calendar_facts(first), calendar_facts(later));
         assert_ne!(
             calendar_facts(first),
@@ -211,7 +270,7 @@ mod tests {
     fn primary_base_exposes_structured_search_and_git() {
         let root = std::env::temp_dir();
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: std::sync::Arc::new(KanzeiConfig::default()),
@@ -246,7 +305,7 @@ mod tests {
     fn browser权限_回环与沙箱片段放行_文件与外网需授权() {
         let root = std::env::temp_dir();
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: std::sync::Arc::new(KanzeiConfig::default()),

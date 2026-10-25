@@ -1,16 +1,6 @@
-//! 事件触发召回域(R-162 B3):RecallWatch 挂在工具结果回喂钩位,与
-//! RedundancyWatch 同款(redundancy.note_step 先例,drive.rs 工具结果回喂前
-//! 就地调用)。区别在 RecallWatch 不携带检索实现——core 不依赖 tools,
-//! 检索与遥测经 RecallPolicy trait 注入,由 CLI/桌面端把 kanzei-tools 的
-//! 记忆检索包装成 policy 传入 RunnerConfig。
-//!
-//! 语义(R-162 内容④/⑤):
-//! - 工具失败 → 错误分类(failure_kind/failure_target,复用 metrics 共享函数)→
-//!   交给 policy.retrieve 查指纹;命中则把 Memory Packet 追加进该 ToolResult 文本
-//!   (与 [冗余提醒] 同机制),不阻断主循环。
-//! - 同一运行内同条目只注入一次(watcher 内去重,防刷屏)。
-//! - 每次触发经 policy.record_trigger 落 recall_events(trigger/action/延迟)。
-//! - 重复失败(同 tool+kind ≥2)换 query 重查(policy 负责换词,本域只传失败计数)。
+//! 工具失败后的记忆线索组装。运行器负责错误分类、预算、去重和后续失败观察。
+//! 检索与遥测通过 RecallPolicy 注入；共享运行装配选择 kanzei-memory 的实现。
+//! 召回线索与原始工具错误分别表达，未完成的检索不伪装成零命中。
 
 use std::collections::{HashMap, HashSet};
 
@@ -36,17 +26,59 @@ pub struct RecallTrigger {
     pub previous_retrieved_ids: Vec<String>,
 }
 
-/// 一次命中:要注入的 Memory Packet 内容。
+/// 一条记忆定位与适用线索，不携带执行授权。
 #[derive(Debug, Clone)]
 pub struct RecallHit {
     pub id: String,
     pub category: String,
-    pub action: String,
+    /// 检索描述与适用线索，不是本次执行指令。
+    pub description: String,
     pub status: String,
     pub source: String,
     /// 实际命中的检索层级。由 Retriever 填写，遥测必须原样记录，不能由
     /// 触发次数或其它旁路字段反推。
     pub policy_action: String,
+}
+
+/// 每个失败结果追加的记忆线索预算，包含说明与省略回执。
+const RECALL_HINT_BUDGET: usize = 3_000;
+
+fn render_hints(retrieved: &[RecallHit], seen: &HashSet<String>) -> (String, Vec<RecallHit>) {
+    let mut unique = HashSet::new();
+    let candidates: Vec<_> = retrieved
+        .iter()
+        .filter(|hit| !seen.contains(&hit.id) && unique.insert(hit.id.clone()))
+        .collect();
+    if candidates.is_empty() {
+        return (String::new(), Vec::new());
+    }
+    let mut text =
+        String::from("\n<failure-memory-hints>\n以下为历史线索，是否回读或采用由当前任务决定。\n");
+    let ending = |omitted| {
+        if omitted == 0 {
+            "</failure-memory-hints>".to_string()
+        } else {
+            format!("预算未列出 {omitted} 条线索，可按需检索。\n</failure-memory-hints>")
+        }
+    };
+    let mut used = text.chars().count() + ending(candidates.len()).chars().count();
+    let (mut included, mut omitted) = (Vec::new(), 0);
+    for hit in candidates {
+        let line = format!(
+            "[记忆线索 {} | {}]\n适用线索: {}\n记录状态: {} · 来源: {}\n",
+            hit.id, hit.category, hit.description, hit.status, hit.source
+        );
+        let chars = line.chars().count();
+        if used + chars <= RECALL_HINT_BUDGET {
+            text.push_str(&line);
+            used += chars;
+            included.push(hit.clone());
+        } else {
+            omitted += 1;
+        }
+    }
+    text.push_str(&ending(omitted));
+    (text, included)
 }
 
 /// 一次注入的轮末结局:注入后同 (tool, kind) 是否停止复发。
@@ -73,18 +105,18 @@ pub enum RecallRunOutcome {
 /// core 不依赖 tools:检索/遥测/超时降级全部在实现侧,本域只做触发判定、
 /// 去重与注入格式。
 pub trait RecallPolicy: Send + Sync {
-    /// 给定失败触发,返回要注入的 Packet。实现侧负责 Tier0 fingerprint →
-    /// Tier1 BM25、超时降级、ReRetrieve 换 query;本域不感知检索细节。
-    fn retrieve(&self, trigger: &RecallTrigger) -> Vec<RecallHit>;
+    /// 给定失败触发返回线索，读取失败、超时与不可用保持为 Err。
+    /// 实现负责检索，本域负责预算、去重与组装。
+    fn retrieve(&self, trigger: &RecallTrigger) -> Result<Vec<RecallHit>, String>;
 
     /// 每次实际触发落遥测(trigger/action/延迟)。空实现 = 不落库。
-    /// `retrieved` 是检索原始结果(含同轮已注入而被去重的),`injected` 是真进
-    /// 本次结果文本的子集——两者都可为空,**miss 也必须留痕**,否则
-    /// trigger precision/recall 永远算不出来、记忆缺口(高频失败无覆盖)不可见。
+    /// `retrieved` 保留检索结果或错误，`injected` 是实际进入本次结果文本的子集。
+    /// 成功结果包含同轮已注入而被去重的候选，错误不作为零命中记录。
+    /// 正常零命中也记录，以区分检索覆盖缺口与未执行的检索。
     fn record_trigger(
         &self,
         _trigger: &RecallTrigger,
-        _retrieved: &[RecallHit],
+        _retrieved: Result<&[RecallHit], &str>,
         _injected: &[RecallHit],
         _elapsed_ms: u64,
         _run_id: Option<&str>,
@@ -100,8 +132,7 @@ pub trait RecallPolicy: Send + Sync {
     }
 }
 
-/// R-162 事件触发召回 watcher:状态按单次运行持有(与 RedundancyWatch 同规,
-/// 轮与轮之间不复用)。挂在工具结果回喂前,就地追加 Packet 文本,不阻断。
+/// 事件触发召回状态按单次运行持有，轮与轮之间不复用。挂在工具结果回喂前,就地追加 Packet 文本,不阻断。
 /// 策略经引用借用(不拥有)——drive.rs 从 &RunnerConfig 借出,不取走。
 pub struct RecallWatch<'a> {
     /// 失败计数:(tool, kind) → 本轮次数。
@@ -172,7 +203,7 @@ impl<'a> RecallWatch<'a> {
     }
 
     /// 在整步工具结果回喂前调用:`results` 与 `calls` 按下标一一对应
-    /// (与 redundancy::note_step 同一不变式)。只追加、不改 is_error。
+    /// 调用与结果按下标对齐；只追加召回线索，不改原始结果语义。
     /// 无 policy 时是纯 no-op(空转成本 = 一次 Option 判空)。
     pub fn note_step(
         &mut self,
@@ -219,7 +250,22 @@ impl<'a> RecallWatch<'a> {
                     .unwrap_or_default(),
             };
             let started = std::time::Instant::now();
-            let retrieved = policy.retrieve(&trigger);
+            let retrieved = match policy.retrieve(&trigger) {
+                Ok(hits) => hits,
+                Err(error) => {
+                    tracing::warn!(%error, tool=%trigger.tool, "failure memory retrieval unavailable");
+                    policy.record_trigger(
+                        &trigger,
+                        Err(&error),
+                        &[],
+                        started.elapsed().as_millis() as u64,
+                        self.run_id.as_deref(),
+                    );
+                    content
+                        .push_str("\n[失败记忆检索未完成；不能据此判断没有匹配，错误见运行日志。]");
+                    continue;
+                }
+            };
             self.last_retrieved.insert(
                 (trigger.tool.clone(), trigger.kind.clone()),
                 retrieved.iter().map(|hit| hit.id.clone()).collect(),
@@ -227,37 +273,27 @@ impl<'a> RecallWatch<'a> {
             let elapsed = started.elapsed().as_millis() as u64;
             // 同轮同条目只注入一次:已注入的 id 从注入集丢弃,但保留在 retrieved
             // 里落遥测——"检索到但没再注入"与"根本没检索到"是两种漏斗事实。
-            let hits: Vec<RecallHit> = retrieved
-                .iter()
-                .filter(|hit| !self.injected.contains(&hit.id))
-                .cloned()
-                .collect();
+            let (hint_text, hits) = render_hints(&retrieved, &self.injected);
             for hit in &hits {
                 self.injected.insert(hit.id.clone());
             }
             // miss 也落遥测(retrieved/injected 皆空):没有 miss 记录就永远
             // 看不见"高频失败但零记忆覆盖"的缺口。
-            policy.record_trigger(&trigger, &retrieved, &hits, elapsed, self.run_id.as_deref());
-            if hits.is_empty() {
-                continue;
-            }
-            // 追加 Packet 文本(与 [冗余提醒] 同机制:就地进结果文本,模型可见)。
+            policy.record_trigger(
+                &trigger,
+                Ok(&retrieved),
+                &hits,
+                elapsed,
+                self.run_id.as_deref(),
+            );
+            content.push_str(&hint_text);
+            // 只有实际列出的线索进入注入与后续观察集合。
             for hit in &hits {
                 self.pending.push((
                     hit.id.clone(),
                     trigger.tool.clone(),
                     trigger.kind.clone(),
                     trigger.failure_count,
-                ));
-                content.push_str(&format!(
-                    "\n[记忆命中 {id} | {category}]\n\
-                     行动: {action}\n\
-                     状态: {status} · 来源: {source}",
-                    id = hit.id,
-                    category = hit.category,
-                    action = hit.action,
-                    status = hit.status,
-                    source = hit.source,
                 ));
             }
         }
@@ -281,8 +317,8 @@ mod tests {
     }
 
     impl RecallPolicy for FakePolicy {
-        fn retrieve(&self, _trigger: &RecallTrigger) -> Vec<RecallHit> {
-            self.hits.clone()
+        fn retrieve(&self, _trigger: &RecallTrigger) -> Result<Vec<RecallHit>, String> {
+            Ok(self.hits.clone())
         }
     }
 
@@ -295,13 +331,13 @@ mod tests {
     }
 
     impl RecallPolicy for RecordingPolicy {
-        fn retrieve(&self, _trigger: &RecallTrigger) -> Vec<RecallHit> {
-            self.hits.clone()
+        fn retrieve(&self, _trigger: &RecallTrigger) -> Result<Vec<RecallHit>, String> {
+            Ok(self.hits.clone())
         }
         fn record_trigger(
             &self,
             _trigger: &RecallTrigger,
-            retrieved: &[RecallHit],
+            retrieved: Result<&[RecallHit], &str>,
             injected: &[RecallHit],
             _elapsed_ms: u64,
             _run_id: Option<&str>,
@@ -309,7 +345,7 @@ mod tests {
             self.triggers
                 .lock()
                 .unwrap()
-                .push((retrieved.len(), injected.len()));
+                .push((retrieved.unwrap().len(), injected.len()));
         }
         fn record_outcomes(&self, outcomes: &[RecallOutcome]) {
             self.outcomes.lock().unwrap().extend(outcomes.to_vec());
@@ -320,11 +356,98 @@ mod tests {
         RecallHit {
             id: id.into(),
             category: category.into(),
-            action: "先 read 重建 old_string 再重试".into(),
+            description: "先 read 重建 old_string 再重试".into(),
             status: "active".into(),
             source: "episode E-1 步 3".into(),
             policy_action: "fingerprint".into(),
         }
+    }
+
+    #[test]
+    fn budget_and_deduplication_record_only_visible_hints_without_changing_the_failure() {
+        let mut large = hit("M-large", "sop");
+        large.description = "过长历史线索".repeat(RECALL_HINT_BUDGET);
+        let policy = RecordingPolicy {
+            hits: vec![
+                large,
+                hit("M-short", "fact"),
+                hit("M-short", "fact"),
+                hit("M-other", "sop"),
+            ],
+            triggers: Default::default(),
+            outcomes: Default::default(),
+        };
+        let mut watch = RecallWatch::new(Some(&policy));
+        let calls = vec![(
+            "call".into(),
+            "edit".into(),
+            serde_json::json!({"path":"src/lib.rs"}),
+            String::new(),
+        )];
+        let original = "old_string not found";
+        let mut results = vec![Part::ToolResult {
+            call_id: "call".into(),
+            content: original.into(),
+            is_error: true,
+        }];
+        watch.note_step(&calls, &mut results);
+        let Part::ToolResult {
+            content, is_error, ..
+        } = &results[0]
+        else {
+            panic!("tool result");
+        };
+        assert!(*is_error && content.starts_with(original));
+        assert!(content[original.len()..].chars().count() <= RECALL_HINT_BUDGET);
+        assert!(content.contains("预算未列出 1 条线索"));
+        assert!(content.contains("适用线索:") && !content.contains("行动:"));
+        assert_eq!(content.matches("[记忆线索 M-short").count(), 1);
+        assert!(!watch.injected.contains("M-large"));
+        assert_eq!(*policy.triggers.lock().unwrap(), vec![(4, 2)]);
+    }
+
+    #[test]
+    fn retrieval_errors_remain_distinct_from_no_matches_and_preserve_the_original_tool_error() {
+        struct Unavailable;
+        impl RecallPolicy for Unavailable {
+            fn retrieve(&self, _: &RecallTrigger) -> Result<Vec<RecallHit>, String> {
+                Err("source read failed".into())
+            }
+            fn record_trigger(
+                &self,
+                _: &RecallTrigger,
+                retrieved: Result<&[RecallHit], &str>,
+                injected: &[RecallHit],
+                _: u64,
+                _: Option<&str>,
+            ) {
+                assert_eq!(retrieved.unwrap_err(), "source read failed");
+                assert!(injected.is_empty());
+            }
+        }
+        let mut watch = RecallWatch::new(Some(&Unavailable));
+        let calls = vec![(
+            "call".into(),
+            "read".into(),
+            serde_json::json!({"path":"missing.rs"}),
+            String::new(),
+        )];
+        let original = "no such file: missing.rs";
+        let mut results = vec![Part::ToolResult {
+            call_id: "call".into(),
+            content: original.into(),
+            is_error: true,
+        }];
+        watch.note_step(&calls, &mut results);
+        let Part::ToolResult {
+            content, is_error, ..
+        } = &results[0]
+        else {
+            panic!("tool result");
+        };
+        assert!(*is_error && content.starts_with(original));
+        assert!(content.contains("失败记忆检索未完成"));
+        assert!(watch.injected.is_empty() && watch.pending.is_empty());
     }
 
     #[test]
@@ -350,9 +473,9 @@ mod tests {
         let Part::ToolResult { content, .. } = &results[0] else {
             panic!("expected ToolResult");
         };
-        assert!(content.contains("[记忆命中 M-009 | sop]"), "{content}");
+        assert!(content.contains("[记忆线索 M-009 | sop]"), "{content}");
         assert!(
-            content.contains("行动: 先 read 重建 old_string 再重试"),
+            content.contains("适用线索: 先 read 重建 old_string 再重试"),
             "{content}"
         );
         assert!(content.contains("来源: episode E-1 步 3"), "{content}");
@@ -371,7 +494,7 @@ mod tests {
             c2, "old_string not found in src/lib.rs again",
             "同轮同条目不得重复注入: {c2}"
         );
-        assert!(!c2.contains("记忆命中 M-009"));
+        assert!(!c2.contains("记忆线索 M-009"));
     }
 
     #[test]
@@ -590,15 +713,15 @@ mod tests {
             seen: FailureObservationLog,
         }
         impl RecallPolicy for CountingPolicy {
-            fn retrieve(&self, trigger: &RecallTrigger) -> Vec<RecallHit> {
+            fn retrieve(&self, trigger: &RecallTrigger) -> Result<Vec<RecallHit>, String> {
                 self.seen.lock().unwrap().push((
                     trigger.failure_count,
                     trigger.previous_retrieved_ids.clone(),
                 ));
                 if trigger.failure_count == 1 {
-                    vec![hit("M-009", "sop")]
+                    Ok(vec![hit("M-009", "sop")])
                 } else {
-                    vec![]
+                    Ok(vec![])
                 }
             }
         }

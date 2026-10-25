@@ -263,14 +263,14 @@ async fn run_fixture(point: FailurePoint) -> Value {
     harness.add(ProbeComponent(executions.clone()));
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: fixture.0.clone(),
             project_root: fixture.0.clone(),
             config: Arc::new(KanzeiConfig::default()),
         })
         .unwrap();
     let agent = serde_json::from_value(json!({
-        "name":"fixture","profile":"dev","mode":"primary","steps":3,"system":"test"
+        "name":"fixture","profile":"dev-auto","mode":"primary","steps":3,"system":"test"
     }))
     .unwrap();
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
@@ -328,8 +328,6 @@ async fn run_fixture(point: FailurePoint) -> Value {
             ),
             MetricsSink::new(
                 Arc::new(Mutex::new(HashMap::new())),
-                Arc::new(AtomicBool::new(false)),
-                Arc::new(AtomicBool::new(false)),
                 Arc::new(Mutex::new(Default::default())),
                 Arc::new(Mutex::new(Default::default())),
                 Arc::new(AtomicU32::new(0)),

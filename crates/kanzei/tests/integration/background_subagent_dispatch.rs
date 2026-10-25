@@ -126,7 +126,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -148,7 +148,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
 
     let agent = kanzei_harness::AgentDef {
         name: "dev-pair".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "mock".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 4,
@@ -372,7 +372,7 @@ async fn 同一id续跑_prior恢复此前transcript_不重开空历史() {
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -499,7 +499,7 @@ async fn 失败与被停终态_读槽均释放_快照无残留读者() {
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -687,7 +687,7 @@ async fn 超时终态_读槽释放_快照无残留读者() {
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -780,7 +780,7 @@ async fn subagent_transcript_persists_to_events_and_recovers_via_provider() {
 
     let config = Arc::new(KanzeiConfig::load(&project).expect("读取 kanzei.toml 应成功"));
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),

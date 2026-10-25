@@ -1,16 +1,16 @@
 /* Conversation and observation share the same editor and project palette. */
-body[data-space="dev"] #view-chat.active {
+body[data-space="dev-auto"] #view-chat.active {
   display: grid; grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas: "head" "chat" "activity" "composer";
   gap: 0; min-height: 0;
 }
-body[data-space="dev"] #project-space-nav { grid-area: head; padding-bottom: 10px; min-width: 0; flex-wrap: wrap; }
+body[data-space="dev-auto"] #project-space-nav { grid-area: head; padding-bottom: 10px; min-width: 0; flex-wrap: wrap; }
 #project-conversation-kind { color: var(--dim); font-size: 12px; margin-right: auto; }
-body[data-space="dev"] #chat-area { grid-area: chat; min-width: 0; }
-body[data-space="dev"] #turn-activity { grid-area: activity; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); margin-inline: auto; }
-body[data-space="dev"] #view-chat > #composer { grid-area: composer; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); max-width: none; margin: 14px auto 22px; }
-body[data-space="dev"] #messages > .msg-pane { width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); }
+body[data-space="dev-auto"] #chat-area { grid-area: chat; min-width: 0; }
+body[data-space="dev-auto"] #turn-activity { grid-area: activity; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); margin-inline: auto; }
+body[data-space="dev-auto"] #view-chat > #composer { grid-area: composer; width: min(var(--chat-col), 100% - 2 * var(--chat-gutter)); max-width: none; margin: 14px auto 22px; }
+body[data-space="dev-auto"] #messages > .msg-pane { width: min(var(--chat-col), 100cqi - 2 * var(--chat-gutter)); }
 .project-chat-work { width: min(390px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: 0; }
 .project-chat-work .project-handoff-form { padding: var(--sp-6); }
 .project-chat-work .project-handoff-form textarea { min-height: 120px; }
@@ -31,7 +31,7 @@ body[data-space="dev"] #messages > .msg-pane { width: min(var(--chat-col), 100cq
 .project-overview-signal[data-state="idle"] { color: var(--dim); }
 .project-work-toggle { display: none; }
 .empty-auto-hint { display: none; margin-top: var(--sp-4); }
-body[data-space="dev"]:not([data-general-chat="true"]):not([data-conversation-kind="discussion"]) .empty-auto-hint { display: block; }
+body[data-space="dev-auto"]:not([data-general-chat="true"]):not([data-conversation-kind="discussion"]) .empty-auto-hint { display: block; }
 .project-onboarding { margin: 20px 24px 0; padding: var(--sp-6) 18px; border-left: 2px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; }
 .project-onboarding p { margin: 0 0 10px; line-height: 1.6; }
 .project-onboarding > div { display: flex; gap: var(--sp-4); }
@@ -62,34 +62,34 @@ body[data-general-chat="true"] #sg-permissions { display: none; }
 @keyframes project-run-spin { to { transform: rotate(360deg); } }
 /* Preview and the conversation header must occupy separate grid cells. The
    original three-row preview layout otherwise overlays the header actions. */
-body[data-space="dev"] #view-chat.active[data-preview="open"] {
+body[data-space="dev-auto"] #view-chat.active[data-preview="open"] {
   grid-template-columns: minmax(0, 1fr) clamp(360px, var(--kz-split-preview), max(360px, 100% - 420px));
   grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas: "head preview" "chat preview" "activity preview" "composer preview";
 }
-body[data-space="dev"] #view-chat[data-preview="open"] > #chat-area { grid-area: chat; }
-body[data-space="dev"] #view-chat[data-preview="open"] > #turn-activity { grid-area: activity; }
-body[data-space="dev"] #view-chat[data-preview="open"] > #composer { grid-area: composer; }
-body[data-space="dev"] #view-chat[data-preview="open"] > #preview-dock { grid-area: preview; }
-body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narrow] {
+body[data-space="dev-auto"] #view-chat[data-preview="open"] > #chat-area { grid-area: chat; }
+body[data-space="dev-auto"] #view-chat[data-preview="open"] > #turn-activity { grid-area: activity; }
+body[data-space="dev-auto"] #view-chat[data-preview="open"] > #composer { grid-area: composer; }
+body[data-space="dev-auto"] #view-chat[data-preview="open"] > #preview-dock { grid-area: preview; }
+body[data-space="dev-auto"] #view-chat.active[data-preview="open"][data-preview-narrow] {
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas: "head" "chat" "activity" "composer";
 }
-body[data-space="dev"] #view-chat.active[data-preview="open"][data-preview-narrow="preview"] {
+body[data-space="dev-auto"] #view-chat.active[data-preview="open"][data-preview-narrow="preview"] {
   grid-template-rows: minmax(0, 1fr); grid-template-areas: "preview";
 }
-body[data-space="dev"] #view-chat[data-preview-narrow="preview"] > #project-space-nav { display: none; }
+body[data-space="dev-auto"] #view-chat[data-preview-narrow="preview"] > #project-space-nav { display: none; }
 @media (max-width: 680px) {
-  body[data-space="dev"] #project-space-nav { padding: var(--sp-4) var(--sp-5); gap: var(--sp-3); flex-wrap: wrap; }
-  body[data-space="dev"] #view-chat > #composer { margin-bottom: var(--sp-4); }
+  body[data-space="dev-auto"] #project-space-nav { padding: var(--sp-4) var(--sp-5); gap: var(--sp-3); flex-wrap: wrap; }
+  body[data-space="dev-auto"] #view-chat > #composer { margin-bottom: var(--sp-4); }
   .project-work-switch { flex-wrap: wrap; }
   .project-work-switch button { padding: 5px 7px; }
   .project-work-switch .project-overview-signal { max-width: 100px; }
   .project-onboarding { margin: var(--sp-5); padding: var(--sp-5); }
-  body[data-space="dev"] #composer-bar { flex-direction: column; align-items: stretch; gap: var(--sp-3); }
-  body[data-space="dev"] :is(.composer-left, .composer-right) { width: 100%; min-width: 0; flex-wrap: wrap; }
-  body[data-space="dev"] .composer-right { justify-content: flex-end; }
-  body[data-space="dev"] .composer-right > * { max-width: 100%; }
-  body[data-space="dev"] .tool-sum-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  body[data-space="dev-auto"] #composer-bar { flex-direction: column; align-items: stretch; gap: var(--sp-3); }
+  body[data-space="dev-auto"] :is(.composer-left, .composer-right) { width: 100%; min-width: 0; flex-wrap: wrap; }
+  body[data-space="dev-auto"] .composer-right { justify-content: flex-end; }
+  body[data-space="dev-auto"] .composer-right > * { max-width: 100%; }
+  body[data-space="dev-auto"] .tool-sum-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (prefers-reduced-motion: reduce) { .project-overview-signal::before { animation: none !important; } }

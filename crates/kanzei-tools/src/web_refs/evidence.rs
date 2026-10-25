@@ -357,7 +357,9 @@ mod tests {
         assert_eq!(SourceScope::from_input(&ctx, None, None).unwrap(), None);
         let tools: Vec<(Box<dyn Tool>, serde_json::Value)> = vec![
             (
-                Box::new(crate::websearch::WebSearchTool),
+                Box::new(crate::websearch::WebSearchTool::new(
+                    kanzei_harness::ProfileKind::DevAuto,
+                )),
                 serde_json::json!({"query": "must not reach network"}),
             ),
             (
@@ -394,7 +396,8 @@ mod tests {
     fn optional_scope_schema_and_required_research_scope_have_distinct_contracts() {
         use kanzei_harness::Tool;
         for schema in [
-            crate::websearch::WebSearchTool.input_schema(),
+            crate::websearch::WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+                .input_schema(),
             crate::webfetch::WebFetchTool.input_schema(),
         ] {
             assert_eq!(

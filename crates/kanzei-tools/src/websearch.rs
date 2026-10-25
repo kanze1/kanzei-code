@@ -134,16 +134,25 @@ struct NativeBackend {
     headers: Vec<(String, String)>,
 }
 
-pub struct WebSearchTool;
+pub struct WebSearchTool {
+    profile: ProfileKind,
+}
 
 #[async_trait]
 impl Tool for WebSearchTool {
+    // Search does not publish user changes. Topic budget operations still require
+    // their declared resource-write scope and are not admitted as readonly calls.
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        kanzei_harness::tool::ReadOnlySupport::ReadOnly
+    }
     fn name(&self) -> &'static str {
         "websearch"
     }
 
     fn description(&self) -> String {
-        "Search with 1-4 queries; each may set recency (day/week/month/year), allowed domains and exclude_domains (including subdomains), and locale (documented DuckDuckGo region, e.g. cn-zh). URL domain filters are enforced locally; a multi-domain DuckDuckGo whitelist may filter out all returned candidates. An unsupported explicit-backend filter is rejected; only auto may select another backend. Returns refs for webfetch plus actual request/filter/attempt status. Explicit duckduckgo/responses never contacts the other service. Native search uses the configured primary route: Codex subscription direct search or Responses API hosted search, with separate verified contracts and no model-name allowlist. Codex supports recency in days; native search does not support DuckDuckGo locale, and Responses does not support recency; only auto may fall back. Legacy query is supported; filters belong inside queries. Prior-art work must pass prior_art_topic for its search budget.".into()
+        "Search the web with query or 1–4 queries; return source refs for webfetch and actual request/filter/attempt status. \
+         Domain filters are enforced locally. Explicit backends are retained and unsupported filters rejected; auto may change backend. \
+         Recency and locale support depend on the backend. prior_art_topic binds searches to a prior-art budget.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -171,7 +180,7 @@ impl Tool for WebSearchTool {
     }
 
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        search_resources(self, input, ctx, ProfileKind::Dev)
+        search_resources(self, input, ctx, self.profile)
     }
 
     /// R-323 并发审计:**按入参分流**,不能一刀切成只读。
@@ -195,13 +204,17 @@ impl Tool for WebSearchTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        self.execute_for(input, ctx, ProfileKind::Dev)
+        self.execute_for(input, ctx, self.profile)
             .await
             .with_external_source(kanzei_harness::ExternalSourceKind::Web, "websearch")
     }
 }
 
 impl WebSearchTool {
+    pub fn new(profile: ProfileKind) -> Self {
+        Self { profile }
+    }
+
     async fn execute_for(
         &self,
         input: serde_json::Value,
@@ -420,7 +433,7 @@ fn search_resources(
 
 #[cfg(test)]
 fn selected_backend(config: &KanzeiConfig) -> Result<SearchBackend, String> {
-    selected_backend_for(config, ProfileKind::Dev)
+    selected_backend_for(config, ProfileKind::DevAuto)
 }
 fn selected_backend_for(
     config: &KanzeiConfig,
@@ -750,7 +763,7 @@ impl Tool for ResearchWebSearchTool {
     }
 
     fn input_schema(&self) -> serde_json::Value {
-        let mut schema = WebSearchTool.input_schema();
+        let mut schema = WebSearchTool::new(kanzei_harness::ProfileKind::Research).input_schema();
         schema["properties"]["topic"]["type"] = serde_json::json!("string");
         schema["properties"]["topic"]["pattern"] = serde_json::json!("^[a-z0-9]+(?:-[a-z0-9]+)*$");
         schema["properties"]["task_id"]["type"] = serde_json::json!("string");
@@ -759,11 +772,16 @@ impl Tool for ResearchWebSearchTool {
     }
 
     fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        WebSearchTool.resources(input)
+        WebSearchTool::new(kanzei_harness::ProfileKind::Research).resources(input)
     }
 
     fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        search_resources(&WebSearchTool, input, ctx, ProfileKind::Research)
+        search_resources(
+            &WebSearchTool::new(kanzei_harness::ProfileKind::Research),
+            input,
+            ctx,
+            ProfileKind::Research,
+        )
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -786,7 +804,7 @@ impl Tool for ResearchWebSearchTool {
         {
             return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
         }
-        WebSearchTool
+        WebSearchTool::new(kanzei_harness::ProfileKind::Research)
             .execute_for(input, ctx, ProfileKind::Research)
             .await
             .with_external_source(kanzei_harness::ExternalSourceKind::Web, "websearch")
@@ -842,7 +860,7 @@ mod tests {
 
     #[test]
     fn batch_query_schema_attaches_constraints_to_the_referenced_definition() {
-        let schema = WebSearchTool.input_schema();
+        let schema = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto).input_schema();
         let reference = schema["properties"]["queries"]["items"]["$ref"]
             .as_str()
             .unwrap();
@@ -927,7 +945,7 @@ mod tests {
         assert!(
             matches!(listener.accept(),Err(error) if error.kind()==std::io::ErrorKind::WouldBlock)
         );
-        let output = WebSearchTool
+        let output = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
             .execute(
                 serde_json::json!({"query":"security","max_results":0}),
                 &ToolCtx::default(),
@@ -1504,9 +1522,10 @@ mod tests {
         let config = KanzeiConfig::load_at_root(&root).unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let proxy = crate::tool_proxy(&ctx);
-        let backend = load_native_backend(&config, &proxy, ProfileKind::Dev, SearchBackend::Auto)
-            .await
-            .unwrap();
+        let backend =
+            load_native_backend(&config, &proxy, ProfileKind::DevAuto, SearchBackend::Auto)
+                .await
+                .unwrap();
         let client = build_http_client(&proxy).unwrap();
         let query = SearchQuery {
             q: "OpenAI Responses web search complete source list".into(),
@@ -1555,9 +1574,10 @@ mod tests {
         let config = KanzeiConfig::load_at_root(&root).unwrap();
         let ctx = ToolCtx::new(root.clone(), root.clone());
         let proxy = crate::tool_proxy(&ctx);
-        let backend = load_native_backend(&config, &proxy, ProfileKind::Dev, SearchBackend::Auto)
-            .await
-            .unwrap();
+        let backend =
+            load_native_backend(&config, &proxy, ProfileKind::DevAuto, SearchBackend::Auto)
+                .await
+                .unwrap();
         let client = build_http_client(&proxy).unwrap();
         let dataset: serde_json::Value = serde_json::from_str(include_str!(
             "../../../scripts/fixtures/search-quality.json"
@@ -1632,7 +1652,7 @@ mod tests {
             (1, 1)
         );
         let ctx = ToolCtx::new(root.clone(), root.clone());
-        let output = WebSearchTool
+        let output = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
             .execute(
                 serde_json::json!({"query": "must not reach network", "prior_art_topic": "prior-art-gate"}),
                 &ctx,
@@ -1662,8 +1682,10 @@ mod concurrency_audit_tests {
     #[test]
     fn 纯检索可并行() {
         let ctx = ctx();
-        let a = WebSearchTool.concurrency(&json!({"query": "a"}), &ctx);
-        let b = WebSearchTool.concurrency(&json!({"query": "b"}), &ctx);
+        let a = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+            .concurrency(&json!({"query": "a"}), &ctx);
+        let b = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+            .concurrency(&json!({"query": "b"}), &ctx);
         assert!(!a.conflicts_with(&b), "纯检索之间不该冲突");
         assert!(matches!(a, ToolConcurrency::Shared(_)));
     }
@@ -1673,8 +1695,10 @@ mod concurrency_audit_tests {
     #[test]
     fn 带先行方案主题的检索互斥() {
         let ctx = ctx();
-        let a = WebSearchTool.concurrency(&json!({"query": "a", "prior_art_topic": "t1"}), &ctx);
-        let b = WebSearchTool.concurrency(&json!({"query": "b", "prior_art_topic": "t2"}), &ctx);
+        let a = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+            .concurrency(&json!({"query": "a", "prior_art_topic": "t1"}), &ctx);
+        let b = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+            .concurrency(&json!({"query": "b", "prior_art_topic": "t2"}), &ctx);
         assert!(a.conflicts_with(&b), "同项目的预算扣减必须串行");
         // 但它不该和代码树写入互斥:预算落在 .kanzei/research/,与 edit/bash 无关。
         let code_write = ToolConcurrency::write_worktree(&ctx);
@@ -1684,7 +1708,8 @@ mod concurrency_audit_tests {
     /// 空白 topic 视为没给,回落纯读——否则 `"prior_art_topic": " "` 会白白上锁。
     #[test]
     fn 空白主题回落纯读() {
-        let c = WebSearchTool.concurrency(&json!({"query": "a", "prior_art_topic": "  "}), &ctx());
+        let c = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
+            .concurrency(&json!({"query": "a", "prior_art_topic": "  "}), &ctx());
         assert!(matches!(c, ToolConcurrency::Shared(_)));
     }
 }

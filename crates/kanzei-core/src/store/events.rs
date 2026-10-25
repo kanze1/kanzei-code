@@ -1166,7 +1166,10 @@ mod tests {
         assert_eq!(ended_sequence, events[3].sequence);
         assert_eq!(
             recovered_surface,
-            vec![kanzei_llm::Message::user_text("surface")]
+            vec![kanzei_llm::Message::context_text(
+                kanzei_llm::MessageOrigin::Unspecified,
+                "surface"
+            )]
         );
     }
 

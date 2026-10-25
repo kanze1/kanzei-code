@@ -57,7 +57,7 @@ async function harness() {
   get("project-shared-warn").classList.add("hidden");
   const queues = new Map(), states = new Map(), processAutoState = new Map(), processProfileUi = new Map();
   const state = { currentProject: A, activeProcessId: ids(A).process, activeSessionId: ids(A).session, processItems: [], running: false };
-  const line = (project, id = ids(project).process, session = ids(project).session) => ({ id, session_id: session, origin_project: project, project_dir: project, profile: "dev", running: false, label: id });
+  const line = (project, id = ids(project).process, session = ids(project).session) => ({ id, session_id: session, origin_project: project, project_dir: project, profile: "dev-auto", running: false, label: id });
   const projects = new Map([[A, [line(A)]], [B, [line(B)]]]); state.processItems = projects.get(A);
   const set = (name, value) => { state[name] = value; deps.get("./03-shell.js").setExport(name, value); };
   const sessionState = id => { if (!states.has(id)) states.set(id, { phase: "idle", running: false, converged: false }); return states.get(id); };
@@ -83,7 +83,7 @@ async function harness() {
     ["./03-shell.js", { ...state, setCurrentProject: value => set("currentProject", value), setActiveProcessId: value => set("activeProcessId", value), setActiveSessionId: value => set("activeSessionId", value), setProcessItems: value => set("processItems", value), sessionState, sessionStates: states, transitionSession, setRunning: value => set("running", value), toast: text => notices.push(text), toastError: text => notices.push(text), ensureChatView: () => notices.push("ensureChatView") }],
     ["./02-i18n.js", { t: text => text, localizeDynamic: text => text, localizedStage: text => text }],
     ["./03-general-scope.js", { isGeneralChat: () => false }],
-    ["./03-workspaces.js", { active_space: "dev", workspace_switch_pending: false, workspace_processes: items => items, preferred_workspace_process: items => items[0], project_workspace: () => ({ research: {} }) }],
+    ["./03-workspaces.js", { active_space: "dev-auto", workspace_switch_pending: false, workspace_processes: items => items, preferred_workspace_process: items => items[0], project_workspace: () => ({ research: {} }) }],
     ["./08-compose-runtime.js", { processAutoState, processProfileUi }],
     ["./07-events.js", { askQueues: queues, askActive: null, askQueueFor: id => { if (!queues.has(id)) queues.set(id, []); return queues.get(id); }, pumpAsk: () => {} }],
     ["./08-auto.js", { awaitingUserSessions: new Set() }],

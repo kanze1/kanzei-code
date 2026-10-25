@@ -1,4 +1,4 @@
-use super::quick_req_with_coordinator;
+use super::{idea_split_with_coordinator, quick_req_with_coordinator};
 use kanzei_core::orchestration::MemoryCoordinator;
 use kanzei_memory::docstore::{DocStore, REQUIREMENTS};
 use serde_json::json;
@@ -61,20 +61,20 @@ async fn respond(listener: &TcpListener, mode: u8) {
     }
     let (status, kind, body) = if mode == 1 || mode == 2 || mode == 4 {
         let complexity = if mode == 1 { "小" } else { "大" };
-        let mut fields = json!({"验收":"保存个人评分","原始描述":"保存个人评分"});
-        if mode == 4 {
-            fields["来源"] = json!("用户原话「保存个人评分」");
-            fields["发现记录"] = json!(json!({
-                "Intent":"保存个人评分","Explicit":"保存个人评分","Assumptions":"无额外假设",
-                "Ambiguities":"无未决语义","领域对象":"个人评分","最小成功闭环":"写入后读取评分",
-                "延后决策":"外部资料接入另批处理"
-            })
-            .to_string());
-        }
         let tag = if mode == 4 { "核心" } else { "前端" };
+        let statement = if mode == 4 {
+            ""
+        } else {
+            "用户保存个人评分时，系统应保留该评分。"
+        };
+        let acceptance = if mode == 2 {
+            vec![]
+        } else {
+            vec![json!({"text":"保存后读取可看到原评分"})]
+        };
         let response = json!({"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"capture",
             "type":"function","function":{"name":"req","arguments":json!({"action":"add","title":"收藏评分",
-            "priority":"P2","tag":tag,"complexity":complexity,"fields":fields}).to_string()}}]},"finish_reason":"tool_calls"}]});
+            "priority":"P2","tag":tag,"complexity":complexity,"requirement":{"statement":statement,"acceptance":acceptance}}).to_string()}}]},"finish_reason":"tool_calls"}]});
         (
             "200 OK",
             "text/event-stream",
@@ -93,8 +93,7 @@ async fn respond(listener: &TcpListener, mode: u8) {
             format!("data: {response}\n\ndata: [DONE]\n\n"),
         )
     } else if mode == 3 {
-        let response =
-            json!({"choices":[{"index":0,"delta":{"content":"未能登记"},"finish_reason":"stop"}]});
+        let response = json!({"choices":[{"index":0,"delta":{"content":"登记已完成"},"finish_reason":"stop"}]});
         (
             "200 OK",
             "text/event-stream",
@@ -118,7 +117,6 @@ async fn capture_reports_model_authentication_error_without_claiming_storage_fai
     let root = project(listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
         respond(&listener, 0).await;
-        respond(&listener, 0).await;
     });
     let result = quick_req_with_coordinator(
         Arc::new(MemoryCoordinator::new()),
@@ -140,7 +138,7 @@ async fn capture_reports_model_authentication_error_without_claiming_storage_fai
 }
 
 #[tokio::test]
-async fn persisted_capture_survives_later_model_failure_and_avoids_duplicate_fallback() {
+async fn persisted_capture_survives_later_model_failure_with_a_real_receipt() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let root = project(listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -188,7 +186,7 @@ async fn incomplete_capture_saves_one_draft_and_repeated_add_is_idempotent() {
 }
 
 #[tokio::test]
-async fn core_capture_is_saved_and_visible_before_research_or_model_fallback() {
+async fn core_capture_remains_a_visible_draft_with_its_original_source() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let root = project(listener.local_addr().unwrap());
     let server = tokio::spawn(async move {
@@ -269,4 +267,43 @@ async fn compound_capture_returns_all_ids_with_one_shared_verbatim_source() {
     );
     assert!(entries.iter().all(|e| e.status == "todo"));
     std::fs::remove_dir_all(root).ok();
+}
+
+#[tokio::test]
+async fn interrupted_idea_decomposition_keeps_real_progress_without_marking_split() {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let root = project(listener.local_addr().unwrap());
+    let ideas = DocStore::open(&root, &kanzei_memory::docstore::IDEAS);
+    ideas
+        .save(&[kanzei_memory::docstore::Entry {
+            id: "I-001".into(),
+            title: "保存个人评分".into(),
+            status: "inbox".into(),
+            severity: None,
+            fields: vec![],
+        }])
+        .unwrap();
+    let server = tokio::spawn(async move {
+        respond(&listener, 1).await;
+        respond(&listener, 0).await;
+    });
+    let receipt = idea_split_with_coordinator(
+        Arc::new(MemoryCoordinator::new()),
+        root.display().to_string(),
+        "I-001".into(),
+    )
+    .await
+    .unwrap();
+    server.await.unwrap();
+    assert!(
+        receipt.contains("R-001") && receipt.contains("尚未确认完成"),
+        "{receipt}"
+    );
+    assert!(receipt.contains("401"), "{receipt}");
+    assert_eq!(ideas.load().unwrap()[0].status, "inbox");
+    assert_eq!(
+        DocStore::open(&root, &REQUIREMENTS).load().unwrap().len(),
+        1
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }

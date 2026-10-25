@@ -1,4 +1,4 @@
-//! 双模式 Profile 组件:dev(需求/缺陷)与 research(来源/发现)。
+//! 开发与研究 Profile 组件；开发包含 dev-auto 与 dev-pair 两种模式。
 //! 组件按当前 profile 决定贡献什么;权限规则是硬门禁的落点。
 
 use anyhow::Context as _;
@@ -11,19 +11,21 @@ use kanzei_harness::{
 
 use crate::tracker::TrackerTool;
 use crate::work::WorkTool;
-use kanzei_memory::docstore::{DocStore, DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
+use kanzei_memory::docstore::{DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
 
 #[cfg(test)]
 mod context_tests;
-mod dev;
+mod development;
 mod general;
 mod isolated;
 pub use isolated::IsolatedProfile;
 mod policy;
+mod project_indexes;
 mod readonly;
 mod research;
-pub use dev::{DevProfile, DEV_DEFERRED_TOOLS};
-pub use general::GeneralChatProfile;
+mod research_docs;
+pub use development::{DevelopmentProfile, DEVELOPMENT_DEFERRED_TOOLS};
+pub use general::{GeneralChatProfile, GeneralChatScope};
 pub use readonly::ReadonlyProfile;
 
 /// Missing project documents are valid; unreadable or invalid UTF-8 documents are not empty.
@@ -35,30 +37,32 @@ fn read_optional_context_file(path: &std::path::Path) -> anyhow::Result<Option<S
     }
 }
 
-/// dev agent 的前端自查段。**不写进 dev 的基础提示词**:这段点名的 5 个工具
-/// (ui_dom / ui_console / ui_style / frontend_locate / frontend_check)只由桌面端的
-/// FrontendToolsComponent 注册,CLI 侧根本不存在。提示词指向不可达的能力正是 D-173
-/// 的失效模式——模型试完失败就转去找旁路,而 resolve 末尾的覆盖校验只查 deny 声明的
-/// required_tool,管不到提示词点名的工具。装配方注册了这些工具才 append。
-pub fn frontend_inspection_guidance() -> &'static str {
-    "After touching ui/, load the deferred inspection tools with `tool_search select:ui_dom,ui_console,ui_style,frontend_locate,frontend_check`. Then inspect what actually rendered: `ui_dom` on the region you \
-     changed, `ui_console` for errors the page swallowed, `ui_style` when something is \
-     invisible or mis-laid-out. Before editing style.css run `frontend_locate` (the same \
-     class is often defined twice — base rule plus a responsive override) and after \
-     editing run `frontend_check` (a clobbered `@media ... {` breaks the cascade \
-     silently, D-164)."
+/// User-owned project rules are a separate, refreshable context source.
+fn register_project_conventions(draft: &mut HarnessDraft) {
+    draft.context.insert(
+        "project/conventions",
+        refreshing_fallible_source(
+            "project/conventions",
+            ContextRequirement::Required,
+            |ctx: &ResolveCtx| {
+                Ok(read_optional_context_file(
+                    &ctx.project_root.join(crate::conventions::CONVENTIONS_REL),
+                )?
+                .filter(|text| !text.trim().is_empty())
+                .map(|text| format!("<project-rules source=\".kanzei/project/conventions.md\">\n{text}\n</project-rules>")))
+            },
+        ),
+    );
 }
 
 /// 提示词里被反引号点名的工具候选:取每段反引号内的第一个词。
 ///
-/// D-190 抽出 `frontend_inspection_guidance()` 只是把那段挪了个地方,组件注册与提示词
-/// 追加仍是两处各写各的;真正让它们同进同退的是以此为基础的两条测试(本文件的
-/// CLI 装配线、kanzei-app 的桌面装配线)。提取规则抽成函数是为了两侧共用一套,
-/// 不让它们各写一份慢慢漂开。
+/// 供装配合同测试核对 Agent 提示词引用的工具与当前工具目录。
 ///
 /// 只认 ASCII 标识符形态,所以 `类型: 短期`、`@media ... {`、`{tool}` 这类反引号内容
 /// 自然被滤掉;`req update <id> done` 取首词 `req`。
-pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
+#[cfg(test)]
+fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut rest = prompt;
     while let Some((_, after)) = rest.split_once('`') {
@@ -79,34 +83,7 @@ pub fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
     out
 }
 
-/// Parse deferred tool names explicitly offered through a `tool_search select:` prompt clause.
-pub fn prompt_tool_search_selects(prompt: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = prompt;
-    while let Some((_, after)) = rest.split_once('`') {
-        let Some((span, tail)) = after.split_once('`') else {
-            break;
-        };
-        rest = tail;
-        let Some(names) = span.trim().strip_prefix("tool_search select:") else {
-            continue;
-        };
-        for name in names
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-        {
-            let valid = name.starts_with(|c: char| c.is_ascii_alphabetic())
-                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-            if valid && !out.iter().any(|seen| seen == name) {
-                out.push(name.to_owned());
-            }
-        }
-    }
-    out
-}
-/// 记忆注入的字符预算:记忆是常驻上下文,超预算必须显式说明丢了多少,不做静默截断。
-// dev/memory 注入预算移入 memory 模块与 prompt_hints 共用(D-216:同一口径)。
+// 项目概览复用记忆模块的字符预算；已保存偏好由基础组件单独装配。
 use kanzei_memory::memory::MEMORY_CONTEXT_BUDGET;
 
 pub struct ResearchProfile;
@@ -119,40 +96,8 @@ impl Component for ResearchProfile {
         research::register_tools(draft);
         research::configure_permissions(draft);
 
-        draft.context.insert(
-            "research/docs",
-            refreshing_fallible_source("research/docs", ContextRequirement::Optional, |ctx: &ResolveCtx| {
-                let src = research::index_of(ctx, &kanzei_memory::docstore::SOURCES, "Sources")?;
-                let fnd = research::index_of(ctx, &kanzei_memory::docstore::FINDINGS, "Findings")?;
-                let req = research::index_of(ctx, &REQUIREMENTS, "Requirements")?;
-                let defect = research::index_of(ctx, &DEFECTS, "Defects")?;
-                let backlog = [req, defect]
-                    .into_iter()
-                    .flatten()
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let memory_guidance = "<memory>\nUse the unified `memory_search` tool to retrieve project memory and `memory_note` to submit a durable draft; the historical `.kanzei/research/memory.md` is not a research memory source.\n</memory>\n";
-                Ok(Some(format!(
-                    "<research-docs>\n{}{}<backlog>\n{backlog}\n</backlog>\n{}Record sources with `source add` BEFORE citing them; every finding must cite refs. Use the backlog only as a read-only index; req/defect get reads existing entries and add creates a [todo] draft for dev review.\n</research-docs>",
-                    src.map(|s| s + "\n").unwrap_or_default(),
-                    fnd.map(|s| s + "\n").unwrap_or_default(),
-                    memory_guidance,
-                )))
-            }),
-        );
-        draft.context.insert(
-            "research/conventions",
-            refreshing_fallible_source(
-                "research/conventions",
-                ContextRequirement::Required,
-                |ctx| {
-                    Ok(read_optional_context_file(
-                        &ctx.project_root.join(".kanzei/project/conventions.md"),
-                    )?
-                    .map(|text| format!("<conventions>\n{text}\n</conventions>")))
-                },
-            ),
-        );
+        research_docs::register(draft);
+        register_project_conventions(draft);
 
         draft.agents.insert(
             "research",
@@ -163,16 +108,7 @@ impl Component for ResearchProfile {
                 mode: AgentMode::Primary,
                 // 0 = 无轮数上限(用户定调)。
                 steps: 0,
-                system: "You are the research agent. If the current topic has an AUTO research workflow, call `research_workflow get` and follow its persisted stage: the user has already authorized its survey budget, so reuse the approved plan and use budget_get rather than creating another plan or setting another budget. Publish the evidence-backed map and wait for the user to choose a direction; then prepare_compute, run the MVP and interpret actual metrics, define the full paired-seed baseline/main/ablation/robustness matrix, execute it, submit_analysis, paper_init, submit_paper, review_paper and compile_paper. Continue until a real PDF and delivery manifest exist; MVP completion is not the end of the research. Use the AUTO workflow paper actions for AUTO topics; the research_write outline/section loop below is for manual research. Stop when the workflow waits, pauses or completes. Otherwise, before searching, use `research_plan` to create an explicit plan tree, record clarification questions, and request user approval; never approve or execute an unapproved plan. After approval, use the `research_loop` tool with start/resume actions to drive the bounded search-read-reflect loop. For each isolated subtask call begin_search first; every websearch/webfetch call MUST pass that topic and returned task_id, then pass the same task_id to add_evidence—the loop gate is mechanical. Before returning any result to the main context, compress it via research_loop add_evidence with relevance, source_ids, and a sourced summary—never pass raw webpage or tool output into the loop. Use reflect to record knowledge gaps and decide whether another round is needed; write findings only through add_finding with source refs. When writing a report, call the `research_write` tool: write_outline first, then write_section once per outline section, assemble_paper for heavy topics, and compile_paper through the LaTeX channel; use repair_paper only after a failed compile and preserve its diagnostics. For manual research use `research_verify` budget_set before starting a loop; AUTO research uses the user's workflow budget. After writing, use verify_claims to mechanically check every FACT source and evidence anchor, and use capture_source for complete literature正文 rather than trusting abstract/要点 fields. Before cross-checking claims, use the `research_index` tool: index_build/index_resume creates or resumes the topic Tantivy index, search uses the same interface for literature and code, and symbols mode performs code symbol reverse lookup. Record every consulted source \
-                         (`source add`) and register conclusions as findings citing those \
-                         sources. Every conclusion must state its code or literature domain, \
-                         V0-V3 level, evidence anchor, and literature evidence depth; use V \
-                         evidence, never E0-E4 verification levels, and cap abstract-only \
-                         literature evidence at V1. Use `memory_search` for project memory and \
-                         `memory_note` for durable research conclusions; do not use the historical \
-                         `.kanzei/research/memory.md`. The final report goes to \
-                         .kanzei/research/<topic>/report.md."
-                    .into(),
+                system: include_str!("profiles/research_system.md").into(),
             },
         );
         Ok(())
@@ -181,7 +117,7 @@ impl Component for ResearchProfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{DevProfile, ResearchProfile};
+    use super::{DevelopmentProfile, ResearchProfile};
     use kanzei_harness::{
         rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
     };
@@ -189,10 +125,10 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    fn dev_system_prompt(tag: &str) -> String {
+    fn dev_auto_system_prompt(tag: &str) -> String {
         let root = PathBuf::from(format!("C:/kanzei-{tag}-test"));
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -200,12 +136,12 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         harness
             .resolve(&ctx)
             .unwrap()
-            .select_primary_agent(Some("dev"))
+            .select_primary_agent(Some("dev-auto"))
             .unwrap()
             .system
             .clone()
@@ -213,15 +149,14 @@ mod tests {
 
     #[test]
     fn core_contract_is_bounded_and_technology_neutral() {
-        let system = dev_system_prompt("compact-contract");
+        let system = dev_auto_system_prompt("compact-contract");
         assert!(system.chars().count() < 5000);
         for required in [
             "逐条对照验收",
             "真实调用方",
-            "Start 调用一次",
-            "Resume 直接继续",
+            "自主选择",
+            "不以登记作为修复前提",
             "只提交自己负责",
-            "独立只读查询合在同一步",
         ] {
             assert!(system.contains(required), "missing {required}");
         }
@@ -233,6 +168,12 @@ mod tests {
             "old_string",
             "Design freeze",
             "<ID> B<k>",
+            "Start 调用一次",
+            "Resume 直接继续",
+            "node.covers",
+            "source_sequence",
+            "awaiting_external",
+            "backlog_maintenance",
         ] {
             assert!(
                 !system.contains(inappropriate),
@@ -252,11 +193,11 @@ mod tests {
             "用户规则: preserve-local-first",
         )
         .unwrap();
-        let render = |full_test| {
+        let render = |profile, full_test| {
             let mut config = KanzeiConfig::default();
             config.cadence.full_test = full_test;
             let ctx = ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile,
                 cwd: root.clone(),
                 project_root: root.clone(),
                 config: Arc::new(config),
@@ -264,11 +205,11 @@ mod tests {
             let mut harness = Harness::default();
             harness
                 .add(crate::BaseComponent)
-                .add(DevProfile)
+                .add(DevelopmentProfile)
                 .add(ConfigComponent);
             harness.resolve(&ctx).unwrap().system_baseline().unwrap()
         };
-        let release = render(FullTestCadence::ReleaseOnly);
+        let release = render(ProfileKind::DevAuto, FullTestCadence::ReleaseOnly);
         assert_eq!(
             release.matches("<effective-verification-policy>").count(),
             1
@@ -286,15 +227,29 @@ mod tests {
         ] {
             assert!(!release.contains(forbidden), "{forbidden}");
         }
-        assert!(render(FullTestCadence::EntryClose).contains("中/大条目关闭前一次"));
-        std::fs::write(root.join("Cargo.toml"), "[workspace]").unwrap();
+        assert!(render(ProfileKind::DevAuto, FullTestCadence::EntryClose)
+            .contains("全量测试：条目关闭前"));
+        let paired = render(ProfileKind::DevPair, FullTestCadence::EveryCommit);
+        assert!(paired.contains("Pair 按当前请求选择验证范围"));
+        assert!(paired.contains("仅在任务包含这些操作时适用"));
+        assert!(paired.contains("全量测试：每次提交前"));
+        assert!(paired.contains("提交：按实际工作批次"));
+        assert!(paired.contains("推送：每条目完成后"));
+        assert!(!paired.contains("Auto 自主划分"));
+        let unspecified = render(ProfileKind::DevAuto, FullTestCadence::EveryNBatches);
+        assert!(unspecified.contains("full_test_batches 尚未设置"));
         assert!(
-            !render(FullTestCadence::EntryClose).contains(kanzei_harness::CARGO_CONVENTIONS),
-            "generic Rust is not the Kanzei repository"
+            !unspecified.contains("每 1"),
+            "missing intervals cannot silently impose testing every batch"
         );
+        std::fs::write(root.join("Cargo.toml"), "[workspace]").unwrap();
         std::fs::create_dir_all(root.join("crates/kanzei-app")).unwrap();
         std::fs::write(root.join("crates/kanzei-app/Cargo.toml"), "[package]").unwrap();
-        assert!(render(FullTestCadence::EntryClose).contains(kanzei_harness::CARGO_CONVENTIONS));
+        let with_repository_marker = render(ProfileKind::DevAuto, FullTestCadence::EntryClose);
+        assert!(with_repository_marker.contains("preserve-local-first"));
+        for forbidden in ["cargo test", "cargo clippy", "verify.ps1", "compile_gate"] {
+            assert!(!with_repository_marker.contains(forbidden), "{forbidden}");
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -305,7 +260,7 @@ mod tests {
             std::env::temp_dir().join(format!("kz-conventions-refresh-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(KanzeiConfig::default()),
@@ -324,7 +279,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
         assert!(snapshot
@@ -354,7 +309,7 @@ mod tests {
     fn dev档注册websearch默认ask_域名白名单可精确放行() {
         let root = PathBuf::from("C:/kanzei-r217-test");
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(KanzeiConfig::default()),
@@ -397,7 +352,7 @@ mod tests {
             .rules
             .push(rule("websearch", "html.duckduckgo.com/*", Effect::Allow));
         let allow_ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(config),
@@ -424,15 +379,10 @@ mod tests {
         );
     }
 
-    /// D-195:提示词点名的工具必须在同一条装配线上注册。
-    ///
-    /// D-190 把前端自查段抽成函数,但组件注册(桌面端 5583 行)与提示词追加(5596 行)
-    /// 仍是两处各写各的,没有任何东西保证同进同退——这条测试就是那个机制。它守的是
-    /// CLI 装配线:谁把前端段(或任何点名工具的文字)写回 dev 基础提示词,这里立刻红。
-    /// 桌面装配线由 kanzei-app 侧的同名测试守另一半。
+    /// CLI 提示词引用的工具必须在对应档位的常驻或延迟目录中可达。
     #[test]
     fn 提示词点名的工具必须在同一条装配线上注册() {
-        use super::{prompt_tool_mentions, prompt_tool_search_selects};
+        use super::prompt_tool_mentions;
 
         // 反引号里不是工具的词。每条都要说得出理由,不许为了让测试变绿往里塞。
         const NOT_TOOLS: &[&str] = &[
@@ -443,7 +393,11 @@ mod tests {
             "task",
         ];
 
-        for profile in [ProfileKind::Dev, ProfileKind::Research] {
+        for profile in [
+            ProfileKind::DevAuto,
+            ProfileKind::DevPair,
+            ProfileKind::Research,
+        ] {
             let root = PathBuf::from("C:/kanzei-d195-test");
             let ctx = ResolveCtx {
                 profile,
@@ -456,7 +410,7 @@ mod tests {
             let mut harness = Harness::default();
             harness
                 .add(crate::BaseComponent)
-                .add(DevProfile)
+                .add(DevelopmentProfile)
                 .add(super::ResearchProfile)
                 .add(ConfigComponent);
             let snapshot = harness.resolve(&ctx).unwrap();
@@ -472,7 +426,6 @@ mod tests {
                 .collect();
 
             for (name, agent) in snapshot.agents().iter() {
-                let selects = prompt_tool_search_selects(&agent.system);
                 for mentioned in prompt_tool_mentions(&agent.system) {
                     if NOT_TOOLS.contains(&mentioned.as_str()) || resident.contains(&mentioned) {
                         continue;
@@ -481,11 +434,6 @@ mod tests {
                         deferred.contains(&mentioned),
                         "{profile:?} 档的 agent `{name}` 提示词点名了 `{mentioned}`,\
                          但它既非常驻工具也不在延迟目录中"
-                    );
-                    assert!(
-                        selects.contains(&mentioned),
-                        "{profile:?} 档的 agent `{name}` 提示词点名延迟工具 `{mentioned}`，\
-                         但没有 `tool_search select:{mentioned}`；已声明选择: {selects:?}"
                     );
                 }
             }
@@ -515,7 +463,7 @@ mod tests {
         std::fs::write(root.join(".kanzei/project/conventions.md"), &body).unwrap();
 
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(KanzeiConfig::default()),
@@ -523,7 +471,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         let baseline = harness.resolve(&ctx).unwrap().system_baseline().unwrap();
 
@@ -538,63 +486,43 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// R-191:通用规则单源注入——无项目文件时引擎默认模板也全量进上下文,
-    /// 有项目文件时通用 + 项目特有拼接,且通用在前。conventions 是 context source,
-    /// 断言必须看 system_baseline(dev_system_prompt 的 agent.system 不含 context 注入)。
     #[test]
-    fn conventions_注入含引擎默认模板与项目特有规则() {
-        let baseline_of = |root: &std::path::Path| {
-            let ctx = ResolveCtx {
-                profile: ProfileKind::Dev,
-                cwd: root.to_path_buf(),
-                project_root: root.to_path_buf(),
-                config: Arc::new(KanzeiConfig::default()),
-            };
-            let mut harness = Harness::default();
-            harness
-                .add(crate::BaseComponent)
-                .add(DevProfile)
-                .add(ConfigComponent);
-            harness.resolve(&ctx).unwrap().system_baseline().unwrap()
-        };
-
-        // ① 无项目文件:引擎默认模板必须全量注入(新项目零配置也拿到完整约束)。
-        // R-191 验收②:模板生成测试断言关键节存在(§1.1 阻塞口径 / §1.3 批次 /
-        // §1.4 节奏 / §1.25 验收证据)——四个关键节必须全部出现在注入后的上下文。
-        let bare = PathBuf::from("C:/kanzei-r191-default-test");
-        let baseline = baseline_of(&bare);
-        assert!(baseline.contains(kanzei_harness::DEFAULT_CONVENTIONS.trim()));
-        // §1.4a 提交前 cargo 门禁(D-264)只进 Cargo 工程(UI2-0926 #13):无 Cargo.toml 的项目不该收到,
-        // Cargo 工程收到由 dev_conventions_cargo_条款只注入_cargo_工程 守护。
-        assert!(
-            !baseline.contains("compile_gate"),
-            "非 Cargo 项目不该收到 cargo 专属的提交门禁条款"
-        );
-
-        // ② 有项目文件:两段拼接,通用在前、项目特有在后。
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-r191-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
-        let project_only = "## 项目特有规则\n- 只在 kanzei 仓库生效";
-        std::fs::write(root.join(".kanzei/project/conventions.md"), project_only).unwrap();
-        let baseline = baseline_of(&root);
-        assert!(
-            baseline.contains(project_only),
-            "项目特有规则没进上下文——R-191 拼接丢失项目文件"
-        );
-        let default_pos = baseline.find("# 项目约定的来源");
-        let project_pos = baseline.find("项目特有规则");
-        assert!(
-            default_pos.is_some() && project_pos.is_some() && default_pos < project_pos,
-            "拼接顺序错误:通用规则必须在项目特有规则之前"
-        );
-        std::fs::remove_dir_all(root).unwrap();
+    fn project_conventions_load_only_saved_content_for_each_supported_profile() {
+        let fixture = super::context_tests::Fixture::new("project-rules");
+        for profile in [
+            ProfileKind::DevAuto,
+            ProfileKind::DevPair,
+            ProfileKind::Research,
+        ] {
+            let baseline = fixture.snapshot(profile).system_baseline().unwrap();
+            assert!(!baseline.contains("<project-rules"));
+        }
+        assert!(!fixture.0.join(".kanzei/project/conventions.md").exists());
+        fixture.write(".kanzei/project/conventions.md", "   ");
+        assert!(!fixture
+            .snapshot(ProfileKind::DevPair)
+            .system_baseline()
+            .unwrap()
+            .contains("<project-rules"));
+        let rules = "## 项目特有规则\n- 保留用户指定的架构边界";
+        fixture.write(".kanzei/project/conventions.md", rules);
+        for profile in [
+            ProfileKind::DevAuto,
+            ProfileKind::DevPair,
+            ProfileKind::Research,
+        ] {
+            let (baseline, reports) = fixture
+                .snapshot(profile)
+                .system_baseline_with_report()
+                .unwrap();
+            assert!(baseline.contains(&format!("<project-rules source=\".kanzei/project/conventions.md\">\n{rules}\n</project-rules>")));
+            assert!(reports
+                .iter()
+                .any(|report| report.key == "project/conventions"));
+            for forbidden in ["# 项目约定的来源", "compile_gate", "cargo clippy"] {
+                assert!(!baseline.contains(forbidden), "{forbidden}");
+            }
+        }
     }
 
     #[test]
@@ -607,15 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn prompt_tool_search_selects_reads_only_explicit_select_clauses() {
-        let selects = super::prompt_tool_search_selects(
-            "load `tool_search select:ui_dom, ui_console,frontend_check`; not `tool_search query:files` or `tool_search select:bad-name`",
-        );
-        assert_eq!(selects, vec!["ui_dom", "ui_console", "frontend_check"]);
-    }
-
-    #[test]
-    fn dev_design_index_excludes_superseded_rows_and_document_bodies() {
+    fn design_documents_remain_available_without_a_resident_index() {
         let root = std::env::temp_dir().join(format!(
             "kanzei-r318-design-context-{}-{}",
             std::process::id(),
@@ -643,7 +563,7 @@ mod tests {
         .unwrap();
 
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(KanzeiConfig::default()),
@@ -651,14 +571,15 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
-        let baseline = harness.resolve(&ctx).unwrap().system_baseline().unwrap();
-
-        assert!(
-            baseline.contains("live.md"),
-            "非 superseded 设计入口应进入默认索引上下文"
-        );
+        let snapshot = harness.resolve(&ctx).unwrap();
+        let baseline = snapshot.system_baseline().unwrap();
+        assert!(snapshot
+            .materialize_tools()
+            .iter()
+            .any(|tool| tool.name() == "architecture"));
+        assert!(!baseline.contains("live.md"));
         assert!(
             !baseline.contains("old.md"),
             "superseded 设计入口不应进入默认索引上下文"
@@ -674,7 +595,7 @@ mod tests {
     fn 每个硬deny资源族都给出真实可达的下一步() {
         let root = PathBuf::from("C:/kanzei-d173-test");
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -682,7 +603,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         // resolve 本身就是覆盖校验:声明的 required_tool 没注册会直接 bail。
         let snapshot = harness.resolve(&ctx).unwrap();
@@ -716,14 +637,17 @@ mod tests {
             }
         }
 
-        // 没有专用工具的资源族:必须如实说能力未实现,并明确堵死 shell 绕行。
+        // 没有专用写入工具的资源族只报告能力缺失，不编造工具或追加工作。
         // conventions.md 自 D-235 起有了专用工具,这里用另一个仍无工具的
         // .kanzei/project 文件(如 notes.md)继续守「不得编造工具名」这条底线。
         let uncovered = kanzei_harness::permission::normalize_resource(".kanzei/project/notes.md");
         assert_eq!(snapshot.evaluate("write", &uncovered), Effect::Deny);
         let hint = snapshot.denial_hint("write", &uncovered);
-        assert!(hint.contains("unimplemented capability"), "{hint}");
-        assert!(hint.contains("WriteAllText"), "{hint}");
+        assert!(
+            hint.contains("no owning write tool is registered"),
+            "{hint}"
+        );
+        assert!(!hint.contains("defect add"), "{hint}");
         assert!(
             !hint.contains("use the dedicated tool"),
             "不得编造不存在的工具: {hint}"
@@ -775,7 +699,7 @@ mod tests {
         }
         let root = PathBuf::from("C:/kanzei-d173-gap");
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -802,7 +726,7 @@ mod tests {
             .push(rule("write", "*.kanzei/project/*", Effect::Allow));
         let root = PathBuf::from("C:/kanzei-d050-test");
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(config),
@@ -810,7 +734,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
@@ -912,15 +836,11 @@ mod tests {
         let snapshot = harness.resolve(&ctx).unwrap();
         let baseline = snapshot.system_baseline().unwrap();
         for required in [
-            "<backlog>",
             "R-901",
             "D-901",
             "B4 convention marker",
-            "read-only index",
-            "unified `memory_search`",
-            "memory_note",
-            "[legacy-flat] S-901",
-            "legacy flat source",
+            "非终态记录导航",
+            "revision:",
             "[r221-chain] S-001",
             "topic source visible",
             "[r221-chain] F-001",
@@ -935,6 +855,7 @@ mod tests {
             !baseline.contains("legacy research memory must not be injected"),
             "research context 不得注入历史 research/memory.md"
         );
+        assert!(!baseline.contains("legacy flat source") && !baseline.contains("S-901"));
         assert_eq!(
             snapshot.evaluate("prior_art", "read:validate"),
             Effect::Allow
@@ -1030,10 +951,14 @@ mod tests {
             assert!(required.contains(&serde_json::json!("task_id")));
         }
         assert!(snapshot
+            .materialize_tools()
+            .iter()
+            .any(|tool| tool.name() == "research_plan"));
+        let system = &snapshot
             .select_primary_agent(Some("research"))
             .unwrap()
-            .system
-            .contains("research_plan"));
+            .system;
+        assert!(!system.contains("research_plan") && !system.contains("research_workflow"));
         for name in ["req", "defect"] {
             let tool = snapshot
                 .materialize_tools()
@@ -1089,48 +1014,6 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    /// 研究规则只驻留 research，通用开发不背负该契约。
-    #[test]
-    fn research_evidence_prompt_uses_v_table_and_literature_depth() {
-        let dev = dev_system_prompt("r221-v-table");
-        assert!(
-            !dev.contains("V0-V3"),
-            "research policy must stay out of generic dev"
-        );
-
-        let root = PathBuf::from("C:/kanzei-r221-v-table-research");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Research,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevProfile)
-            .add(super::ResearchProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let research = snapshot
-            .select_primary_agent(Some("research"))
-            .unwrap()
-            .system
-            .clone();
-        for required in [
-            "V0-V3 level",
-            "never E0-E4 verification levels",
-            "literature evidence depth",
-            "abstract-only literature evidence at V1",
-        ] {
-            assert!(
-                research.contains(required),
-                "research prompt 缺少 B3 口径: {required}"
-            );
-        }
-    }
-
-    /// R-221 B1:research 只保留事实观察与专用科研工具,不允许 shell/git 写入。
     #[test]
     fn research_profile_hard_denies_bash_and_git_writes() {
         let root = PathBuf::from("C:/kanzei-r221-research");
@@ -1143,14 +1026,14 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(super::ResearchProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
         assert_eq!(snapshot.evaluate("bash", "*"), Effect::Deny);
         for action in ["write", "edit", "insert"] {
-            for file in ["workflow.json", "loop.json", "plan.json", "budget.json"] {
+            for file in ["loop.json", "plan.json", "budget.json"] {
                 assert_eq!(
                     snapshot.evaluate(action, &format!(".kanzei/research/demo/{file}")),
                     Effect::Deny
@@ -1191,7 +1074,7 @@ mod tests {
         }
     }
 
-    /// R-102 批1:readonly 档位能装配出只读 agent,且权限快照可见。
+    /// Readonly installs its primary definition and exposes observation permissions.
     #[test]
     fn readonly_profile_resolves_readonly_agent() {
         let root = PathBuf::from("C:/kanzei-r102-test");
@@ -1204,7 +1087,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(super::ResearchProfile)
             .add(super::ReadonlyProfile)
             .add(ConfigComponent);
@@ -1212,13 +1095,12 @@ mod tests {
 
         let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
         assert_eq!(agent.name, "readonly");
-        assert!(agent.system.contains("MUST NOT modify"));
-        assert!(agent.system.contains("read/glob/grep"));
-        // 档位缺省选 agent:readonly 档位下默认选中 readonly(dev/research 不匹配)。
+        assert!(!agent.system.trim().is_empty());
+        // 档位缺省选 agent:readonly 档位下默认选中 readonly(dev-auto/dev-pair/research 不匹配)。
         let default_agent = snapshot.select_primary_agent(None).unwrap();
         assert_eq!(default_agent.name, "readonly");
 
-        // 权限快照(批1 交付):只读档位下读/检索类默认放行。
+        // Read access remains available independently of prompt wording.
         let snap = snapshot.permission_snapshot();
         let read = snap
             .iter()
@@ -1232,7 +1114,7 @@ mod tests {
         assert_eq!(glob.effect, Effect::Allow);
     }
 
-    /// D-663/R-102 批2:readonly 档位权限强制——写入、命令与专用副作用工具硬 deny 且带替代指引。
+    /// Known effectful tools remain hard denied, including under custom config.
     #[test]
     fn readonly_profile_hard_denies_writes_commands_and_side_effect_tools() {
         let root = PathBuf::from("C:/kanzei-r102-deny");
@@ -1245,7 +1127,7 @@ mod tests {
         let mut harness = Harness::default();
         harness
             .add(crate::BaseComponent)
-            .add(DevProfile)
+            .add(DevelopmentProfile)
             .add(super::ResearchProfile)
             .add(super::ReadonlyProfile)
             .add(ConfigComponent);
@@ -1253,7 +1135,7 @@ mod tests {
 
         // 写入、命令与专用副作用工具:整体 deny(工具会被摘除,模型看不见)。
         for action in [
-            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
         ] {
             assert_eq!(
                 snapshot.evaluate(action, "*"),
@@ -1262,8 +1144,8 @@ mod tests {
             );
             let hint = snapshot.denial_hint(action, "anything");
             assert!(
-                hint.contains("read/glob/grep"),
-                "{action} 的拒绝理由要点名替代工具: {hint}"
+                hint.contains("只读"),
+                "{action} must explain its readonly boundary: {hint}"
             );
         }
         // 只读族放行。
@@ -1274,7 +1156,7 @@ mod tests {
                 "{action} 在只读档位必须放行"
             );
         }
-        // git 只读子命令放行,其余子命令维持默认 ask。
+        // Git observations are allowed; mixed-tool mutations are rejected at admission.
         for subcommand in ["status", "diff", "log"] {
             assert_eq!(
                 snapshot.evaluate("git", subcommand),
@@ -1292,7 +1174,7 @@ mod tests {
             .map(|t| t.name())
             .collect();
         for gone in [
-            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
         ] {
             assert!(
                 !names.contains(&gone),
@@ -1310,7 +1192,7 @@ mod tests {
         };
         // 写入、命令与专用副作用工具:Deny 且 fully_denied(工具整体摘除)。
         for action in [
-            "write", "edit", "insert", "bash", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
         ] {
             let item = by_action(action);
             assert_eq!(item.effect, Effect::Deny, "{action} 快照应为 Deny");
@@ -1322,7 +1204,8 @@ mod tests {
             assert_eq!(item.effect, Effect::Allow, "{action} 快照应为 Allow");
             assert!(!item.fully_denied, "{action} 不应被摘除");
         }
-        // task 补进快照(runner 内建只读子代理),档位下默认 ask 即放行无副作用。
+        // Runner-owned task availability still depends on runtime installation,
+        // delegation mode and role eligibility; a wildcard row is not authorization.
         let task = by_action("task");
         assert!(!task.fully_denied, "task 在只读档位不应被摘除");
     }

@@ -24,7 +24,7 @@ let fail_library = false;
 payloads.project_root_info = { selected: project, resolved: project, shared: false };
 payloads.conversation_display_get = ({ processId }) => [{ role: "user", parts: [{ type: "text", text: `历史对话 ${processId}` }] }];
 payloads.process_list[0].running = true;
-payloads.process_list[0].profile = "dev";
+payloads.process_list[0].profile = "dev-auto";
 const source_topics = payloads.docs_snapshot.research_topics;
 for (const topic of source_topics) topic.kind = "research";
 source_topics.push(
@@ -41,37 +41,6 @@ payloads.research_library_list = () => {
 };
 let delayed_plan = null;
 let delayed_snapshot = null;
-const workflows = new Map();
-payloads.research_workflow_get = ({ topic }) => workflows.get(topic) ?? null;
-payloads.file_preview = ({ path: file }) => {
-  assert.ok(file?.startsWith(".kanzei/research/new-topic/"), "研究产物必须传递当前课题的真实文件路径");
-  return { binary: false, size: 24, content: `Artifact ${file}`, truncated: false };
-};
-payloads.research_workflow_start = ({ topic, budget, maxMvpRuns }) => {
-  assert.ok(budget.max_rounds > 0 && maxMvpRuns >= 2);
-  const state = { topic, revision: 1, stage: "survey", paused: false, waiting_reason: null,
-    directions: [], selected_direction: null, mvp: null, result_ids: [], budget, max_mvp_runs: maxMvpRuns };
-  workflows.set(topic, state);
-  return state;
-};
-payloads.research_workflow_update = ({ topic, revision, action, direction, maxMvpRuns }) => {
-  const state = workflows.get(topic);
-  assert.equal(revision, state.revision);
-  if (action === "select") { state.selected_direction = direction; state.stage = "design_mvp"; }
-  if (action === "pause") state.paused = true;
-  if (action === "resume") { state.paused = false; state.waiting_reason = null; }
-  if (action === "budget") state.max_mvp_runs = maxMvpRuns;
-  if (action === "revise_full") {
-    state.full_rounds = [...(state.full_rounds || []), { round: 1, artifact_root: "rounds/full-001-r20", reason: "用户要求补充完整实验", plan: state.full_plan, results: state.full_results, analysis: state.analysis, paper: state.paper }];
-    state.stage = "plan_full";
-    state.full_plan = null;
-    state.full_results = [];
-    state.analysis = null;
-    state.paper = null;
-  }
-  state.revision += 1;
-  return state;
-};
 const original_plan_get = payloads.research_plan_get;
 payloads.research_plan_get = (args) => args.topic === "beta-study"
   ? { exists: true, plan: { ...original_plan_get({ topic: "alpha-study" }).plan, topic: "beta-study", title: "Beta 计划", status: "approved" } }
@@ -160,7 +129,7 @@ try {
   const space = async (value) => {
     await page.locator(`[data-workspace="${value}"]`).click();
     await page.waitForFunction((value) => document.body.dataset.space === value && !document.querySelector(`[data-workspace="${value}"]`).disabled, value);
-    if (value === "dev") {
+    if (value === "dev-auto") {
       // 项目内的页签导航已并入页头与侧栏会话树:回开发空间后直接进入该项目的主对话。
       await page.evaluate(async project => (await import("./12-workbench.js")).openProjectSpace(project, "chat"), project);
       await page.waitForFunction(() => document.body.dataset.view === "chat");
@@ -184,7 +153,7 @@ try {
   fail_library = true;
   await page.locator('[data-workspace="research"]').click();
   await page.waitForFunction(() => document.querySelector("#log-panel").textContent.includes("课题登记表读取失败"));
-  assert.equal(await page.locator("body").getAttribute("data-space"), "dev");
+  assert.equal(await page.locator("body").getAttribute("data-space"), "dev-auto");
   fail_library = false;
   await space("research");
   // 选择器按内容范围分组,所有范围的条目都在里面:研究 3(alpha / beta / other-alpha)+ 开发调研 1 + 待分类 1 + 历史 1。
@@ -227,7 +196,7 @@ try {
   await page.locator("#send").click();
   await page.waitForFunction(() => document.querySelector("#prompt").value === "");
   assert.ok(calls.some(({ cmd, args }) => cmd === "run_prompt" && args.researchTopic === "alpha-study" && args.profile === "research"));
-  await space("dev");
+  await space("dev-auto");
   assert.equal(await page.locator("#prompt").inputValue(), "开发任务草稿");
   assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).attachments[0]?.data), "dev-attachment");
   assert.equal(await page.locator("#stop").isVisible(), true);
@@ -284,91 +253,12 @@ try {
   assert.equal(await page.locator("#research-overview #research-plan-panel").isVisible(), true);
   await research_page("report");
   assert.match(await page.locator("#research-report").textContent(), /尚未生成报告/);
-  // AUTO research: user launch, durable direction wait, explicit choice and topic-bound continuation.
+  // Topic navigation and conversation ownership remain available after removing the fixed workflow.
   await research_page("overview");
-  await page.locator('#research-auto-panel input[name="rounds"]').fill("2");
-  await page.waitForTimeout(1200);
-  assert.equal(await page.locator('#research-auto-panel input[name="rounds"]').inputValue(), "2", "轮询不能重置用户预算草稿");
-  await page.getByRole("button", { name: "启动 AUTO research", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
-  await page.waitForTimeout(100);
-  assert.ok(calls.some(({ cmd, args }) => cmd === "research_workflow_start" && args.topic === "new-topic" && args.budget.max_rounds === 2));
-  assert.ok(calls.some(({ cmd, args }) => cmd === "run_prompt" && args.profile === "research" && args.researchTopic === "new-topic" && args.prompt.includes("AUTO research")));
-  const auto_state = workflows.get("new-topic");
-  Object.assign(auto_state, { stage: "choose_direction", revision: 3, survey: "survey.md", map: "research-map.md",
-    directions: [{ id: "staleness", title: "过时记忆的影响", question: "固定预算下过时记忆是否降低成功率？", rationale: "已有证据待对照", uncertainty: "需要最小实验", cost: "两次本地运行", validation: "固定预算对照", source_ids: ["S-001"] }] });
-  await page.reload({ waitUntil: "networkidle" });
-  await research_page("overview");
-  await page.waitForFunction(() => document.querySelector('[data-direction="staleness"]'));
-  assert.equal(workflows.get("new-topic").selected_direction, null);
-  await page.screenshot({ path: path.join(artifact_root, "auto-research-map.png") });
-  const before_selection = calls.filter(({ cmd }) => cmd === "run_prompt").length;
-  await page.getByRole("button", { name: "选择并继续", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
-  await page.waitForTimeout(100);
-  assert.equal(workflows.get("new-topic").selected_direction, "staleness");
-  assert.ok(calls.filter(({ cmd }) => cmd === "run_prompt").length > before_selection);
-  assert.equal(calls.filter(({ cmd }) => cmd === "run_prompt").at(-1).args.researchTopic, "new-topic");
-  await research_page("overview");
-  await page.getByRole("button", { name: "本轮后暂停研究", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#research-auto-panel")?.textContent.includes("研究已暂停"));
-  await page.locator("#research-auto-panel details summary").click();
-  await page.locator('#research-auto-panel details input[type="number"]').fill("6");
-  const before_budget = calls.filter(({ cmd }) => cmd === "run_prompt").length;
-  await page.getByRole("button", { name: "更新实验预算", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#research-auto-panel details summary")?.textContent.endsWith(": 6"));
-  assert.equal(workflows.get("new-topic").max_mvp_runs, 6);
-  assert.equal(calls.filter(({ cmd }) => cmd === "run_prompt").length, before_budget, "只调预算不能启动实验");
-  await page.reload({ waitUntil: "networkidle" });
-  await page.waitForFunction(() => document.querySelector("#research-auto-panel")?.textContent.includes("研究已暂停"));
-  assert.equal(workflows.get("new-topic").stage, "design_mvp");
-  await topic("beta-study");
-  assert.equal(await page.locator('[data-direction="staleness"]').count(), 0);
-  await topic("new-topic");
-  assert.match(await page.locator("#research-auto-panel").textContent(), /研究已暂停/);
-  await page.getByRole("button", { name: "继续研究", exact: true }).click();
-  await page.waitForTimeout(100);
-  assert.equal(workflows.get("new-topic").paused, false);
-  // Full workflow: later phases, experiment progress and delivery entry points stay visible.
-  Object.assign(auto_state, { stage: "run_full", revision: 12, compute: { kind: "local", snapshot: { gpus: [{ name: "RTX test GPU" }] } }, full_plan: { protocol: "full-protocol.md", experiments: [{ id: "b0" }, { id: "m0" }] }, full_results: [{ experiment_id: "b0", result_id: "E-001-03" }] });
-  await research_page("overview");
-  await page.waitForFunction(() => document.querySelector("#research-auto-panel")?.textContent.includes("1 / 2"));
-  assert.match(await page.locator("#research-auto-panel").textContent(), /RTX test GPU/);
-  Object.assign(auto_state, { stage: "completed", revision: 20, verdict: "rejected", full_results: [{ experiment_id: "b0", result_id: "E-001-03" }, { experiment_id: "m0", result_id: "E-001-04" }], analysis: "analysis.md", paper: { tex: "latex/paper.tex", pdf: "latex/paper.pdf", manifest: "delivery.json" } });
-  await page.reload({ waitUntil: "networkidle" });
-  await research_page("overview");
-  await page.getByRole("button", { name: "打开论文 PDF", exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: "论文源码", exact: true }).count(), 1);
-  assert.equal(await page.getByRole("button", { name: "交付清单", exact: true }).count(), 1);
-  assert.equal(await page.getByRole("button", { name: "继续研究", exact: true }).count(), 0);
-  await page.screenshot({ path: path.join(artifact_root, "auto-research-completed.png") });
-  await page.getByRole("button", { name: "打开论文 PDF", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector(".research-workspace").dataset.page === "writing" && !document.querySelector("#research-latex-pdf").hidden);
-  assert.equal(calls.filter(({ cmd }) => cmd === "research_latex_pdf").at(-1).args.pdfPath, ".kanzei/research/new-topic/latex/paper.pdf");
-  for (const [label, file] of [["阅读调研", "survey.md"], ["论文源码", "latex/paper.tex"], ["交付清单", "delivery.json"]]) {
-    await research_page("overview");
-    await page.getByRole("button", { name: label, exact: true }).click();
-    await page.waitForFunction((path) => document.body.dataset.view === "files" && document.querySelector("#files-preview-path").textContent === path, `.kanzei/research/new-topic/${file}`);
-    await page.waitForFunction(() => document.querySelector("#files-editor .monaco-editor"));
-    await page.waitForFunction((content) => globalThis.monaco.editor.getModels().some((model) => model.getValue() === content), `Artifact .kanzei/research/new-topic/${file}`);
-    assert.equal(calls.filter(({ cmd }) => cmd === "file_preview").at(-1).args.path, `.kanzei/research/new-topic/${file}`);
-  }
-  await research_page("overview");
-  await page.getByRole("button", { name: "补充实验", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#view-chat").classList.contains("active"));
-  assert.equal(workflows.get("new-topic").stage, "plan_full");
-  assert.equal(workflows.get("new-topic").full_rounds[0].results.length, 2);
-  await research_page("overview");
-  await page.getByText("历次完整实验", { exact: true }).click();
-  assert.match(await page.locator("#research-auto-panel").textContent(), /完整实验轮次: 2/);
-  await page.locator(".research-auto-history").getByRole("button", { name: "综合分析", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector("#files-preview-path").textContent.endsWith("rounds/full-001-r20/analysis.md"));
-  await research_page("overview");
-  const history = page.locator(".research-auto-history");
-  if (!(await history.evaluate((element) => element.open))) await history.locator("summary").click();
-  await history.getByRole("button", { name: "打开论文 PDF", exact: true }).click();
-  await page.waitForFunction(() => document.querySelector(".research-workspace").dataset.page === "writing" && !document.querySelector("#research-latex-pdf").hidden);
-  assert.equal(calls.filter(({ cmd }) => cmd === "research_latex_pdf").at(-1).args.pdfPath, ".kanzei/research/new-topic/rounds/full-001-r20/latex/paper.pdf");
+  assert.equal(await page.locator("#research-auto-panel").count(), 0);
+  await research_page("chat");
+  assert.equal(calls.filter(({ cmd }) => cmd === "process_create").at(-1).args.researchTopic, "new-topic");
+  assert.equal(calls.some(({ cmd }) => cmd.startsWith("research_workflow_")), false);
   await research_page("overview");
   await topic("alpha-study");
   // 旧项目完整快照迟到时，不得覆盖新项目的材料、标题或报告。
@@ -385,7 +275,7 @@ try {
   assert.equal(await page.locator("#research-cards .research-card").count(), 0);
   await research_page("chat");
   assert.equal(calls.filter(({ cmd }) => cmd === "process_create").at(-1).args.projectDir, project_b);
-  await space("dev");
+  await space("dev-auto");
   assert.equal(await page.evaluate(async () => (await import("./03-shell.js")).currentProject), project);
   await space("research");
   assert.equal(await page.locator("#research-topic-select").inputValue(), "other-alpha");

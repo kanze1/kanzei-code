@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub(super) struct WorkInput {
-    /// next/claim 保留旧工作流；其余动作用于 work_units_v1。
+    /// 队列决策、Work Unit 生命周期、计划修订、验证作业及交接；合法动作见 enum。
     pub(super) action: String,
     /// next=true 时显式读取完整状态；默认返回有界决策摘要。
     #[serde(default)]
@@ -62,8 +62,10 @@ pub(super) struct WorkInput {
     pub(super) observed_head: Option<String>,
     #[serde(default)]
     pub(super) observed_worktree_hash: Option<String>,
+    /// handoff 必填：本次声明范围内已满足的完成条件。
     #[serde(default)]
     pub(super) criterion: Option<String>,
+    /// 可复核的文件、测试、提交或交付记录引用；handoff 不能为空。
     #[serde(default)]
     pub(super) evidence_refs: Vec<String>,
     /// handoff 必填:work_item/batch 只记局部交付;request/goal 需匹配当前委托。内部记录,勿向用户复述。

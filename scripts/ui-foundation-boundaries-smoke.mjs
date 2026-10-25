@@ -41,7 +41,7 @@ try {
   else globalThis.document = initialDocument;
 }
 const startup = new Set(roots.flatMap(name => [...reachable(name)]));
-for (const name of ["19-research.js", "19-research-auto.js", "19-research-navigation.js"]) assert(!startup.has(name), `${name} eagerly loaded`);
+for (const name of ["19-research.js", "19-research-navigation.js"]) assert(!startup.has(name), `${name} eagerly loaded`);
 function cycles(input) {
   let index = 0; const indices = new Map(), low = new Map(), stack = [], onStack = new Set(), result = [];
   function visit(name) {

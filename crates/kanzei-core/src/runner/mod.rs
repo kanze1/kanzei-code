@@ -10,8 +10,8 @@ use kanzei_harness::{
     tolerant_parse, tool::repair_hint, AgentDef, Effect, HarnessSnapshot, Tool, ToolCtx,
 };
 use kanzei_llm::{
-    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Role, Route,
-    ToolSpec, Usage,
+    FinishReason, LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Route, ToolSpec,
+    Usage,
 };
 
 mod event;
@@ -24,9 +24,8 @@ pub(crate) mod recovery;
 pub use metrics::*;
 mod context;
 mod observations;
-pub use observations::{project_observation_context, ObservationProjection};
-mod redundancy;
 pub(crate) use context::*;
+pub use observations::{project_observation_context, ObservationProjection};
 mod compaction;
 pub use compaction::DigestModel;
 mod item_context;
@@ -54,22 +53,14 @@ pub(crate) use tool_exec::*;
 
 pub(crate) use compaction::*;
 
-pub(crate) use redundancy::*;
-
 use event::{drain_task_events, preview};
 
-/// ASK 的交互边界。主代理的手动运行允许把问题交给用户；并行线与自举运行
-/// 必须非交互，否则一个后台 ASK 会把整条自动链路挂在桌面弹窗上。
-///
-/// D-281 第三档 `AutoAllow`：自动轮在用户勾选「自动放行」时的策略——不弹窗
-/// （`allows_permission_prompt()` 仍 false），但权限询问**直接放行**并落
-/// `PermissionResolved(allow, "auto_allow")` 事件保可审计，而不是像
-/// `NonInteractive` 那样短路 declined。自动放行放的是**权限**；问题工具
-/// （question）在非交互模式要求模型自行决定并持久留档，不伪造用户回答。
+/// 提问与权限提示分别处理。交互模式接收真实用户答复；自主模式可记录重要决定
+/// 和必要事实缺口。`AutoAllow` 仅改变权限提示策略，自主决定不能作为用户授权。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AskPolicy {
     Interactive,
-    /// 自动模式的手动输入：问题持久留档，工具权限仍由用户审批。
+    /// Auto 的手动输入：记录自主决定，工具权限仍允许交互提示。
     DeferredQuestions,
     NonInteractive,
     AutoAllow,
@@ -80,7 +71,7 @@ impl AskPolicy {
         matches!(self, Self::Interactive | Self::DeferredQuestions)
     }
 
-    /// 问题留档与工具权限分别判断，手动输入不能让自动模式退回同步提问。
+    /// question 使用决策记录通道；不要求普通实现选择逐个留档。
     pub fn records_questions(self) -> bool {
         !matches!(self, Self::Interactive)
     }
@@ -88,7 +79,7 @@ impl AskPolicy {
 
 pub struct RunnerConfig {
     pub digest_model: Option<DigestModel>,
-    /// R-322:本轮门禁强度。决定引擎对**任务判断**介入多深(冗余提醒等);
+    /// R-322:本轮门禁强度。决定引擎对**任务判断**介入多深(续跑提示与队列停止判断);
     /// 权限、托管围栏与事件真源不受它影响。默认 `Autonomous` = 引入前行为。
     pub intensity: kanzei_harness::HarnessIntensity,
     pub model: String,
@@ -246,12 +237,6 @@ pub(crate) mod testutil {
             input: serde_json::json!({ "command": command }),
         }])
     }
-    pub fn result_content(part: &Part) -> String {
-        match part {
-            Part::ToolResult { content, .. } => content.clone(),
-            _ => String::new(),
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -340,11 +325,12 @@ mod tests {
 
         compact_messages_for_retry(&mut messages, &mut traces);
 
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 3);
         assert!(
             matches!(messages[0].parts[0], Part::Text { ref text } if text.contains("工具结果"))
         );
-        assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text == "当前任务"));
+        assert!(matches!(messages[1].parts[0], Part::Text { ref text } if text == "原始任务"));
+        assert!(matches!(messages[2].parts[0], Part::Text { ref text } if text == "当前任务"));
     }
 
     #[test]
@@ -417,7 +403,7 @@ mod tests {
             }]),
             Message::tool_results(vec![Part::ToolResult {
                 call_id: "call_1".into(),
-                content: "构建失败".into(),
+                content: format!("构建失败 {}", "source diagnostic ".repeat(1_000)),
                 is_error: true,
             }]),
             Message::assistant(vec![Part::ToolCall {
@@ -427,7 +413,7 @@ mod tests {
             }]),
             Message::tool_results(vec![Part::ToolResult {
                 call_id: "call_2".into(),
-                content: "构建失败".into(),
+                content: format!("构建失败 {}", "source diagnostic ".repeat(1_000)),
                 is_error: true,
             }]),
             Message::user_text("当前任务"),
@@ -435,7 +421,7 @@ mod tests {
         let mut recoveries = 0;
         let mut traces = Vec::new();
 
-        // 第一级:有界压缩。被丢弃的是除当前消息外的整段历史。
+        // The first stage bounds older observations while preserving both human inputs.
         assert!(recover_context_overflow(
             &mut messages,
             &mut recoveries,
@@ -443,22 +429,26 @@ mod tests {
         ));
         assert_eq!(traces.len(), 1, "第一次压缩应产生一条轨迹摘要");
         let first: serde_json::Value = serde_json::from_str(&traces[0]).unwrap();
-        assert_eq!(first["dropped_messages"], 5);
+        assert_eq!(first["dropped_messages"], 4);
         assert_eq!(first["tools"]["bash"], 2, "被丢弃段的工具画像应被沉淀");
         assert_eq!(first["failures"][0]["tool"], "bash", "失败信号应随轨迹沉淀");
         assert_eq!(first["failures"][0]["count"], 2);
-        assert!(first["preview"]
-            .as_str()
-            .is_some_and(|s| s.contains("原始任务")));
+        assert!(messages.contains(&Message::user_text("原始任务")));
 
-        // 第二级:激进压缩。当前消息外的整段(含上一级压缩记录)再次沉淀。
+        // The second stage removes observations while retaining both human inputs.
         assert!(recover_context_overflow(
             &mut messages,
             &mut recoveries,
             &mut traces
         ));
         assert_eq!(traces.len(), 2, "第二次压缩应追加一条轨迹摘要");
-        assert_eq!(messages.len(), 1, "激进压缩后只剩当前消息");
+        assert_eq!(
+            messages,
+            vec![
+                Message::user_text("原始任务"),
+                Message::user_text("当前任务")
+            ]
+        );
 
         // 第三级:超过有界上限,拒绝继续恢复且不新增轨迹。
         assert!(!recover_context_overflow(

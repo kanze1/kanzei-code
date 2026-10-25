@@ -7,7 +7,7 @@ export function mergeWorkspacePrefs(current, patch) {
     if (!object(update)) { result[project] = structuredClone(update); continue; }
     if (!object(result[project])) result[project] = {};
     for (const [section, value] of Object.entries(update)) {
-      if (["dev", "research"].includes(section) && object(value)) {
+      if (["dev-auto", "research"].includes(section) && object(value)) {
         result[project][section] = { ...(object(result[project][section]) ? result[project][section] : {}), ...structuredClone(value) };
       } else if (section === "topic_states" && object(value)) {
         if (!object(result[project].topic_states)) result[project].topic_states = {};

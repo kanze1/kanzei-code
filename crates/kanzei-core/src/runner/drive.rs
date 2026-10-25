@@ -1,6 +1,6 @@
 //! 驱动域(R-155 B8):run_once / run_once_with_parts 整体搬迁,不动内部。
 //! R-155 B8 完成整体搬迁；后续把工具目录与消息提交拆到独立模块。
-//! calls[i]↔results[i] 下标对齐不变式跨 tool_exec/redundancy/drive 三文件。
+//! 工具调用与结果按 ID 配对；并行调度、召回和提交保持调用顺序。
 //! 设计 §C 要点 1:run_once 是动态分发边界——驱动、subagent、tool_exec 的所有
 //! 异步递归都经它(子代理递归经 dyn Box 断开无限类型,见 subagent.rs)。
 //! 签名即锁:改动必须同步 mod.rs 的导出与全部调用方。
@@ -10,7 +10,6 @@ use super::*;
 
 mod question;
 mod tool_catalog;
-use tool_catalog::append_deferred_process_hint;
 use tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec};
 mod history;
 use history::{
@@ -35,7 +34,6 @@ mod context_budget;
 use context_budget::enforce_context_budget;
 mod halt;
 use halt::{append_halted_tool_results, halt_signalled, wait_for_retry};
-mod batch;
 #[cfg(test)]
 mod execution_tests;
 
@@ -101,6 +99,9 @@ pub fn run_once_with_parts<'a>(
     Box::pin(async move {
         anyhow::ensure!(config.hosted_tools.is_empty(), "Ambient provider-hosted tools are unsupported: use the registered websearch tool so permission, unattended policy, search budgets and source receipts apply before dispatch");
         let mut run_ctx = ctx.clone();
+        if snapshot.profile() == kanzei_harness::ProfileKind::Isolated {
+            run_ctx.invoked_skills = None;
+        }
         if run_ctx.execution_identity.is_none() {
             run_ctx.execution_identity = Some(Arc::new(
                 kanzei_harness::execution::ExecutionIdentity::capture(&ctx.cwd, &ctx.project_root)?,
@@ -130,7 +131,6 @@ pub fn run_once_with_parts<'a>(
             mut futile_compactions,
             mut overflow_traces,
             mut calibration,
-            mut redundancy,
             mut recall,
             mut step,
         } = assemble_run_once(
@@ -138,7 +138,9 @@ pub fn run_once_with_parts<'a>(
             agent,
             config,
             prompt,
+            ctx,
             memory_hints,
+            ctx.invoked_skills.as_ref(),
             prior,
             initial_parts,
             subagent,
@@ -226,14 +228,6 @@ pub fn run_once_with_parts<'a>(
         // 掩盖了这一点;收尾落盘的触发面宽得多,不修就会真的跑出无上限的轮。
         let mut granted_extension: u32 = 0;
         let mut item_context = super::item_context::ItemContext::default();
-        let mut batch = batch::Batch::new(
-            ctx.project_workflow
-                && config.intensity == kanzei_harness::HarnessIntensity::Autonomous
-                && max_steps == 0
-                && tools
-                    .iter()
-                    .any(|tool| matches!(tool.name(), "edit" | "write" | "insert")),
-        );
         let mut input_requests = kanzei_harness::InputRequests::new(
             ctx.input_inbox.as_ref().and(ctx.async_mailbox.as_ref()),
         );
@@ -263,7 +257,8 @@ pub fn run_once_with_parts<'a>(
             // Deliver new input only after the preceding tool/result batch.
             if let Some(inbox) = &ctx.input_inbox {
                 for input in input_requests.take(inbox).map_err(anyhow::Error::msg)? {
-                    let message = Message::user_text(input.text);
+                    let message =
+                        crate::input_message(input.origin, &input.text, &input.attachments, &[]);
                     on_event(RunEvent::InputMessageCommitted {
                         input_id: input.id,
                         message: message.clone(),
@@ -305,21 +300,17 @@ pub fn run_once_with_parts<'a>(
                     .min(2),
             );
             // 收尾落盘信号一旦置位就保持到本轮结束——延长的每一步都要重复
-            // 这条指令,只在授予的那一步说一次,模型下一步就忘了自己在收尾。
+            // 这份预算事实；它只存在于当前请求，不写入对话历史。
             if winddown_signal.load(std::sync::atomic::Ordering::Relaxed) {
                 winddown_until_end = true;
             }
             let last_step = reached_step_ceiling(step, max_steps, granted_extension);
             // 显式预算和 task 默认预算参与收敛；主代理的 0 保持无步数截断。
             // 到达最后一步时收走工具并要求模型用文本收敛，防止工具/模型循环无限延长。
-            let budget_checkpoint = is_budget_checkpoint(step);
             let winddown = winddown_until_end;
-            let batch_prompt = batch.prepare(step, ctx);
             // Resolve this step's fixed wire inputs once. Admission, compaction and
             // provider retries must see the same system sections and tool schemas.
-            if let Some(instruction) =
-                budget_instruction(last_step, winddown, budget_checkpoint, step)
-            {
+            if let Some(instruction) = execution_limit_context(last_step, winddown) {
                 system.push(instruction);
                 system_sources.push(vec![(
                     "runtime/budget".into(),
@@ -367,7 +358,6 @@ pub fn run_once_with_parts<'a>(
                 &system,
                 step_specs,
                 &mut messages,
-                batch_prompt.as_deref(),
                 &context_report,
                 &system_sources,
                 &context_source_reads,
@@ -456,19 +446,15 @@ pub fn run_once_with_parts<'a>(
                                 Some(collection.await)
                             };
                             if let Some(result) = result {
-                                messages.push(Message::user_text(format!("子任务实际结果（任务返回不等于验收或交付）：\n{}\n请检查结果，处理失败，必要时用 task diff/adopt 整合改动并运行验证，再向用户报告。不要仅复述已派发。",result.content)));
+                                messages.push(Message::context_text(
+                                    kanzei_llm::MessageOrigin::Agent,
+                                    format!(
+                                        "子任务实际结果（任务返回不等于验收或交付）：\n{}",
+                                        result.content
+                                    ),
+                                ));
                                 continue;
                             }
-                        }
-                    }
-                    if !halted_by_user
-                        && !last_step
-                        && matches!(finish, FinishReason::EndTurn | FinishReason::StopSequence)
-                        && batch.is_closing()
-                    {
-                        if let Some(checkpoint) = batch.finish_and_resume(step, ctx) {
-                            messages.push(Message::user_text(checkpoint));
-                            continue;
                         }
                     }
                     recall.finish(if halted_by_user {
@@ -495,22 +481,13 @@ pub fn run_once_with_parts<'a>(
             // R-202 批4:task 子代理段(并行/后台两种派发 + 溢出上限 + 取消占位补齐)
             // 抽离为 run_subagent_calls,返回本步 task 结果表。
             let mut task_results: std::collections::HashMap<String, kanzei_harness::ToolOutput> =
-                run_subagent_calls(
-                    if batch.is_closing() { None } else { subagent },
-                    client,
-                    ctx,
-                    config,
-                    &calls,
-                    halt,
-                    &mut on_event,
-                )
-                .await;
+                run_subagent_calls(subagent, client, ctx, config, &calls, halt, &mut on_event)
+                    .await;
 
             // R-202 批5:普通工具执行段(并行预检 + wave/串行两条路径)抽离为
             // execute_tool_calls。提前退出(串行路径停止 / 权限用户拒绝)以
             // ToolRunOutcome::Stopped 表达,由调用方构造 halted RunSummary。
             let images_supported = route.supports_images();
-            batch.before_calls(&calls, ctx);
             let tool_outcome = execute_tool_calls(
                 config,
                 ctx,
@@ -529,7 +506,6 @@ pub fn run_once_with_parts<'a>(
                 &mut session_rules,
                 &mut messages,
                 step,
-                &batch,
             )
             .await?;
             let (mut results, pending_images) = match tool_outcome {
@@ -554,11 +530,9 @@ pub fn run_once_with_parts<'a>(
                     });
                 }
             };
-            batch.observe(&calls, &results, ctx);
-            // R-202 批6:步骤收尾(冗余/召回注入 + 工具结果落库 + 步末检查点 +
+            // 步骤收尾(失败召回 + 工具结果落库 + 步末检查点 +
             // MaxTokens/Refusal 终止 + last_step 收敛)抽离为 finalize_step。
             match finalize_step(
-                ctx,
                 &calls,
                 &mut results,
                 pending_images,
@@ -567,7 +541,6 @@ pub fn run_once_with_parts<'a>(
                 &finish,
                 last_step,
                 halt,
-                &mut redundancy,
                 &mut recall,
                 &mut on_event,
             )? {
@@ -629,31 +602,12 @@ enum StepOutcome {
     InputPending,
 }
 
-fn budget_instruction(
-    last_step: bool,
-    winddown: bool,
-    checkpoint: bool,
-    step: u32,
-) -> Option<String> {
+/// Temporary context describes a real execution limit, without periodic workflow reminders.
+fn execution_limit_context(last_step: bool, winddown: bool) -> Option<String> {
     if last_step {
-        Some("Execution budget: this is the final model step of the current run; tools are unavailable. \
-              Preserve the user's requested language, format and level of detail. Report the work \
-              actually completed and identify anything incomplete or unverified. Do not claim new \
-              tool actions. Existing files and conversation history remain available for continuation."
-              .into())
+        Some("Run step limit reached; tools are unavailable in this request. Report the current result, incomplete work and verification status in the user's requested format.".into())
     } else if winddown {
-        Some(
-            "Execution budget: only the granted closing steps remain. Stop expanding scope and \
-              leave a truthful, resumable checkpoint using the current workflow's existing rules. \
-              Preserve the user's delivery requirements and identify remaining work."
-                .into(),
-        )
-    } else if checkpoint {
-        Some(format!(
-            "Execution budget checkpoint at step {step}: review completed and remaining \
-                      work against the user's request. Continue within the requested scope; if a \
-                      required user decision prevents progress, state that dependency clearly."
-        ))
+        Some("Run budget: only granted closing steps remain. Preserve a resumable state and report current progress within the user's delivery requirements.".into())
     } else {
         None
     }
@@ -678,7 +632,6 @@ async fn stream_request_step(
     system: &[String],
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
-    batch_prompt: Option<&str>,
     context_report: &[(String, usize)],
     system_sources: &[Vec<(String, usize)>],
     context_source_reads: &[kanzei_harness::ContextSourceReport],
@@ -699,10 +652,7 @@ async fn stream_request_step(
         let projection = super::observations::project_observation_context(messages);
         let repeated_results = projection.repeated_results;
         let omitted_bytes = projection.omitted_bytes;
-        let mut request_messages = projection.messages.into_owned();
-        if let Some(prompt) = batch_prompt {
-            request_messages.push(Message::user_text(prompt));
-        }
+        let request_messages = projection.messages.into_owned();
         // 请求构造前记录本次估算:StepFinish 用真实 input tokens 反推校准因子,
         // 固定 system/tools 已由步级装配选好，与预算准入使用同一份输入。
         let last_estimated =
@@ -1307,7 +1257,6 @@ async fn execute_tool_calls(
     session_rules: &mut Vec<(String, String)>,
     messages: &mut Vec<Message>,
     step: u32,
-    batch: &batch::Batch,
 ) -> anyhow::Result<ToolRunOutcome> {
     for (_, name, _, _) in calls {
         auto_load_deferred_tool(snapshot, name, specs, context_report);
@@ -1325,7 +1274,7 @@ async fn execute_tool_calls(
         has_subagent: subagent.is_some(),
         session_approved,
         session_rules,
-        force_serial: serial_writer || batch.is_closing(),
+        force_serial: serial_writer,
         execution_policy: config.execution_policy,
     });
 
@@ -1365,7 +1314,6 @@ async fn execute_tool_calls(
             messages,
             step,
             pending_images: &mut Vec::new(),
-            batch,
         })
         .await;
     };
@@ -1393,17 +1341,9 @@ enum StepFinalOutcome {
     Return { halted_by_user: bool },
 }
 
-/// R-202 批6:步骤收尾——冗余提醒与失败召回注入、工具结果落库、步末停止检查点、
-/// MaxTokens/Refusal 终止判定与 last_step 收敛。
-///
-/// 行为与原内联段逐字节对齐(行为零变更):
-/// - redundancy.note_step / recall.note_step 先于结果回喂(R-100/R-162 同钩位);
-/// - commit_tool_results 合流 pending_images(R-249);
-/// - 步末检查点要求本步工具全部有终态(真实或取消占位),配对完整才收尾;
-/// - MaxTokens/Refusal 与 last_step 的收敛顺序不变。
+/// 失败召回、工具结果提交与停止判定；配对完整后才结束当前步骤。
 #[allow(clippy::too_many_arguments)] // 内部段函数,不对外暴露签名(R-202)。
 fn finalize_step(
-    ctx: &ToolCtx,
     calls: &[(String, String, serde_json::Value, String)],
     results: &mut Vec<Part>,
     pending_images: Vec<Part>,
@@ -1412,13 +1352,9 @@ fn finalize_step(
     finish: &FinishReason,
     last_step: bool,
     halt: Option<&CancellationToken>,
-    redundancy: &mut RedundancyWatch,
     recall: &mut RecallWatch<'_>,
     on_event: &mut (dyn FnMut(RunEvent) + Send),
 ) -> anyhow::Result<StepFinalOutcome> {
-    // R-100:工具结果回喂前就地注入冗余提醒(不阻断)。
-    // results 与 calls 按下标对齐(并行 wave 与串行路径同上),见 redundancy::note_step。
-    redundancy.note_step(&ctx.project_root, calls, results);
     // R-162:工具失败瞬间的事件触发召回(同款钩位,先于结果回喂)。
     // 命中则追加 [记忆命中 …] Packet 文本,不阻断、不改 is_error。
     recall.note_step(calls, results);
@@ -1453,16 +1389,17 @@ fn finalize_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kanzei_llm::Role;
     use serde_json::json;
 
     #[test]
     fn execution_budget_preserves_delivery_contract_and_stays_workflow_neutral() {
-        let final_step = budget_instruction(true, false, false, 10).unwrap();
-        assert!(final_step.contains("user's requested language, format and level of detail"));
+        let final_step = execution_limit_context(true, false).unwrap();
+        assert!(final_step.contains("user's requested format"));
         assert!(!final_step.contains("tracker"));
         assert!(!final_step.contains("commit"));
         assert!(!final_step.contains("5 lines"));
-        assert!(budget_instruction(false, false, false, 1).is_none());
+        assert!(execution_limit_context(false, false).is_none());
     }
 
     fn bash_call(id: &str) -> (String, String, serde_json::Value, String) {
@@ -1633,7 +1570,6 @@ mod tests {
 
     #[test]
     fn finalize_step_正常落库_继续下一轮() {
-        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
         let mut messages: Vec<Message> = Vec::new();
         let mut results = vec![Part::ToolResult {
             call_id: "c1".into(),
@@ -1642,7 +1578,6 @@ mod tests {
         }];
         let calls = vec![bash_call("c1")];
         let outcome = finalize_step(
-            &ctx,
             &calls,
             &mut results,
             Vec::new(),
@@ -1651,7 +1586,6 @@ mod tests {
             &FinishReason::EndTurn,
             false,
             None,
-            &mut RedundancyWatch::default(),
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
@@ -1663,8 +1597,57 @@ mod tests {
     }
 
     #[test]
+    fn repeated_queries_keep_original_results_when_failure_recall_is_disabled() {
+        let calls: Vec<_> = ["g1", "g2"]
+            .into_iter()
+            .map(|id| {
+                (
+                    id.to_owned(),
+                    "bash".to_owned(),
+                    json!({"command":"git status --short"}),
+                    r#"{"command":"git status --short"}"#.to_owned(),
+                )
+            })
+            .collect();
+        let original = "same observed output\n";
+        let mut results: Vec<_> = ["g1", "g2"]
+            .into_iter()
+            .map(|id| Part::ToolResult {
+                call_id: id.into(),
+                content: original.into(),
+                is_error: false,
+            })
+            .collect();
+        let mut messages = Vec::new();
+        finalize_step(
+            &calls,
+            &mut results,
+            Vec::new(),
+            &mut messages,
+            2,
+            &FinishReason::EndTurn,
+            false,
+            None,
+            &mut RecallWatch::new(None),
+            &mut |_| {},
+        )
+        .unwrap();
+        let contents: Vec<_> = messages
+            .iter()
+            .flat_map(|message| &message.parts)
+            .filter_map(|part| {
+                if let Part::ToolResult { content, .. } = part {
+                    Some(content.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(contents, [original, original]);
+    }
+
+    #[test]
     fn finalize_step_max_tokens_返回非halted() {
-        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
         let mut messages: Vec<Message> = Vec::new();
         // note_step 的 debug_assert 要求 calls↔results 下标对齐(对齐不变式)。
         let mut results = vec![Part::ToolResult {
@@ -1674,7 +1657,6 @@ mod tests {
         }];
         let calls = vec![bash_call("c1")];
         let outcome = finalize_step(
-            &ctx,
             &calls,
             &mut results,
             Vec::new(),
@@ -1683,7 +1665,6 @@ mod tests {
             &FinishReason::MaxTokens,
             false,
             None,
-            &mut RedundancyWatch::default(),
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
@@ -1723,7 +1704,6 @@ mod tests {
 
     #[test]
     fn finalize_step_last_step_break收敛() {
-        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
         let mut messages: Vec<Message> = Vec::new();
         let mut results = vec![Part::ToolResult {
             call_id: "c1".into(),
@@ -1732,7 +1712,6 @@ mod tests {
         }];
         let calls = vec![bash_call("c1")];
         let outcome = finalize_step(
-            &ctx,
             &calls,
             &mut results,
             Vec::new(),
@@ -1741,7 +1720,6 @@ mod tests {
             &FinishReason::EndTurn,
             true,
             None,
-            &mut RedundancyWatch::default(),
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
@@ -1752,7 +1730,6 @@ mod tests {
     fn finalize_step_停止置位_返回halted() {
         let token = CancellationToken::new();
         token.cancel();
-        let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
         let mut messages: Vec<Message> = Vec::new();
         let mut results = vec![Part::ToolResult {
             call_id: "c1".into(),
@@ -1761,7 +1738,6 @@ mod tests {
         }];
         let calls = vec![bash_call("c1")];
         let outcome = finalize_step(
-            &ctx,
             &calls,
             &mut results,
             Vec::new(),
@@ -1770,7 +1746,6 @@ mod tests {
             &FinishReason::EndTurn,
             false,
             Some(&token),
-            &mut RedundancyWatch::default(),
             &mut RecallWatch::new(None),
             &mut |_| {},
         );
@@ -1901,14 +1876,14 @@ mod commit_ack_tests {
         harness.add(ProbeComponent(executions.clone()));
         let snapshot = harness
             .resolve(&ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile: ProfileKind::DevAuto,
                 cwd: root.clone(),
                 project_root: root.clone(),
                 config: Arc::new(KanzeiConfig::default()),
             })
             .unwrap();
         let agent: AgentDef = serde_json::from_value(json!({
-            "name":"fixture", "profile":"dev", "mode":"primary", "steps":3, "system":"test"
+            "name":"fixture", "profile":"dev-auto", "mode":"primary", "steps":3, "system":"test"
         }))
         .unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

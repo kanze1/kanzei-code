@@ -91,7 +91,7 @@ async fn assert_permission_parity(resources: &[&str]) {
     harness.add(PermissionRules);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),
@@ -194,7 +194,7 @@ async fn parallel_permission_unresolved_ask_uses_serial_user_decision() {
     harness.add(PermissionRules);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(Default::default()),

@@ -161,7 +161,7 @@ try {
   const root = await invoke("general_chat_open");
   let lines = await invoke("process_list", { projectDir: root });
   const original = lines[0];
-  check(original.profile === "dev" && original.subagent_mode === "auto" && !("phase_pipeline" in original) && !original.tracker_writes, "General recipient retains Harness with Auto delegation");
+  check(original.profile === "dev-auto" && original.subagent_mode === "auto" && !("phase_pipeline" in original) && !original.tracker_writes, "General recipient retains Harness with Auto delegation");
   await openComposerOptions(page);
   check(await page.locator("#subagent-control").isVisible(), "General chat exposes the subagent switch");
   await closeComposerOptions(page);
@@ -178,7 +178,7 @@ try {
   const catalog = submitted.tools.map(tool => tool.function.name);
   check(["read", "write", "edit", "bash", "task", "tool_search", "memory_search"].every(name => catalog.includes(name)), "Model catalog retains files, shell, memory and agents");
   check(!["req", "defect", "work", "test_record", "architecture"].some(name => catalog.includes(name)), "Model catalog excludes project workflow tools");
-  check(!JSON.stringify(submitted.messages.filter(m => m.role === "system")).includes("来源判断"), "General prompt excludes project origin and workflow instructions");
+  check(!JSON.stringify(submitted.messages.filter(m => m.role === "system")).includes("运行起点快照"), "General prompt excludes project origin and workflow instructions");
   await page.locator("#new-chat").click();
   await until(async () => (await invoke("process_list", { projectDir: root })).length === 2, "New independent chat");
   await page.waitForFunction(() => !document.getElementById("new-chat").hasAttribute("aria-busy"));
@@ -189,7 +189,7 @@ try {
   await page.keyboard.press("Escape");
   await page.evaluate(async id => { const { switchProcess } = await import("./09-sessions.js"); await switchProcess(id, true); }, original.id);
   check((await page.locator("#messages").innerText()).includes("GENERAL_INPUT"), "Switching history restores the original conversation");
-  await invoke("run_prompt", { projectDir: root, processId: original.id, prompt: "FORGED_DEV: 保持聊天权限", profile: "dev", agent: "dev-auto", autonomous: true, executionBatch: true, model: "stub:test" });
+  await invoke("run_prompt", { projectDir: root, processId: original.id, prompt: "FORGED_DEV: 保持聊天权限", profile: "dev-auto", agent: "dev-auto", autonomous: true, executionBatch: true, model: "stub:test" });
   await until(async () => requests.some(r => JSON.stringify(r.messages).includes("FORGED_DEV")) && !(await invoke("process_list", { projectDir: root })).some(p => p.running), "Forged run completes as chat");
   const forged = requests.find(r => JSON.stringify(r.messages).includes("FORGED_DEV"));
   check(forged.tools.some(tool => tool.function.name === "write") && !forged.tools.some(tool => tool.function.name === "work"), "Stale autonomous flags retain general tools without project workflow");
@@ -239,7 +239,7 @@ try {
     scheduledArtifact ||= (await readFile(path.join(root, "artifacts", workspace, "schedule-artifact.txt"), "utf8").catch(() => "")) === "GENERAL_SCHEDULE_ARTIFACT";
   }
   check(scheduledArtifact, "General schedule persists a real file in its run workspace");
-  const rewindChat = await invoke("process_create", { projectDir: root, profile: "dev", subagentMode: "off" });
+  const rewindChat = await invoke("process_create", { projectDir: root, profile: "dev-auto", subagentMode: "off" });
   const rewindText = "GENERAL_REWIND_FILE: 创建可回退文件";
   await invoke("run_prompt", { projectDir: root, processId: rewindChat.id, prompt: rewindText, model: "stub:test", autoAllow: true });
   await until(async () => !(await invoke("process_list", { projectDir: root })).some(process => process.running), "Rewind file creation");
@@ -289,7 +289,7 @@ try {
   await page.locator("#general-chat-link").click(); await page.getByRole("menuitem", { name: "project", exact: true }).click();
   await until(async () => await page.locator("body").getAttribute("data-general-chat") === "false" && (await page.locator("#messages").innerText()).includes("GENERAL_INPUT"), "Link with history");
   const linkedId = await page.evaluate(async () => (await import("./03-shell.js")).activeProcessId);
-  check((await invoke("process_list", { projectDir: prefs.current })).find(p => p.id === linkedId)?.profile === "dev", "Project association creates an ordinary conversation");
+  check((await invoke("process_list", { projectDir: prefs.current })).find(p => p.id === linkedId)?.profile === "dev-auto", "Project association creates an ordinary conversation");
   await page.locator("#workbench-general-chat").click();
   await until(async () => await page.locator("body").getAttribute("data-general-chat") === "true", "Original remains accessible");
   await page.waitForFunction(() => !document.getElementById("workbench-general-chat").hasAttribute("aria-busy") && !document.getElementById("general-chat-link").disabled);

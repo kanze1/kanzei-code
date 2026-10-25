@@ -1287,7 +1287,7 @@ pub(crate) mod tests {
             "saved"
         );
         let ctx = kanzei_harness::ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),

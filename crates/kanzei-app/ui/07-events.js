@@ -716,7 +716,7 @@ defer(() => {
       setAutoRounds(p.sessionId || activeSessionId, action.rounds ?? currentAutoRounds(p.sessionId || activeSessionId));
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
-      const reasonText = autoFailStopReasonText(action.reason, action.message);
+      const reasonText = autoFailStopReasonText(action.reason);
       addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
       log(`${t("鞭挞停止")}:${reasonText}`);
       setAutoStopReason(reasonText);
@@ -821,12 +821,7 @@ defer(() => {
       setNoActionRounds(0);
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       const reason = action.reason;
-      if (reason === "ResearchWaiting" || reason === "ResearchCompleted") {
-        applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const message = action.message || t("请查看研究课题概览");
-        setAutoStopReason(message, reason === "ResearchCompleted" ? "completed" : "waiting");
-        addMessage("notice", message);
-      } else if (reason === "Paused") {
+      if (reason === "Paused") {
         addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,在鞭挞设置里点「恢复鞭挞」继续")}`);
         setAutoStopReason("已暂停");
       } else if (reason === "StopAfterRound") {
@@ -834,10 +829,6 @@ defer(() => {
         addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
         log(`${t("鞭挞停止")}:${t("本轮后停")}`);
         setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
-      } else if (reason === "MaxRounds") {
-        // 兼容旧版事件:新引擎不会产生 MaxRounds,旧事件也不能向用户宣称仍有次数硬上限。
-        addMessage("notice", `${t("鞭挞停止")}:${t("旧版鞭挞状态已兼容,请重新触发")}`);
-        setAutoStopReason(t("鞭挞停止"));
       } else if (reason === "GoalMet") {
         // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
         clearGoalInput();

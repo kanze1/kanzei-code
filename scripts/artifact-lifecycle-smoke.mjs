@@ -160,8 +160,8 @@ if ($actual -ne $Code) { throw "Expected exit $Code, received $actual" }
   await store.finish(linked.id,"success");check(fs.readFileSync(path.join(outside,"keep.txt"),"utf8")==="keep user bytes","Cleanup removes an owned directory's link without following it into user data");
 
   const legacyRoot=path.join(root,"legacy-temp");fs.mkdirSync(legacyRoot);
-  const creator=path.join(root,"crates/kanzei-tools/src/research_workflow/tests.rs");fs.mkdirSync(path.dirname(creator),{recursive:true});fs.writeFileSync(creator,'// kz-auto-research- creator evidence');
-  const deadFixture=path.join(legacyRoot,"kz-auto-research-99999999-123"),liveFixture=path.join(legacyRoot,"kz-auto-research-"+process.pid+"-123");
+  const creator=path.join(root,"crates/kanzei-tools/src/conventions.rs");fs.mkdirSync(path.dirname(creator),{recursive:true});fs.writeFileSync(creator,'// kanzei-conventions-test- creator evidence');
+  const deadFixture=path.join(legacyRoot,"kanzei-conventions-test-99999999-123"),liveFixture=path.join(legacyRoot,"kanzei-conventions-test-"+process.pid+"-123");
   for(const folder of [deadFixture,liveFixture]){fs.mkdirSync(folder);fs.writeFileSync(path.join(folder,"result.json"),'{"actual":"historical"}');}
   const plan=await planLegacy(store,legacyRoot);check(plan.fixtures.length===1&&plan.retained.length===1,"Legacy inventory requires a known creator and a dead owner; an active owner stays untouched");
   const imported=await applyLegacy(store,plan);

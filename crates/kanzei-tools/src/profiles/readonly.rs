@@ -1,3 +1,5 @@
+//! Readonly analysis defaults. Runtime admission also enforces each tool's
+//! audited readonly contract, including the concrete operation of mixed tools.
 use kanzei_harness::{
     rule, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
     ResolveCtx,
@@ -10,42 +12,30 @@ impl Component for ReadonlyProfile {
         if ctx.profile != ProfileKind::Readonly {
             return Ok(());
         }
-        // 只读档位(R-102):分析类任务免配权限直接跑。
-        // 工具集 = Base 的只读族(read/glob/grep/files/git 只读子命令) + webfetch;
-        // 权限强制(read/write/edit 硬 deny、bash 禁用提示替代)在批2 落码,
-        // 批1 只建档位概念与 agent,装配必须能解析出这个 profile。
-        // 权限强制(批2):write/edit/bash 硬 deny(带替代指引),只读族显式放行。
-        for action in ["read", "glob", "grep", "files"] {
+        for action in ["read", "glob", "grep", "files", "symbols", "webfetch"] {
             draft.permissions.push(rule(action, "*", Effect::Allow));
         }
-        // git 只读子命令放行;状态/差异/日志是分析任务的主干工具。
         for subcommand in ["status", "diff", "log"] {
             draft
                 .permissions
                 .push(rule("git", subcommand, Effect::Allow));
         }
-        // UI2-0926 #13 复核:git 工具新增的 `init`(建库)是写操作,只读档位硬拒绝——不落到默认 Ask。
         draft.permissions.push_managed_hard_deny(
             rule("git", "init", Effect::Deny),
             None,
-            Some("只读档位不建仓库:需要版本管理请切到开发档,或告诉用户手动 git init"),
+            Some("只读档位不建仓库；需要实施时说明所需变更。"),
         );
-        // 只读档位下联网抓取放行(分析"外部事实"时的主要只读通道)。
-        draft.permissions.push(rule("webfetch", "*", Effect::Allow));
-        // 写入、命令与专用副作用工具:硬 deny 且带合法替代指引——硬 deny 只说"不准走这条路",
-        // 不说"那该怎么走"就是能力死区,模型会去找旁路(D-173)。
-        // 用 ManagedResource 而非裸 push_hard_deny,拒绝理由能点名替代工具。
-        // D-663:process/browser/latex/plot 也会启动进程或落盘,不能落到默认 Ask。
+        // Known effectful tools are denied at the ruleset as well as runtime
+        // admission. New tools still need an audited readonly access contract.
         for action in [
             "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
         ] {
             draft.permissions.push_managed_hard_deny(
                 rule(action, "*", Effect::Deny),
                 None,
-                Some("只读档位:write/edit/insert/bash/sandbox/process/browser/latex/plot 一律禁止;需要结果请用 read/glob/grep/files/git status|diff|log/webfetch 观察,确需修改或执行副作用命令则告诉用户手动执行"),
+                Some("只读档位保持用户资源不变；可继续使用观察工具，说明需要实施的变更。"),
             );
         }
-        // task 子代理天然只读(SubagentBase 快照),无需规则——runner 直接放行。
         draft.agents.insert(
             "readonly",
             AgentDef {
@@ -54,16 +44,7 @@ impl Component for ReadonlyProfile {
                 model: "primary".into(),
                 mode: AgentMode::Primary,
                 steps: 0,
-                system: "You are the read-only analysis agent. You may READ, SEARCH and \
-                         EXPLORE the repository (read/glob/grep/files/git status/diff/log, \
-                         webfetch), but you MUST NOT modify anything or start side-effecting tools: no \
-                         write, edit, insert, bash, process, browser, latex or plot. Answer the user's \
-                         question from what you can observe; if an answer requires writing, running commands \
-                         or producing an artifact, say exactly what would need to change and let the user do it. \
-                         Use question for choices: interactive mode asks the user, autonomous mode records \
-                         your decision in the runner's audit log. This control-plane logging is permitted \
-                         in read-only mode; it does not authorize edits to project files or user preferences."
-                    .into(),
+                system: include_str!("readonly_system.md").into(),
             },
         );
         Ok(())

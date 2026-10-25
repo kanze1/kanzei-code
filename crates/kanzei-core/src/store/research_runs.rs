@@ -5,6 +5,23 @@ use rusqlite::{params, OptionalExtension};
 use super::{now_ms, ResearchRunEvent, ResearchRunRecord, SessionStore, StoreError};
 
 impl SessionStore {
+    /// Admit a new result atomically; updates to an existing run use upsert_research_run.
+    pub fn insert_research_run(&self, run: &ResearchRunRecord) -> Result<(), StoreError> {
+        let transaction = rusqlite::Transaction::new_unchecked(
+            &self.connection,
+            rusqlite::TransactionBehavior::Immediate,
+        )?;
+        if self.get_research_run(&run.result_id)?.is_some() {
+            return Err(StoreError::InvalidInput(format!(
+                "实验 result_id `{}` 已存在；请回读原记录或使用新编号",
+                run.result_id
+            )));
+        }
+        self.upsert_research_run(run)?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn upsert_research_run(&self, run: &ResearchRunRecord) -> Result<(), StoreError> {
         if run.result_id.trim().is_empty() {
             return Err(StoreError::InvalidInput(
@@ -369,6 +386,57 @@ impl SessionStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_admission_rejects_existing_id_without_replacing_its_owner_or_events() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let original = run();
+        store.insert_research_run(&original).unwrap();
+        store
+            .acquire_research_environment_lease(
+                "ENV-original",
+                &original.result_id,
+                "managed",
+                60_000,
+            )
+            .unwrap();
+        store
+            .append_research_run_event(&original.result_id, "run_started", "{}")
+            .unwrap();
+        let mut duplicate = original.clone();
+        duplicate.topic = "another-topic".into();
+        duplicate.execution_json = "must not replace original command".into();
+        assert!(store.insert_research_run(&duplicate).is_err());
+        let retained = store
+            .get_research_run(&original.result_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(retained.topic, original.topic);
+        assert_eq!(retained.execution_json, original.execution_json);
+        assert!(store
+            .acquire_research_environment_lease("ENV-original", "another-run", "managed", 60_000)
+            .is_err());
+        assert_eq!(
+            store
+                .list_research_run_events(&original.result_id, 0)
+                .unwrap()
+                .len(),
+            1
+        );
+        duplicate.result_id = "E-001-02".into();
+        store.insert_research_run(&duplicate).unwrap();
+        let mut completed = original;
+        completed.status = "completed".into();
+        store.upsert_research_run(&completed).unwrap();
+        assert_eq!(
+            store
+                .get_research_run(&completed.result_id)
+                .unwrap()
+                .unwrap()
+                .status,
+            "completed"
+        );
+    }
     use crate::store::SessionStore;
 
     fn run() -> ResearchRunRecord {

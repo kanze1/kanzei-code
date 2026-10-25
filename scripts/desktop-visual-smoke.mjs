@@ -52,7 +52,7 @@ try {
   await app.page.locator('#composer-more').click();await app.page.locator('#native-desktop-choose').click();
   await app.page.locator('#native-desktop-dialog .native-window-list button').filter({hasText:window.title}).click();
   await app.page.locator('#native-desktop-dialog').waitFor({state:'hidden'});
-  await app.invoke('run_prompt',{projectDir:app.project,processId:line.id,prompt:'DESKTOP_VISUAL: 按截图点击自绘输入区，输入文字、组合键并提交。',profile:'dev',agent:'dev-pair',model:'stub:test',autonomous:true,autoAllow:true});
+  await app.invoke('run_prompt',{projectDir:app.project,processId:line.id,prompt:'DESKTOP_VISUAL: 按截图点击自绘输入区，输入文字、组合键并提交。',profile: "dev-pair",agent:'dev-pair',model:'stub:test',autonomous:true,autoAllow:true});
   await until(async()=>{assert.equal(app.errors.length,0,app.errors.join('; '));return done&&!(await app.invoke('collaboration_snapshot',{projectDir:app.project})).find(row=>row.process_id===line.id)?.running;},'Visual provider workflow completes',180000);
   const state=JSON.parse(await readFile(path.join(run,'state.json'),'utf8'));
   check(!observed.snapshot.elements.some(element=>element.editable),'Custom-drawn input has no UIA editable control');

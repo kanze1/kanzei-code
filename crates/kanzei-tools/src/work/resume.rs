@@ -1,8 +1,4 @@
-//! 恢复现场采集(从 work.rs 拆出)。
-//!
-//! 只服务 `work next` 的 Resume 裁决:把"现在到底改了什么"这件引擎一条命令就能
-//! 回答的事直接交出去,替掉逐轮重跑的 `git status` → `git diff` → `git log`。
-//! 单独成文件也是巨石回涨闸的要求——`work.rs` 已在 Top-30 里,新增能力不该继续摊在它身上。
+//! 为恢复工作提供分支、HEAD 和未提交改动的有界快照。
 
 use serde::Serialize;
 
@@ -21,8 +17,7 @@ pub struct ResumeWorktree {
     pub uncommitted_files: usize,
 }
 
-/// 清单最多列这么多个文件;超出只报总数。二十个足够看清"改动面在哪",
-/// 再多就变成噪音,而且真到那个规模,现场本身就该先提交而不是继续恢复。
+/// 清单的展示预算；超出时保留总数，是否提交由实际任务决定。
 const RESUME_WORKTREE_MAX_FILES: usize = 20;
 
 /// 采集恢复现场。没有未提交改动就返回 None——干净树没有现场要交代。

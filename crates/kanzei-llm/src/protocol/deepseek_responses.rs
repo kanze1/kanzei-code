@@ -18,7 +18,7 @@ pub fn build_body(request: &LlmRequest) -> Value {
                         Part::Text { text } => input.push(json!({
                             "type": "message",
                             "role": "user",
-                            "content": [{"type": "input_text", "text": text}],
+                            "content": [{"type": "input_text", "text": message.model_text(text)}],
                         })),
                         Part::ToolResult {
                             call_id,

@@ -1,7 +1,7 @@
-//! 需求/缺陷双队列的确定性取活裁决。
+//! 需求/缺陷双队列的工作选择与状态投影。
 //!
-//! 队列模式、WIP、依赖和阻塞由代码合成一个 Resolved Control State；模型只执行
-//! Resume/Start，不能再从两份索引和相互冲突的提示词里自行仲裁。
+//! 根据队列优先级、WIP、依赖和阻塞提供默认选择。Agent 可在工具约束内说明理由
+//! 调整选择；认领归属、并发与生命周期约束由执行工具校验。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::process::Command;
@@ -178,11 +178,6 @@ pub struct ResolvedControlState {
     /// 实现已经交付，等待真实 SSH/设备验收；不参与开发取活和阻塞裁决。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pending_external: Vec<WorkItemSummary>,
-    /// D-332 验收⑥:裁决被冻结的标志。Resume/Start 一旦给出且没有新的控制面事实
-    /// (队列变化/阻塞解除/用户指示),Agent 不应重新讨论「做不做/做哪个」——
-    /// 评估实测:同一 scope decision 反复反刍几千 token,边际信息增益≈0。
-    /// 新事实出现后调用 `work next` 刷新,decision_locked 随新裁决更新。
-    pub decision_locked: bool,
     /// D-332:生命周期非法的条目(未知/畸形状态)。调度器对其 fail-closed:
     /// 不进 WIP、不进候选、不进 blocked,只在这里明示,等 tracker normalize 修复。
     #[serde(default)]
@@ -194,26 +189,11 @@ pub struct ResolvedControlState {
     /// 不参与本线的 Resume/WipViolation/候选裁决。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub foreign_wip: Vec<WorkItemSummary>,
-    /// Resume 且进展锚点已陈旧时的**强制前置动作**:先复核已落地范围。
-    ///
-    /// D-368 实测形态:条目 `fixing`、批次 0/1、进展改动面写着三处待做,而
-    /// `observed_head` 已落后于当前 HEAD——三处代码其实早已整块落在一个提交里。
-    /// 照着进展字段动手就是把已完成的活重做一遍。当时 agent 是靠自己从文件系统
-    /// 反推才没重复实现,这条把「靠自觉」变成裁决面的一等公民。
-    ///
-    /// 放在裁决顶层而不是拼进 `reason`:reason 会被 claim 原样写进条目的
-    /// 「取活依据」字段,那会把整段提示灌进 tracker 文档留下噪音审计行。
+    /// 恢复时的进展来源差异提示，不规定核实步骤，也不写入认领理由。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_reconcile: Option<String>,
-    /// Resume 时的工作树现场——分支、HEAD、未提交改动清单(排除 `.kanzei`)。
-    ///
-    /// 恢复一条 WIP 的第一件事总是「现在到底改了什么」。这个事实引擎一条 git 命令
-    /// 就能给出,却被逐轮外包给模型:实测的恢复开场是 `git status` → `git diff` →
-    /// `git log` → `collaboration_status` → 逐个重读改过的文件,四到八步之后才
-    /// 写出第一行代码。步数预算被这段吃掉,事务就更容易在中途被切断,下一轮再赔
-    /// 一次同样的开场——这是让碎片化自我放大的那条边。
-    ///
-    /// 只在 Resume 且确实有未提交改动时出现:没有现场就不占篇幅。
+    /// Resume 时采样的分支、HEAD 和未提交改动清单；排除 `.kanzei`。
+    /// 没有未提交改动时省略，不代表后续工作树保持不变。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_worktree: Option<ResumeWorktree>,
     /// R-349:所有 active tracker 条目的只读机械对账结果；不自动改状态。
@@ -746,11 +726,7 @@ fn reference_index(
     index
 }
 
-/// Resume 前的复核提示。只在进展锚点与当前仓库对不上时给出——锚点新鲜就不啰嗦,
-/// 免得每轮都念一遍把它念成背景噪音。
-///
-/// 判据直接复用 `provenance()` 已经算好的 status(current/stale/unanchored/
-/// future_timestamp),不重算锚点比对:同一个判断在一个文件里只该有一处实现。
+/// 复用已计算的来源状态，只在进展陈旧或缺少锚点时报告差异。
 fn resume_reconcile_hint(item: &WorkItem) -> Option<String> {
     let provenance = &item.progress_provenance;
     if !matches!(provenance.status.as_str(), "stale" | "unanchored") {
@@ -762,10 +738,7 @@ fn resume_reconcile_hint(item: &WorkItem) -> Option<String> {
         provenance.reasons.join(";")
     };
     Some(format!(
-        "恢复 {} 的第一步是复核已落地范围,不是接着写:{why}。\
-         进展字段可能落后于代码——先用 git log / git log -S <符号> 与实际文件确认哪些批次\
-         已经实现并提交,把真实进度写回条目,再决定还剩什么要做。\
-         D-368 实测:条目写着批次 0/1、改动面三处待做,而三处代码早已整块落在一个提交里。",
+        "{} 的进展记录需要复核：{why}。结合当前代码判断已完成和剩余范围。",
         item.id
     ))
 }
@@ -1335,20 +1308,18 @@ fn resolve_work_state(
         .and_then(|item| reconciliation.classification_reason(&item.id))
         .map(|hint| format!("{reason};机械对账提示（不阻断）:{hint}"))
         .unwrap_or(reason);
-    let decision_locked = matches!(decision, WorkDecision::Resume | WorkDecision::Start);
-    // D-368:Resume 且进展锚点陈旧时,恢复的第一步是复核而不是接着写。
+    // 恢复提示与工作选择共享已计算的进展来源，避免重复推断。
     let resume_reconcile = match (&decision, &selected) {
         (WorkDecision::Resume, Some(item)) => resume_reconcile_hint(item),
         _ => None,
     };
-    // 只在 Resume 时采集。Start 是从干净起点开始,工作树里的东西不是它的现场;
-    // Blocked/WipViolation 也不需要——那两种裁决的下一步不是写代码。
+    // 仅恢复工作附带现场快照；其他选择保持其状态与阻塞信息。
     let resume_worktree = match decision {
         WorkDecision::Resume => collect_resume_worktree(cwd),
         _ => None,
     };
     Ok(ResolvedControlState {
-        schema_version: 2,
+        schema_version: 3,
         work_priority: priority_name(priority).into(),
         decision,
         reason: format!("{reason}{integrity_banner}"),
@@ -1362,7 +1333,6 @@ fn resolve_work_state(
         blocked_items: blocked_items.iter().map(WorkItemSummary::from).collect(),
         parked_items: parked_items.iter().map(WorkItemSummary::from).collect(),
         pending_external,
-        decision_locked,
         integrity_errors,
         line: me,
         foreign_wip,
@@ -1413,7 +1383,7 @@ mod tests {
     #[test]
     fn prompt_compaction_keeps_reconciliation_out_and_redacts_fingerprints() {
         let state = ResolvedControlState {
-            schema_version: 2,
+            schema_version: 3,
             work_priority: "defect-first".into(),
             decision: WorkDecision::Blocked,
             reason: "blocked".into(),
@@ -1430,7 +1400,6 @@ mod tests {
             }],
             parked_items: Vec::new(),
             pending_external: Vec::new(),
-            decision_locked: false,
             integrity_errors: Vec::new(),
             line: None,
             foreign_wip: Vec::new(),
@@ -1479,7 +1448,7 @@ mod tests {
         harness.add(WorkControlContext(WorkPriority::DefectFirst));
         let snapshot = harness
             .resolve(&kanzei_harness::ResolveCtx {
-                profile: kanzei_harness::ProfileKind::Dev,
+                profile: kanzei_harness::ProfileKind::DevAuto,
                 cwd: dir.clone(),
                 project_root: dir.clone(),
                 config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
@@ -1688,7 +1657,7 @@ mod tests {
         std::fs::remove_dir_all(start).ok();
     }
 
-    /// D-680:handoff 缺少完整完成证据时必须拒绝，避免把临时批次收尾送进鞭挞停机路径。
+    /// 局部交付和整体完成都需要条件、范围及证据，成功只表示声明已记录。
     #[tokio::test]
     async fn d680_handoff_requires_completion_criterion_and_evidence() {
         // handoff 会把完成条件与证据落成过程事实;ToolCtx::default() 的 project_root
@@ -1768,12 +1737,12 @@ mod tests {
             )
             .await;
         assert!(!accepted.is_error, "{}", accepted.content);
-        assert!(accepted.content.contains("model completion declared"));
-        assert!(accepted.content.contains("auto-run controller"));
-        assert!(!accepted.content.contains("control returned to the user"));
+        let receipt: serde_json::Value = serde_json::from_str(&accepted.content).unwrap();
+        assert_eq!(receipt["status"], "recorded");
+        assert_eq!(receipt["completion"], "pending_controller_check");
+        assert_eq!(receipt["handoff"]["handoff_scope"], "work_item");
 
-        // 工具为了拿到 criterion/evidence_refs 硬拦了两次,拿到就必须留痕——
-        // 否则是"逼模型干活然后扔掉":停机理由恰恰是最该可追溯的。
+        // 成功回执对应实际过程记录，不改写条目生命周期。
         let work_log = std::fs::read_to_string(dir.join(crate::work::log::WORK_LOG_REL)).unwrap();
         assert!(
             work_log.contains("鞭挞模式不因阶段性收尾交换控制权"),
@@ -1792,12 +1761,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// UX-008:模型能看到的三处(工具描述、参数说明、成功回执)都要说明完成声明字段是
-    /// 内部记录,免得它把「交接范围/目标/验收标准/证据」原样讲给用户。
+    /// 参数定义解释内部字段，成功回执提供表达说明，工具总览不重复整份契约。
     #[tokio::test]
     async fn ux008_handoff_fields_are_marked_internal_to_the_model() {
         let notice = kanzei_harness::handoff::INTERNAL_RECORD_NOTICE;
-        assert!(WorkTool.description().contains(notice));
+        assert!(!WorkTool.description().contains(notice));
         let schema = WorkTool.input_schema().to_string();
         assert!(schema.contains("内部记录,勿向用户复述"), "{schema}");
 
@@ -1817,17 +1785,35 @@ mod tests {
             )
             .await;
         assert!(!accepted.is_error, "{}", accepted.content);
-        assert!(accepted.content.ends_with(notice), "{}", accepted.content);
+        let receipt: serde_json::Value = serde_json::from_str(&accepted.content).unwrap();
+        assert_eq!(receipt["notice"], notice);
         let _ = std::fs::remove_dir_all(dir);
     }
 
-    /// D-368:Resume 且进展锚点已陈旧时,裁决必须把「先复核已落地范围」作为前置动作给出。
-    ///
-    /// 事故形态:条目 fixing、批次 0/1、改动面写着三处待做,而 observed_head 已落后于
-    /// 当前 HEAD——三处代码其实早已整块落在一个提交里。当时 agent 是靠自己从文件系统
-    /// 反推才没重复实现一遍;这条把它变成裁决面强制输出。
+    #[tokio::test]
+    async fn failed_completion_record_cannot_return_a_successful_declaration() {
+        let dir = fixture("handoff-record-failure");
+        std::fs::create_dir_all(dir.join(".kanzei")).unwrap();
+        std::fs::write(dir.join(".kanzei/artifacts"), "not a directory").unwrap();
+        let ctx = ToolCtx::new(dir.clone(), dir.clone());
+        let result = WorkTool
+            .execute(
+                json!({
+                    "action":"handoff", "handoff_scope":"request", "handoff_target":"input-a",
+                    "criterion":"done", "evidence_refs":["file:1"]
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(result.is_error);
+        assert_eq!(result.code.as_deref(), Some("HANDOFF_RECORD_WRITE_FAILED"));
+        assert!(!dir.join(crate::work::log::WORK_LOG_REL).exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// 陈旧进展必须带来源差异，恢复提示不规定固定 Git 调查步骤。
     #[test]
-    fn d368_resume时锚点陈旧给出复核前置() {
+    fn d368_resume时锚点陈旧给出来源差异() {
         let dir = fixture("d368-stale");
         let mut stale = entry("D-368", "fixing");
         stale.fields.push(("进展".into(), "批次 0/1".into()));
@@ -1849,12 +1835,12 @@ mod tests {
         assert_eq!(state.decision, WorkDecision::Resume, "{}", state.reason);
         let hint = state
             .resume_reconcile
-            .expect("锚点陈旧的 Resume 必须给出复核前置动作");
+            .expect("锚点陈旧的 Resume 必须说明来源差异");
         assert!(hint.contains("D-368"), "提示要点名条目: {hint}");
         assert!(hint.contains("复核"), "{hint}");
         assert!(
-            hint.contains("git log"),
-            "提示要给出可执行的复核手段而不是空喊: {hint}"
+            hint.contains("observed_head") || hint.contains("HEAD"),
+            "提示应保留已计算的来源差异: {hint}"
         );
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1954,9 +1940,6 @@ mod tests {
         let state = resolve_work_decision(&dir, &dir, WorkPriority::DefectFirst).unwrap();
         assert_eq!(state.decision, WorkDecision::Resume);
         assert_eq!(state.selected.unwrap().id, "R-001");
-        // D-332 验收⑥:Resume 裁决一旦给出,decision_locked 必须为 true——
-        // Agent 不该再重新讨论「做不做 R-001」(评估实测反复反刍已冻结决策)。
-        assert!(state.decision_locked, "Resume 决策必须冻结");
 
         DocStore::open(&dir, &DEFECTS)
             .save(&[entry("D-001", "fixing")])
@@ -1970,7 +1953,6 @@ mod tests {
         assert!(selection.reconciliation.items.is_empty());
         assert_eq!(state.executable_wip.len(), 1);
         assert_eq!(state.queued_wip[0].id, "R-001");
-        assert!(state.decision_locked);
         let state = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
         assert_eq!(state.selected.unwrap().id, "R-001");
         let mut blocked = entry("D-001", "fixing");
@@ -2536,6 +2518,11 @@ mod tests {
         let ctx =
             ToolCtx::new(dir.clone(), dir.clone()).with_work_priority(WorkPriority::DefectFirst);
         let tool = WorkTool;
+        let default = resolve_work_selection(&dir, &dir, ctx.work_priority).unwrap();
+        assert_eq!(default.selected.as_ref().unwrap().id, "D-001");
+        let projection = serde_json::to_value(&default).unwrap();
+        assert_eq!(projection["schema_version"], 3);
+        assert!(projection.get("decision_locked").is_none());
         let claimed = tool
             .execute(
                 json!({
@@ -2790,6 +2777,7 @@ mod tests {
         let before_split =
             resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
         assert_eq!(before_split.decision, WorkDecision::Start);
+        assert!(!context::conditional_guidance(&before_split).contains("work claim"));
         assert_eq!(
             before_split.selected.unwrap().outcome_action,
             Some(OutcomeAction::Plan)
@@ -2813,6 +2801,8 @@ mod tests {
 
         let ready = resolve_work_decision(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
         assert_eq!(ready.decision, WorkDecision::Start, "{}", ready.reason);
+        assert!(context::conditional_guidance(&ready).contains("work claim"));
+        assert!(context::conditional_guidance(&ready).contains("work checkpoint"));
         let selected = ready.selected.expect("应该选择首个 Work Unit");
         assert_eq!(selected.id, "R-001/W1");
         assert_eq!(selected.kind, "work_unit");
@@ -2980,15 +2970,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
     #[test]
-    fn conditional_rules_follow_selected_work_and_disappear_after_freeze() {
+    fn conditional_guidance_uses_state_without_legacy_batch_or_design_rules() {
         let dir = fixture("conditional-policy");
         let mut item = entry("R-001", "todo");
         item.fields.push(("复杂度".into(), "中".into()));
         DocStore::open(&dir, &REQUIREMENTS).save(&[item]).unwrap();
         let mut state = resolve_work_selection(&dir, &dir, WorkPriority::RequirementFirst).unwrap();
         let guidance = context::conditional_guidance(&state);
-        assert!(guidance.contains("Design freeze"));
+        assert!(!guidance.contains("Design freeze"));
         assert!(!guidance.contains("批次规则"));
+        assert!(guidance.contains("work claim"));
+        state.decision = WorkDecision::Resume;
+        let guidance = context::conditional_guidance(&state);
+        assert!(guidance.contains("已在进行"));
+        assert!(!guidance.contains("work claim"));
         let selected = state.selected.as_mut().unwrap();
         selected.fields.push(WorkField {
             name: "设计冻结".into(),
@@ -3000,10 +2995,6 @@ mod tests {
         });
         let guidance = context::conditional_guidance(&state);
         assert!(!guidance.contains("Design freeze"));
-        assert!(guidance.contains("批次规则"));
-        state.selected.as_mut().unwrap().kind = "work_unit".into();
-        let guidance = context::conditional_guidance(&state);
-        assert!(guidance.contains("work checkpoint"));
         assert!(!guidance.contains("批次规则"));
         state.selected = None;
         assert!(context::conditional_guidance(&state).is_empty());

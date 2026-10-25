@@ -70,7 +70,7 @@ impl std::error::Error for ContextAssemblyError {}
 pub type ContextBaseline = Result<(String, Vec<ContextSourceReport>), ContextAssemblyError>;
 
 pub trait ContextSource: Send + Sync {
-    /// 稳定 key,如 "core/env"、"dev/requirements"。
+    /// 稳定 key,如 "core/env"、"development/requirements"。
     fn key(&self) -> &str;
     /// None means legitimately absent content; read/parse failures must remain Err.
     fn baseline(&self, ctx: &ResolveCtx) -> anyhow::Result<Option<String>>;
@@ -193,7 +193,7 @@ mod tests {
         harness.add(Sources(requirement));
         harness
             .resolve(&ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile: ProfileKind::DevAuto,
                 cwd: ".".into(),
                 project_root: ".".into(),
                 config: Arc::new(KanzeiConfig::default()),

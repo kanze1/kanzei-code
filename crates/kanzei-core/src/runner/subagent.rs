@@ -507,9 +507,18 @@ async fn run_subagent_inner(
         )
         .await;
     }
-    // A child must never drain the parent's steering queue.
+    // Preserve only the inbox bound to this child; never drain its parent's queue.
     let mut child_ctx = ctx.clone().with_browser_child(parent_call_id);
-    child_ctx.input_inbox = None;
+    // The child may choose ordinary skills from its catalog; an inherited body
+    // must not masquerade as a fresh explicit reference in the child's input.
+    child_ctx.invoked_skills = None;
+    child_ctx.input_origin = kanzei_base::MessageOrigin::Agent;
+    child_ctx.input_attachments.clear();
+    child_ctx.input_inbox = ctx
+        .input_inbox
+        .as_ref()
+        .filter(|inbox| inbox.belongs_to(parent_call_id))
+        .cloned();
     child_ctx.run_id = Some(parent_call_id.to_string());
     child_ctx.process_id = Some(rt.agent.name.clone());
     if child_ctx.execution_coordinator.is_none() {
@@ -603,7 +612,12 @@ async fn run_subagent_inner(
     let mut total_usage = Usage::default();
     let mut prior = resumed_transcript(rt, parent_call_id, input);
     let mut checkpoint = prior.clone();
-    checkpoint.push(Message::user_text(&prompt));
+    checkpoint.push(crate::input_message(
+        child_ctx.input_origin,
+        &prompt,
+        &[],
+        &[],
+    ));
     if let Some(sink) = &rt.transcript_sink {
         sink(
             parent_call_id,
@@ -632,6 +646,12 @@ async fn run_subagent_inner(
                         serde_json::json!({"call_id":parent_call_id,"messages":checkpoint}),
                     );
                 }
+            }
+            RunEvent::InputMessageCommitted { message, .. } => {
+                // The inbox atomically stored these inputs with its delivery state.
+                // Keep the local checkpoint aligned without overwriting the remaining
+                // inputs from the same transaction with a partial transcript.
+                checkpoint.push(message.clone());
             }
             _ => {}
         }
@@ -1262,7 +1282,7 @@ mod tests {
         let spec = super::task_spec();
         let properties = spec.input_schema["properties"].as_object().unwrap();
         assert!(properties.contains_key("schema"), "task 未暴露 schema 入参");
-        // 必填项仍然只有 prompt:传 schema 是可选的,老调用方式一个字不用改。
+        // 任务目标必填，结果格式由调用方按需指定。
         let required: Vec<&str> = spec.input_schema["required"]
             .as_array()
             .unwrap()
@@ -1270,15 +1290,10 @@ mod tests {
             .map(|v| v.as_str().unwrap())
             .collect();
         assert_eq!(required, vec!["prompt"], "schema 不得变成必填");
-        // 描述里要写清楚它的用途,否则模型不知道什么时候该用。
-        assert!(
-            spec.description.contains("schema"),
-            "工具描述里没提 schema,模型不会主动使用"
-        );
+        assert_eq!(properties["schema"]["type"], "object");
     }
 
-    /// UI-0926 #8:description 是给用户看的短标签——可选,老调用方式不变;
-    /// 名册只有默认人格时 task_spec_for 仍与 task_spec 逐字节一致。
+    /// 用户可见标签是可选参数，不替代任务目标。
     #[test]
     fn task_spec_exposes_optional_description() {
         let spec = super::task_spec();
@@ -1287,32 +1302,23 @@ mod tests {
             description["type"], "string",
             "task 未暴露 description 入参"
         );
-        assert!(
-            description["description"]
-                .as_str()
-                .is_some_and(|text| text.contains("3-8 word")),
-            "入参说明要写清是短标签,否则弱模型会把整段指令抄进来"
-        );
         assert_eq!(
             spec.input_schema["required"],
             json!(["prompt"]),
             "description 不得变成必填"
         );
         assert!(
-            spec.description.contains("description"),
-            "工具描述的 Params 段要提到 description"
-        );
-        assert_eq!(
-            super::task_spec_for(&["explore".to_string()]).input_schema,
-            spec.input_schema
+            super::task_spec_for(&["explore".to_string()]).input_schema["properties"]
+                .get("agent")
+                .is_none()
         );
     }
 
-    // ---- R-327:子代理人格选择 ----
+    // ---- 按实际名册选择子 Agent 角色 ----
     use kanzei_harness::AgentDef;
     use serde_json::json;
 
-    fn persona(name: &str, model: &str, steps: u32) -> AgentDef {
+    fn role_def(name: &str, model: &str, steps: u32) -> AgentDef {
         AgentDef {
             name: name.into(),
             profile: kanzei_harness::ProfileScope::All,
@@ -1327,8 +1333,8 @@ mod tests {
     #[test]
     fn 人格按名选中_未命中回落默认() {
         let rt = TestRuntime {
-            agent: persona("explore", "fast", 12),
-            roster: vec![persona("plan", "primary", 24)],
+            agent: role_def("explore", "fast", 12),
+            roster: vec![role_def("plan", "primary", 24)],
         };
         assert_eq!(rt.resolve("plan").name, "plan");
         assert_eq!(rt.resolve("explore").name, "explore");
@@ -1367,10 +1373,10 @@ mod tests {
     #[test]
     fn 人格名去重() {
         let rt = TestRuntime {
-            agent: persona("explore", "fast", 12),
+            agent: role_def("explore", "fast", 12),
             roster: vec![
-                persona("explore", "fast", 12),
-                persona("plan", "primary", 24),
+                role_def("explore", "fast", 12),
+                role_def("plan", "primary", 24),
             ],
         };
         assert_eq!(rt.names(), vec!["explore".to_string(), "plan".to_string()]);

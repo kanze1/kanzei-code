@@ -339,11 +339,11 @@ export function renderEffectiveNotice(s) {
   // 一律跳过,否则 undefined 会被当成"实际生效是未设",提示条天天误报,
   // 用户很快就学会无视它,真被覆盖时反而看不见。
   const has = (key) => effective && Object.prototype.hasOwnProperty.call(effective, key);
-  // 值也说人话:env/off、dev/research 是配置里的枚举,界面上写成下拉里看到的那几个词。
+  // 值也说人话:env/off、dev-auto/dev-pair/research 是配置里的枚举,界面上写成下拉里看到的那几个词。
   const valueText = (key, value) => {
     if (value === null || value === undefined) return unset();
     if (key === "proxy") return { env: t("跟随环境变量"), off: t("直连") }[value] ?? String(value);
-    if (key === "profileDefault") return { dev: t("开发"), research: t("研究") }[value] ?? String(value);
+    if (key === "profileDefault") return { "dev-auto": t("长期维护与开发"), "dev-pair": t("结伴开发"), research: t("研究") }[value] ?? String(value);
     return String(value);
   };
   for (const [key, label] of [["proxy", t("网络代理")], ["profileDefault", t("默认空间")]]) {
@@ -448,20 +448,22 @@ export function providerSourceLabel(source) {
   }[source] || source;
 }
 export function agentSourceLabel(source) {
-  return { builtin: t("内建"), global: t("全局"), project: t("项目") }[source] || source;
+  return { builtin: t("内建"), global: t("全局"), project: t("项目"), component: t("组件定义") }[source] || source;
 }
 export function agentStatusLabel(status) {
   return {
     available: t("可用"),
     configurationError: t("配置错误"),
-    hidden: t("当前档位隐藏"),
+    hidden: t("当前档位不适用"),
+    untrusted: t("尚未信任"),
+    overridden: t("已被覆盖"),
   }[status] || status;
 }
-// 子代理定义里的档位/模式/模型角色是后端的原始枚举(dev/research、primary/subagent、primary/fast/compact):
+// Agent 定义里的档位、角色与模型引用来自同一份运行注册快照。
 // 中文界面显示与模型配置区同一套词;不在表里的值(自定义模型 id 等)原样显示。
 export function agentEnumLabel(kind, value) {
   const words = {
-    profile: { dev: t("开发"), research: t("研究"), all: t("全部") },
+    profile: { "dev-auto": t("长期维护与开发"), "dev-pair": t("结伴开发"), development: t("开发"), research: t("研究"), all: t("全部") },
     mode: { primary: t("主对话"), subagent: t("子代理") },
     model: { primary: t("主模型"), fast: t("快速模型"), compact: t("压缩模型") },
   }[kind] || {};
@@ -474,12 +476,14 @@ export function appendAgentField(card, label, value) {
   name.className = "dim";
   name.textContent = `${label}: `;
   const content = document.createElement("span");
+  content.style.overflowWrap = "anywhere";
   content.textContent = value ?? "";
   row.append(name, content);
   card.append(row);
 }
-// 最近一次渲染的子代理定义快照:切语言时据此重画,不必再问后端。
+// Recently resolved definitions; language changes do not trigger a second source scan.
 let agentDirectorySnapshot = null;
+let agentDirectoryRequest = 0;
 export function renderAgentDirectory(snapshot) {
   agentDirectorySnapshot = snapshot;
   const host = $("agent-directory");
@@ -489,7 +493,7 @@ export function renderAgentDirectory(snapshot) {
   if (agents.length === 0) {
     const empty = document.createElement("p");
     empty.className = "dim";
-    empty.textContent = t("没有子代理定义");
+    empty.textContent = t("没有 Agent 定义");
     host.append(empty);
     return;
   }
@@ -504,6 +508,8 @@ export function renderAgentDirectory(snapshot) {
     heading.append(" ", status);
     card.append(heading);
     appendAgentField(card, t("来源"), agentSourceLabel(agent.source));
+    if (agent.revision) appendAgentField(card, t("来源版本"), agent.revision);
+    if (typeof agent.approved === "boolean") appendAgentField(card, t("来源批准"), t(agent.approved ? "当前内容已批准" : "当前内容未批准"));
     if (agent.registration) {
       const origins = [...agent.registration.replaced, agent.registration.winner];
       if (agent.registration.replaced.length > 0) {
@@ -518,18 +524,19 @@ export function renderAgentDirectory(snapshot) {
       }
       card.append(details);
     }
-    appendAgentField(card, t("档位"), agentEnumLabel("profile", agent.profile));
-    appendAgentField(card, t("模式"), agentEnumLabel("mode", agent.mode));
-    appendAgentField(card, t("模型"), agentEnumLabel("model", agent.model));
-    appendAgentField(card, t("轮数"), String(agent.steps ?? ""));
+    if (agent.profile) appendAgentField(card, t("档位"), agentEnumLabel("profile", agent.profile));
+    if (agent.mode) appendAgentField(card, t("模式"), agentEnumLabel("mode", agent.mode));
+    if (agent.model) appendAgentField(card, t("模型"), agentEnumLabel("model", agent.model));
+    if (typeof agent.steps === "number") appendAgentField(card, t("步数上限"), agent.steps === 0 ? t("无上限") : String(agent.steps));
     if (agent.path) {
       appendAgentField(card, t("原文路径"), agent.path);
       const open = document.createElement("button");
       open.className = "ghost";
       open.type = "button";
       open.textContent = t("打开原文");
+      const sourceProject = snapshot.projectDir ?? null;
       open.addEventListener("click", () => invoke("agent_directory_open", {
-        projectDir: currentProject || null,
+        projectDir: sourceProject,
         path: agent.path,
       }).catch((err) => toastError(String(err), { retry: () => open.click() })));
       card.append(open);
@@ -540,22 +547,30 @@ export function renderAgentDirectory(snapshot) {
   }
 }
 export async function loadAgentDirectory() {
+  const request = ++agentDirectoryRequest;
+  const projectDir = currentProject || null;
+  const profile = $("set-profile")?.value || null;
   const status = $("agent-directory-status");
+  agentDirectorySnapshot = null;
+  $("agent-directory")?.replaceChildren();
+  if (status) status.textContent = t("加载中…");
   try {
     const snapshot = await invoke("agent_directory_get", {
-      projectDir: currentProject || null,
-      profile: $("set-profile")?.value || null,
+      projectDir,
+      profile,
     });
-    renderAgentDirectory(snapshot);
+    if (request !== agentDirectoryRequest || projectDir !== (currentProject || null) || profile !== ($("set-profile")?.value || null)) return;
+    renderAgentDirectory({ ...snapshot, projectDir });
     if (status) status.textContent = `${snapshot.agents?.length || 0} ${t("个")}`;
   } catch (err) {
-    if (status) status.textContent = t("子代理定义读取失败");
+    if (request !== agentDirectoryRequest || projectDir !== (currentProject || null) || profile !== ($("set-profile")?.value || null)) return;
+    if (status) status.textContent = t("Agent 定义读取失败");
     const host = $("agent-directory");
     if (host) {
       host.replaceChildren();
       const error = document.createElement("p");
       error.className = "form-hint-warn";
-      error.textContent = `${t("子代理定义读取失败")}: ${err}`;
+      error.textContent = `${t("Agent 定义读取失败")}: ${err}`;
       host.append(error);
     }
   }
@@ -786,7 +801,7 @@ export const LIMIT_LABELS = {
 };
 
 // 节奏(R-157):id ↔ settings_get 返回的 cadence snake_case 键。
-// 留空 = None,保存时该键从 [cadence] 移除,回落 §1.4 默认。
+// 留空时移除当前配置层的对应键，运行时按配置层级和类型默认值解析。
 export const CADENCE_FIELDS = [
   ["set-cadence-full-test", "full_test"],
   ["set-cadence-targeted-test", "targeted_test"],
@@ -1313,7 +1328,7 @@ defer(() => {
 });
 
 // ---------- 切语言:设置页里靠 JS 渲染的几块跟着重画(UX-160) ----------
-// 覆盖提示、项目模型覆盖、子代理数提示、fast 状态、打开方式清单、子代理定义都是渲染点里调 t() 写出来的,
+// 覆盖提示、项目模型覆盖、子代理数提示、fast 状态、打开方式清单、Agent 定义都是渲染点里调 t() 写出来的,
 // 不挂 data-i18n——不重画就会留着上一种语言(切到 English 后这几块仍是中文)。
 defer(() => {
   document.addEventListener("kz:language", () => {

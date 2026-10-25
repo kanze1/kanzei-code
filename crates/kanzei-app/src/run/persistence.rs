@@ -944,7 +944,7 @@ mod tests {
         let ctx = kanzei_harness::ToolCtx::new(root.clone(), root.clone());
         let snapshot = kanzei_harness::Harness::default()
             .resolve(&kanzei_harness::ResolveCtx {
-                profile: kanzei_harness::ProfileKind::Dev,
+                profile: kanzei_harness::ProfileKind::DevAuto,
                 cwd: root.clone(),
                 project_root: root.clone(),
                 config: Arc::new(kanzei_harness::KanzeiConfig::default()),
@@ -953,7 +953,7 @@ mod tests {
         let agent = serde_json::from_value(
             // This fixture verifies successful completion before the budget
             // ceiling. Reaching a forced final step now correctly means partial.
-            json!({"name":"fixture","profile":"dev","mode":"primary","steps":2,"system":"test"}),
+            json!({"name":"fixture","profile":"dev-auto","mode":"primary","steps":2,"system":"test"}),
         )
         .unwrap();
         let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();

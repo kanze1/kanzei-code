@@ -20,7 +20,7 @@ use kanzei_harness::permission::{
     is_structured_bash_resource, normalize_resource_for_action, BASH_ACTION,
 };
 use kanzei_harness::{Harness, KanzeiConfig, ProfileKind, ResolveCtx, Tool, ToolCtx};
-use kanzei_tools::{BaseComponent, DevProfile};
+use kanzei_tools::{BaseComponent, DevelopmentProfile};
 
 /// 按 CLI 的装配方式起一份 dev profile 的工具集。
 fn dev_tools() -> Vec<Arc<dyn Tool>> {
@@ -28,13 +28,13 @@ fn dev_tools() -> Vec<Arc<dyn Tool>> {
     config.fill_defaults();
     let root = std::env::temp_dir();
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: root.clone(),
         project_root: root,
         config: Arc::new(config),
     };
     let mut harness = Harness::default();
-    harness.add(BaseComponent).add(DevProfile);
+    harness.add(BaseComponent).add(DevelopmentProfile);
     harness.resolve(&rctx).unwrap().materialize_tools()
 }
 

@@ -247,7 +247,7 @@ mod tests {
             ProcessKind::Research
         );
         assert_eq!(
-            process_kind("p5|C:\\proj", Some("dev")),
+            process_kind("p5|C:\\proj", Some("dev-auto")),
             ProcessKind::Conversation
         );
         assert_eq!(process_kind("p6|C:\\proj", None), ProcessKind::Conversation);

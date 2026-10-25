@@ -1,6 +1,7 @@
 // Real native UI + original conversation + local provider + persisted review candidates.
 /* global window, document */
 import assert from "node:assert/strict";
+import { conversationContext } from "./fixtures/conversation-context.mjs";
 
 import { mkdir, writeFile, readFile, readdir } from "node:fs/promises";
 import net from "node:net";
@@ -29,13 +30,13 @@ const model=task.server(http.createServer(async(req,res)=>{
   let raw="";for await(const bytes of req)raw+=bytes;const data=JSON.parse(raw);
   if(data.model==="test"){primary++;reply(res,{content:"这是助手的建议：可以考虑霓虹色。该建议不是用户品味。已完成这一轮。"});return;}
   assert(!raw.includes(secret),"Dream provider must never receive source credentials");
-  const text=data.messages.filter(message=>message.role==="user").map(message=>typeof message.content==="string"?message.content:message.content?.map(part=>part.text||"").join("\n")).find(text=>text?.includes("SOURCE DATA:\n"));
-  assert(text,"Frozen source reaches the manager");const chunk=JSON.parse(text.split("SOURCE DATA:\n")[1]);
+  const source=data.messages.filter(message=>message.role==="user").map(conversationContext).find(frame=>frame?.data.source_fragment);
+  assert(source?.origin==="engine","Frozen source reaches the manager as engine data");const chunk=source.data.source_fragment;
   const key=`${chunk.snapshot_sha256}:${chunk.index}`,step=chunks.get(key)||0;
   requests.push({chunk:chunk.index,step,tools:data.tools.map(tool=>tool.function.name)});
   if(holding)return;
   chunks.set(key,step+1);
-  const note_id=`dream-${chunk.snapshot_sha256}-${chunk.index}`;
+  const note_id=source.data.note_id;
   if(chunk.index===0 && step===0){call(res,"memory_add",{kind:"preference",title:"伪造来源",description:"不应写入",body:"不应写入",evidence:[{span:0,quote:"这句话不存在于原文"}]},"bad-quote");return;}
   if(chunk.index===0 && step===1){call(res,"memory_add",{kind:"preference",title:"简洁排版偏好",description:"编写项目文档时采用简洁排版、紧凑段落和适当的图",body:"采用紧凑段落并配适当的图。",evidence:[{span:0,quote}]},"good-proposal");return;}
   if((chunk.index===0 && step===2)||(chunk.index>0&&step===0)){call(res,"memory_inbox_discard",{note_id,decision:chunk.index===0?"extracted":"noop",reason:chunk.index===0?"已创建有原文引用的候选，等待用户确认":"本片段是重复材料或助手建议，没有独立的用户偏好证据"},`finish-${chunk.index}`);return;}
@@ -55,8 +56,8 @@ try{
   assert(browser,"Isolated native application starts");page=browser.contexts()[0].pages()[0];page.setDefaultTimeout(25000);page.on("pageerror",error=>errors.push(error.message));
   await page.waitForFunction(()=>document.body.dataset.appReady==="true");await invoke("projects_init",{path:project,name:"做梦原生验收"});await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true");
   await page.locator(".workbench-project-name").filter({hasText:"做梦原生验收"}).click();
-  const line=await invoke("process_create",{projectDir:project,profile:"dev",model:"stub:test",subagentMode:"off"});
-  await invoke("run_prompt",{projectDir:project,processId:line.id,prompt,profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
+  const line=await invoke("process_create",{projectDir:project,profile:"dev-auto",model:"stub:test",subagentMode:"off"});
+  await invoke("run_prompt",{projectDir:project,processId:line.id,prompt,profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
   await until(async()=>{const rows=await invoke("collaboration_snapshot",{projectDir:project});return rows.some(row=>row.process_id===line.id&&row.status==="completed");},"Original conversation completes");
   await page.evaluate(async id=>{const sessions=await import("./09-sessions.js");await sessions.refreshProcesses();await sessions.switchProcess(id,true);},line.id);
   const selected=await page.evaluate(async()=>{const shell=await import("./03-shell.js");return {project:shell.currentProject,process:shell.activeProcessId};});
@@ -96,7 +97,7 @@ try{
   // Controlled historical observations in this disposable database exercise the real
   // automatic maintenance path without changing the computer's date or production data.
   for(const [id,category,sourceName,title] of [["M-003","fact","memory-manager","旧环境事实"],["M-004","preference","user","显式保留的品味"]])await writeFile(path.join(memory,`${id}-historical.md`),`---\nid: ${id}\nscope: project\ncategory: ${category}\ntitle: ${title}\ndescription: 处理旧环境时参考此记录\nstatus: active\ncreated: 2020-01-01\nupdated: 2020-01-01\nsource: ${sourceName}\n---\n\n历史测试资料。\n`);
-  const round=async()=>{const before=primary;await invoke("run_prompt",{projectDir:project,processId:line.id,prompt:"只需回答本轮完成。",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});await until(()=>primary>before,"The real provider receives the next round");await until(async()=>(await invoke("collaboration_snapshot",{projectDir:project})).some(row=>row.process_id===line.id&&row.status==="completed"),"The next round completes");};
+  const round=async()=>{const before=primary;await invoke("run_prompt",{projectDir:project,processId:line.id,prompt:"只需回答本轮完成。",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});await until(()=>primary>before,"The real provider receives the next round");await until(async()=>(await invoke("collaboration_snapshot",{projectDir:project})).some(row=>row.process_id===line.id&&row.status==="completed"),"The next round completes");};
   await round();
   database=new DatabaseSync(path.join(project,".kanzei/state.db"));database.exec("PRAGMA busy_timeout=5000");
   const sample=database.prepare("SELECT * FROM session_events WHERE event_type='memory.availability' AND payload_json LIKE '%M-003%' ORDER BY created_at DESC LIMIT 1").get();assert(sample,"An actual retrieval records versioned availability");

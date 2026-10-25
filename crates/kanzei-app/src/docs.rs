@@ -449,16 +449,8 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
 pub fn research_plan_get(project_dir: String, topic: String) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let workflow = kanzei_tools::research_control::workflow(&root, &topic)?;
     match kanzei_tools::research_plan::load_plan(&root, &topic)? {
-        Some(mut plan) => {
-            if let Some(workflow) = &workflow {
-                plan.budget = workflow.budget.clone();
-            }
-            Ok(
-                json!({ "exists": true, "plan": plan, "controller": if workflow.is_some() { "workflow" } else { "plan" } }),
-            )
-        }
+        Some(plan) => Ok(json!({ "exists": true, "plan": plan })),
         None => Ok(json!({ "exists": false, "topic": topic })),
     }
 }
@@ -470,9 +462,6 @@ pub fn research_plan_approve(
 ) -> Result<serde_json::Value, String> {
     let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
         .unwrap_or_else(|| PathBuf::from(&project_dir));
-    if kanzei_tools::research_control::workflow(&root, &topic)?.is_some() {
-        return Err("计划由 AUTO 主流程管理，请从研究流程恢复或选题".into());
-    }
     let plan = kanzei_tools::research_plan::approve_plan(&root, &topic)?;
     Ok(json!({ "exists": true, "plan": plan }))
 }

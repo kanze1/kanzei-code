@@ -64,9 +64,9 @@ try {
   page.on("pageerror", error => errors.push(error.message));
   await page.waitForFunction(() => document.body.dataset.appReady === "true", null, { timeout: 30000 });
   await invoke("projects_init", { path: project, name: "并发调查原生验收" });
-  const create = () => invoke("process_create", { projectDir: project, profile: "dev", model: "stub:test", subagentMode: "off" });
+  const create = () => invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:test", subagentMode: "off" });
   const a = await create(), b = await create();
-  const start = (line, prompt) => invoke("run_prompt", { projectDir: project, processId: line.id, prompt, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false });
+  const start = (line, prompt) => invoke("run_prompt", { projectDir: project, processId: line.id, prompt, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false });
   await start(a, "NATIVE_PARALLEL_A: 保持当前调查请求，等待本机测试服务完成。");
   await until(() => Boolean(heldResponse), "First dev run must reach the actual provider");
   await start(b, "NATIVE_PARALLEL_B: 读取 known.txt 并把完成结果写入 b-result.txt。");

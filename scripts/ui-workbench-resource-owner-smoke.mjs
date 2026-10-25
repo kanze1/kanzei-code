@@ -31,7 +31,7 @@ try {
     window.__resourceTest = { f, a, b, reads: [], saves: [] };
     window.__kzPreview.setCommand("conventions_read", args => {
       window.__resourceTest.reads.push(args.projectDir);
-      return { exists: true, content: `Rules for ${args.projectDir}`, hash: "original", proposal: null };
+      return { exists: true, path: `${args.projectDir}/.kanzei/project/conventions.md`, content: `Rules for ${args.projectDir}`, hash: "original", proposal: null };
     });
     window.__kzPreview.setCommand("conventions_save", args => { window.__resourceTest.saves.push(args); return "saved"; });
     window.__kzPreview.setCommand("softwire_questions", () => []);
@@ -40,6 +40,7 @@ try {
   }); await settle();
   check(identity.current === identity.a, "Browsing B's overview keeps A as the execution root");
   await page.locator('#activitybar [data-view="settings"]').click();
+  const ownerSurface = await page.locator("body").getAttribute("data-view");
   await page.locator("#sg-project-tools > summary").click();
   await page.locator('[data-resource="conventions"]').click();
   await page.locator("#conventions-dialog").waitFor({ state: "visible" });
@@ -51,24 +52,26 @@ try {
   await page.locator("#conventions-save").click(); await settle();
   const saved = await page.evaluate(() => window.__resourceTest.saves);
   check(saved.length === 1 && saved[0].projectDir === identity.b && saved[0].content === "B-only edited rules", "Saving the previewed project's rules writes only B");
-  check(await page.locator("body").getAttribute("data-view") === "project", "Conventions stay on the overview surface");
+  check(await page.locator("body").getAttribute("data-view") === ownerSurface && await page.locator("#conventions-dialog").isVisible(), "Editing project rules preserves the resource owner's surface");
   await page.locator("#conventions-close").click();
   await page.evaluate(async () => {
     const t = window.__resourceTest;
-    window.__kzPreview.setCommand("projects_select", args => args.path === t.a ? new Promise(resolve => {
-      t.releaseSelection = () => resolve(t.f.commands.projects_select(args));
-    }) : t.f.commands.projects_select(args));
+    window.__kzPreview.setCommand("conventions_read", args => {
+      const snapshot = { exists: true, path: `${args.projectDir}/.kanzei/project/conventions.md`, content: `Rules for ${args.projectDir}`, hash: "original", proposal: null };
+      return args.projectDir === t.a ? new Promise(resolve => { t.releaseRules = () => resolve(snapshot); }) : snapshot;
+    });
     await (await import("/12-workbench.js")).openProjectSpace(t.a, "project");
   }); await settle();
   await page.locator('#activitybar [data-view="settings"]').click();
   await page.locator('[data-resource="conventions"]').click();
-  await page.waitForFunction(() => Boolean(window.__resourceTest.releaseSelection));
+  await page.waitForFunction(() => Boolean(window.__resourceTest.releaseRules));
   await page.evaluate(async () => {
     const t = window.__resourceTest, wb = await import("/12-workbench.js");
-    await wb.openProjectSpace(t.b, "chat");
-    t.releaseSelection();
+    await wb.openProjectResource(t.b, "conventions");
+    t.releaseRules();
   }); await settle();
-  check(await page.locator("#conventions-dialog").isHidden(), "A cancelled resource activation cannot open its dialog over B");
+  check((await page.locator("#conventions-project").textContent()) === `${identity.b}/.kanzei/project/conventions.md`, "A delayed A rules reply cannot overwrite the newer B editor");
+  check(await page.evaluate(async () => (await import("/03-shell.js")).currentProject) === identity.a, "Reading either project's rules does not activate it for execution");
   check(await page.evaluate(() => window.__kzPreview.calls.filter(c => c.cmd === "run_prompt").length) === 0, "Opening and editing conventions never starts an agent task");
   check(errors.length === 0, `No browser errors: ${errors.join("; ")}`);
   await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ checks, errors }, null, 2));

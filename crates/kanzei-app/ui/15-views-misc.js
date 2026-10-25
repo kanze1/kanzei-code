@@ -1,3 +1,5 @@
+import { messageSource, messageSourceLabels } from "./00-message-source.js";
+import { labelMessageSource } from "./05-chat-render.js";
 import { conversationHistory, readConversationHistory, invalidateConversationHistory, onConversationHistoryChange } from "./00-conversation-history.js";
 export { conversationHistory } from "./00-conversation-history.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
@@ -73,7 +75,7 @@ import { active_space, create_workspace_process, project_workspace } from "./03-
 // R-053 快速记录(记需求/记缺陷)的表单随入口迁到需求页「＋ 新建」菜单:见 14-docs-quick.js。
 // 原来的版本挂在被隐藏的侧栏分区里(0×0),命令面板点了毫无反应(UX-053/B7)。
 
-// 开发规范(项目约束与规范)的入口在需求页「更多 → 开发规范…」(14-docs-quick.js → 15-conventions.js openConventions),
+// 项目规范由项目管理页、需求页更多菜单及设置页进入，共用 15-conventions.js 的编辑器，
 // 生成建议稿在规范对话框里;原来的侧栏「开发规范」分区从不可见,已删(UX-069 / B5)。
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
@@ -711,6 +713,7 @@ export function renderMessageParts(items) {
       }
       if (part.type !== "text" || !part.text?.trim()) continue;
       const el = addMessage(message.role === "assistant" ? "assistant md" : "user", "");
+      labelMessageSource(el, messageSource(message));
       if (message.role === "assistant") {
         lastAssistantElement = el;
         el.dataset.raw = part.text;
@@ -845,7 +848,7 @@ export function historyTranscript(items, limit = 300) {
     blocks.push(`> ${fillTemplate(t("只显示最后 {shown} 条消息,共 {total} 条"), { shown: shown.length, total: list.length })}`);
   }
   for (const message of shown) {
-    const who = message.role === "assistant" ? t("助手") : message.role === "user" ? t("你") : String(message.role ?? "");
+    const who = t(messageSourceLabels[messageSource(message)] || messageSourceLabels.unspecified);
     const lines = [];
     // 连续的工具调用并成一行,免得一条消息里十几次调用占满一屏。
     let tools = [];

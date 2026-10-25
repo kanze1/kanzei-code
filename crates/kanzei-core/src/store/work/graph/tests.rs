@@ -8,7 +8,10 @@ fn draft_contracts_persist_but_cannot_execute_until_refined() {
     let draft = store
         .create_work_unit(serde_json::from_value(raw).unwrap())
         .unwrap();
-    assert_eq!(draft.readiness(&[draft.clone()]).step, WorkNodeStep::Plan);
+    assert_eq!(
+        draft.readiness(std::slice::from_ref(&draft)).step,
+        WorkNodeStep::Plan
+    );
     let events = store.list_work_events(&draft.unit_id).unwrap();
     for fact in [
         WorkFact::Claimed { claimed_by: None },

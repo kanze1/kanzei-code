@@ -53,7 +53,7 @@ export function reconcileWorkbenchView(view) {
   const name = $("project-space-name");
   if (name) name.textContent = path ? projectDisplayName(path) : t("未选择项目");
   for (const button of document.querySelectorAll(".workbench-project-link")) {
-    const selected = !global && active_space === "dev" && button.dataset.path === path;
+    const selected = !global && active_space === "dev-auto" && button.dataset.path === path;
     button.classList.toggle("active", selected);
     button.setAttribute("aria-current", selected ? "page" : "false");
     // UX-031:项目多时,选中(或新增后自动选中)的项目行滚进侧栏可视区;只在选中项变了时滚,不抢用户手动滚动。
@@ -147,7 +147,7 @@ export async function openProjectRow(path) {
   setSidebarOpen(path, open);
   renderSidebarSessions();
   if (!open) return true;
-  const same = active_space === "dev" && !workspace_switch_pending && !openingProject && currentProject === path;
+  const same = active_space === "dev-auto" && !workspace_switch_pending && !openingProject && currentProject === path;
   if (!same) return openProjectSpace(path, "chat");
   setBrowsingProject(path);
   if (document.body.dataset.view === "chat") reconcileWorkbenchView("chat");
@@ -157,7 +157,7 @@ export async function openProjectRow(path) {
 
 export async function openProjectSpace(path, view = "chat", options = {}) {
   if (!path) { navigate_view("workspace"); return false; }
-  if (view === "chat" && active_space === "dev" && !workspace_switch_pending && !openingProject
+  if (view === "chat" && active_space === "dev-auto" && !workspace_switch_pending && !openingProject
     && !options.reload && currentProject === path && document.body.dataset.view === "chat") {
     setBrowsingProject(path); reconcileWorkbenchView("chat"); return true;
   }
@@ -165,8 +165,8 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
   setBrowsingProject(path);
   openingProject = path; renderProjectActivity();
   try {
-    if (active_space !== "dev" || workspace_switch_pending) {
-      if (!await switch_workspace("dev", { isCurrent: () => generation === projectNavigationGeneration })) return false;
+    if (active_space !== "dev-auto" || workspace_switch_pending) {
+      if (!await switch_workspace("dev-auto", { isCurrent: () => generation === projectNavigationGeneration })) return false;
       if (generation !== projectNavigationGeneration) return false;
     }
     if (view === "project" && !options.activate) {
@@ -230,11 +230,8 @@ export async function openProjectResource(path, view) {
     if (await openProjectSpace(path, "chat")) openSessionHistory($("workbench-chat-history"), path);
     return;
   }
-  // 开发规范不是页面而是一张对话框(UX-007):概览需求行旁的入口。先确保这个项目就是当前项目,规范读写都按当前项目走。
   if (view === "conventions") {
-    if (currentProject !== path && !await openProjectSpace(path, "project", { activate: true })) return;
-    if (currentProject !== path) return;
-    return openConventions();
+    return openConventions(path);
   }
   if (view !== "research") return openProjectSpace(path, view);
   return openWorkbenchSpace("research");
@@ -245,7 +242,7 @@ export async function openWorkbenchSpace(space) {
   const isCurrent = () => generation === projectNavigationGeneration;
   if (!await switch_workspace(space, { isCurrent })) return false;
   if (!isCurrent()) return false;
-  if (space === "dev") {
+  if (space === "dev-auto") {
     if (workbenchProject()) return openProjectSpace(workbenchProject());
     navigate_view("workspace");
   } else if (!["research", "chat"].includes(document.body.dataset.view)) navigate_view("research");

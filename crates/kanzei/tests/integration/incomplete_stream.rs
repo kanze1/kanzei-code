@@ -45,7 +45,7 @@ async fn incomplete_responses_turn_never_executes_an_already_emitted_tool_call()
     harness.add(kanzei_tools::SubagentBase);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: home.root.clone(),
             project_root: home.root.clone(),
             config: config.clone(),
@@ -170,7 +170,7 @@ async fn redacted_thinking_survives_runner_history_without_a_fake_tool_event() {
     harness.add(kanzei_tools::SubagentBase);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: home.root.clone(),
             project_root: home.root.clone(),
             config: config.clone(),

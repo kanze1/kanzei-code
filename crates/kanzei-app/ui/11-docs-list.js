@@ -31,7 +31,6 @@ import {
   documentStatusOptionLabel,
   documentStatusOptions,
   documentsKind,
-  focusForProcess,
   latestDocsSnapshot,
   neutralizedDocFilters,
   renderDocuments,
@@ -43,7 +42,7 @@ import { openDocumentsQuick } from "./14-docs-quick.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 import { openFilePreview } from "./17-files.js";
 import { project_workspace } from "./03-workspaces.js";
-import { collaborationLines, lineAgentCodes } from "./20-lines.js";
+import { collaborationConversations, lineAgentCodes } from "./20-lines.js";
 import { needsRequirementResearch, requirementResearchAction, requirementResearchStatus, openRequirementResearch } from "./26-requirement-research.js";
 
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
@@ -407,47 +406,16 @@ export async function jumpToEntry(ref, { expand = false, quiet = false } = {}) {
   revealEntryNode(target, { block: expand ? "start" : "center" });
 }
 
-// R-247:「被取得」只读 docs_snapshot 暴露的 tracker 取得线事实。
-// 显式取得线按 branch 对上协作快照；doing/fixing 且无字段是 D-354 定义的默认线持有。
-// 运行/空闲不改变持有关系，prompt 文本和前端排序均不参与。
-export function claimedCollaborationLineFor(entry) {
-  const lines = typeof collaborationLines !== "undefined" && Array.isArray(collaborationLines)
-    ? collaborationLines
-    : [];
-  const codes = lineAgentCodes(lines);
-  const explicitOwner = String(entry.claimed_by ?? "").trim();
-  if (explicitOwner) {
-    // D-360:取得线必须此刻真在线。claimed_by 是历史事实,线可能早退出了(进程崩掉、
-    // 用户关窗)。此前这里在找不到线时照样渲染徽标、把代号打成 "?"——而「被哪条线
-    // 取得」正是这个徽标存在的全部意义,答不出就不该显示。
-    const owned = lines.find((candidate) => candidate?.branch === explicitOwner);
-    if (!owned) return null;
-    return {
-      line: owned,
-      // 线在线却没分到代号属于异常兜底:退回分支名,绝不再出现问号。
-      code: codes.get(owned.process_id) || explicitOwner,
-      owner: explicitOwner,
-    };
-  }
-  // 没有「取得线」字段 = 默认线持有——这是 D-354 定的编码(work.rs:989「默认线不写
-  // 字段」)。但同一个形态也是「根本没人拿」,所以解码要补两个前提,缺一个就不是事实:
-  //   ① 默认线此刻真的在线。引擎没运行时列表里一条线都没有,原来的代码却照样把每条
-  //      doing 标成被取得(用户截图:kzapp 已退出,5 条 doing 全带着「● ? 被取得」)。
-  //   ② 这一条正是默认线占着的那个 WIP。单线程下 agent 一次只推一条,其余可执行
-  //      doing 只是「已取未动」的历史状态;原来的代码按 status ∈ {doing,fixing} 一刀切,
-  //      于是 5 条 doing 同时归属同一条线——而一条线最多持有一条。
-  // 判据直接用主线的线路焦点(12-docs-pages.js 的取活焦点真源),不在这里另写一套
-  // 「谁是当前 WIP」的推断。即使用户当前查看并行线,主线的标记也不能跟着漂移。
-  const primary = lines.find((candidate) => !candidate?.worktree_path);
-  if (!primary) return null;
-  const primaryFocus = focusForProcess(primary.process_id);
-  const focused = primaryFocus?.active === entry.id;
-  if (!focused) return null;
-  return {
-    line: primary,
-    code: codes.get(primary.process_id) || primary.branch || t("主对话"),
-    owner: primary.branch || t("主对话"),
-  };
+// 展示 tracker 登记到的工作树，不把登记关系解释成某个对话正在执行。
+export function registeredWorktreeFor(entry) {
+  const owner = String(entry.claimed_by ?? "").trim() || null;
+  const conversations = collaborationConversations.filter(conversation =>
+    !conversation.tracker_error && conversation.tracker_line === owner &&
+    conversation.tracker_entries.includes(entry.id));
+  const trees = new Map(conversations.map(conversation => [conversation.worktree_path || currentProject, conversation]));
+  if (trees.size !== 1) return null;
+  const [path, conversation] = trees.entries().next().value;
+  return { path, code: lineAgentCodes(collaborationConversations).get(conversation.process_id) };
 }
 
 // ---------- 条目详情(UI-0926 #4 + #10):只读优先,读起来像一页文档 ----------
@@ -664,7 +632,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     };
     if (!entry.closed && needsRequirementResearch(entry)) researchButton(requirementResearchAction(entry), async () => {
       await (await import("./12-workbench.js")).openProjectSpace(entryProject, "chat");
-      await (await import("./26-project-conversations.js")).continueRequirement(entry);
+      await (await import("./26-project-conversations.js")).researchRequirement(entry);
     });
     if (entry.prior_art.path) researchButton("查看调研文件", () => openRequirementResearch(entryProject, entry));
   }
@@ -1249,12 +1217,12 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       exemptFlag.title = t("跳转目标被当前筛选隐藏,这里临时显示;改筛选或离开单页后恢复");
       placeFlag(exemptFlag);
     }
-    const claimed = claimedCollaborationLineFor(entry);
+    const claimed = registeredWorktreeFor(entry);
     if (claimed) {
       const claimBadge = document.createElement("span");
       claimBadge.className = "doc-claim-fact";
-      claimBadge.textContent = `● ${claimed.code} ${t("开工中")}`;
-      claimBadge.title = `${entry.id} · ${t("负责对话")}: ${claimed.owner}${claimed.line?.phase ? ` · ${claimed.line.phase}` : ""}`;
+      claimBadge.textContent = `● ${claimed.code} ${t("已登记")}`;
+      claimBadge.title = `${entry.id} · ${t("工作树")}: ${claimed.path}`;
       placeFlag(claimBadge);
     }
     const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];

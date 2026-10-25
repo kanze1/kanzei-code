@@ -50,7 +50,7 @@ function applyPrefs(durable, patch) {
       else durable.process_auto_state[id] = { ...(durable.process_auto_state[id] ?? {}), ...clone(fields) };
     }
   }
-  for (const key of ["continue_prompt", "auto_max", "theme"]) if (Object.hasOwn(patch, key)) durable[key] = patch[key];
+  for (const key of ["continue_prompt", "theme"]) if (Object.hasOwn(patch, key)) durable[key] = patch[key];
 }
 async function harness(initial, { project = "project-A", backend = { value: clone(initial), runtime: {} }, holdAuto = false, holdLookups = false, active = false } = {}) {
   backend.runtime ??= {};
@@ -94,7 +94,7 @@ async function harness(initial, { project = "project-A", backend = { value: clon
   const needed = collectEsmImports(sources, new Set());
   const deps = new Map(), noop = () => {};
   for (const [specifier, exports] of needed) {
-    const values = specifier === "./01-chat-panes.js" ? { messages: get("messages"), activePane: get("messages"), promptBox: get("prompt") } : specifier === "./03-shell.js" ? shellValues : specifier === "./02-i18n.js" ? { t: value => value, localizeDynamic: value => value } : specifier === "./03-general-scope.js" ? { isGeneralChat: () => false } : specifier === "./08-auto.js" ? { autoContinueTimers: new Map(), autoContinueInFlight: new Set(), awaitingUserSessions: new Set(), autoPaused: false, autoStopAfterRound: false, DEFAULT_AUTO_CONTINUE_MAX: 10 } : specifier === "./08-compose.js" ? { state: {} } : specifier === "./09-sessions.js" ? { processRunning: item => item.running } : specifier === "./20-lines.js" ? { collaborationLines: [] } : {};
+    const values = specifier === "./01-chat-panes.js" ? { messages: get("messages"), activePane: get("messages"), promptBox: get("prompt") } : specifier === "./03-shell.js" ? shellValues : specifier === "./02-i18n.js" ? { t: value => value, localizeDynamic: value => value } : specifier === "./03-general-scope.js" ? { isGeneralChat: () => false } : specifier === "./08-auto.js" ? { autoContinueTimers: new Map(), autoContinueInFlight: new Set(), awaitingUserSessions: new Set(), autoPaused: false, autoStopAfterRound: false } : specifier === "./08-compose.js" ? { state: {} } : specifier === "./09-sessions.js" ? { processRunning: item => item.running } : specifier === "./20-lines.js" ? { collaborationConversations: [] } : {};
     deps.set(specifier, new vm.SyntheticModule([...exports], function () { for (const key of exports) this.setExport(key, Object.hasOwn(values, key) ? values[key] : noop); }, { context }));
   }
   // The existing core/runtime/auto cycle is linked in two stages solely by the fixture.
@@ -130,8 +130,8 @@ async function harness(initial, { project = "project-A", backend = { value: clon
     ready: async () => { const loading = core.uiPrefsLoad(); getGate.resolve(clone(initial)); await loading; runtime.mergeBackendAutoState(core.uiPrefsCache.process_auto_state); await drain(); },
   };
 }
-const autoFixture = (entries = {}) => ({ process_auto_state: { "p|A": { enabled: true, paused: false, stopAfterRound: false, maxRounds: 5, mode: "dev-pair" }, ...entries } });
-const item = (id = "p|A", session = "session-A") => ({ id, session_id: session, origin_project: "project-A", profile: "dev", running: true });
+const autoFixture = (entries = {}) => ({ process_auto_state: { "p|A": { enabled: true, paused: false, stopAfterRound: false, mode: "dev-pair" }, ...entries } });
+const item = (id = "p|A", session = "session-A") => ({ id, session_id: session, origin_project: "project-A", profile: "dev-auto", running: true });
 const prefsWrites = h => h.calls.filter(call => call.command === "ui_prefs_set");
 const runtimeWrites = h => h.calls.filter(call => call.command === "auto_state_update");
 const evidence = (name, value) => console.log(JSON.stringify({ evidence: name, source: "working tree", ...value }));
@@ -159,7 +159,7 @@ test("two independent windows preserve both project priority edits", async () =>
   assert.equal(backend.value.work_priority["project-A"], "requirement-first"); assert.equal(backend.value.work_priority["project-B"], "requirement-first");
 });
 test("different process edits preserve the other window's auto state", async () => {
-  const initial = autoFixture({ "p|B": { enabled: false, paused: false, mode: "dev-pair", maxRounds: 7 } }), backend = { value: clone(initial) };
+  const initial = autoFixture({ "p|B": { enabled: false, paused: false, mode: "dev-pair" } }), backend = { value: clone(initial) };
   const a = await harness(initial, { backend }), b = await harness(initial, { backend });
   for (const h of [a, b]) { await h.ready(); h.setProcesses([item(), item("p|B", "session-B")]); }
   await a.runtime.setLineAutoState("p|A", { paused: true }); await drain();
@@ -212,7 +212,7 @@ test("pending off intent prevents a delayed enable receipt from arming a new con
   assert.equal(h.auto.autoContinueTimers.has("session-A"), false);
 });
 test("first enable selects autonomous mode and retains its session across an IPC wait and project switch", async () => {
-  const initial = autoFixture({ "p|A": { enabled: false, paused: false, maxRounds: 5 } });
+  const initial = autoFixture({ "p|A": { enabled: false, paused: false } });
   const h = await harness(initial, { holdAuto: true, active: true }); await h.ready(); h.setProcesses([item(), item("p|B", "session-B")]);
   h.runtime.applyAutoUiState("p|A"); h.get("profile-select").value = "dev-pair";
   const pending = h.runtime.setLineAutoState("p|A", { enabled: true }); await drain();
@@ -245,7 +245,7 @@ test("explicit edit before hydrate survives while untouched backend fields stay 
   await h.ready();
   evidence("hydrate explicit delta", { local: h.runtime.lineAutoConfig("p|A"), durable: h.durable(), writes: prefsWrites(h) });
   assert.equal(h.runtime.lineAutoConfig("p|A").paused, true); assert.equal(h.runtime.lineAutoConfig("p|A").enabled, true);
-  assert.equal(h.durable().process_auto_state["p|A"].paused, true); assert.equal(h.durable().process_auto_state["p|A"].maxRounds, 5);
+  assert.equal(h.durable().process_auto_state["p|A"].paused, true); assert.equal(h.durable().process_auto_state["p|A"].mode, "dev-pair");
 });
 test("confirmed retirement sends a tombstone and preserves other projects", async () => {
   const initial = autoFixture({ "p|B": { enabled: true, mode: "dev-pair" } }), h = await harness(initial); await h.ready();
@@ -255,12 +255,12 @@ test("confirmed retirement sends a tombstone and preserves other projects", asyn
   assert.equal(Object.hasOwn(h.durable().process_auto_state, "p|A"), false); assert.equal(h.durable().process_auto_state["p|B"].enabled, true);
 });
 test("core cache merges field deltas, honors tombstones and refuses failed native cache publication", async () => {
-  const initial = autoFixture({ "p|B": { enabled: true, maxRounds: 7 } }), h = await harness(initial); await h.ready();
+  const initial = autoFixture({ "p|B": { enabled: true } }), h = await harness(initial); await h.ready();
   await h.core.uiPrefsSave({ process_auto_state: { "p|A": { paused: true } }, work_priority: { "project-A": "requirement-first" } });
   await h.core.uiPrefsSave({ process_auto_state: { "p|A": { enabled: false }, "p|B": null }, work_priority: { "project-B": "defect-first" } });
   h.rejectNextSave(); await h.core.uiPrefsSave({ process_auto_state: { "p|A": { paused: false } } });
   evidence("cache delta failure", { cache: clone(h.core.uiPrefsCache), durable: h.durable() });
-  assert.equal(h.core.uiPrefsCache.process_auto_state["p|A"].paused, true); assert.equal(h.core.uiPrefsCache.process_auto_state["p|A"].maxRounds, 5);
+  assert.equal(h.core.uiPrefsCache.process_auto_state["p|A"].paused, true); assert.equal(h.core.uiPrefsCache.process_auto_state["p|A"].mode, "dev-pair");
   assert.equal(Object.hasOwn(h.core.uiPrefsCache.process_auto_state, "p|B"), false); assert.equal(h.core.uiPrefsCache.work_priority["project-A"], "requirement-first");
   assert.deepEqual(clone(h.core.uiPrefsCache.process_auto_state), h.durable().process_auto_state);
 });

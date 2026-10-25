@@ -122,6 +122,8 @@ pub(crate) async fn deliver(
                 generation: prepared.generation,
                 mailbox: prepared.mailbox.unwrap(),
                 notice: kanzei_harness::AsyncNotice {
+                    origin: kanzei_base::MessageOrigin::Human,
+                    attachments: Vec::new(),
                     id: callback.clone(),
                     text,
                 },
@@ -134,6 +136,8 @@ pub(crate) async fn deliver(
             .mailbox
             .unwrap()
             .publish(kanzei_harness::AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Human,
+                attachments: Vec::new(),
                 id: callback.clone(),
                 text,
             })?;
@@ -280,6 +284,8 @@ mod tests {
             .mailbox
             .unwrap()
             .publish(kanzei_harness::AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Human,
+                attachments: Vec::new(),
                 id: "callback".into(),
                 text: "yes".into()
             })

@@ -120,7 +120,6 @@ async function generateSkill() {
     const draft = await invoke("skills_generate", { description });
     if (token !== editing) return;
     $("skill-name").value = draft.name; $("skill-description").value = draft.description; $("skill-instructions").value = draft.instructions;
-    $("skill-manual-only").checked = !!draft.manualOnly;
     status(t("草稿已生成，检查后保存"));
   } catch (failure) { if (token === editing) error(String(failure)); }
   finally {

@@ -28,7 +28,7 @@ function synchronizeRuntime() {
       sync_workspace_visibility();
       await refreshWorkspace();
       await restore_active_workspace({ isCurrent });
-      if (!isCurrent() || active_space !== "dev") return;
+      if (!isCurrent() || active_space !== "dev-auto") return;
       if (settings.ui_layout?.prefs?.conversation_mode === "general" || !prefs.projects?.length) await openGeneralChat();
       else if (prefs.current) await openProjectSpace(prefs.current);
     } else {

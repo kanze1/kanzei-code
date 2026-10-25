@@ -376,7 +376,8 @@
       "delivery": "string",
       "input_id": "string",
       "prompt": "string",
-      "session_id": "string"
+      "session_id": "string",
+      "origin": "string"
     }
   ],
   "memory_graph": {

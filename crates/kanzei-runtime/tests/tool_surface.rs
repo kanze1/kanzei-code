@@ -7,8 +7,8 @@ mod tool_surface_budget {
     /// D-662/R-364 双门禁按工具数计,不是 schema 字符数。
     /// CLI resident=19 个注册工具 + core 单独追加的 task; desktop 再加 collaboration_status。
     const DEV_RESIDENT_TOOL_BUDGET: usize = 20;
-    // Packaged skill bodies use the deferred resource reader; resident schemas stay unchanged.
-    const DEV_DEFERRED_TOOL_BUDGET: usize = 14;
+    // Packaged skills and explicitly saved preferences are read through deferred tools.
+    const DEV_DEFERRED_TOOL_BUDGET: usize = 15;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///
@@ -120,7 +120,7 @@ mod tool_surface_budget {
             }
         }
         for profile in [
-            ProfileKind::Dev,
+            ProfileKind::DevAuto,
             ProfileKind::Research,
             ProfileKind::Readonly,
         ] {
@@ -195,7 +195,7 @@ mod tool_surface_budget {
             "decision",
             "memory_stats",
         ];
-        let specs = materialized_tool_specs(ProfileKind::Dev);
+        let specs = materialized_tool_specs(ProfileKind::DevAuto);
         let expected_materialized: Vec<&str> = resident
             .iter()
             .copied()
@@ -256,8 +256,8 @@ mod tool_surface_budget {
 
     #[test]
     fn dev档常驻与延迟目录分别符合预算() {
-        let names = visible_tools(ProfileKind::Dev);
-        let (resident, deferred) = visible_layer_counts(ProfileKind::Dev);
+        let names = visible_tools(ProfileKind::DevAuto);
+        let (resident, deferred) = visible_layer_counts(ProfileKind::DevAuto);
         assert!(
             names.contains(&"tool_search"),
             "tool_search 必须在 Dev 常驻表中"
@@ -295,7 +295,7 @@ mod tool_surface_budget {
     /// 而且**记忆的唯一写路径**这条设计约束会同时失效——两件事一条测试拦住。
     #[test]
     fn 记忆写工具不得进入主agent工具面() {
-        let names = visible_tools(ProfileKind::Dev);
+        let names = visible_tools(ProfileKind::DevAuto);
         for leaked in [
             "memory_add",
             "memory_promote",

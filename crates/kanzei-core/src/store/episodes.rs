@@ -236,7 +236,7 @@ mod tests {
                 input_tokens: 50_000,
                 output_tokens: 3_000,
                 tools_json: r#"{"bash":5,"edit":3}"#,
-                context_json: r#"[["agent/system",1200],["dev/memory",800]]"#,
+                context_json: r#"[["agent/system",1200],["core/preferences",800]]"#,
                 metrics_json: r#"{"terminal_calls":5,"edit_calls":3,"edit_misses":1}"#,
                 provider: "deepseek",
                 model: "deepseek-v4-flash",

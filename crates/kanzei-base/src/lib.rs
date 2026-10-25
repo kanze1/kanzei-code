@@ -3,6 +3,10 @@
 //! 本层保存事实并返回错误；是否允许写入、如何处理冲突与回滚由调用层决定。
 
 pub mod atomic_file;
+mod input_attachment;
+mod message_origin;
+pub use input_attachment::InputAttachment;
+pub use message_origin::MessageOrigin;
 pub mod path_form;
 pub mod sync;
 pub mod write_log;

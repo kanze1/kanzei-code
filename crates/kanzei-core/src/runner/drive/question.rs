@@ -3,7 +3,7 @@ use super::*;
 use crate::store::decisions::{AgentDecision, DecisionRecord, DecisionResolution, DecisionStatus};
 use kanzei_harness::ToolOutput;
 
-pub(super) const AUTONOMOUS_DECISIONS: &str = "当前为自动模式。普通选择由你根据用户要求、已确认偏好和可验证事实自行决定。每当你准备向用户问一个选择题，先使用 question，填写 decision: {answer, rationale, impact, preference_refs}，记录简短理由和影响，成功后继续工作，留待用户集中复核。不要等待回答，不要把自己的决定写成用户授权，也不要输出隐藏思维过程。没有足够事实时先调查；只有无法取得的外部事实才使用 missing_fact，给相关条目标记阻塞和解除条件，然后推进独立工作。用户纠正默认只用于本次；长期偏好由用户在复核时明确选择范围。";
+pub(super) const AUTONOMOUS_DECISIONS: &str = "在已有授权范围内自主决策，普通实现选择直接处理。对方案、成本或交付有实质影响且值得复核的决定，用 question 的 decision 记录结论、简短理由和影响，随后继续工作。先调查可查证的信息；仍缺少必要外部事实时，用 missing_fact 说明缺口和解除条件，只暂停依赖部分并推进独立工作。记录不代表用户回答或新增授权。用户纠正默认用于本次，长期偏好按用户明确选择的范围保存。";
 
 pub(super) async fn execute_question(
     ask_policy: AskPolicy,
@@ -25,7 +25,7 @@ pub(super) async fn execute_question(
             Ok(record) => decision_output(record),
             Err(error) => ToolOutput::needs_correction(
                 "DECISION_NOT_RECORDED",
-                format!("决策尚未记录，不能声称已确认。修正 question 输入后重试：{error}"),
+                format!("决策记录未保存：{error}"),
             ),
         };
     }
@@ -66,6 +66,8 @@ pub(super) async fn execute_question(
                 AskResponse::Permission(_) => return,
             };
             if let Err(error) = mailbox.publish(kanzei_harness::AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Notification,
+                attachments: Vec::new(),
                 id: reply_id.clone(),
                 text,
             }) {
@@ -121,6 +123,10 @@ fn record_question(
                 .ok_or_else(|| anyhow::anyhow!("missing_fact must be a string"))
         })
         .transpose()?;
+    anyhow::ensure!(
+        resolution.is_some() || missing_fact.is_some(),
+        "自动模式仅记录值得复核的决定或必要事实缺口，请提供 decision 或 missing_fact；普通实现选择可直接处理"
+    );
     let project = ctx.project_root.display().to_string();
     let journal = crate::project_session_id(&ctx.project_root);
     let store = crate::SessionStore::open(&crate::project_state_path(&ctx.project_root))?;
@@ -151,12 +157,12 @@ fn decision_output(record: DecisionRecord) -> ToolOutput {
     display["kind"] = serde_json::json!("autonomous_decision");
     let content = match record.status {
         DecisionStatus::Deciding => format!(
-            "决策点 {} 已记录，当前是自动模式。请先调查必要事实，然后再次调用 question，保持相同 question，填写 decision: {{answer, rationale, impact, preference_refs}}。成功记录决定后继续，不要等待用户，也不要机械选择 default。确实缺少无法取得的外部事实时填写 missing_fact。", record.id),
+            "决策 {} 尚未形成结论，记录重要决定时提供 decision，记录必要事实缺口时提供 missing_fact。", record.id),
         DecisionStatus::Decided => format!(
-            "Agent decision recorded: {}\n{}\n这是模型决定，待用户批量复核。继续落实；不代表用户回答或权限授权。",
+            "自主决定已记录：{}\n{}\n可继续落实，用户可随后复核；记录不构成新增授权。",
             record.id, serde_json::to_string(&record.resolution).unwrap()),
         DecisionStatus::NeedsInput => format!(
-            "外部事实缺失已记录：{}\n只阻塞依赖这个事实的工作，记录解除条件，然后用 work next 推进独立任务。不要虚构事实。", record.missing_fact.as_deref().unwrap_or("")),
+            "必要事实缺口已记录：{}\n依赖部分等待补充，继续可独立推进的工作；已有跟踪任务按实际情况更新阻塞和解除条件。", record.missing_fact.as_deref().unwrap_or("")),
     };
     if record.status == DecisionStatus::Deciding {
         ToolOutput::needs_correction("DECISION_REQUIRED", content).with_display(display)
@@ -222,6 +228,8 @@ mod tests {
         mailbox.close();
         assert!(mailbox
             .publish(kanzei_harness::AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Notification,
+                attachments: Vec::new(),
                 id: "late".into(),
                 text: "late".into()
             })
@@ -266,11 +274,14 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
-        for policy in [
+        for (index, policy) in [
             AskPolicy::DeferredQuestions,
             AskPolicy::NonInteractive,
             AskPolicy::AutoAllow,
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let ctx = ToolCtx::new(root.clone(), root.clone())
                 .with_session_id("origin".into())
                 .with_identity(
@@ -282,8 +293,21 @@ mod tests {
             let mut ask = |_| -> AskFuture { panic!("auto mode must not ask") };
             let mut input = serde_json::json!({"question":"选择 provider", "options":["本地","远程"], "default":"远程"});
             let pending = execute_question(policy, &ctx, "call-1", &input, &mut ask).await;
-            assert_eq!(pending.code.as_deref(), Some("DECISION_REQUIRED"));
-            assert_eq!(pending.display.as_ref().unwrap()["status"], "deciding");
+            assert_eq!(pending.code.as_deref(), Some("DECISION_NOT_RECORDED"));
+            assert!(
+                pending.display.is_none(),
+                "incomplete input cannot create a decision card"
+            );
+            let store = crate::SessionStore::open(&crate::project_state_path(&root)).unwrap();
+            assert_eq!(
+                store
+                    .list_decisions(&crate::project_session_id(&root))
+                    .unwrap()
+                    .len(),
+                index * 2,
+                "an incomplete choice cannot create a placeholder decision"
+            );
+            drop(store);
             input["decision"] =
                 serde_json::json!({"answer":"本地", "rationale":"已有配置", "impact":"不新增服务"});
             let output = execute_question(policy, &ctx, "call-2", &input, &mut ask).await;
@@ -305,6 +329,10 @@ mod tests {
             assert!(!missing.is_error);
             assert_eq!(missing.display.as_ref().unwrap()["status"], "needs_input");
             assert!(!missing.content.contains("User answer:"));
+            assert!(
+                !missing.content.contains("work next"),
+                "fact gaps cannot require a project queue tool"
+            );
         }
         let store = crate::SessionStore::open(&crate::project_state_path(&root)).unwrap();
         assert_eq!(

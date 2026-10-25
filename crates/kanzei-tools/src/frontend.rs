@@ -1,10 +1,5 @@
-//! 前端专用定位工具(R-126)。
-//!
-//! agent 改前端时的两个具体痛处:①编辑锚点撞车——c65c80e 把 `@media (max-width: 700px) {`
-//! 整行替换成了别的规则,CSS 结构静默损坏(D-164),浏览器对花括号错配是容错的,没有任何
-//! 报错;②改一个 class 时不知道它在哪几处定义,漏改一处就出现"只在某些状态下才错"。
-//!
-//! 这三个工具都是只读的:定位与检查,不改文件。
+//! 当前工作树内的 CSS 定位与结构检查工具，均只读源码。
+//! 定位结果描述源码定义；结构检查仅覆盖花括号配对。
 
 use async_trait::async_trait;
 use kanzei_harness::{Tool, ToolConcurrency, ToolCtx, ToolOutput};
@@ -148,7 +143,7 @@ fn strip_block_comments(text: &str) -> String {
 struct FrontendLocateInput {
     /// 要定位的 class / id / 选择器片段,例如 `.doc-edit` 或 `bg-entry`。
     selector: String,
-    /// CSS 文件路径(相对项目根)。默认 crates/kanzei-app/ui/style.css。
+    /// CSS 文件路径，相对当前工作目录。省略时读取 crates/kanzei-app/ui/style.css。
     #[serde(default)]
     css_path: Option<String>,
 }
@@ -162,16 +157,13 @@ impl Tool for FrontendLocateTool {
         "frontend_locate"
     }
     fn description(&self) -> String {
-        "定位一个 CSS 选择器片段的全部定义点:返回每处的行号、完整选择器与所在 @media 条件块。\
-         改样式前先跑一次——同一个 class 常在多处定义(基础规则 + 响应式覆盖),漏改一处就会\
-         出现「只在某些宽度下才错」。只读,不改文件。"
+        "在当前工作目录的指定 CSS 文件中定位选择器片段，返回各定义点的行号、完整选择器及 @media 上下文，用于查看重复定义与响应式覆盖。只读。"
             .into()
     }
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendLocateInput)).unwrap()
     }
-    /// R-323 并发审计:生产路径**只读**——读 `ctx.cwd` 下的样式表/源码做定位与
-    /// 结构检查;文件内的 `std::fs::write` 全在 `#[cfg(test)] mod tests` 之后。
+    /// 只读取当前工作树内的样式表，可与同一工作树的其他只读工具并发。
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         ToolConcurrency::shared_worktree(ctx)
     }
@@ -184,10 +176,7 @@ impl Tool for FrontendLocateTool {
         let rel = input
             .css_path
             .unwrap_or_else(|| "crates/kanzei-app/ui/style.css".to_string());
-        // R-177 内容②:样式表是仓库源码,取 cwd(= 本线的代码树)。取主根会让
-        // 同一个 agent 在两棵树之间读写——frontend 读主树的 css、edit 按 cwd 落
-        // worktree,分支改过该文件时 old_string 匹配失败,没改过时基于陈旧上下文
-        // 改对了地方,git 一个字都不报。
+        // 源码定位跟随当前工作树；项目元数据主根可能属于另一棵代码树。
         let path = ctx.cwd.join(&rel);
         let css = match std::fs::read_to_string(&path) {
             Ok(text) => text,
@@ -219,12 +208,12 @@ impl Tool for FrontendLocateTool {
 
 #[derive(Deserialize, JsonSchema)]
 struct FrontendCheckInput {
-    /// CSS 文件路径(相对项目根)。默认 crates/kanzei-app/ui/style.css。
+    /// CSS 文件路径，相对当前工作目录。省略时读取 crates/kanzei-app/ui/style.css。
     #[serde(default)]
     css_path: Option<String>,
 }
 
-/// CSS 结构完整性检查(花括号配对 / 孤儿规则)。
+/// CSS 花括号配对检查，不解析完整语法或验证浏览器渲染。
 pub struct FrontendCheckTool;
 
 #[async_trait]
@@ -233,16 +222,13 @@ impl Tool for FrontendCheckTool {
         "frontend_check"
     }
     fn description(&self) -> String {
-        "检查 CSS 结构完整性:花括号是否配对、有没有多余的 `}`。浏览器对花括号错配是静默\
-         容错的——被吃掉一个 `@media ... {` 会让整段响应式规则无条件生效且不报任何错。\
-         改完 CSS 必须跑一次。只读,不改文件。"
+        "检查当前工作目录内指定 CSS 文件的花括号配对，报告未闭合左括号的数量，以及多余右括号的数量和行号。这是静态结构检查，不验证完整 CSS 语法或浏览器渲染。只读。"
             .into()
     }
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(FrontendCheckInput)).unwrap()
     }
-    /// R-323 并发审计:生产路径**只读**——读 `ctx.cwd` 下的样式表/源码做定位与
-    /// 结构检查;文件内的 `std::fs::write` 全在 `#[cfg(test)] mod tests` 之后。
+    /// 只读取当前工作树内的样式表，可与同一工作树的其他只读工具并发。
     fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
         ToolConcurrency::shared_worktree(ctx)
     }

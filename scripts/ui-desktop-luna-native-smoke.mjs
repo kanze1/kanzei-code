@@ -23,7 +23,7 @@ try {
   await app.page.locator("#composer-more").click();await app.page.locator("#native-desktop-choose").click();
   await app.page.locator("#native-desktop-dialog .native-window-list button").filter({hasText:window.title}).click();
   await app.page.locator("#native-desktop-dialog").waitFor({state:"hidden"});
-  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,profile:"dev",agent:"dev-pair",model:"codex:gpt-6-luna",autonomous:true,autoAllow:true,
+  await app.invoke("run_prompt",{projectDir:app.project,processId:line.id,profile: "dev-pair",agent:"dev-pair",model:"codex:gpt-6-luna",autonomous:true,autoAllow:true,
     prompt:"请用 desktop 原生窗口工具操作我已经选择的测试窗口：先观察，把 Customer name 填为 LUNA_NATIVE_FORM，然后点击 Submit form。每次修改后重新观察，确认表单回显实际姓名再结束。无需操作密码、文件选择或其他窗口。不要调用终端或浏览器来替代原生工具。"});
   let outcome;
   await until(async()=>{

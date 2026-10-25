@@ -116,8 +116,8 @@ function ensureView(root) {
     for (const entry of chosen) await reviewOne(entry.project, entry.displayed, "accept", null, false);
     await actions.refresh();
   });
-  controls.append(reviewSelect, accept, node("span", t("通过只记录本次复核；纠正时可选择记忆范围。"), "dim"));
-  const decisionEmpty = node("p", t("暂无待复核决策。自动运行遇到选择时会在这里留档。"), "console-empty");
+  controls.append(reviewSelect, accept, node("span", t("重要自主决定可事后复核；纠正默认仅本次，也可明确选择长期偏好范围。"), "dim"));
+  const decisionEmpty = node("p", t("暂无待复核的重要决定。普通实现选择无需逐项留档。"), "console-empty");
   decisions.append(controls, decisionEmpty);
   const deliveryEmpty = node("p", t("尚无交付记录。已有的交付内容和验证结果会直接显示在这里。"), "console-empty");
   deliveries.append(node("p", t("机器完成后继续推进独立工作；人工试用单独记账。纠正后的内容需要新的验证。"), "console-explainer dim"), deliveryEmpty);

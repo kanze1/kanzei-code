@@ -41,7 +41,7 @@ fn spawn(home: &TestHome, root: &Path, prompt: &str, new: bool) -> Child {
     command
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -375,8 +375,15 @@ async fn cli_does_not_fake_execution_of_a_queued_desktop_work_payload() {
     let (db, session) = store(&root);
     db.create_session(&session, root.to_str().unwrap(), None)
         .unwrap();
-    db.admit_work_input(&session, "desktop-work", "work A", "R-001/W1")
-        .unwrap();
+    db.admit_work_input(
+        &session,
+        "desktop-work",
+        "work A",
+        "R-001/W1",
+        kanzei_base::MessageOrigin::Human,
+        &[],
+    )
+    .unwrap();
     let child = spawn(&home, &root, "plain argv B", false);
     let (outcome, post) = settle_or_serve(child, &listener).await;
     assert!(!outcome.status.success());

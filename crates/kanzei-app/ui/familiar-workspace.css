@@ -163,9 +163,9 @@
 .management-metrics [data-tone="error"] dd { color: var(--err); }
 .management-metrics small, .management-runtime > p { font-size: 11px; }
 .familiar-workspace #view-chat.active,
-.familiar-workspace[data-space="dev"] #view-chat.active,
-.familiar-workspace[data-space="dev"] #main[data-side="docked"] #view-chat.active,
-.familiar-workspace[data-space="dev"] #view-chat.active[data-preview="open"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "head" "chat" "activity" "composer"; }
+.familiar-workspace[data-space="dev-auto"] #view-chat.active,
+.familiar-workspace[data-space="dev-auto"] #main[data-side="docked"] #view-chat.active,
+.familiar-workspace[data-space="dev-auto"] #view-chat.active[data-preview="open"] { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-areas: "head" "chat" "activity" "composer"; }
 #composer > .composer-work-context { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-5); min-width: 0; border-bottom: 1px solid var(--border-soft); font-size: 11px; color: var(--dim); margin-bottom: 7px; padding-bottom: var(--sp-2); border-bottom-color: var(--border-soft); }
 .composer-work-context > button { display: flex; align-items: center; gap: 7px; min-height: 24px; padding: 0 3px; border: none; border-radius: 4px; box-shadow: none; background: transparent; font: inherit; cursor: pointer; font-size: 12px; color: var(--dim); }
 .composer-work-context > button:hover { background: var(--surface-hover); }
@@ -378,7 +378,7 @@ select:focus-visible { outline-width: 1.5px; }
 #view-chat { --chat-gutter: 14px; }
 #messages { padding-top: 18px; }
 #messages .msg.assistant { font-size: 14px; line-height: 1.9; }
-body[data-space="dev"] #view-chat>#composer { margin-bottom: var(--sp-5); }
+body[data-space="dev-auto"] #view-chat>#composer { margin-bottom: var(--sp-5); }
 #composer { padding: 11px 13px; border-radius: 13px; }
 .familiar-workspace #composer { padding: 11px 13px; border-radius: 13px; }
 .familiar-workspace #prompt { min-height: 64px; font-size: 13px; }

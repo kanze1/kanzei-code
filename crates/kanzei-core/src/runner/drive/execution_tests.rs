@@ -17,14 +17,14 @@ async fn ambient_hosted_declarations_are_rejected_before_provider_io_or_approval
     harness.add(Policy);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),
         })
         .unwrap();
     let agent: AgentDef = serde_json::from_value(
-        json!({"name":"fixture","profile":"dev","mode":"primary","steps":3,"system":"fixture"}),
+        json!({"name":"fixture","profile":"dev-auto","mode":"primary","steps":3,"system":"fixture"}),
     )
     .unwrap();
     let mut config = config(kanzei_harness::orchestration::ExecutionPolicy::Default);
@@ -139,7 +139,7 @@ impl Component for SnapshotTool {
 fn readonly_child_boundary_rejects_an_incorrectly_constructed_snapshot() {
     let root = std::env::temp_dir();
     let rctx = ResolveCtx {
-        profile: kanzei_harness::ProfileKind::Dev,
+        profile: kanzei_harness::ProfileKind::DevAuto,
         cwd: root.clone(),
         project_root: root,
         config: Arc::new(Default::default()),
@@ -159,11 +159,22 @@ fn readonly_child_boundary_rejects_an_incorrectly_constructed_snapshot() {
     );
 }
 
-#[derive(Default)]
-struct MutationProbe(AtomicUsize);
+struct MutationProbe(AtomicUsize, kanzei_harness::tool::ReadOnlySupport);
+
+impl Default for MutationProbe {
+    fn default() -> Self {
+        Self(
+            AtomicUsize::new(0),
+            kanzei_harness::tool::ReadOnlySupport::Unsupported,
+        )
+    }
+}
 
 #[async_trait]
 impl Tool for MutationProbe {
+    fn read_only_support(&self) -> kanzei_harness::tool::ReadOnlySupport {
+        self.1
+    }
     fn name(&self) -> &'static str {
         "git"
     }
@@ -192,65 +203,79 @@ impl Tool for MutationProbe {
 #[tokio::test]
 async fn readonly_execution_rejects_mutations_with_broad_permissions_in_serial_and_parallel_paths()
 {
-    let root = std::env::temp_dir().join(format!("kz-readonly-dispatch-{}", std::process::id()));
-    std::fs::create_dir_all(&root).unwrap();
+    use kanzei_harness::{tool::ReadOnlySupport, ExecutionPolicy, ProfileKind};
+    let directory = kanzei_base::test_support::TestDir::new("kz-readonly-dispatch-");
+    let root = directory.to_path_buf();
     let ctx = ToolCtx::new(root.clone(), root.clone());
-    let mut harness = Harness::default();
-    harness.add(Policy);
-    let snapshot = harness
-        .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(Default::default()),
-        })
-        .unwrap();
-    let probe = Arc::new(MutationProbe::default());
-    let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
-    let mut cfg = config(kanzei_harness::ExecutionPolicy::ReadOnly);
-    cfg.ask_policy = AskPolicy::AutoAllow;
-    for count in [1, 2] {
-        let calls = (0..count)
-            .map(|index| {
-                (
-                    format!("mutation-{index}"),
-                    "git".into(),
-                    json!({"action":"commit"}),
-                    "{}".into(),
-                )
+    for (profile, policy) in [
+        (ProfileKind::DevAuto, ExecutionPolicy::ReadOnly),
+        (ProfileKind::Readonly, ExecutionPolicy::Default),
+        (
+            ProfileKind::Readonly,
+            ExecutionPolicy::ReadParallelWriteSerial,
+        ),
+    ] {
+        let mut harness = Harness::default();
+        harness.add(Policy);
+        let snapshot = harness
+            .resolve(&ResolveCtx {
+                profile,
+                cwd: root.clone(),
+                project_root: root.clone(),
+                config: Arc::new(Default::default()),
             })
-            .collect::<Vec<_>>();
-        let outcome = execute_tool_calls(
-            &cfg,
-            &ctx,
-            &snapshot,
-            &mut Vec::new(),
-            &mut Vec::new(),
-            &tools,
-            &calls,
-            None,
-            &mut HashMap::new(),
-            false,
-            None,
-            &mut |_| {},
-            &mut |_| panic!("read-only rejection cannot ask for a scope upgrade"),
-            &mut HashSet::new(),
-            &mut vec![("read".into(), "*".into())],
-            &mut Vec::new(),
-            1,
-            &batch::Batch::new(false),
-        )
-        .await
-        .unwrap();
-        let ToolRunOutcome::Results { results, .. } = outcome else {
-            panic!("must return paired denied results")
-        };
-        assert_eq!(results.len(), count);
-        assert!(results.iter().all(|part| matches!(part, Part::ToolResult {is_error:true, content, ..} if content.contains("read-only execution scope"))));
+            .unwrap();
+        for support in [ReadOnlySupport::Unsupported, ReadOnlySupport::ByAction] {
+            let probe = Arc::new(MutationProbe(AtomicUsize::new(0), support));
+            let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
+            let mut cfg = config(policy);
+            cfg.ask_policy = AskPolicy::AutoAllow;
+            for count in [1, 2] {
+                let calls = (0..count)
+                    .map(|index| {
+                        (
+                            format!("mutation-{index}"),
+                            "git".into(),
+                            json!({"action":"commit"}),
+                            "{}".into(),
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let outcome = execute_tool_calls(
+                    &cfg,
+                    &ctx,
+                    &snapshot,
+                    &mut Vec::new(),
+                    &mut Vec::new(),
+                    &tools,
+                    &calls,
+                    None,
+                    &mut HashMap::new(),
+                    false,
+                    None,
+                    &mut |_| {},
+                    &mut |_| panic!("readonly rejection cannot ask for a scope upgrade"),
+                    &mut HashSet::new(),
+                    &mut vec![("read".into(), "*".into())],
+                    &mut Vec::new(),
+                    1,
+                )
+                .await
+                .unwrap();
+                let ToolRunOutcome::Results { results, .. } = outcome else {
+                    panic!("must return paired denied results")
+                };
+                assert_eq!(results.len(), count);
+                assert!(results.iter().all(|part| matches!(part, Part::ToolResult {is_error:true, content, ..} if content.contains("read-only execution scope"))));
+            }
+            assert_eq!(
+                probe.0.load(Ordering::SeqCst),
+                0,
+                "profile={profile:?}, policy={policy:?}, support={support:?}"
+            );
+        }
     }
-    assert_eq!(probe.0.load(Ordering::SeqCst), 0);
     assert!(!root.join("forbidden-mutation").exists());
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[derive(Default)]
@@ -317,7 +342,7 @@ async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_u
         harness.add(Policy);
         let snapshot = harness
             .resolve(&ResolveCtx {
-                profile: kanzei_harness::ProfileKind::Dev,
+                profile: kanzei_harness::ProfileKind::DevAuto,
                 cwd: root.clone(),
                 project_root: root.clone(),
                 config: Arc::new(Default::default()),
@@ -366,7 +391,6 @@ async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_u
                 &mut session_rules,
                 &mut Vec::new(),
                 1,
-                &batch::Batch::new(false),
             )
             .await
             .unwrap();
@@ -424,7 +448,7 @@ async fn assert_execution_boundary(policy: kanzei_harness::orchestration::Execut
     harness.add(Policy);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),
@@ -467,7 +491,6 @@ async fn assert_execution_boundary(policy: kanzei_harness::orchestration::Execut
             &mut Vec::new(),
             &mut Vec::new(),
             1,
-            &batch::Batch::new(false),
         )
         .await
         .unwrap();
@@ -537,7 +560,7 @@ async fn server_retry_after_is_visible_and_remains_cancellable() {
     let root = std::env::temp_dir();
     let snapshot = Harness::default()
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),

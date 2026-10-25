@@ -148,7 +148,7 @@ async fn run_cli(
     let output = command
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -173,7 +173,11 @@ fn tool_names(request: &Value) -> Vec<&str> {
 async fn search_loading_survives_sse_overflow_and_is_billed() {
     let (project, output, requests) = run_cli(
         "search-overflow",
-        Vec::new(),
+        vec![kanzei_llm::Message::assistant(vec![
+            kanzei_llm::Part::Text {
+                text: "old assistant investigation ".repeat(400),
+            },
+        ])],
         vec![
             tool_call_response("tool_search", json!({"query": "select:process"})),
             overflow_response(),
@@ -190,7 +194,7 @@ async fn search_loading_survives_sse_overflow_and_is_billed() {
     assert_eq!(requests.len(), 3);
     assert!(!tool_names(&requests[0]).contains(&"process"));
     assert!(tool_names(&requests[0]).contains(&"tool_search"));
-    assert!(requests[0].to_string().contains("<deferred-tools>"));
+    assert!(requests[0].to_string().contains("<deferred-tools total="));
     for request in &requests[1..] {
         assert_eq!(
             tool_names(request)

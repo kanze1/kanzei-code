@@ -19,13 +19,13 @@ import { sendText, processUpdateQueues } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
 import { node, button } from "./25-softwire-view.js";
 import { executionActivity, sameProject } from "./25-softwire-model.js";
-import { needsRequirementResearch, requirementResearchAction, requirementStart, registrationFailureDetails } from "./26-requirement-research.js";
+import { needsRequirementResearch, requirementResearchAction, requirementStart, requirementResearchRequest, registrationFailureDetails } from "./26-requirement-research.js";
 
 // Project facts and conversation drafts have different lifetimes. A failed read
 // must never become an empty project, and async replies retain their recipient.
 const projects = new Map();
 let rail, workContext, currentWork, nextWork, switcher, onboarding, detailId = null, rendered = "", scheduled = false, handoffScope = null;
-const active = () => active_space === "dev" && !isGeneralChat() && document.body.dataset.view === "chat";
+const active = () => active_space === "dev-auto" && !isGeneralChat() && document.body.dataset.view === "chat";
 const item = () => processItems.find(p => p.id === activeProcessId);
 function facts(project = currentProject) {
   if (!projects.has(project)) projects.set(project, { project, docs: null, snapshot: null, error: "", registrationError: "", failedRegistration: null, busy: false, request: null, capture: null });
@@ -121,23 +121,31 @@ export async function continueRequirement(entry) {
   return startSelectedWork(entry, currentProject, requirementStart(entry));
 }
 
+export async function researchRequirement(entry) {
+  const project = currentProject;
+  const target = await returnToSelectedConversation(project);
+  if (!target) return false;
+  const { prompt, ...options } = requirementResearchRequest(entry);
+  return sendText(prompt, options);
+}
+
 export async function planRequirementTree(entry, project) {
   if (project !== currentProject) return false;
   const target = await returnToSelectedConversation(project);
   if (!target) return false;
-  return sendText(`请为需求 ${entry.id}「${entry.title}」规划递归工作树。先读取现有目标、验收、批次、进展和执行占用，解释未知并拆成可独立验收的调研、设计、实现或验证节点。保留原始委托和历史证据；已有执行者时先协调安全交接，不抢占或热改正在执行的契约。若仍使用旧队列，确认交接后再通过 req update 设置执行模型 work_units_v1，并用 work create_unit / decompose 建树。旧批次完成标记不能直接当作新节点验收证据。当前是规划请求，无需 claim。`, { workItemId: null, executionBatch: false });
+  return sendText(`为需求 ${entry.id}「${entry.title}」规划工作树，结合现有目标、验收和工作记录说明拆分及依赖。当前只做规划。`, { workItemId: null, executionBatch: false });
 }
 
 export async function continueWorkNode(entry, unit, project) {
   if (project !== currentProject || unit.requirement_id !== entry.id) return;
-  return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}。先读取此节点和依赖结果，按其验收契约推进。`, executionBatch: true, workItemId: unit.unit_id });
+  return startSelectedWork(entry, project, { prompt: `推进节点 ${unit.unit_id}：${unit.objective}，结合现有要求与依赖结果继续工作。`, executionBatch: true, workItemId: unit.unit_id });
 }
 
 export async function reviseWorkNode(entry, unit, project, direction) {
   if (project !== currentProject || unit.requirement_id !== entry.id) return false;
   const target = await returnToSelectedConversation(project);
   if (!target) return false;
-  return sendText(`调整节点 ${unit.unit_id}「${unit.objective}」的方向：\n\n${direction}\n\n请先读取当前工作图并用 impact 分析影响，再用 begin_revision 登记方向变化。让受影响的执行者在安全检查点交还节点，逐项判断保留、修订、重验、替代或撤销，修正依赖并用 apply_revision 原子应用；保留历史完成证据，说明哪些结果继续有效。`, { workItemId: null, executionBatch: false });
+  return sendText(`调整节点 ${unit.unit_id}「${unit.objective}」的方向：\n\n${direction}\n\n结合当前工作图说明影响，修订相关节点和依赖，并标明已有结果是否仍然适用。`, { workItemId: null, executionBatch: false });
 }
 
 async function startSelectedWork(entry, project, request) {
@@ -159,7 +167,7 @@ async function startSelectedWork(entry, project, request) {
   }
   const { prompt, ...options } = request;
   await sendText(prompt, options);
-  if (!request.workItemId && needsRequirementResearch(entry)) toast(t("已开始调研；需要你回答的问题会出现在「待我处理」。"));
+  if (!request.workItemId && needsRequirementResearch(entry)) toast(t("已发送推进请求。"));
   detailId = null; rendered = ""; paint();
 }
 
@@ -220,12 +228,12 @@ function paint() {
   if (!rail) return;
   if (switcher) relabel();
   const discussion = item()?.profile === "readonly";
-  const workflow = lineAgent(item()).profile === "dev";
+  const workflow = lineAgent(item()).profile === "dev-auto";
   document.body.dataset.conversationKind = discussion ? "discussion" : "conversation";
   const current = item();
   $("project-conversation-kind").textContent = current ? processName(current) : "";
   const view = document.body.dataset.view;
-  switcher.hidden = active_space !== "dev" || !["chat", "project"].includes(view);
+  switcher.hidden = active_space !== "dev-auto" || !["chat", "project"].includes(view);
   for (const b of switcher.querySelectorAll("[data-work-surface]")) b.setAttribute("aria-pressed", String(b.dataset.workSurface === view));
   $("project-return-main").hidden = true;
   $("project-handoff").hidden = processItems.filter(p => p.id !== activeProcessId && p.profile !== "research").length === 0;

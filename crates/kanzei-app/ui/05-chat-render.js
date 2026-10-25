@@ -1,4 +1,5 @@
 import { attachmentPreview } from "./04-attachment-preview.js";
+import { messageSourceLabels } from "./00-message-source.js";
 import { defer } from "./00-dom.js";
 import { copyButton } from "./00-clipboard.js";
 import { messagePanes } from "./01-chat-panes.js";
@@ -13,7 +14,7 @@ import { t } from "./02-i18n.js";
 import { activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { appendLinkedText, resourceIcon, resourceType } from "./04-resource-types.js";
-import { fillTemplate, parseJsonish, stripInternalHandoff, stripToolOutcome } from "./04-structured-parse.js";
+import { EXTERNAL_SOURCE_PREFIX, fillTemplate, parseExternalSource, parseJsonish, stripInternalHandoff, stripToolOutcome } from "./04-structured-parse.js";
 import { flushLazy, lazyMount, renderErrorDetail, renderToolArgs, renderToolResult } from "./04-structured.js";
 import { renderToolSummary, toolArgSummary, toolResultSummary, withToolDuration } from "./05-tool-summary.js";
 import { sendText } from "./08-compose-runtime.js";
@@ -118,12 +119,27 @@ export { COPY_ICON, copyButton } from "./00-clipboard.js";
 export function renderUserContent(body, value) {
   body.dataset.raw = String(value || "");
   const text = String(value || ""); body.replaceChildren();
-  const attachment = text.match(/^【附件：([^\n】]+)】\n([\s\S]*)$/);
-  if (!attachment) { appendLinkedText(body, text); return; }
+  let source = parseExternalSource(text), lead = "";
+  if (!source) {
+    const boundary = text.indexOf(`\n\n${EXTERNAL_SOURCE_PREFIX}`);
+    if (boundary >= 0) { source = parseExternalSource(text.slice(boundary + 2)); lead = text.slice(0, boundary); }
+  }
+  if (!source) { appendLinkedText(body, text); return; }
+  if (lead) appendLinkedText(body, `${lead}\n\n`);
+  const quotedConversation = source.source.kind === "conversation" ? parseJsonish(source.content) : null;
   const details = document.createElement("details"); details.className = "message-file-content";
-  const summary = document.createElement("summary"); summary.append(resourceIcon(attachment[1]), document.createTextNode(attachment[1]));
-  const content = document.createElement("pre"); content.textContent = attachment[2];
+  const name = quotedConversation ? t("引用的对话") : String(source.source.location || t("附件"));
+  const summary = document.createElement("summary"); summary.append(resourceIcon(name), document.createTextNode(name));
+  const content = document.createElement("pre"); content.textContent = String(quotedConversation?.transcript ?? source.content);
   details.append(summary, content); body.append(details);
+}
+
+export function labelMessageSource(element, origin) {
+  element.dataset.origin = origin;
+  if (origin === "human" || origin === "assistant") return;
+  const label = document.createElement("div"); label.className = "message-source";
+  label.textContent = t(messageSourceLabels[origin] || messageSourceLabels.unspecified);
+  element.prepend(label);
 }
 export function addMessage(cls, text) {
   clearEmptyState();
@@ -148,8 +164,9 @@ export function addMessage(cls, text) {
   return el;
 }
 
-export function addUserMessage(text, promptAttachments = []) {
+export function addUserMessage(text, promptAttachments = [], origin = "human") {
   const el = addMessage("user", text);
+  labelMessageSource(el, origin);
   if (promptAttachments.length === 0) return el;
   const body = el.querySelector(".message-body");
   const attachments = document.createElement("div");

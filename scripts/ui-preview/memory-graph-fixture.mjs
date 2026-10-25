@@ -263,15 +263,6 @@ export const MEMORY_GRAPH_FIXTURE = {
    "memories": 0
   },
   {
-   "id": "area:kanzei-app/research_auto",
-   "kind": "module",
-   "label": "research_auto",
-   "parent": "area:kanzei-app",
-   "depth": 5,
-   "band": 3,
-   "memories": 0
-  },
-  {
    "id": "area:kanzei-app/research_latex",
    "kind": "module",
    "label": "research_latex",
@@ -1613,9 +1604,9 @@ export const MEMORY_GRAPH_FIXTURE = {
    "memories": 0
   },
   {
-   "id": "area:kanzei-tools/research_workflow",
+   "id": "area:kanzei-tools/research_topic",
    "kind": "module",
-   "label": "research_workflow",
+   "label": "research_topic",
    "parent": "area:kanzei-tools",
    "depth": 4,
    "band": 2,

@@ -18,18 +18,31 @@ pub(crate) fn parse_delivery(value: Option<&str>) -> anyhow::Result<kanzei_core:
     }
 }
 
-/// 提交一条输入到会话队列并记 prompt.admitted 事件(原 run.rs admit_input)。
+pub(crate) struct QueuedInput<'a> {
+    pub prompt: &'a str,
+    pub attachments: Vec<crate::PromptAttachment>,
+    pub delivery: kanzei_core::Delivery,
+    pub origin: kanzei_base::MessageOrigin,
+    pub execution_batch: bool,
+    pub work_item_id: Option<&'a str>,
+}
+
+/// Persist the complete input and its source before admitting it to the queue.
 pub(crate) fn admit_input(
     project_dir: &str,
     session_id: &str,
-    prompt: &str,
-    attachments: Vec<crate::PromptAttachment>,
-    delivery: kanzei_core::Delivery,
-    execution_batch: bool,
-    work_item_id: Option<&str>,
+    input: QueuedInput<'_>,
 ) -> anyhow::Result<kanzei_core::AdmittedInput> {
+    let QueuedInput {
+        prompt,
+        attachments,
+        delivery,
+        origin,
+        execution_batch,
+        work_item_id,
+    } = input;
     let project_root = crate::normalized_project_root(Path::new(project_dir));
-    let prompt = crate::attachments::message_text(&project_root, prompt, attachments)?;
+    let attachments = crate::attachments::prepare(&project_root, attachments)?.references;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))?;
     store.create_session(session_id, &project_root.display().to_string(), None)?;
     let input_id = format!(
@@ -37,11 +50,25 @@ pub(crate) fn admit_input(
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
     );
     let input = if let Some(item_id) = work_item_id {
-        store.admit_work_input(session_id, &input_id, &prompt, item_id)?
+        store.admit_work_input(session_id, &input_id, prompt, item_id, origin, &attachments)?
     } else if execution_batch {
-        store.admit_batch_input(session_id, &input_id, &prompt, delivery)?
+        store.admit_batch_input(
+            session_id,
+            &input_id,
+            prompt,
+            delivery,
+            origin,
+            &attachments,
+        )?
     } else {
-        store.admit_input(session_id, &input_id, &prompt, delivery)?
+        store.admit_input_with_source(
+            session_id,
+            &input_id,
+            prompt,
+            delivery,
+            Some(origin.as_str()),
+            &attachments,
+        )?
     };
     Ok(input)
 }
@@ -135,19 +162,31 @@ mod tests {
         use base64::Engine;
         let root = kanzei_base::test_support::TestDir::new("kz-queued-image-");
         let bytes = b"\x89PNG\r\n\x1a\nqueued image fixture";
-        for delivery in [kanzei_core::Delivery::Queue, kanzei_core::Delivery::Steer] {
+        for (delivery, origin) in [
+            (
+                kanzei_core::Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+            ),
+            (
+                kanzei_core::Delivery::Steer,
+                kanzei_base::MessageOrigin::Engine,
+            ),
+        ] {
             let input = super::admit_input(
                 root.to_str().unwrap(),
                 "s",
-                "",
-                vec![crate::PromptAttachment {
-                    file_name: "image.png".into(),
-                    media_type: "image/png".into(),
-                    data: base64::engine::general_purpose::STANDARD.encode(bytes),
-                }],
-                delivery,
-                false,
-                None,
+                super::QueuedInput {
+                    prompt: "",
+                    attachments: vec![crate::PromptAttachment {
+                        file_name: "image.png".into(),
+                        media_type: "image/png".into(),
+                        data: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    }],
+                    delivery,
+                    origin,
+                    execution_batch: false,
+                    work_item_id: None,
+                },
             )
             .unwrap();
             let store =
@@ -160,13 +199,11 @@ mod tests {
                 .unwrap();
             assert_eq!(restored.delivery, delivery);
             assert_eq!(restored.prompt, input.prompt);
-            let references: Vec<serde_json::Value> =
-                serde_json::from_str(restored.prompt.lines().last().unwrap()).unwrap();
-            assert_eq!(references[0]["name"], "image.png");
-            assert_eq!(
-                std::fs::read(references[0]["path"].as_str().unwrap()).unwrap(),
-                bytes
-            );
+            assert_eq!(restored.origin, origin);
+            assert!(restored.prompt.is_empty());
+            assert_eq!(restored.attachments, input.attachments);
+            assert_eq!(restored.attachments[0].name, "image.png");
+            assert_eq!(std::fs::read(&restored.attachments[0].path).unwrap(), bytes);
         }
     }
 
@@ -176,15 +213,18 @@ mod tests {
         let result = super::admit_input(
             root.to_str().unwrap(),
             "s",
-            "keep this draft",
-            vec![crate::PromptAttachment {
-                file_name: "image.png".into(),
-                media_type: "image/png".into(),
-                data: "invalid base64!".into(),
-            }],
-            kanzei_core::Delivery::Steer,
-            false,
-            None,
+            super::QueuedInput {
+                prompt: "keep this draft",
+                attachments: vec![crate::PromptAttachment {
+                    file_name: "image.png".into(),
+                    media_type: "image/png".into(),
+                    data: "invalid base64!".into(),
+                }],
+                delivery: kanzei_core::Delivery::Steer,
+                origin: kanzei_base::MessageOrigin::Human,
+                execution_batch: false,
+                work_item_id: None,
+            },
         );
         assert!(result.is_err());
         assert!(

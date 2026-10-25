@@ -224,10 +224,10 @@ const SYMBOLS_OUTPUT = [
 ].join("\n");
 
 const BILL_JSON = JSON.stringify({
-  profile: "dev",
+  profile: "dev-auto",
   total_chars: 61204,
   tools: [
-    { name: "research_workflow", description: 1840, parameters: 2911, share: 0.0776 },
+    { name: "research_index", description: 1840, parameters: 2911, share: 0.0776 },
     { name: "work", description: 1622, parameters: 2408, share: 0.0658 },
     { name: "req", description: 1507, parameters: 2012, share: 0.0575 },
     { name: "bash", description: 1311, parameters: 402, share: 0.028 },
@@ -324,7 +324,7 @@ function mainConversation() {
             "",
             "| 工具 | description | parameters | 占比 |",
             "|---|---:|---:|---:|",
-            "| research_workflow | 1,840 | 2,911 | 7.8% |",
+            "| research_index | 1,840 | 2,911 | 7.8% |",
             "| work | 1,622 | 2,408 | 6.6% |",
             "| req | 1,507 | 2,012 | 5.8% |",
             "| bash | 1,311 | 402 | 2.8% |",
@@ -395,7 +395,7 @@ function lineConversation() {
 export function liveEvents(ids = IDS) {
   const sessionId = ids.mainSession;
   return {
-    meta: { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 400000 },
+    meta: { sessionId, model: PROJECT_PRIMARY, agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 400000 },
     turn: { sessionId, step: 3, maxSteps: 0 },
     status: { sessionId, stage: "实现", detail: "R-364 B1 · 账单接入预算门禁" },
     reasoning: { sessionId, text: "**接预算门禁**\n先在 verify-policy.mjs 里加 resident_chars 与 catalog_chars 两个预算,再让 schema_bill 输出这两个数。" },
@@ -743,7 +743,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
   const language = params.lang === "en" ? "en" : "zh";
   const state = {
     uiPrefs: {
-      theme, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {},
+      theme, work_priority: {}, continue_prompt: null, process_auto_state: {},
       workspace_state: {}, memory_view: null,
       // ── 分区:架构图 ── 场景参数 tab=<标签 key>、full=1 落到 ui_layout.arch(架构页读它选标签与依赖范围)。
       ...(params.tab || params.full ? { ui_layout: { arch: { ...(params.tab ? { diagram: params.tab } : {}), ...(params.full === "1" ? { deps_full: true } : {}) } } } : {}),
@@ -753,7 +753,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     processes: [
       {
         id: IDS.mainProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: null, branch: "release/2026-09-26-ui",
-        session_id: IDS.mainSession, model: null, profile: "dev", research_topic: null, reasoning: null,
+        session_id: IDS.mainSession, model: null, profile: "dev-auto", research_topic: null, reasoning: null,
         manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: running ? "实现" : "空闲", running, label: "主对话",
         // 命名事实(UX-009,形状对照 state.rs ProcessInfo):主对话不拿首条消息当名字,没人改名就叫「主对话」。
@@ -761,14 +761,14 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       },
       {
         id: IDS.lineProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-r366-b2", branch: "kanzei/thread-r366-b2",
-        session_id: IDS.lineSession, model: "codex:gpt-6-sol", profile: "dev", research_topic: null, reasoning: "high",
+        session_id: IDS.lineSession, model: "codex:gpt-6-sol", profile: "dev-auto", research_topic: null, reasoning: "high",
         manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: "复核", running: true, label: "R-366 B2 回退事件",
         title: "R-366 B2 回退事件", title_custom: true, kind: "task", ordinal: 7, updated_at: 1789999400000,
       },
       {
         id: IDS.idleProcess, origin_project: PROJECT, project_dir: PROJECT, worktree_path: "C:/Users/kanzei/Documents/kanzei code/.kanzei/worktrees/thread-d759", branch: "kanzei/thread-d759",
-        session_id: IDS.idleSession, model: null, profile: "dev", research_topic: null, reasoning: null,
+        session_id: IDS.idleSession, model: null, profile: "dev-auto", research_topic: null, reasoning: null,
         manual_models: [], subagent_mode: "auto", tracker_writes: false,
         stage: "空闲", running: false, label: "D-759 手机提问卡片",
         // 自动标题:没人改名时取首条消息第一行的前 48 字,title_custom 为 false。
@@ -789,7 +789,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     ]),
     cleared: new Set(),
     settings: {
-      primary: GLOBAL_PRIMARY, fast: FAST_MODEL, compact: null, language, proxy: "env", profileDefault: "dev",
+      primary: GLOBAL_PRIMARY, fast: FAST_MODEL, compact: null, language, proxy: "env", profileDefault: "dev-auto",
       reasoning: "high", codexFastMode: false,
     },
   };
@@ -839,7 +839,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       profiles: {},
       permissions: [],
       // UI-0926 #3:effective 只剩本页其余会被项目覆盖的标量;模型的项目覆盖见 projectModelOverrides。
-      effective: withProject ? { proxy: "env", profileDefault: "dev", limits: { ...limits, maxTasksPerTurn: 8 } } : null,
+      effective: withProject ? { proxy: "env", profileDefault: "dev-auto", limits: { ...limits, maxTasksPerTurn: 8 } } : null,
       projectConfig: withProject ? PROJECT_CONFIG : null,
       projectModelOverrides: [
         { project: PROJECT, name: "kanzei code", configPath: PROJECT_CONFIG, keys: ["primary", "fast", "compact", "reasoning", "codexFastMode"], current: projectDir === PROJECT },
@@ -878,7 +878,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     process.running = true;
     const text = String(args?.prompt ?? args?.text ?? "").slice(0, 80);
     const steps = [
-      ["kz:meta", { sessionId, model: PROJECT_PRIMARY, agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 400000 }],
+      ["kz:meta", { sessionId, model: PROJECT_PRIMARY, agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 400000 }],
       ["kz:turn", { sessionId, step: 1, maxSteps: 0 }],
       ["kz:status", { sessionId, stage: "思考", detail: "预览模拟回复" }],
       ["kz:reasoning", { sessionId, text: "**预览模式**\n这是 scripts/ui-preview 的模拟回复,不连接模型。" }],
@@ -1049,7 +1049,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       const n = state.processes.length + 1;
       const item = {
         id: `p|preview-${n}`, origin_project: args?.projectDir || PROJECT, project_dir: args?.projectDir || PROJECT,
-        worktree_path: null, branch: null, session_id: `ses_preview_${n}`, model: args?.model || null, profile: args?.profile || "dev",
+        worktree_path: null, branch: null, session_id: `ses_preview_${n}`, model: args?.model || null, profile: args?.profile || "dev-auto",
         research_topic: args?.researchTopic || null, reasoning: args?.reasoning || null, manual_models: [],
         subagent_mode: "auto", tracker_writes: false, stage: "空闲", running: false,
         // 没有标题可用时的展示名 = 类型 + 序号(与 processes/naming.rs 同口径),界面不再出现 pN/「默认」。
@@ -1129,10 +1129,13 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     },
     collaboration_snapshot: () => state.processes.map((item) => ({
       process_id: item.id, label: item.label, branch: item.branch, worktree_path: item.worktree_path,
-      claim: item.id === IDS.lineProcess ? "R-366" : item.id === IDS.mainProcess ? "R-364" : "未绑定条目",
+      tracker_entries: item.id === IDS.lineProcess ? ["R-366"] : item.id === IDS.mainProcess ? ["R-364"] : [],
+      tracker_line: item.worktree_path ? item.branch : null,
+      status: item.running ? "running" : "idle",
       phase: item.stage, current_tool: item.running ? (item.id === IDS.mainProcess ? "bash" : "edit") : null, running: item.running,
       steps: item.running ? 23 : 0, input_tokens: 148200, output_tokens: 9100,
-      changed_files: item.id === IDS.mainProcess
+      unmerged_files: [],
+      uncommitted_files: item.id === IDS.mainProcess
         ? ["crates/kanzei-tools/src/registry.rs", "docs/design/cc_codex_alignment_impl_maps.md"]
         : item.id === IDS.lineProcess ? ["crates/kanzei-app/src/run/rewind.rs", "crates/kanzei-tools/src/registry.rs"] : [],
     })),
@@ -1190,7 +1193,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       const imported = { id: "personal:imported-skill", name: "imported-skill", displayName: "imported-skill", description: "导入的技能", instructions: "Read references/source.md.", source: "personal", enabled: true, editable: true, userInvocable: true, revision: "fixture:import" };
       state.skills.push(imported); return imported;
     },
-    skills_generate: () => ({ name: "weekly-review", description: "按周报模板整理本周工作与下周计划", instructions: "读取用户提供的周报模板，保留原有结构，根据实际资料整理进展，不编造数据。", userInvocable: true }),
+    skills_generate: () => ({ name: "weekly-review", description: "按周报模板整理本周工作与下周计划", instructions: "读取用户提供的周报模板，保留原有结构，根据实际资料整理进展，不编造数据。" }),
     batch_evidence: [],
     save_delivered_file: null,
     conversation_get: ({ processId, sequence }) => (state.cleared.has(processId) && sequence == null) ? []
@@ -1273,11 +1276,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     conventions_discard: null,
     // ---- 设置
     agent_directory_get: {
-      profile: "dev",
+      profile: "dev-auto",
       agents: [
-        { name: "dev", source: "builtin", path: null, profile: "dev", mode: "primary", model: "primary", steps: 0, status: "available", systemPreview: "你是 kanzei 的开发主代理……", error: null },
-        { name: "explore", source: "builtin", path: null, profile: "dev", mode: "subagent", model: "fast", steps: 12, status: "available", systemPreview: "只读勘察子代理", error: null },
-        { name: "review_gate", source: "project", path: `${PROJECT}/.kanzei/agents/review_gate.md`, profile: "dev", mode: "subagent", model: "fast", steps: 8, status: "available", systemPreview: "复核门禁改动", error: null },
+        { name: "dev-auto", source: "builtin", path: null, profile: "dev-auto", mode: "primary", model: "primary", steps: 0, status: "available", systemPreview: "你是 kanzei 的开发主代理……", error: null },
+        { name: "explore", source: "builtin", path: null, profile: "dev-auto", mode: "subagent", model: "fast", steps: 12, status: "available", systemPreview: "只读勘察子代理", error: null },
+        { name: "review_gate", source: "project", path: `${PROJECT}/.kanzei/agents/review_gate.md`, profile: "dev-auto", mode: "subagent", model: "fast", steps: 8, status: "available", systemPreview: "复核门禁改动", error: null },
       ],
     },
     agent_directory_open: null,
@@ -1310,9 +1313,9 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
           conversation: { sequence: 812, created_at: 1790386200000, title: "R-364 B1 账单与常驻名单", message_count: 46 },
           recent_activity: [{ events: [{ name: "bash", text: "cargo test -p kanzei-tools" }, { name: "edit", text: "crates/kanzei-tools/src/registry.rs" }, { name: "read", text: "docs/design/cc_codex_alignment_impl_maps.md" }] }],
           lines: [
-            { id: IDS.mainProcess, label: "主对话", running: true, stage: "实现", branch: "release/2026-09-26-ui", worktree_path: null, profile: "dev" },
-            { id: IDS.lineProcess, label: "R-366 B2 回退事件", running: true, stage: "复核", branch: "kanzei/thread-r366-b2", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-r366-b2`, profile: "dev" },
-            { id: IDS.idleProcess, label: "D-759 手机提问卡片", running: false, stage: "空闲", branch: "kanzei/thread-d759", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-d759`, profile: "dev" },
+            { id: IDS.mainProcess, label: "主对话", running: true, stage: "实现", branch: "release/2026-09-26-ui", worktree_path: null, profile: "dev-auto" },
+            { id: IDS.lineProcess, label: "R-366 B2 回退事件", running: true, stage: "复核", branch: "kanzei/thread-r366-b2", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-r366-b2`, profile: "dev-auto" },
+            { id: IDS.idleProcess, label: "D-759 手机提问卡片", running: false, stage: "空闲", branch: "kanzei/thread-d759", worktree_path: `${PROJECT}/.kanzei/worktrees/thread-d759`, profile: "dev-auto" },
           ],
           running_lines: 2,
         },
@@ -1320,7 +1323,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
           path: PROJECT_C, name: "kanzei-rel-0926", current: false, status: "idle", updated_at: 1790371800000, pending_count: 0,
           conversation: { sequence: 64, created_at: 1790368200000, title: "合并 release/2026-09-26-ui 并跑 verify", message_count: 12 },
           recent_activity: [{ events: [{ name: "bash", text: "pwsh scripts/verify.ps1 -Full" }] }],
-          lines: [{ id: "d|kanzei-rel-0926", label: "主对话", running: false, stage: "空闲", branch: "main", worktree_path: null, profile: "dev" }],
+          lines: [{ id: "d|kanzei-rel-0926", label: "主对话", running: false, stage: "空闲", branch: "main", worktree_path: null, profile: "dev-auto" }],
           running_lines: 0,
         },
         {
@@ -1387,11 +1390,11 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
       let done = 0;
       for (let i = 0; i < 4; i += 1) {
         await new Promise((resolve) => setTimeout(resolve, 400));
-        if (state.fileDisk.annotateCancel) return { annotated: done, failed: 0, total: 4, firstError: null, cancelled: true, cache: `${PROJECT}/.kanzei/file-annotations.json` };
+        if (state.fileDisk.annotateCancel) return { annotated: done, failed: 0, directoryFailed: 0, total: 4, firstError: null, cancelled: true, cache: `${PROJECT}/.kanzei/file-annotations.json` };
         done += 1;
-        ctx.emit("kz:annotate-progress", { done, failed: 0, total: 4 });
+        ctx.emit("kz:annotate-progress", { done, failed: 0, directoryFailed: 0, total: 4 });
       }
-      return { annotated: 4, failed: 0, total: 4, firstError: null, cancelled: false, cache: `${PROJECT}/.kanzei/file-annotations.json` };
+      return { annotated: 4, failed: 0, directoryFailed: 0, total: 4, firstError: null, cancelled: false, cache: `${PROJECT}/.kanzei/file-annotations.json` };
     },
     files_annotate_cancel: () => {
       state.fileDisk.annotateCancel = true;
@@ -1418,7 +1421,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
           tools: { read: 4 + (k % 5), edit: edits, bash: terminal, grep: 2 + (k % 3) },
           context: { system: [0, 5200], memory: [0, 1300], history: [0, 18000 + k * 120] },
           metrics: measured ? { terminal_calls: terminal, git_calls: k % 4, git_groups: k % 4 ? 1 : 0, edit_calls: edits, edit_misses: k % 5 === 0 ? 1 : 0, edit_rejections: 0, subagent_calls: k % 3,
-            failed_calls: k % 6 === 0 ? 2 : 0, total_calls: 10 + (k % 7), redundant_git: 0, redundant_test: k % 8 === 0 ? 1 : 0, redundant_task: 0 } : {},
+            failed_calls: k % 6 === 0 ? 2 : 0, total_calls: 10 + (k % 7) } : {},
           measured,
         };
       }),
@@ -1449,7 +1452,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     context_snapshot: ({processId}) => ({sessionId:state.processes.find(item=>item.id===processId)?.session_id||IDS.mainSession,requests:[],selected:null,web:[]}),
     context_content: () => { throw new Error("No recorded request content in this preview"); },
     memory_context_bill: {
-      bill: [["agent/system", 5200], ["tools/schema", 21800], ["dev/memory", 1300], ["dev/conventions", 2600], ["dev/design-index", 3400], ["core/env", 640],
+      bill: [["agent/system", 5200], ["tools/schema", 21800], ["core/preferences", 1300], ["project/conventions", 2600], ["development/design-index", 220], ["core/env", 640],
         ["core/project-state", 1900], ["memory/hints", 880], ["tools/catalog", 1200], ["tools/loaded:bash", 760], ["scout/brief", 420]],
       episodes: [{ at: 1790000000000, prompt: "R-366 B2 回退事件", outcome: "completed", steps: 9, tools: { read: 6, edit: 2 } }],
     },

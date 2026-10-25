@@ -19,20 +19,20 @@ use crate::AppState;
 
 /// R-322:agent 名 → 门禁强度默认值。
 ///
-/// 只有 `dev`(自主开发档)按 `Autonomous` 跑全套门禁;其余一律 `Paired`。
+/// 只有 `dev-auto`(自主开发档)按 `Autonomous` 跑全套门禁;其余一律 `Paired`。
 /// 判据是**有没有人在场**,不是能力大小:结伴开发、研究、只读分析都在用户
-/// 盯着屏幕的情况下进行,Nudge / 验收核查轮 / 冗余提醒插进来只是噪音。
+/// 盯着屏幕的情况下进行,Nudge / 验收核查轮插进来只是噪音。
 ///
 /// 这是**默认值**,不是终值。用户覆盖(界面控件)接进来后,调用方应当先取用户
 /// 显式选择,再回落本函数——所以这里不做任何缓存,也不读配置。
 pub(crate) fn intensity_for_agent(agent: &str) -> kanzei_harness::HarnessIntensity {
     match agent {
-        "dev" => kanzei_harness::HarnessIntensity::Autonomous,
+        kanzei_harness::DEV_AUTO_AGENT => kanzei_harness::HarnessIntensity::Autonomous,
         _ => kanzei_harness::HarnessIntensity::Paired,
     }
 }
 
-/// 桌面端自主推进状态:控件输入(开关/暂停/本轮后停;旧上限字段兼容读取)由前端经
+/// 桌面端自主推进状态:控件输入(开关/暂停/本轮后停)由前端经
 /// `auto_state_update` 同步,轮末判定由 run.rs 调用 `decide_auto_run`。
 #[derive(Default)]
 pub(crate) struct AutoRunController {
@@ -86,7 +86,7 @@ pub(crate) fn persist_goal(session_id: &str, goal: Option<&str>) -> Result<(), S
     crate::prefs::save_prefs(&prefs)
 }
 
-/// 前端状态同步(开关/暂停/本轮后停;旧 max_rounds 仅兼容读取)。
+/// 前端状态同步(开关/暂停/本轮后停)。
 #[tauri::command]
 pub fn auto_state_update(
     state: State<'_, AppState>,
@@ -94,7 +94,6 @@ pub fn auto_state_update(
     enabled: Option<bool>,
     paused: Option<bool>,
     stop_after_round: Option<bool>,
-    max_rounds: Option<u32>,
     goal: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let mut controllers = state.auto_runs.lock().unwrap();
@@ -105,7 +104,7 @@ pub fn auto_state_update(
         persist_goal(&session_id, goal.as_deref())?;
         ctrl.goal = goal;
     }
-    apply_state_update(ctrl, enabled, paused, stop_after_round, max_rounds);
+    apply_state_update(ctrl, enabled, paused, stop_after_round);
     Ok(json!({ "ok": true, "goal": ctrl.goal }))
 }
 
@@ -123,7 +122,6 @@ fn apply_state_update(
     enabled: Option<bool>,
     paused: Option<bool>,
     stop_after_round: Option<bool>,
-    max_rounds: Option<u32>,
 ) {
     if let Some(v) = enabled {
         if !ctrl.enabled && v {
@@ -137,9 +135,6 @@ fn apply_state_update(
     }
     if let Some(v) = stop_after_round {
         ctrl.state.stop_after_round = v;
-    }
-    if let Some(v) = max_rounds {
-        ctrl.state.max_rounds = v.clamp(1, 100);
     }
 }
 
@@ -525,7 +520,6 @@ pub fn serialize_action(
                 AutoStopReason::BacklogEmpty => ("BacklogEmpty", None),
                 AutoStopReason::Paused => ("Paused", None),
                 AutoStopReason::StopAfterRound => ("StopAfterRound", None),
-                AutoStopReason::MaxRounds(max) => ("MaxRounds", Some(max)),
                 AutoStopReason::NoAction => ("NoAction", None),
                 AutoStopReason::ProfileMismatch => ("ProfileMismatch", None),
                 // D-403:连续瞬态失败停摆(max 槽复用为失败次数)/致命错误立即停。
@@ -895,23 +889,21 @@ mod tests {
     }
 
     #[test]
-    fn 停机保留累计轮数_重新开启才清零_兼容字段保持边界约束() {
+    fn 停机保留累计轮数_重新开启才清零() {
         let mut ctrl = AutoRunController {
             enabled: true,
             ..Default::default()
         };
         ctrl.state.rounds = 6;
 
-        apply_state_update(&mut ctrl, Some(false), None, None, Some(0));
+        apply_state_update(&mut ctrl, Some(false), None, None);
         assert!(!ctrl.enabled);
         assert_eq!(ctrl.state.rounds, 6);
-        assert_eq!(ctrl.state.max_rounds, 1);
 
         ctrl.state.rounds = 3;
-        apply_state_update(&mut ctrl, Some(true), None, None, Some(500));
+        apply_state_update(&mut ctrl, Some(true), None, None);
         assert!(ctrl.enabled);
         assert_eq!(ctrl.state.rounds, 0);
-        assert_eq!(ctrl.state.max_rounds, 100);
     }
 
     #[test]
@@ -920,10 +912,9 @@ mod tests {
         let mut second = AutoRunController::default();
         first.state.rounds = 4;
 
-        apply_state_update(&mut second, Some(true), None, None, Some(2));
+        apply_state_update(&mut second, Some(true), None, None);
         assert_eq!(first.state.rounds, 4);
         assert_eq!(second.state.rounds, 0);
-        assert_eq!(second.state.max_rounds, 2);
     }
 
     // ── 分区:工作目录管理(UI2-0926 #13)──
@@ -964,6 +955,7 @@ mod tests {
         use kanzei_llm::{Message, Part, Role};
         let narration = Message {
             role: Role::Assistant,
+            origin: kanzei_base::MessageOrigin::Unspecified,
             parts: vec![
                 Part::Text {
                     text: "要先确认 X 吗？".into(),
@@ -977,6 +969,7 @@ mod tests {
         };
         let result = Message {
             role: Role::User,
+            origin: kanzei_base::MessageOrigin::Human,
             parts: vec![Part::ToolResult {
                 call_id: "c1".into(),
                 content: "X.md".into(),
@@ -985,6 +978,7 @@ mod tests {
         };
         let reasoning_only = Message {
             role: Role::Assistant,
+            origin: kanzei_base::MessageOrigin::Unspecified,
             parts: vec![Part::Reasoning {
                 text: "done".into(),
                 signature: None,
@@ -1002,6 +996,7 @@ mod tests {
         );
         let closing = Message {
             role: Role::Assistant,
+            origin: kanzei_base::MessageOrigin::Unspecified,
             parts: vec![Part::Text {
                 text: "接下来用 Riverpod 还是 Bloc？".into(),
             }],
@@ -1028,7 +1023,7 @@ mod tests {
             "# Requirements\n",
         )
         .unwrap();
-        if kanzei_tools::project_state::probe(&dir).git.is_repo() {
+        if kanzei_tools::project_state::git_state_of(&dir).is_repo() {
             return;
         }
         let before = super::progress_signature(&dir);

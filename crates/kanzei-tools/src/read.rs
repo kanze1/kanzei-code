@@ -805,7 +805,7 @@ mod tests {
             &dir,
             "发版",
             &hits,
-            true,
+            &hits,
             "lexical",
             &kanzei_memory::memory::RetrievalTiming::default(),
             ctx.run_id.as_deref(),

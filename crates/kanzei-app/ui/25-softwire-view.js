@@ -33,7 +33,7 @@ const emptyToolRecord = state => state.trace?.error ? t("记录读取失败") : 
 // 概览六行的顺序与每行右侧的次级入口(「运行画像」并进第 7 行「运行用量」)。
 const laneOrder = ["work", "memory", "history", "tools", "batch", "tasks"];
 const laneLinks = Object.freeze({
-  work: [["conventions", "开发规范", "Conventions"]],
+  work: [["conventions", "项目规范", "Conventions"]],
   memory: [["memory", "记忆图谱", "Memory graph"], ["files", "文件", "Files"], ["arch", "架构", "Architecture"]],
   history: [["chat", "历史对话", "Chat history"]],
   tasks: [["lines", "并行线路", "Parallel tasks"]],

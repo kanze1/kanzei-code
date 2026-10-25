@@ -89,7 +89,7 @@ export async function showSchedules() {
     const enabled = input("", "checkbox"); enabled.checked = def.enabled;
     const host = select([["app", "应用打开时"], ["system", "应用关闭时也运行"], ["server", "登记服务器"]], def.host.startsWith("server:") ? "server" : def.host);
     const environment = input(def.host.replace(/^server:/, ""));
-    const agent = select(isGeneralChat(project.value) ? [["general", "无项目对话"], ["readonly", "只读"]] : [["readonly", "只读"], ["research", "研究"], ["dev", "开发（独立工作树）"]], def.agent);
+    const agent = select(isGeneralChat(project.value) ? [["general", "无项目对话"], ["readonly", "只读"]] : [["readonly", "只读"], ["research", "研究"], ["dev-auto", "开发（独立工作树）"]], def.agent);
     const model = input(def.model), timeout = input(Math.ceil(def.timeout_secs / 60), "number"), stepsLimit = input(def.max_steps, "number"); timeout.min = "1"; timeout.max = "360"; stepsLimit.min = "1"; stepsLimit.max = "1000";
     const catchup = select([["once", "错过后补跑一次"], ["skip", "错过则跳过"]], def.catch_up);
     form.append(field("任务名称", name), field("启用", enabled), field("频率", kind), field("时刻", at), field("星期", day), field("间隔", interval), field("运行主机", host), field("服务器标识", environment), field("运行模式", agent), field("模型", model), field("超时（分钟）", timeout), field("最多步骤", stepsLimit), field("错过时", catchup));

@@ -21,7 +21,7 @@ export function mergeWorkspaceState(state, patch) {
     if (!prefsObject(update)) { merged[project] = update; continue; }
     const next = { ...(prefsObject(merged[project]) ? merged[project] : {}) };
     for (const [section, value] of Object.entries(update)) {
-      if (["dev", "research"].includes(section) && prefsObject(value)) {
+      if (["dev-auto", "research"].includes(section) && prefsObject(value)) {
         next[section] = { ...(prefsObject(next[section]) ? next[section] : {}), ...value };
       } else if (section === "topic_states" && prefsObject(value)) {
         const topics = { ...(prefsObject(next.topic_states) ? next.topic_states : {}) };
@@ -37,7 +37,7 @@ export function mergeWorkspaceState(state, patch) {
 }
 function mergeUiPrefsPatch(prefs, patch) {
   const merged = { ...prefs };
-  for (const key of ["theme", "backdrop", "auto_max", "continue_prompt"]) {
+  for (const key of ["theme", "backdrop", "continue_prompt"]) {
     if (patch[key] !== undefined && patch[key] !== null) merged[key] = patch[key];
   }
   if (prefsObject(patch.work_priority)) merged.work_priority = { ...(prefs.work_priority || {}), ...patch.work_priority };

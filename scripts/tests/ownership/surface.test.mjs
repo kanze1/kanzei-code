@@ -165,36 +165,36 @@ test("hydration preserves later pending edits above an earlier flushed edit", as
   h.layout.flushLayout(); await drain(); assert.equal(h.durable().ui_layout.splits.sidebar, 400);
 });
 test("actual workspace restore cannot overwrite a view selected during the get", async () => {
-  const h = await harness({ workspace_state: { "project-A": { dev: { view: "chat", process_id: "d|A" } }, remote: { dev: { view: "documents" } } } });
+  const h = await harness({ workspace_state: { "project-A": { "dev-auto": { view: "chat", process_id: "d|A" } }, remote: { "dev-auto": { view: "documents" } } } });
   const restoring = h.workspace.restore_workspace_preferences(); await drain(); h.workspace.remember_workspace_view("lines");
   h.resolveGet(); await restoring; await drain();
-  assert.equal(h.durable().workspace_state["project-A"].dev.view, "lines");
-  assert.equal(h.workspace.project_workspace("project-A").dev.view, "lines", "late restore cannot replace the new navigation projection");
-  assert.equal(h.workspace.project_workspace("remote").dev.view, "documents");
+  assert.equal(h.durable().workspace_state["project-A"]["dev-auto"].view, "lines");
+  assert.equal(h.workspace.project_workspace("project-A")["dev-auto"].view, "lines", "late restore cannot replace the new navigation projection");
+  assert.equal(h.workspace.project_workspace("remote")["dev-auto"].view, "documents");
 });
 test("unmodified workspace restore still adopts the durable saved view", async () => {
-  const h = await harness({ workspace_state: { "project-A": { dev: { view: "documents" } } } });
+  const h = await harness({ workspace_state: { "project-A": { "dev-auto": { view: "documents" } } } });
   const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring;
-  assert.equal(h.workspace.project_workspace("project-A").dev.view, "documents");
+  assert.equal(h.workspace.project_workspace("project-A")["dev-auto"].view, "documents");
 });
 
 test("independent real module windows preserve different projects and send only touched fields", async () => {
-  const initial = { workspace_state: { "project-A": { dev: { view: "chat", process_id: "d|A" } }, "project-B": { dev: { view: "chat", process_id: "d|B" } } } };
+  const initial = { workspace_state: { "project-A": { "dev-auto": { view: "chat", process_id: "d|A" } }, "project-B": { "dev-auto": { view: "chat", process_id: "d|B" } } } };
   const backend = { value: clone(initial) };
   const a = await harness(initial, { backend }); const b = await harness(initial, { project: "project-B", backend });
   for (const h of [a, b]) { const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring; }
   a.workspace.remember_workspace_view("lines"); await drain();
   b.workspace.remember_workspace_view("arch"); await drain();
   const state = backend.value.workspace_state;
-  assert.equal(state["project-A"].dev.view, "lines", "B's stale snapshot must not revert A");
-  assert.equal(state["project-B"].dev.view, "arch"); assert.equal(state["project-A"].dev.process_id, "d|A");
+  assert.equal(state["project-A"]["dev-auto"].view, "lines", "B's stale snapshot must not revert A");
+  assert.equal(state["project-B"]["dev-auto"].view, "arch"); assert.equal(state["project-A"]["dev-auto"].process_id, "d|A");
   const patch = b.calls.find(call => call.command === "ui_prefs_set").args.workspace_state;
-  assert.deepEqual(patch, { "project-B": { dev: { view: "arch" } } }, "unchanged project/process/section fields are not writes");
-  assert.equal(b.core.uiPrefsCache.workspace_state["project-A"].dev.view, "chat", "this window is not a new cross-window live registry");
-  assert.equal(b.core.uiPrefsCache.workspace_state["project-B"].dev.process_id, "d|B", "success cache uses the same merge contract");
+  assert.deepEqual(patch, { "project-B": { "dev-auto": { view: "arch" } } }, "unchanged project/process/section fields are not writes");
+  assert.equal(b.core.uiPrefsCache.workspace_state["project-A"]["dev-auto"].view, "chat", "this window is not a new cross-window live registry");
+  assert.equal(b.core.uiPrefsCache.workspace_state["project-B"]["dev-auto"].process_id, "d|B", "success cache uses the same merge contract");
 });
 test("independent real module windows keep separate topic states and explicit null resets", async () => {
-  const initial = { workspace_state: { "@research-library": { space: "dev", research: { topic_id: "origin", topic: "old", page: "overview", process_id: "p|old" }, topic_states: { origin: { topic_id: "origin", page: "overview" } } } } };
+  const initial = { workspace_state: { "@research-library": { space: "dev-auto", research: { topic_id: "origin", topic: "old", page: "overview", process_id: "p|old" }, topic_states: { origin: { topic_id: "origin", page: "overview" } } } } };
   const backend = { value: clone(initial) };
   const a = await harness(initial, { backend }); const b = await harness(initial, { backend });
   for (const h of [a, b]) { const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring; }
@@ -205,26 +205,26 @@ test("independent real module windows keep separate topic states and explicit nu
   assert.equal(library.topic_states.beta.page, "reading"); assert.equal(library.topic_states.origin.page, "overview");
   assert.equal(library.research.process_id, null, "new topic intentionally resets the former process");
   assert.equal(library.topic_states.beta.process_id, null);
-  assert.equal(library.space, "dev", "save research does not rewrite the active space");
+  assert.equal(library.space, "dev-auto", "save research does not rewrite the active space");
 });
 test("workspace queue freezes each delta before a later edit of the same field", async () => {
-  const h = await harness({ workspace_state: { "project-A": { dev: { view: "chat", process_id: "d|A" } } } });
+  const h = await harness({ workspace_state: { "project-A": { "dev-auto": { view: "chat", process_id: "d|A" } } } });
   const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring;
   h.workspace.remember_workspace_view("lines"); h.workspace.remember_workspace_view("arch"); await drain();
   const writes = h.calls.filter(call => call.command === "ui_prefs_set");
-  assert.equal(writes[0].args.workspace_state["project-A"].dev.view, "lines", "queued first write cannot be rewritten by the second navigation");
-  assert.equal(writes[1].args.workspace_state["project-A"].dev.view, "arch");
+  assert.equal(writes[0].args.workspace_state["project-A"]["dev-auto"].view, "lines", "queued first write cannot be rewritten by the second navigation");
+  assert.equal(writes[1].args.workspace_state["project-A"]["dev-auto"].view, "arch");
 });
 test("independent windows changing the same project's view and selected process keep both", async () => {
-  const initial = { workspace_state: { "project-A": { dev: { view: "chat", process_id: "d|A", main_process_id: "d|A" } } } };
+  const initial = { workspace_state: { "project-A": { "dev-auto": { view: "chat", process_id: "d|A", main_process_id: "d|A" } } } };
   const backend = { value: clone(initial) };
   const a = await harness(initial, { backend }); const b = await harness(initial, { backend });
   for (const h of [a, b]) { const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring; }
   a.workspace.remember_workspace_view("lines"); await drain();
-  b.workspace.adopt_process_workspace({ id: "p|new", profile: "dev" }); await drain();
-  assert.equal(backend.value.workspace_state["project-A"].dev.view, "lines");
-  assert.equal(backend.value.workspace_state["project-A"].dev.process_id, "p|new");
-  assert.equal(backend.value.workspace_state["project-A"].dev.main_process_id, "d|A");
+  b.workspace.adopt_process_workspace({ id: "p|new", profile: "dev-auto" }); await drain();
+  assert.equal(backend.value.workspace_state["project-A"]["dev-auto"].view, "lines");
+  assert.equal(backend.value.workspace_state["project-A"]["dev-auto"].process_id, "p|new");
+  assert.equal(backend.value.workspace_state["project-A"]["dev-auto"].main_process_id, "d|A");
 });
 test("independent windows changing one topic's page and process keep both fields", async () => {
   const initial = { workspace_state: { "@research-library": {
@@ -241,19 +241,19 @@ test("independent windows changing one topic's page and process keep both fields
   assert.equal(library.topic_states.alpha.page, "writing"); assert.equal(library.topic_states.alpha.process_id, "p|new");
 });
 test("rejected workspace write cannot update success cache and the queue still accepts the next change", async () => {
-  const h = await harness({ workspace_state: { "project-A": { dev: { view: "chat", process_id: "d|A" } } } });
+  const h = await harness({ workspace_state: { "project-A": { "dev-auto": { view: "chat", process_id: "d|A" } } } });
   const restoring = h.workspace.restore_workspace_preferences(); h.resolveGet(); await restoring;
   h.rejectNextSave(); h.workspace.remember_workspace_view("lines"); await drain();
-  assert.equal(h.durable().workspace_state["project-A"].dev.view, "chat");
-  assert.equal(h.core.uiPrefsCache.workspace_state["project-A"].dev.view, "chat");
+  assert.equal(h.durable().workspace_state["project-A"]["dev-auto"].view, "chat");
+  assert.equal(h.core.uiPrefsCache.workspace_state["project-A"]["dev-auto"].view, "chat");
   h.workspace.remember_workspace_view("arch"); await drain();
-  assert.equal(h.durable().workspace_state["project-A"].dev.view, "arch");
-  assert.equal(h.core.uiPrefsCache.workspace_state["project-A"].dev.process_id, "d|A");
+  assert.equal(h.durable().workspace_state["project-A"]["dev-auto"].view, "arch");
+  assert.equal(h.core.uiPrefsCache.workspace_state["project-A"]["dev-auto"].process_id, "d|A");
 });
 test("actual preview native fixture preserves different project deltas", () => {
   const { commands } = createFixtures({});
-  commands.ui_prefs_set({ workspace_state: { A: { dev: { view: "lines", process_id: "d|A" } } } });
-  commands.ui_prefs_set({ workspace_state: { B: { dev: { view: "arch" } } } });
+  commands.ui_prefs_set({ workspace_state: { A: { "dev-auto": { view: "lines", process_id: "d|A" } } } });
+  commands.ui_prefs_set({ workspace_state: { B: { "dev-auto": { view: "arch" } } } });
   const prefs = commands.ui_prefs_get();
-  assert.equal(prefs.workspace_state.A.dev.view, "lines"); assert.equal(prefs.workspace_state.B.dev.view, "arch");
+  assert.equal(prefs.workspace_state.A["dev-auto"].view, "lines"); assert.equal(prefs.workspace_state.B["dev-auto"].view, "arch");
 });

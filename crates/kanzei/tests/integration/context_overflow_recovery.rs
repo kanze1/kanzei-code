@@ -141,7 +141,7 @@ pub(super) async fn run_cli_with_setup(
     let output = cmd
         .env("KANZEI_MODEL", "mock:test-model")
         .env("KANZEI_AGENT", "dev-pair")
-        .env("KANZEI_PROFILE", "dev")
+        .env("KANZEI_PROFILE", "dev-pair")
         .env("KANZEI_PROXY", "off")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -187,10 +187,8 @@ async fn sse_context_overflow_compacts_history_and_persists_recovered_summary() 
     const TAIL_MARKER: &str = "TAIL_MUST_BE_DROPPED_BY_BOUNDED_COMPACTION";
     let old = format!("{}{TAIL_MARKER}", "A".repeat(9_000));
     let prior = vec![
-        kanzei_llm::Message::user_text(old),
-        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
-            text: "旧回复".into(),
-        }]),
+        kanzei_llm::Message::user_text("用户原始约束必须保留"),
+        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text { text: old }]),
     ];
     let (project, output, requests) = run_cli_with_prior(
         "stream-overflow-compact",
@@ -210,14 +208,16 @@ async fn sse_context_overflow_compacts_history_and_persists_recovered_summary() 
     let first = requests[0].to_string();
     let second = requests[1].to_string();
     assert!(first.contains(TAIL_MARKER));
-    assert!(second.contains("压缩记录"));
+    assert!(second.contains("历史来源摘录"));
     assert!(second.contains("继续当前任务"));
+    assert!(second.contains("用户原始约束必须保留"));
     assert!(!second.contains(TAIL_MARKER));
 
     let persisted = persisted_messages(&project);
     let persisted_json = serde_json::to_string(&persisted).unwrap();
-    assert!(persisted_json.contains("压缩记录"));
+    assert!(persisted_json.contains("历史来源摘录"));
     assert!(persisted_json.contains("压缩恢复成功"));
+    assert!(persisted_json.contains("用户原始约束必须保留"));
     assert!(!persisted_json.contains(TAIL_MARKER));
 
     // R-106:被裁剪段先沉淀 episode 再重置——压缩丢弃的历史有迹可查,
@@ -244,59 +244,34 @@ async fn sse_context_overflow_compacts_history_and_persists_recovered_summary() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn second_sse_context_overflow_retries_with_only_current_user_message() {
-    const OLD_MARKER: &str = "OLD_HISTORY_REMOVED_AGGRESSIVELY";
+async fn sse_context_overflow_preserves_human_history_when_no_safe_reduction_exists() {
+    const OLD_MARKER: &str = "ORIGINAL_HUMAN_CONSTRAINT";
     let prior = vec![kanzei_llm::Message::user_text(OLD_MARKER)];
     let (project, output, requests) = run_cli_with_prior(
-        "stream-overflow-aggressive",
+        "stream-overflow-protected",
         prior,
-        "只保留这个当前任务",
-        vec![
-            overflow_response(),
-            overflow_response(),
-            success_response("激进压缩恢复成功"),
-        ],
+        "继续当前任务并保留此前约束",
+        vec![overflow_response()],
     )
     .await;
 
-    assert!(
-        output.status.success(),
-        "stdout={} stderr={}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(requests.len(), 3);
-    let second = requests[1].to_string();
-    let third = requests[2].to_string();
-    assert!(second.contains("压缩记录"));
-    assert!(second.contains(OLD_MARKER));
-    assert!(!third.contains("压缩记录"));
-    assert!(!third.contains(OLD_MARKER));
-    assert!(third.contains("只保留这个当前任务"));
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("context overflow"));
+    assert_eq!(requests.len(), 1, "没有安全缩减空间时不得重复发送同一请求");
+    assert!(requests[0].to_string().contains(OLD_MARKER));
+    assert!(requests[0]
+        .to_string()
+        .contains("继续当前任务并保留此前约束"));
 
-    let persisted = persisted_messages(&project);
-    let persisted_json = serde_json::to_string(&persisted).unwrap();
-    assert!(!persisted_json.contains(OLD_MARKER));
-    assert!(persisted_json.contains("只保留这个当前任务"));
-    assert!(persisted_json.contains("激进压缩恢复成功"));
-
-    // R-106:两级压缩各沉淀一条轨迹(有界 + 激进),episode 可查回。
-    // 一次运行只落一条 episode,两条轨迹在 overflow_json 的同一个 JSON 数组里。
+    let persisted_json = serde_json::to_string(&persisted_messages(&project)).unwrap();
+    assert!(persisted_json.contains(OLD_MARKER));
+    assert!(persisted_json.contains("继续当前任务并保留此前约束"));
     let store =
         kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
-    let traces = store
+    assert!(store
         .recent_overflow_traces(&kanzei_core::project_session_id(&project), 10)
-        .unwrap();
-    assert_eq!(traces.len(), 1, "一次运行应只落一条带轨迹的 episode");
-    let parsed: serde_json::Value = serde_json::from_str(&traces[0].1).unwrap();
-    let entries = parsed.as_array().expect("overflow_json 应为 JSON 数组");
-    assert_eq!(entries.len(), 2, "两次压缩应沉淀两条轨迹: {}", traces[0].1);
-    assert!(
-        traces[0].1.contains(OLD_MARKER),
-        "被丢弃的旧历史应出现在轨迹里: {}",
-        traces[0].1
-    );
+        .unwrap()
+        .is_empty());
     drop(store);
-
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
 }

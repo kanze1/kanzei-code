@@ -45,7 +45,8 @@ impl SubagentMode {
     }
 }
 
-pub const DELEGATION_GUIDANCE: &str = "You own decomposition, dependencies, and the decision to review. Give each task a clear goal, scope, expected evidence, and relevant context. Continue useful independent work while children run; wait when their result is actually needed. Use task dependencies for candidate-based verification, and inspect results before integrating them. Delegation is not completion. Use fresh context by default; fork only when needed. A child works on its assigned task and cannot delegate recursively. Independent read-only tasks share code; tasks with dependencies inspect an isolated candidate checkout. Writable desktop tasks use isolated Git worktrees. Avoid overlapping edits and review the actual candidate version. Do not prescribe a fixed workflow merely because subagents are available.";
+/// 只描述委派决策与结果责任；宿主专属协议由实际 task 工具提供。
+pub const DELEGATION_GUIDANCE: &str = "根据任务的独立性、上下文需求和可用能力决定是否委派。说明子任务的目标、范围、必要上下文和预期结果，避免重复或相互冲突的分工。子任务运行期间推进独立工作；根据实际返回的结果判断完成情况，并在整合前检查相关改动与证据。";
 
 #[cfg(test)]
 mod tests {

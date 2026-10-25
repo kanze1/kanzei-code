@@ -40,25 +40,6 @@ pub(super) fn load_deferred_tools_from_history(
     }
 }
 
-/// Add an actionable loader hint only when bash returned a background process handle
-/// and its `process` tool is still absent from this run's specs.
-pub(super) fn append_deferred_process_hint(
-    snapshot: &HarnessSnapshot,
-    specs: &[ToolSpec],
-    output: &mut kanzei_harness::ToolOutput,
-) {
-    let is_background = output
-        .content
-        .lines()
-        .any(|line| line.trim() == "background: true");
-    let process_loaded = specs.iter().any(|spec| spec.name == "process");
-    if is_background && snapshot.is_deferred("process") && !process_loaded {
-        output.content.push_str(
-            "\nThe `process` tool is deferred; load it with `tool_search` query `select:process` before reading or stopping this task.",
-        );
-    }
-}
-
 pub(super) fn auto_load_deferred_tool(
     snapshot: &HarnessSnapshot,
     name: &str,
@@ -83,28 +64,14 @@ pub(super) fn run_tool_search(
     specs: &mut Vec<ToolSpec>,
     context_report: &mut Vec<(String, usize)>,
 ) -> kanzei_harness::ToolOutput {
-    let Some(query) = input.get("query").and_then(serde_json::Value::as_str) else {
-        return kanzei_harness::ToolOutput::needs_correction(
-            "TOOL_SEARCH_QUERY",
-            "tool_search requires a string `query`; use keywords or `select:name1,name2`.",
-        );
-    };
-    let limit = match input.get("limit") {
-        None => None,
-        Some(value) => match value.as_u64().and_then(|value| usize::try_from(value).ok()) {
-            Some(limit) => Some(limit),
-            None => {
-                return kanzei_harness::ToolOutput::needs_correction(
-                    "TOOL_SEARCH_LIMIT",
-                    "tool_search `limit` must be a positive integer no greater than 10.",
-                );
-            }
-        },
+    let request = match kanzei_harness::tool_search::SearchInput::parse(input) {
+        Ok(request) => request,
+        Err(output) => return *output,
     };
     let deferred = snapshot.deferred_tools();
     let available_names: std::collections::HashSet<String> =
         specs.iter().map(|spec| spec.name.clone()).collect();
-    let mut result = kanzei_harness::tool_search::search(query, limit, &deferred, &available_names);
+    let mut result = kanzei_harness::tool_search::search(&request, &deferred, &available_names);
     let mut selected = Vec::new();
     for tool in std::mem::take(&mut result.selected) {
         if append_tool_spec(tool.as_ref(), specs, context_report) {
@@ -174,7 +141,7 @@ mod tests {
     fn deferred_snapshot() -> Arc<HarnessSnapshot> {
         let root = PathBuf::from("C:/r364-deferred-process-test");
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: Arc::new(KanzeiConfig::default()),
@@ -185,36 +152,62 @@ mod tests {
     }
 
     #[test]
-    fn background_process_hint_only_appears_while_process_is_deferred_and_unloaded() {
+    fn search_loads_one_spec_and_returns_only_a_receipt() {
         let snapshot = deferred_snapshot();
-        let mut output = ToolOutput::ok("background: true\nprocess_id: bg123");
-        append_deferred_process_hint(&snapshot, &[], &mut output);
-        assert!(output.content.contains("tool_search"), "{}", output.content);
-        assert!(
-            output.content.contains("select:process"),
-            "{}",
-            output.content
+        let mut specs = Vec::new();
+        let mut report = Vec::new();
+        let output = run_tool_search(
+            &snapshot,
+            &json!({"query":"select:process"}),
+            &mut specs,
+            &mut report,
         );
+        assert!(!output.is_error, "{}", output.content);
+        let receipt: Value = serde_json::from_str(&output.content).unwrap();
+        assert_eq!(receipt["loaded"], json!(["process"]));
+        assert!(!output.content.contains("input_schema"));
+        assert!(!output.content.contains("description"));
+        assert_eq!(specs.len(), 1);
+        assert_eq!(
+            report,
+            vec![("tools/loaded:process".into(), specs[0].char_len())]
+        );
+        let repeated = run_tool_search(
+            &snapshot,
+            &json!({"query":"select:process"}),
+            &mut specs,
+            &mut report,
+        );
+        let receipt: Value = serde_json::from_str(&repeated.content).unwrap();
+        assert_eq!(receipt["already_available"], json!(["process"]));
+        assert_eq!(specs.len(), 1);
+        assert_eq!(report.len(), 1);
+    }
 
-        let loaded = vec![ToolSpec {
-            name: "process".into(),
-            description: "process test tool.".into(),
-            input_schema: json!({"type":"object", "properties":{}}),
-        }];
-        let mut output = ToolOutput::ok("background: true\nprocess_id: bg123");
-        append_deferred_process_hint(&snapshot, &loaded, &mut output);
-        assert!(
-            !output.content.contains("tool_search"),
-            "{}",
-            output.content
-        );
+    #[test]
+    fn invalid_search_never_mutates_loaded_specs_or_billing() {
+        let snapshot = deferred_snapshot();
+        for input in [
+            json!({"query":"select:process","limit":0}),
+            json!({"query":"select:process","extra":true}),
+            json!({"query":"select:process","offset":1}),
+        ] {
+            let mut specs = Vec::new();
+            let mut report = Vec::new();
+            assert!(run_tool_search(&snapshot, &input, &mut specs, &mut report).is_error);
+            assert!(specs.is_empty());
+            assert!(report.is_empty());
+        }
+    }
 
-        let mut output = ToolOutput::ok("exit code: 0");
-        append_deferred_process_hint(&snapshot, &[], &mut output);
-        assert!(
-            !output.content.contains("tool_search"),
-            "{}",
-            output.content
-        );
+    #[test]
+    fn direct_calls_still_load_deferred_specs_without_a_search_round() {
+        let snapshot = deferred_snapshot();
+        let mut specs = Vec::new();
+        let mut report = Vec::new();
+        auto_load_deferred_tool(&snapshot, "process", &mut specs, &mut report);
+        auto_load_deferred_tool(&snapshot, "process", &mut specs, &mut report);
+        assert_eq!(specs.len(), 1);
+        assert_eq!(report.len(), 1);
     }
 }

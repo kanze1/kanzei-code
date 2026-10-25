@@ -11,9 +11,9 @@ use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use super::{IndexHit, IndexQuery, SqliteMemoryIndex};
+use super::{IndexQuery, SearchHit, SqliteMemoryIndex};
 
-type SearchResult = anyhow::Result<Vec<IndexHit>>;
+type SearchResult = anyhow::Result<Vec<SearchHit>>;
 
 #[derive(Debug)]
 struct Request {
@@ -140,11 +140,13 @@ mod tests {
                 entered.send(()).unwrap();
                 resume.recv().unwrap();
             }
-            Ok(vec![IndexHit {
-                id: query.into(),
-                category: "fact".into(),
-                action: "result".into(),
-                status: "active".into(),
+            Ok(vec![SearchHit {
+                entry: super::super::parse_entry(&format!(
+                    "---\nid: {query}\ncategory: fact\nstatus: active\ndescription: result\n---\n"
+                )),
+                path: root.join(query),
+                snippet: String::new(),
+                hits: 0,
                 score: 1.0,
             }])
         })
@@ -194,7 +196,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .unwrap()
             .unwrap();
-        assert_eq!(fresh[0].id, "fresh");
+        assert_eq!(fresh[0].entry.id, "fresh");
         worker.finish();
         assert_eq!(
             *calls.lock().unwrap(),

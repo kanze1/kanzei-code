@@ -37,7 +37,7 @@ const results=[];
     parseUnifiedDiff:()=>[],buildDiffTree:()=>new Element(),renderDiff:()=>new Element(),refreshDocs:()=>{},refreshLines:()=>{},refreshWorktrees:()=>{},refreshGit:()=>{},lineName:()=>'',log:()=>{},toastError:()=>{},
     confirmWorktreeMerge:async()=>true,confirmDialog:async x=>{confirms.push(x);return false},
     invoke:async(command,args)=>{calls.push(command);if(command==='worktree_harvest_candidates')return [];if(command==='worktree_diff')return{files:[],diff:''};if(command==='worktree_gate'){if(++gates===1)return[{name:'test',ok:true}];throw Error('gate execution failed')}if(command==='worktree_merge')return'merged';return[]}});
-  vm.runInContext(fn('20-lines.js','harvestClaimId')+'\n'+fn('20-lines.js','buildHarvestPanel'),ctx);
+  vm.runInContext(fn('20-lines.js','changedPaths')+'\n'+fn('20-lines.js','harvestClaimId')+'\n'+fn('20-lines.js','buildHarvestPanel'),ctx);
   const panel=ctx.buildHarvestPanel({worktree_path:'worktree-A',label:'A',branch:'branch-A'},'project-A','A');
   await panel.querySelector('.harvest-diff-load').click();await panel.querySelector('.harvest-read-confirm').click();
   await panel.querySelector('.harvest-gate-run').click();await panel.querySelector('.harvest-gate-run').click();

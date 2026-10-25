@@ -7,7 +7,6 @@ import { fileURLToPath } from "node:url";
 import { ArtifactStore, containsPath, directorySize, processSnapshot } from "./artifact-lifecycle.mjs";
 
 const creators = [
-  ["kz-auto-research-", /^kz-auto-research-(?<pid>\d+)-\d+$/, "crates/kanzei-tools/src/research_workflow/tests.rs"],
   ["kanzei-conventions-test-", /^kanzei-conventions-test-(?<pid>\d+)-\d+$/, "crates/kanzei-tools/src/conventions.rs"],
   ["kz-mem-index-", /^kz-mem-index-(?<pid>\d+)-\d+$/, "crates/kanzei-memory/src/memory/index.rs"],
   ["kz-c6-startup-", /^kz-c6-startup-(?<pid>\d+)-\d+-\d+$/, "crates/kanzei-app/src/run/assembly.rs"],

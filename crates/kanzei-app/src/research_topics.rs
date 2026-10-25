@@ -11,17 +11,7 @@ pub(crate) struct TopicMetadata {
 }
 
 pub(crate) fn topic_path(root: &Path, topic: &str) -> Result<PathBuf, String> {
-    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|e| e.to_string())?;
-    let research_root = root.join(".kanzei/research");
-    let path = research_root.join(topic);
-    let canonical_root = research_root.canonicalize().map_err(|e| e.to_string())?;
-    let canonical_path = path
-        .canonicalize()
-        .map_err(|_| format!("研究课题不存在: {topic}"))?;
-    if !canonical_path.is_dir() || !canonical_path.starts_with(&canonical_root) {
-        return Err("研究课题路径越出研究目录".into());
-    }
-    Ok(path)
+    kanzei_tools::research_topic::directory(root, topic)
 }
 
 fn header_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
@@ -169,9 +159,9 @@ mod tests {
         assert!(
             validate_run_topic(&root, Some("research"), Some("topic-a"), Some("topic-b")).is_err()
         );
-        assert!(validate_run_topic(&root, Some("dev"), Some("topic-a"), None).is_err());
+        assert!(validate_run_topic(&root, Some("dev-auto"), Some("topic-a"), None).is_err());
         assert!(validate_run_topic(&root, Some("research"), None, Some("topic-a")).is_err());
-        assert!(validate_run_topic(&root, Some("dev"), None, None)
+        assert!(validate_run_topic(&root, Some("dev-auto"), None, None)
             .unwrap()
             .is_none());
         std::fs::remove_dir_all(root).unwrap();

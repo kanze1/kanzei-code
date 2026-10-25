@@ -27,7 +27,6 @@ pub(super) struct SerialToolRequest<'a> {
     pub(super) messages: &'a mut Vec<Message>,
     pub(super) step: u32,
     pub(super) pending_images: &'a mut Vec<Part>,
-    pub(super) batch: &'a super::batch::Batch,
 }
 
 pub(super) async fn execute_serial_tool_calls(
@@ -52,7 +51,6 @@ pub(super) async fn execute_serial_tool_calls(
         messages,
         step,
         pending_images,
-        batch,
     } = request;
     let halted = || halt.is_some_and(|token| token.is_cancelled());
     let mut results = Vec::new();
@@ -71,19 +69,6 @@ pub(super) async fn execute_serial_tool_calls(
                 on_event,
             )?;
             return Ok(super::ToolRunOutcome::Stopped);
-        }
-        if let Some(reason) = batch.reject(&name, &input, ctx) {
-            let output = kanzei_harness::ToolOutput::blocked_by_workflow("BATCH_CLOSING", reason);
-            crate::runner::tool_failure_telemetry::record_tool_failure(ctx, &id, &name, &output);
-            on_event(RunEvent::ToolStart {
-                id: id.clone(),
-                name: name.clone(),
-                summary: summarize_input(&input, &raw_input),
-                input: input.clone(),
-            });
-            on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
-            results.push(tool_result_part(id, output));
-            continue;
         }
         // task 不过权限门禁:子代理快照在代码层面只含只读工具(硬门禁在构造,不在评估)。
         // ToolEnd 已在并行阶段按完成顺序上报过,这里只归位结果。
@@ -141,7 +126,7 @@ pub(super) async fn execute_serial_tool_calls(
             };
             resolve_permission_gate(&mut permission_request).await
         };
-        let mut output = match gate_result {
+        let output = match gate_result {
             // D-173:拒绝理由必须由实际注册的托管族推导,不能固定说
             // "use the dedicated tool"——那个工具可能根本不存在。
             Gate::Deny(resource) => kanzei_harness::ToolOutput::error(format!(
@@ -177,7 +162,7 @@ pub(super) async fn execute_serial_tool_calls(
                 if name == kanzei_harness::tool_search::TOOL_SEARCH {
                     run_tool_search(snapshot, &input, specs, context_report)
                 } else if input.is_null() {
-                    repair_hint(tool.as_ref(), &raw_input, "tool input was not valid JSON")
+                    repair_hint(tool.as_ref(), "tool input was not valid JSON")
                 } else {
                     // 串行路径同样接进度旁路:bash 常因权限询问走到这里,
                     // 长命令(装依赖/发版)的增量输出边执行边转发给 UI。
@@ -225,9 +210,6 @@ pub(super) async fn execute_serial_tool_calls(
                 }
             }
         };
-        if name == "bash" {
-            append_deferred_process_hint(snapshot, specs, &mut output);
-        }
         record_tool_failure(ctx, &id, &name, &output);
         on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
         let (result, images) = tool_result_part_with_images(id, output, images_supported);

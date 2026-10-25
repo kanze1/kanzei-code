@@ -161,7 +161,7 @@ fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
         effect: Effect::Allow,
     });
     let ctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: root.clone(),
         project_root: root.clone(),
         config: Arc::new(config),

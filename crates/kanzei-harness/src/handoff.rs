@@ -5,10 +5,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HandoffScope {
+    /// 指定工作项的局部交付。
     WorkItem,
+    /// 指定阶段的局部交付，不要求固定批次数量。
     Batch,
+    /// 本次请求完成，独立目标和已授权队列分别判断。
     Request,
+    /// 当前目标完成。
     Goal,
+}
+
+/// 本次运行实际使用的工作来源，与是否存在独立目标分开表达。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CompletionMode {
+    Request,
+    ProjectQueue,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -43,46 +54,38 @@ impl HandoffDeclaration {
     pub fn bound_scope(&self, request_id: &str, goal: Option<&str>) -> Option<HandoffScope> {
         match self.scope {
             HandoffScope::WorkItem | HandoffScope::Batch => Some(self.scope),
-            HandoffScope::Request if goal.is_none() && self.target == request_id => {
-                Some(self.scope)
-            }
+            HandoffScope::Request if self.target == request_id => Some(self.scope),
             HandoffScope::Goal if goal.is_some_and(|goal| self.target == goal) => Some(self.scope),
             _ => None,
         }
     }
 }
 
-/// 完成声明字段的「内部记录」约束(UX-008)。
-///
-/// 这些字段只给轮末控制器与交付记录用;模型把它们当成「要向用户交代的内容」逐项复述
-/// (交接范围/目标/验收标准/证据),用户读到的就是引擎内部术语与输入 id。系统提示、
-/// `work` 工具描述与成功回执共用这一句,三处措辞不各写各的。
-pub const INTERNAL_RECORD_NOTICE: &str = "The completion fields (handoff_scope, handoff_target, criterion, evidence_refs) and input ids are internal records for the controller and the delivery log. Never repeat, translate or list them in a reply to the user; say in plain language what was done, how it was verified and what remains.";
+/// 回执与上下文共用的表达说明，不妨碍用户主动查询内部记录。
+pub const INTERNAL_RECORD_NOTICE: &str =
+    "完成声明用于内部记录。向用户说明实际成果、验证情况和剩余工作，不例行复述内部字段或输入标识。";
 
-pub fn context_prompt(request_id: &str, goal: Option<&str>) -> String {
-    format!(
-        "\n\nCompletion contract: work handoff must provide handoff_scope and handoff_target, criterion and evidence_refs. \
-         work_item targets the item id; batch targets the batch label; both record local progress and do not stop delegation. \
-         request targets this exact admitted input id: {request_id}. goal targets the exact active goal text in this JSON: {}. \
-         An autonomous queue continues while authorized work remains, even after a request handoff. \
-         Never narrow the user's completion criterion: requested publication or installation must be finished before declaring the request/goal complete; use a local scope for intermediate delivery. \
-         {INTERNAL_RECORD_NOTICE}",
-        serde_json::to_string(&goal).unwrap_or_default()
-    )
-}
-
-/// 按档位决定是否注入完成声明契约:只有开发档注入。
-///
-/// `work` 工具只存在于开发档(profiles/dev.rs),也只有开发档的轮末会消费 handoff
-/// (研究档把 completion 置空走课题工作流,只读讨论不自动续跑)。其它档位读到这段契约
-/// 既没有工具可调,又被告知「要交代范围、目标、证据」,模型便把这些内部字段当散文讲给
-/// 用户(UX-008)——所以不注入,而不是注入后再靠「勿复述」兜底。
+/// 仅向具备 work 工具的开发档提供完成记录说明。
+/// 调用方按真实的推进开关和工作来源传入模式，不从 Agent 名称推断队列授权。
 pub fn context_prompt_for(
     profile: crate::ProfileKind,
     request_id: &str,
     goal: Option<&str>,
+    mode: CompletionMode,
 ) -> Option<String> {
-    (profile == crate::ProfileKind::Dev).then(|| context_prompt(request_id, goal))
+    if !profile.is_development() {
+        return None;
+    }
+    let continuation = match mode {
+        CompletionMode::Request => "本次围绕当前请求及已设置的目标推进。",
+        CompletionMode::ProjectQueue => {
+            "本次已启用项目队列推进，请求级完成不结束其余已授权的队列工作。"
+        }
+    };
+    let identity = serde_json::json!({"request_id":request_id,"goal":goal});
+    Some(format!(
+        "\n\n完成记录：用 work handoff 记录实际完成的范围、条件和证据。work_item/batch 记录局部交付；request 的目标为下列 request_id，goal 的目标为下列目标原文。请求完成与独立目标完成分别判断。\n{continuation}\n按用户要求判断完成，包括已要求的发布或安装；阶段成果使用局部范围。\n{identity}\n{INTERNAL_RECORD_NOTICE}"
+    ))
 }
 
 #[cfg(test)]
@@ -101,23 +104,17 @@ mod tests {
         assert!(HandoffDeclaration::from_input(&input).is_none());
     }
 
-    /// UX-008:契约提示必须明确告诉模型这些字段是内部记录、不得复述给用户。
+    /// 完成身份保持可见，表达说明不要求例行复述内部记录。
     #[test]
     fn 契约提示要求不向用户复述内部字段() {
-        let prompt = context_prompt("input-a", Some("publish"));
+        let prompt = context_prompt_for(
+            crate::ProfileKind::DevPair,
+            "input-a",
+            Some("publish"),
+            CompletionMode::Request,
+        )
+        .unwrap();
         assert!(prompt.contains(INTERNAL_RECORD_NOTICE));
-        for field in [
-            "handoff_scope",
-            "handoff_target",
-            "criterion",
-            "evidence_refs",
-        ] {
-            assert!(
-                INTERNAL_RECORD_NOTICE.contains(field),
-                "约束要点名每个内部字段: {field}"
-            );
-        }
-        assert!(INTERNAL_RECORD_NOTICE.contains("Never repeat"));
         // 约束不能吃掉契约本体:输入 id 与目标原文仍要交给模型。
         assert!(prompt.contains("input-a"));
         assert!(prompt.contains("\"publish\""));
@@ -127,15 +124,32 @@ mod tests {
     #[test]
     fn 契约只注入开发档() {
         use crate::ProfileKind;
-        let dev = context_prompt_for(ProfileKind::Dev, "input-a", None).unwrap();
-        assert!(dev.contains("Completion contract"));
+        let dev = context_prompt_for(
+            ProfileKind::DevAuto,
+            "input-a",
+            None,
+            CompletionMode::ProjectQueue,
+        )
+        .unwrap();
+        assert!(dev.contains("已启用项目队列"));
         assert!(dev.contains(INTERNAL_RECORD_NOTICE));
-        for profile in [ProfileKind::Readonly, ProfileKind::Research] {
+        for profile in [
+            ProfileKind::Readonly,
+            ProfileKind::Research,
+            ProfileKind::Isolated,
+        ] {
             assert_eq!(
-                context_prompt_for(profile, "input-a", None),
+                context_prompt_for(profile, "input-a", None, CompletionMode::Request),
                 None,
                 "{profile:?} 不应带完成声明契约"
             );
+        }
+        for profile in [ProfileKind::DevAuto, ProfileKind::DevPair] {
+            let request =
+                context_prompt_for(profile, "input-a", None, CompletionMode::Request).unwrap();
+            assert!(!request.contains("已启用项目队列"));
+            assert!(request.contains("当前请求"));
+            assert!(request.contains("input-a"));
         }
     }
 
@@ -147,9 +161,13 @@ mod tests {
             Some(HandoffScope::Request)
         );
         assert_eq!(declaration.bound_scope("input-b", None), None);
-        assert_eq!(declaration.bound_scope("input-a", Some("publish")), None);
+        assert_eq!(
+            declaration.bound_scope("input-a", Some("publish")),
+            Some(HandoffScope::Request)
+        );
         declaration.scope = HandoffScope::Goal;
         declaration.target = "publish".into();
+        assert_eq!(declaration.bound_scope("input-a", None), None);
         assert_eq!(
             declaration.bound_scope("input-a", Some("publish")),
             Some(HandoffScope::Goal)

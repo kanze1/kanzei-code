@@ -64,26 +64,20 @@ pub(crate) async fn run_execution_loop(
     // 自主轮以同一调度器的当前选择检索，保持与执行顺序一致。
     let memory_query = if autonomous && ctx.project_workflow {
         kanzei_tools::work::resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority)
-            .ok()
-            .and_then(|state| state.selected)
+            .map_err(anyhow::Error::msg)?
+            .selected
             .map(|item| item.title)
             .unwrap_or_default()
     } else {
         prompt.to_string()
     };
-    let memory_hints = if deps.rctx.profile == kanzei_harness::ProfileKind::Isolated {
-        None
-    } else {
-        kanzei_memory::memory::prompt_hints_for_run(
-            &ctx.project_root,
-            &memory_query,
-            // R-233:配置了 [embeddings] 就带 embedder 走 hybrid,否则纯 BM25。
-            kanzei_memory::embed::embedder_from_config(config)
-                .ok()
-                .flatten(),
-            ctx.run_id.as_deref(),
-        )
-    };
+    let memory_hints = kanzei_runtime::task_memory_hints(
+        config,
+        deps.rctx.profile,
+        &ctx.project_root,
+        &memory_query,
+        ctx.run_id.as_deref(),
+    )?;
     let run_prompt = prompt.to_string();
     if let Some(item_id) = round.work_item_id.as_deref() {
         stage("领取", format!("按用户选择领取 {item_id}…"));

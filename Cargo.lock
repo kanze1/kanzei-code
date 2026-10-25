@@ -2513,6 +2513,7 @@ name = "kanzei"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kanzei-base",
  "kanzei-core",
  "kanzei-harness",
  "kanzei-llm",
@@ -2576,6 +2577,7 @@ name = "kanzei-base"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "serde",
  "sha2",
  "tempfile",
  "tracing",

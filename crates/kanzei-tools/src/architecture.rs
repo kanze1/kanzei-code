@@ -34,7 +34,7 @@ const MAX_INDEX_BYTES: usize = 1024 * 1024;
 
 #[derive(Deserialize, JsonSchema)]
 struct ArchitectureInput {
-    /// get(读全文+hash) | check(只校验) | regenerate(按磁盘生成草稿,不写盘) | update(整文件替换)
+    /// context(项目知识) | get(全文+hash) | check(校验) | regenerate(只生成草稿) | update(CAS 替换)
     /// | diagrams(只读:docs/architecture 下的架构图清单与 lint,附自动生成的 crate 依赖图源码)
     action: String,
     /// update 必填:索引全文
@@ -61,38 +61,9 @@ impl Tool for ArchitectureTool {
 
     fn description(&self) -> String {
         format!(
-            "Explore project knowledge with action=context, optional area (module id or file path) and query (task keywords): \
-             hierarchy, responsibilities, upstream/downstream dependencies, constraints and pitfalls \
-             from project memory and valid file summaries. Start with context without area, then expand \
-             only the relevant module. Weak links are inferred; candidates are not established constraints. \
-             Read and maintain the architecture index `{ARCHITECTURE_REL}` (the ONLY write \
-             channel for it — write/edit are denied there). Actions: get (full text + hash + \
-             validation), check (validation only), regenerate (draft index rebuilt from the \
-             files actually in {DESIGN_DIR}/, keeping existing descriptions — returned for you \
-             to review, NOT written), update (content + expected_hash from the last get). \
-             Validation rules: every link target must exist, indexed design docs must be \
-             snake_case, no duplicate targets, and no design doc on disk may be missing from the \
-             index. update refuses if the hash is stale, the content is empty, it drops an entry \
-             that was valid, or it introduces a validation issue the current index does not \
-             already have; pre-existing issues do not block an update (they are echoed back as \
-             warnings).\n\
-             Action `diagrams` (read-only) lists the architecture DIAGRAMS and lints them. \
-             Conventions (docs/design/architecture_diagrams.md): one diagram per file \
-             `{DIAGRAM_DIR}/NN_snake_name.md` (two-digit prefix = tab order); line 1 `# Title`, then \
-             one short paragraph, then the FIRST ```mermaid fence is the diagram (edit it with plain \
-             write/edit; GitHub renders it too). Write `flowchart LR` or `flowchart TB`; quote every \
-             label: id[\"text\"], use <br/> for a second line (first line = name, second = file or \
-             role); never use `end`/`graph`/`click`/`style`/`class` as a node id. NO colors: no \
-             `style`, `classDef`, `linkStyle`, `%%{{init}}` or frontmatter `config` — theme and \
-             layout are injected by kanzei. Emphasis only via the semantic classes {classes}. \
-             Clickable nodes: `click <id> \"<project-relative path>[:line]\" \"<tooltip>\"`, or a \
-             tracker id as target (`click n \"R-123\"`); the target must exist. Keep a diagram under \
-             {MAX_NODES} nodes / {MAX_EDGES} edges — split by subsystem. The crate dependency graph \
-             is generated from Cargo manifests (group = `[package.metadata.kanzei] group`, label = \
-             `[package] description`) and is never written to disk. After editing run `diagrams` \
-             again: errors carry file:line and a one-line fix; rendering in the app is the final \
-             judge.",
-            classes = SEMANTIC_CLASSES.map(|c| format!(":::{c}")).join(" "),
+            "Query project knowledge with context(area?, query?): hierarchy, responsibilities, dependencies and source-backed constraints. \
+             Maintain `{ARCHITECTURE_REL}` with get/check/regenerate/update; regenerate returns a draft, update requires expected_hash and validates changes. \
+             diagrams returns architecture diagram sources, format rules and lint findings."
         )
     }
 
@@ -136,13 +107,15 @@ impl Tool for ArchitectureTool {
         };
         let root = ctx.project_root.clone();
         let path = root.join(ARCHITECTURE_REL);
+        let code_root = crate::base::code_tree_root(&ctx.cwd, &ctx.project_root);
 
         match input.action.as_str() {
-            "context" => match crate::project_knowledge::snapshot(&root, code_root(ctx))
-                .context(input.area.as_deref(), input.query.as_deref(), 12000)
-            {
-                Ok(context) => ToolOutput::ok(context),
-                Err(error) => ToolOutput::error(error),
+            "context" => match crate::project_knowledge::snapshot_checked(&root, &code_root) {
+                Ok(knowledge) => match knowledge.context(input.area.as_deref(), input.query.as_deref(), 12000) {
+                    Ok(context) => ToolOutput::ok(context),
+                    Err(error) => ToolOutput::error(error),
+                },
+                Err(error) => ToolOutput::error(format!("项目知识读取失败：{error:#}")),
             },
             "get" => {
                 let current = read_index(&path);
@@ -169,7 +142,7 @@ impl Tool for ArchitectureTool {
             }
             // 图与 Cargo 清单是代码树里的文件:worktree 线(R-171)在自己的树里改图,自查必须读同一棵树
             // (edit/write/read 的相对路径按 ctx.cwd 解析),不能读主根。get/check/update 仍管 .kanzei 托管的索引。
-            "diagrams" => diagrams_report(code_root(ctx)),
+            "diagrams" => diagrams_report(&code_root),
             "regenerate" => {
                 let current = read_index(&path);
                 ToolOutput::ok(format!(
@@ -284,18 +257,9 @@ impl Tool for ArchitectureTool {
     }
 }
 
-/// 代码树根:worktree 线上是该线自己的工作树(ctx.cwd),没设 cwd 时退回项目根。
-fn code_root(ctx: &ToolCtx) -> &Path {
-    if ctx.cwd.as_os_str().is_empty() {
-        &ctx.project_root
-    } else {
-        &ctx.cwd
-    }
-}
-
 /// `diagrams` 动作:列出 docs/architecture 下每张图与 lint 结果,附自动生成的 crate 依赖图
 /// 源码(约简版)作为新图的起点。有 error 时整体判错(同 check),只有警告照常成功。
-/// `root` 是代码树根(见 code_root):图、click 目标与 Cargo 清单都按它读。
+/// `root` 是代码树根：图、click 目标与 Cargo 清单都按同一根读取。
 fn diagrams_report(root: &Path) -> ToolOutput {
     let docs = scan_diagrams(root);
     let errors: usize = docs.iter().map(|d| d.errors()).sum();
@@ -307,10 +271,17 @@ fn diagrams_report(root: &Path) -> ToolOutput {
     if docs.is_empty() {
         out.push_str(&format!(
             "No diagrams yet. Create `{DIAGRAM_DIR}/01_overview.md`: `# Title`, one paragraph, \
-             then a ```mermaid fence (conventions are in this tool's description), and run \
-             `diagrams` again.\n"
+             then a ```mermaid fence.\n"
         ));
     }
+    out.push_str(&format!(
+        "Format: {DIAGRAM_DIR}/NN_snake_name.md; # Title, a short paragraph, then the first mermaid fence. \
+         Use flowchart LR/TB and quoted labels. Theme/layout are supplied by the app; semantic classes: {classes}. \
+         Inline style, classDef, linkStyle, init and config styling are rejected. \
+         Link nodes with click id \"project-relative-path[:line]\" or a tracker ID; targets must exist. \
+         Limit: {MAX_NODES} nodes / {MAX_EDGES} edges. Lint reports file:line; rendering verifies appearance.\n",
+        classes = SEMANTIC_CLASSES.map(|class| format!(":::{class}")).join(" "),
+    ));
     for doc in &docs {
         let title = if doc.title.is_empty() {
             "(no title)"
@@ -698,6 +669,24 @@ mod tests {
 
     fn write_index(root: &Path, body: &str) {
         std::fs::write(root.join(ARCHITECTURE_REL), body).unwrap();
+    }
+
+    #[tokio::test]
+    async fn project_context_read_failure_is_an_error_without_a_successful_empty_projection() {
+        let root = temp_project("context-read-error");
+        std::fs::write(
+            root.join(".kanzei/project-knowledge.json"),
+            "invalid knowledge configuration",
+        )
+        .unwrap();
+        let ctx = ToolCtx::new(root.clone(), root.clone());
+        let output = ArchitectureTool
+            .execute(json!({"action":"context"}), &ctx)
+            .await;
+        assert!(output.is_error);
+        assert!(output.content.contains("project-knowledge.json"));
+        assert!(!output.content.contains("<project-knowledge>"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1160,16 +1149,16 @@ mod tests {
 
         let schema = ArchitectureTool.input_schema();
         assert!(schema.to_string().contains("\"diagrams\""), "{schema}");
-        let description = ArchitectureTool.description();
         for needle in [
             "docs/architecture/NN_snake_name.md",
             ":::focus",
-            "click <id>",
+            "click id",
             "classDef",
         ] {
             assert!(
-                description.contains(needle),
-                "描述缺约定 {needle}: {description}"
+                out.content.contains(needle),
+                "diagram response lacks {needle}: {}",
+                out.content
             );
         }
         std::fs::remove_dir_all(&root).ok();

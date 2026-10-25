@@ -223,15 +223,18 @@ export function parseJsonish(text) {
 }
 
 const OUTCOME_RE = /^\[tool_outcome=([a-z_]+)(?: code=([\w.-]+))?\]\r?\n?/;
-const SOURCE_PREFIX = "[external_source_data]\n";
-function sourceBody(text) {
-  if (!text.startsWith(SOURCE_PREFIX)) return text;
-  const frame = parseJsonish(text.slice(SOURCE_PREFIX.length));
+export const EXTERNAL_SOURCE_PREFIX = "[external_source_data]\n";
+export function parseExternalSource(text) {
+  if (!text.startsWith(EXTERNAL_SOURCE_PREFIX)) return null;
+  const frame = parseJsonish(text.slice(EXTERNAL_SOURCE_PREFIX.length));
   if (frame?.authority !== "untrusted_data" || typeof frame.content !== "string"
       || typeof frame.source?.location !== "string"
-      || !["web", "browser", "file", "process", "desktop"].includes(frame.source?.kind)) return text;
+      || !["attachment", "conversation", "web", "browser", "file", "process", "desktop"].includes(frame.source?.kind)) return null;
+  return frame;
+}
+function sourceBody(text) {
   // Decode only the engine's outer frame. Quoted markers remain ordinary source text.
-  return frame.content;
+  return parseExternalSource(text)?.content ?? text;
 }
 /// 历史回放的正文带模型侧机器头 `[tool_outcome=X code=Y]\n`;剥掉并返回终态与错误码。
 /// 不带头的文本原样作为 body 返回(outcome/code 为 null)。

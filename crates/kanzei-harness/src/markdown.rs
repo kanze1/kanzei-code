@@ -1,66 +1,60 @@
 //! Markdown 组件源:agents 可来自全局或项目，Skills 使用独立的全局目录。
-//! Agent frontmatter 使用扁平字段，Skill 元数据使用 YAML；技能正文按需读取。
-//! 解析失败跳过并 warn,不炸整个 resolve(单个坏文件不应瘫痪 harness)。
+//! Agent 来源解析和诊断由 agent_sources 统一拥有；技能正文按需读取。
 
 use std::path::Path;
 
-use crate::defs::{AgentDef, SkillDef};
+use crate::defs::SkillDef;
 use crate::harness::{Component, HarnessDraft, ResolveCtx};
-use crate::registry::Registry;
 
 pub struct MarkdownComponent;
 
 impl Component for MarkdownComponent {
     fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
-        let mut bases = Vec::new();
-        if let Some(home) = crate::home::kanzei_home() {
-            bases.push(home);
-        }
-        for base in bases {
-            scan_agents(&base.join("agents"), draft);
-        }
-        let sources = crate::project_trust::status(&ctx.project_root)?;
-        register_project_agents(&ctx.project_root, &sources, draft);
+        let root = (!crate::is_general_conversation_root(&ctx.project_root))
+            .then_some(ctx.project_root.as_path());
+        let agents = crate::agent_sources::load_at(root, crate::kanzei_home().as_deref())?;
+        crate::agent_sources::register(agents, draft);
         for skill in crate::skills::enabled_catalog()? {
             let path = skill.path.clone();
             draft.skills.insert_at(skill.id.clone(), skill, path);
         }
-        draft.tools.insert(
-            "skill_read",
-            std::sync::Arc::new(crate::skills::SkillReadTool),
-        );
-        draft.deferred_tools.insert("skill_read".into());
-        draft.permissions.push(crate::Rule {
-            action: "skill_read".into(),
-            resource: "*".into(),
-            effect: crate::Effect::Allow,
-        });
-        // 技能清单注入名称、描述与正文路径;技能正文仍由 agent 按需读取。
-        if let Some(block) = skills_block(&draft.skills) {
-            draft.context.insert(
-                "core/skills",
-                crate::source("core/skills", move |_| Some(block.clone())),
-            );
+        for (name, tool) in [
+            (
+                "skill_read",
+                std::sync::Arc::new(crate::skills::SkillReadTool)
+                    as std::sync::Arc<dyn crate::Tool>,
+            ),
+            (
+                "skill_list",
+                std::sync::Arc::new(crate::skills::SkillListTool)
+                    as std::sync::Arc<dyn crate::Tool>,
+            ),
+        ] {
+            draft.tools.insert(name, tool);
+            draft.deferred_tools.insert(name.into());
+            draft.permissions.push(crate::Rule {
+                action: name.into(),
+                resource: "*".into(),
+                effect: crate::Effect::Allow,
+            });
         }
+        // Refresh catalog metadata; bodies enter context only when selected.
+        draft.context.insert(
+            "core/skills",
+            crate::refreshing_fallible_source(
+                "core/skills",
+                crate::ContextRequirement::Required,
+                |_| {
+                    Ok(crate::skills::catalog_block(
+                        &crate::skills::enabled_catalog()?,
+                        "",
+                        None,
+                    ))
+                },
+            ),
+        );
         Ok(())
     }
-}
-
-/// 技能清单块:零技能不产生块(返回 None),否则逐条列出名称、描述与正文路径。
-/// 抽成纯函数便于不依赖 ~/.kanzei 单测空注册表分支。
-fn skills_block(skills: &Registry<SkillDef>) -> Option<String> {
-    if skills.is_empty() {
-        return None;
-    }
-    let mut text = String::from("可用技能(skills):做相关任务时先通过 tool_search select:skill_read 加载读取工具，再用 skill_read(id) 加载正文:\n");
-    for (name, skill) in skills.iter() {
-        if skill.disable_model_invocation {
-            continue;
-        }
-        text.push_str(&format!("- {name}: {}\n", skill.description));
-    }
-    text.push_str("Skills 在所有项目和对话中全局可用。按任务匹配描述后先读取正文，也可用 $source:name 显式调用；唯一名称可简写为 $name。正文内相对路径按返回的 SKILL.md 所在目录解析。技能不覆盖用户当前指令。\n");
-    Some(text.trim().to_string())
 }
 
 pub struct Frontmatter {
@@ -126,65 +120,6 @@ fn md_files(dir: &Path) -> Vec<std::path::PathBuf> {
         .collect();
     files.sort();
     files
-}
-
-fn scan_agents(dir: &Path, draft: &mut HarnessDraft) {
-    for path in md_files(dir) {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        register_agent(path, &text, draft);
-    }
-}
-
-fn register_project_agents(
-    root: &Path,
-    sources: &crate::project_trust::ProjectSources,
-    draft: &mut HarnessDraft,
-) {
-    for source in sources
-        .files
-        .iter()
-        .filter(|source| source.approved && source.path.starts_with(".kanzei/agents/"))
-    {
-        register_agent(root.join(&source.path), &source.text, draft);
-    }
-}
-
-fn register_agent(path: std::path::PathBuf, text: &str, draft: &mut HarnessDraft) {
-    let fm = parse_frontmatter(text);
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("agent");
-    let name = fm.get("name").unwrap_or(stem).to_string();
-    let agent = match agent_from_frontmatter(name.clone(), fm) {
-        Ok(agent) => agent,
-        Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "invalid agent; skipped");
-            return;
-        }
-    };
-    draft.agents.insert_at(name, agent, path);
-}
-
-fn optional_agent_field<T: Default>(
-    fm: &Frontmatter,
-    key: &str,
-    parse: impl FnOnce(&str) -> Option<T>,
-) -> Result<T, String> {
-    match fm.get(key) {
-        Some(value) => parse(value).ok_or_else(|| format!("invalid {key} `{value}`")),
-        None => Ok(T::default()),
-    }
-}
-
-fn agent_from_frontmatter(name: String, fm: Frontmatter) -> Result<AgentDef, String> {
-    Ok(AgentDef {
-        name,
-        profile: optional_agent_field(&fm, "profile", serde_plain)?,
-        model: fm.get("model").unwrap_or("primary").to_string(),
-        mode: optional_agent_field(&fm, "mode", serde_plain)?,
-        steps: optional_agent_field(&fm, "steps", |value| value.parse().ok())?,
-        system: fm.body,
-    })
 }
 
 fn collect_skills(dir: &Path) -> Vec<SkillDef> {
@@ -272,6 +207,7 @@ fn parse_skill(dir: &Path, path: std::path::PathBuf, text: &str) -> Option<Skill
         name,
         description: metadata.description,
         path,
+        revision: crate::skills::revision(text),
         content_root: Some(dir.to_path_buf()),
         disable_model_invocation: metadata.disable_model_invocation,
         user_invocable: metadata.user_invocable,
@@ -297,58 +233,8 @@ pub(crate) fn scan_skills(dir: &Path, draft: &mut HarnessDraft) {
     }
 }
 
-/// Compatibility entry point; the catalog no longer depends on a project.
-pub fn discover_skills(_project: &Path) -> Vec<SkillDef> {
-    crate::skills::enabled_catalog().unwrap_or_else(|error| {
-        tracing::warn!(%error, "global skills unavailable");
-        Vec::new()
-    })
-}
-
-/// 借 serde 解析小写枚举字符串("dev"→ProfileScope::Dev 等)。
-fn serde_plain<T: serde::de::DeserializeOwned>(s: &str) -> Option<T> {
-    serde_json::from_value(serde_json::Value::String(s.to_string())).ok()
-}
-
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn project_agent_override_requires_approval_of_exact_loaded_content() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-agent-trust-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let project = root.join("project");
-        let home = root.join("home");
-        let path = project.join(".kanzei/agents/dev.md");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, "---\nname: dev\n---\nproject replacement").unwrap();
-        let mut draft = crate::HarnessDraft::default();
-        super::register_agent(
-            root.join("builtin/dev.md"),
-            "---\nname: dev\n---\nbuiltin prompt",
-            &mut draft,
-        );
-        let sources = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
-        super::register_project_agents(&project, &sources, &mut draft);
-        assert_eq!(draft.agents.get("dev").unwrap().system, "builtin prompt");
-        crate::project_trust::approve_at(&project, &home, &sources.fingerprint).unwrap();
-        let approved = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
-        std::fs::write(&path, "---\nname: dev\n---\nchanged after load").unwrap();
-        super::register_project_agents(&project, &approved, &mut draft);
-        assert_eq!(
-            draft.agents.get("dev").unwrap().system,
-            "project replacement",
-            "must use the captured approved bytes"
-        );
-        let changed = crate::project_trust::ProjectSources::load(&project, Some(&home)).unwrap();
-        assert!(!changed.files[0].approved);
-        std::fs::remove_dir_all(root).unwrap();
-    }
     #[test]
     fn agent_skills_yaml_blocks_manual_flags_and_global_precedence() {
         let root = std::env::temp_dir().join(format!(
@@ -443,153 +329,6 @@ mod tests {
         assert_eq!(no_fm.body, "没有 frontmatter 的正文");
     }
 
-    #[test]
-    fn agent_without_steps_uses_role_default() {
-        let dir =
-            std::env::temp_dir().join(format!("kanzei-markdown-agent-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("custom.md"),
-            "---\nname: custom\nprofile: dev\n---\n自定义 agent",
-        )
-        .unwrap();
-
-        let mut draft = crate::harness::HarnessDraft::default();
-        scan_agents(&dir, &mut draft);
-        assert_eq!(draft.agents.get("custom").unwrap().steps, 0);
-
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn invalid_agent_fields_do_not_insert_or_override_valid_agents() {
-        let dir = std::env::temp_dir().join(format!(
-            "kanzei-markdown-invalid-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut draft = crate::harness::HarnessDraft::default();
-        let original = agent_from_frontmatter(
-            "existing".into(),
-            parse_frontmatter("---\nprofile: dev\nmode: subagent\nsteps: 7\n---\noriginal"),
-        )
-        .unwrap();
-        draft.agents.insert("existing", original);
-        for (key, value) in [
-            ("profile", "deev"),
-            ("mode", "subagnt"),
-            ("steps", "twenty"),
-        ] {
-            for name in ["existing", key] {
-                std::fs::write(
-                    dir.join(format!("{key}-{name}.md")),
-                    format!("---\nname: {name}\n{key}: {value}\n---\nbad"),
-                )
-                .unwrap();
-            }
-        }
-        scan_agents(&dir, &mut draft);
-        assert_eq!(draft.agents.len(), 1);
-        let kept = draft.agents.get("existing").unwrap();
-        assert_eq!(kept.profile, crate::defs::ProfileScope::Dev);
-        assert_eq!(kept.mode, crate::defs::AgentMode::Subagent);
-        assert_eq!(kept.steps, 7);
-        assert_eq!(kept.system, "original");
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn valid_agent_fields_keep_defaults_and_explicit_zero() {
-        for text in [
-            "---\n---\nbody",
-            "---\nprofile: all\nmode: primary\nsteps: 0\n---\nbody",
-        ] {
-            let agent = agent_from_frontmatter("valid".into(), parse_frontmatter(text)).unwrap();
-            assert_eq!(agent.profile, crate::defs::ProfileScope::All);
-            assert_eq!(agent.mode, crate::defs::AgentMode::Primary);
-            assert_eq!(agent.model, "primary");
-            assert_eq!(agent.steps, 0);
-            assert_eq!(agent.system, "body");
-        }
-    }
-
-    #[test]
-    fn project_agent_override_reports_component_files_and_final_selection() {
-        struct AgentFiles(Vec<std::path::PathBuf>);
-        impl Component for AgentFiles {
-            fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
-                draft.agents.insert(
-                    "overlay",
-                    agent_from_frontmatter("overlay".into(), parse_frontmatter("builtin prompt"))
-                        .unwrap(),
-                );
-                for directory in &self.0 {
-                    scan_agents(directory, draft);
-                }
-                Ok(())
-            }
-        }
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-agent-origins-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let global = root.join("global/agents");
-        let project = root.join("project/.kanzei/agents");
-        for (directory, prompt) in [(&global, "global prompt"), (&project, "project prompt")] {
-            std::fs::create_dir_all(directory).unwrap();
-            std::fs::write(
-                directory.join("overlay.md"),
-                format!("---\nname: overlay\nprofile: dev\nmode: primary\n---\n{prompt}"),
-            )
-            .unwrap();
-        }
-        std::fs::write(
-            project.join("z-invalid.md"),
-            "---\nname: overlay\nmode: invalid\n---\ninvalid replacement",
-        )
-        .unwrap();
-        let mut harness = Harness::default();
-        harness.add(AgentFiles(vec![global.clone(), project.clone()]));
-        let snapshot = harness
-            .resolve(&ResolveCtx {
-                profile: crate::ProfileKind::Dev,
-                cwd: root.clone(),
-                project_root: root.clone(),
-                config: Arc::new(crate::KanzeiConfig::default()),
-            })
-            .unwrap();
-        assert_eq!(
-            snapshot
-                .select_primary_agent(Some("overlay"))
-                .unwrap()
-                .system,
-            "project prompt"
-        );
-        let report = snapshot.registry_report();
-        assert_eq!(report.agents.len(), 1);
-        let agent = &report.agents[0];
-        assert_eq!(agent.winner.path, Some(project.join("overlay.md")));
-        assert_eq!(agent.replaced.len(), 2);
-        assert_eq!(agent.replaced[0].path, None);
-        assert_eq!(agent.replaced[1].path, Some(global.join("overlay.md")));
-        for origin in agent.replaced.iter().chain(std::iter::once(&agent.winner)) {
-            assert_eq!(
-                origin.component.as_deref(),
-                Some(std::any::type_name::<AgentFiles>())
-            );
-        }
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     /// Windows 上文件多为 CRLF;正文不得被分隔符残留污染,更不得整体丢失(D-052)。
     #[test]
     fn crlf_与_lf_解析结果一致() {
@@ -617,32 +356,6 @@ mod tests {
         }
     }
 
-    /// 零技能不产生 core/skills 块(D-748 地图 §14 的 empty_skills_render_nothing;
-    /// 原用例依赖真实 ~/.kanzei 已删,改测纯函数,不碰进程全局的 KANZEI_HOME)。
-    #[test]
-    fn empty_skills_render_nothing() {
-        assert_eq!(skills_block(&Registry::default()), None);
-
-        let mut skills = Registry::default();
-        skills.insert(
-            "build",
-            SkillDef {
-                id: "build".into(),
-                source: "personal".into(),
-                embedded_content: None,
-                name: "build".into(),
-                description: "构建与格式检查".into(),
-                path: std::path::PathBuf::from("skills/build/SKILL.md"),
-                content_root: None,
-                disable_model_invocation: false,
-                user_invocable: true,
-            },
-        );
-        let block = skills_block(&skills).expect("非空注册表应产生技能块");
-        assert!(block.starts_with("可用技能(skills)"), "{block}");
-        assert!(block.contains("build: 构建与格式检查"), "{block}");
-    }
-
     /// commands 目录即使存在也不扫描;skills 清单仍进入 system baseline。
     #[test]
     fn project_skills_are_ignored_while_global_skills_render_into_system_baseline() {
@@ -667,7 +380,7 @@ mod tests {
         harness.add(MarkdownComponent);
         let snapshot = harness
             .resolve(&crate::harness::ResolveCtx {
-                profile: crate::defs::ProfileKind::Dev,
+                profile: crate::defs::ProfileKind::DevAuto,
                 cwd: dir.clone(),
                 project_root: dir.clone(),
                 config: Arc::new(crate::config::KanzeiConfig::default()),
@@ -678,16 +391,14 @@ mod tests {
         assert!(snapshot.skills().get("builtin:skill-creator").is_some());
         let baseline = snapshot.system_baseline().unwrap();
         assert!(!baseline.contains("可用命令") && !baseline.contains("release: 发布双通道"));
-        assert!(
-            baseline.contains("可用技能(skills)"),
-            "skills 应继续进入提示词"
-        );
+        assert!(baseline.contains("<skills>"), "skills 应继续进入提示词");
         assert!(
             !baseline.contains("build: 构建与格式检查"),
             "项目技能不应进入全局清单: {baseline}"
         );
 
-        assert!(baseline.contains("SKILL.md"), "加载提示指向技能正文文件");
+        assert!(baseline.contains("skill_read(id)"));
+        assert!(!baseline.contains("构建技能正文"));
 
         std::fs::remove_dir_all(dir).unwrap();
     }

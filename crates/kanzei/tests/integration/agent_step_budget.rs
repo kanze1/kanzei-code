@@ -41,7 +41,7 @@ async fn primary_and_subagent_continue_past_32_without_a_step_limit() {
         harness.add(kanzei_tools::SubagentBase);
         let snapshot = harness
             .resolve(&ResolveCtx {
-                profile: ProfileKind::Dev,
+                profile: ProfileKind::DevAuto,
                 cwd: home.root.clone(),
                 project_root: home.root.clone(),
                 config: config.clone(),
@@ -113,7 +113,7 @@ async fn primary_and_subagent_continue_past_32_without_a_step_limit() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking() {
+async fn long_writer_keeps_tools_and_scope_past_the_old_batch_window() {
     struct FixtureCatalog;
     impl kanzei_harness::Component for FixtureCatalog {
         fn contribute(
@@ -128,7 +128,7 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
             Ok(())
         }
     }
-    let home = super::common::TestHome::new("batch-delivery");
+    let home = super::common::TestHome::new("writer-autonomy");
     std::fs::write(home.root.join("sample.txt"), "base").unwrap();
     for args in [
         vec!["init", "-q"],
@@ -185,18 +185,18 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
     let mut harness = Harness::default();
     harness
         .add(kanzei_tools::BaseComponent)
-        .add(kanzei_tools::DevProfile)
+        .add(kanzei_tools::DevelopmentProfile)
         .add(FixtureCatalog);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: home.root.clone(),
             project_root: home.root.clone(),
             config: config.clone(),
         })
         .unwrap();
     let agent = AgentDef {
-        name: "batch-probe".into(),
+        name: "writer-autonomy-probe".into(),
         profile: kanzei_harness::ProfileScope::All,
         model: "mock".into(),
         mode: AgentMode::Primary,
@@ -223,6 +223,7 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
     let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), Some("test-key"));
     let mut blocked = 0;
     let mut validations = 0;
+    let mut writes = 0;
     let mut events = |event: kanzei_core::RunEvent| {
         if let kanzei_core::RunEvent::ToolEnd {
             name, ok, content, ..
@@ -230,6 +231,10 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
         {
             if !ok && content.contains("BATCH_CLOSING") {
                 blocked += 1;
+            }
+            if name == "write" {
+                assert!(ok, "source write was refused: {content}");
+                writes += 1;
             }
             if name == "bash" {
                 assert!(ok, "validation command was refused: {content}");
@@ -264,29 +269,36 @@ async fn d773_long_writer_closes_saves_checkpoint_and_continues_without_asking()
     assert_eq!(summary.steps, 42);
     assert!(!summary.halted_by_user);
     assert_eq!(asks, 0);
-    assert_eq!(blocked, 6);
+    assert_eq!(blocked, 0);
+    assert_eq!(writes, 39);
     assert_eq!(validations, 2);
     assert_eq!(
         std::fs::read_to_string(home.root.join("sample.txt")).unwrap(),
         "step 41"
     );
     let requests = server.await.unwrap();
-    assert!(requests[32]
-        .to_string()
-        .contains("Close this implementation batch"));
-    assert!(requests[40].to_string().contains("Batch checkpoint saved"));
-    let parent = home.root.join(".kanzei/artifacts/batch-checkpoints");
-    let directory = std::fs::read_dir(parent)
-        .unwrap()
-        .next()
-        .unwrap()
-        .unwrap()
-        .path();
-    let checkpoint: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(directory.join("checkpoint.json")).unwrap()).unwrap();
-    assert_eq!(checkpoint["completed"], false);
-    assert_eq!(
-        std::fs::read_to_string(directory.join("0-after.bin")).unwrap(),
-        "step 32"
-    );
+    assert_eq!(requests.len(), 42);
+    for request in &requests {
+        let wire = request.to_string();
+        for injected in [
+            "Close this implementation batch",
+            "Batch checkpoint saved",
+            "only granted closing steps",
+            "Execution budget checkpoint",
+        ] {
+            assert!(
+                !wire.contains(injected),
+                "unexpected engine workflow: {wire}"
+            );
+        }
+        assert!(request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tool| tool["function"]["name"] == "write"));
+    }
+    assert!(!home
+        .root
+        .join(".kanzei/artifacts/batch-checkpoints")
+        .exists());
 }

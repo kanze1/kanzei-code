@@ -100,7 +100,7 @@ try {
     window.__conversationEvents = [];
     for (const name of ["kz:tool-start", "kz:tool-end", "kz:error", "kz:done"]) await window.__TAURI__.event.listen(name, event => window.__conversationEvents.push({ name, payload: event.payload }));
   });
-  const prompt = { projectDir: project, processId: owner.id, agent: "dev-pair", profile: "dev", model: "stub:test", autonomous: false, autoAllow: false };
+  const prompt = { projectDir: project, processId: owner.id, agent: "dev-pair", profile: "dev-pair", model: "stub:test", autonomous: false, autoAllow: false };
   await page.locator("#preview-toggle").click();
   const header = await page.locator("#project-space-nav").boundingBox(), preview = await page.locator("#preview-dock").boundingBox();
   check(header.x + header.width <= preview.x + 1, "Native preview does not cover conversation controls");
@@ -136,11 +136,11 @@ try {
   await page.locator("#new-chat").click();
   await page.waitForFunction(id => window.__nativeConversationShell.activeProcessId !== id, owner.id);
   const discussion = (await invoke("process_list", { projectDir: project })).find(p => p.id !== owner.id);
-  check(discussion?.profile === "dev", "New conversation has the same development mode");
+  check(discussion?.profile === "dev-auto", "New conversation has the same development mode");
   await invoke("process_update", { processId: discussion.id, profile: "readonly" });
   check(Boolean(discussion) && (await invoke("process_list", { projectDir: project })).find(p => p.id === owner.id).running, "New discussion does not stop or replace the main execution owner");
   // Even a stale/malicious client asking for dev cannot upgrade a readonly process.
-  await invoke("run_prompt", { ...prompt, processId: discussion.id, profile: "dev", agent: "dev-pair", prompt: "READONLY_ATTEMPT: 改写 original.txt", executionBatch: true, autonomous: true, autoAllow: true });
+  await invoke("run_prompt", { ...prompt, processId: discussion.id, profile: "dev-pair", agent: "dev-pair", prompt: "READONLY_ATTEMPT: 改写 original.txt", executionBatch: true, autonomous: true, autoAllow: true });
   await until(async () => requests.filter(r => r.kind === "discussion").length >= 2 && !(await invoke("process_list", { projectDir: project })).find(p => p.id === discussion.id)?.running, "Readonly discussion while main owns write lease");
   check(await readFile(path.join(project, "original.txt"), "utf8") === "original content", "Readonly ownership blocks writes despite dev, auto and execution overrides");
   check(!requests.some(r => r.kind === "scout"), "Discussion has no hidden execution batch or child task");

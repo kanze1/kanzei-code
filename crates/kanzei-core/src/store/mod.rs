@@ -286,6 +286,10 @@ impl Delivery {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdmittedInput {
+    #[serde(default)]
+    pub origin: kanzei_base::MessageOrigin,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<kanzei_base::InputAttachment>,
     pub input_id: String,
     pub session_id: String,
     pub prompt: String,

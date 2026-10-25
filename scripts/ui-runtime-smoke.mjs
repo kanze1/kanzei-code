@@ -735,7 +735,7 @@ if (SMOKE_MUTATE) {
     // 续跑轮退回写死 agent:结伴线的续跑轮按自主档跑(Nudge、核查轮都开)。
     wdAutoAgent: {
       pattern: /agent: mode\.agent,(\r?\n\s*researchTopic: research \?)/,
-      replace: 'agent: research ? "research" : "dev",$1',
+      replace: 'agent: research ? "research" : "dev-auto",$1',
     },
     // 续跑轮退回用进程记录里的 project_dir:\\?\ 前缀漏进系统提示/bash 工作目录,取活顺序键也对不上。
     wdAutoProjectDir: {
@@ -1898,7 +1898,7 @@ const payloads = {
   app_info: { version: "0.0.0-smoke", build: "smoke" },
   // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
   // 与真实首次启动(后端无记录)行为一致。
-  ui_prefs_get: { theme: null, work_priority: {}, auto_max: null, continue_prompt: null, process_auto_state: {} },
+  ui_prefs_get: { theme: null, work_priority: {}, continue_prompt: null, process_auto_state: {} },
   update_check: { newer: false },
   projects_get: { current: PROJECT, projects: [PROJECT], names: { [PROJECT]: "smoke" } },
   projects_rename: ({ path, name }) => ({ current: path, projects: [path], names: { [path]: name } }),
@@ -2020,7 +2020,6 @@ const payloads = {
     archived: { req: 1, defect: 2, idea: 0, source: 0, finding: 0 },
     conventions: { exists: true, has_proposal: false, headings: ["开发规则", "测试要求"] },
   },
-  research_workflow_get: () => null,
   research_plan_get: (args) => args?.topic === "alpha-study"
     ? ({ exists: true, plan: smokeResearchPlan() })
     : ({ exists: false, topic: args?.topic }),
@@ -2154,7 +2153,7 @@ const payloads = {
   // B30 上下文账单(原在记忆页,现并入运行画像页):bill = 主对话最近一轮 context_report 的 [来源路径, 字符数];
   // 8 个来源,前 6 项常显、其余 2 项折进「其余」;episodes[0].at 标注是哪一轮的。
   memory_context_bill: {
-    bill: [["agent/system", 4000], ["tools/schema", 2500], ["dev/memory", 800], ["memory/hints", 300], ["core/env", 200], ["dev/conventions", 100], ["scout/brief", 60], ["tools/loaded:bash", 40]],
+    bill: [["agent/system", 4000], ["tools/schema", 2500], ["development/memory", 800], ["memory/hints", 300], ["core/env", 200], ["project/conventions", 100], ["scout/brief", 60], ["tools/loaded:bash", 40]],
     episodes: [{ at: 1_760_000_000_000, prompt: "收口 R-123", outcome: "completed", steps: 12, tools: { edit: 6 } }],
   },
   // 历史回放里的工具调用/结果:此前只有一条纯文本消息,历史工具块在运行时从未被执行过
@@ -2200,25 +2199,25 @@ const payloads = {
   collaboration_snapshot: [
     {
       process_id: "d|smoke", label: "主对话", branch: "main", worktree_path: null,
-      claim: "R-001", phase: "复核", current_tool: null, running: false,
+      tracker_line: null, tracker_entries: ["R-001"], status: "completed", phase: "复核", current_tool: null, running: false,
       steps: 8, input_tokens: 2400, output_tokens: 600,
-      changed_files: ["crates/shared.rs", "docs/main.md"],
+      unmerged_files: [], uncommitted_files: ["crates/shared.rs", "docs/main.md"],
     },
     {
       process_id: "p|bg", label: "后台会话", branch: "thread-a1", worktree_path: "C:/smoke/wt/thread-a1",
-      claim: "未绑定条目", phase: "实现", current_tool: "edit", running: true,
+      tracker_line: "thread-a1", tracker_entries: [], status: "running", phase: "实现", current_tool: "edit", running: true,
       steps: 3, input_tokens: 1200, output_tokens: 300,
-      changed_files: ["crates/shared.rs", "crates/branch.rs"],
+      unmerged_files: [], uncommitted_files: ["crates/shared.rs", "crates/branch.rs"],
     },
   ],
   worktree_harvest_candidates: ["R-184"],
   process_close: "已关闭独立任务 p|bg；工作树有独有内容，已保留",
   pending_asks_get: [],
   agent_directory_get: {
-    profile: "dev",
+    profile: "dev-auto",
     agents: [
-      { name: "dev", source: "builtin", path: null, profile: "dev", mode: "primary", model: "primary", steps: 0, status: "available", systemPreview: "smoke Agent", error: null },
-      { name: "custom", source: "project", path: "C:/smoke/project/.kanzei/agents/custom.md", profile: "dev", mode: "subagent", model: "fast", steps: 4, status: "available", systemPreview: "custom smoke Agent", error: null },
+      { name: "dev-auto", source: "builtin", path: null, profile: "dev-auto", mode: "primary", model: "primary", steps: 0, status: "available", systemPreview: "smoke Agent", error: null },
+      { name: "custom", source: "project", path: "C:/smoke/project/.kanzei/agents/custom.md", profile: "dev-auto", mode: "subagent", model: "fast", steps: 4, status: "available", systemPreview: "custom smoke Agent", error: null },
     ],
   },
   agent_directory_open: null,
@@ -2230,7 +2229,7 @@ const payloads = {
     primary: "deepseek:deepseek-chat",
     fast: "ollama:qwen3",
     proxy: "env",
-    // readonly 是配置文件里的合法档位,但 index.html 的下拉只写了 dev/research:
+    // readonly 是配置文件里的合法档位,但 index.html 的下拉只写了 dev-auto/dev-pair/research:
     // 硬塞一个没有匹配 option 的值会让 select 落到空串,保存一次就把用户配置降级成 dev
     // (与模型角色同一个坑)。必须补出兜底 option。
     profileDefault: "readonly",
@@ -2429,7 +2428,6 @@ const handlers = new Map();
 const storage = new Map();
 storage.set("kz-auto-continue", "1");
 // P1:启动恢复的上限必须作为同一次状态同步发到当前会话，不能仍让后端停在默认 10。
-storage.set("kz-auto-max", "3");
 // R-170:预置旧版默认继续文案(镜像历史 LEGACY_CONTINUE_PROMPTS[0],已删除)。
 // 升级机制删除后旧值必须原样读回(验收③:不再触发覆盖);夹具保留用于断言。
 storage.set(
@@ -3182,10 +3180,10 @@ assert(kzTest, "未从 08-compose.js ESM namespace 获取鞭挞状态测试钩�
 {
   const activeProcess = vm.runInContext("activeProcessId", sandbox);
   if (activeProcess) {
-    kzTest.setAutoState(activeProcess, { enabled: true, paused: false, stopAfterRound: false, maxRounds: 7 });
+    kzTest.setAutoState(activeProcess, { enabled: true, paused: false, stopAfterRound: false });
     byId.get("auto-continue").checked = false;
     const projected = vm.runInContext(`lineAutoConfig(${JSON.stringify(activeProcess)})`, sandbox);
-    assert(projected.enabled === true && projected.maxRounds === 7, `活动线配置错误地读取 DOM: ${JSON.stringify(projected)}`);
+    assert(projected.enabled === true && !Object.hasOwn(projected, "maxRounds"), `活动线配置错误地读取 DOM: ${JSON.stringify(projected)}`);
   }
 }
 await flush();
@@ -3276,8 +3274,7 @@ assert(
 const initialAutoState = invokeArgs.find(({ cmd, args }) =>
   cmd === "auto_state_update" && args?.sessionId === "sess-smoke"
 );
-assert(initialAutoState && !Object.hasOwn(initialAutoState.args, "maxRounds"), "启动恢复不得把旧上限发送为新的硬停机门禁");
-assert(storage.get("kz-auto-max") === "3", "旧 auto_max 配置应继续保留供兼容读取");
+assert(initialAutoState && !Object.hasOwn(initialAutoState.args, "maxRounds"), "启动恢复不发送已删除的次数上限");
 // 完整需求/缺陷列表整体搬进单页视图(侧栏只留「当前在做」的焦点卡片),落点换了、断言跟着搬。
 assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
 assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
@@ -3547,7 +3544,7 @@ const historyCalls = invokeArgs.filter(({ cmd }) => cmd === "conversation_page")
 assert(historyCalls.some(({ args }) => args?.processId === "d|smoke"), "历史查询未带主线 process_id");
 assert(historyCalls.some(({ args }) => args?.processId === "p|bg"), "历史查询未带并行线 process_id");
 // R-247:排队顺序不参与；doing/fixing 无显式取得线按 D-354 归默认线，open 队首无标记。
-// D-360:此处尚未渲染任何线路(collaborationLines 为空)——这正是「引擎没在跑」的形态,
+// D-360:此处尚未渲染任何线路(collaborationConversations 为空)——这正是「引擎没在跑」的形态,
 // 一条线都没有就没有任何「被取得」事实可言,doing 也不例外。三种解码前提的完整覆盖
 // 在下面并行线路那段(取得线离线/默认线持有/一条线都没有)。
 {
@@ -4536,7 +4533,7 @@ assert(byId.get("documents-dep-view").classList.contains("hidden"), "再次点�
   const before = invokeLog.length;
   const opened = await vm.runInContext('switch_workspace("research")', sandbox);
   assert(opened === false, "已移除的研究空间不能重新打开");
-  assert(vm.runInContext('active_space', sandbox) === "dev", "研究空间旧偏好不能改变开发空间");
+  assert(vm.runInContext('active_space', sandbox) === "dev-auto", "研究空间旧偏好不能改变开发空间");
   assert(!invokeLog.slice(before).includes("research_library_list"), "拒绝研究导航不应加载研究课题");
 }
 
@@ -6306,7 +6303,7 @@ assert(source.includes("codexFastMode: $(\"set-codex-fast-mode\").checked"), "�
   await vm.runInContext("loadSettings", sandbox)({ force: true });
   // 只有模型被项目覆盖(代理/默认模式/上限都与全局相同)时,覆盖提示表不出现。
   const settingsNsForNotice = esmModuleCache.get("16-settings.js")?.namespace;
-  settingsNsForNotice.renderEffectiveNotice({ proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 }, effective: { proxy: "env", profileDefault: "dev", limits: { maxTokens: 4096 } } });
+  settingsNsForNotice.renderEffectiveNotice({ proxy: "env", profileDefault: "dev-auto", limits: { maxTokens: 4096 }, effective: { proxy: "env", profileDefault: "dev-auto", limits: { maxTokens: 4096 } } });
   assert(byId.get("settings-effective").classList.contains("hidden"), "只有模型被项目覆盖时不该出现覆盖提示表");
   await vm.runInContext("loadSettings", sandbox)({ force: true });
 }
@@ -6382,6 +6379,32 @@ assert(listText("fast-status").includes("50%"), "安装进度未反映到界面"
   assert(conventionsUi.conventionsPrompt(false).includes("conventions create"), "初次生成没有写入通道");
   byId.get("conventions-close").click();
   payloads.conventions_save = "saved";
+  const activeProject = esmModuleCache.get("03-shell.js").namespace.currentProject;
+  const otherProject = "C:/rules-editor-other-project";
+  payloads.conventions_read = { exists: true, hash: "other-base", content: "其他项目的规则", path: otherProject + "/.kanzei/project/conventions.md" };
+  await conventionsUi.openConventions(otherProject);
+  assert(esmModuleCache.get("03-shell.js").namespace.currentProject === activeProject, "查看规范改变了执行项目");
+  assert(byId.get("conventions-project").textContent === payloads.conventions_read.path, "未展示规范的实际来源");
+  byId.get("conventions-edit").click();
+  byId.get("conventions-editor").value = "其他项目的用户修改";
+  byId.get("conventions-save").click();
+  await flush();
+  const otherSave = invokeArgs.filter(item => item.cmd === "conventions_save").at(-1);
+  assert(otherSave?.args.projectDir === otherProject && otherSave.args.expectedHash === "other-base", "保存未绑定打开的项目和版本");
+  await conventionsUi.openConventions(activeProject);
+  assert(byId.get("conventions-editor").value === "未保存的用户内容", "查看其他项目丢失了原项目未保存的修改");
+  byId.get("conventions-save").click();
+  await flush();
+  let completeOpen;
+  payloads.conventions_read = () => new Promise(resolve => { completeOpen = resolve; });
+  const delayedOpen = conventionsUi.openConventions(otherProject);
+  await flush();
+  payloads.conventions_read = { exists: true, hash: "active-new", content: "当前项目更新的规则", path: activeProject + "/.kanzei/project/conventions.md" };
+  await conventionsUi.openConventions(activeProject);
+  completeOpen({ exists: true, hash: "late", content: "过期请求的内容", path: otherProject });
+  await delayedOpen;
+  assert(byId.get("conventions-project").textContent === payloads.conventions_read.path, "延迟读取覆盖了后打开的项目规范");
+  byId.get("conventions-close").click();
 }
 
 // ---------- D-167 手填模型：探测不到不等于用不了 ----------
@@ -6520,26 +6543,26 @@ const filterKey = [...storage.keys()].find((k) => k.startsWith("kz-filters"));
 assert(filterKey, "需求筛选未落盘(重启后会回到「全部」)");
 assert(JSON.parse(storage.get(filterKey)).docReq.status === "doing", "筛选落盘值不对");
 
-// 模式回退链:本进程记忆 → 全局上次选择 → dev-pair。中间那档缺了就会静默降级。
+// 旧偏好不能覆盖后端明确提供的档位；没有后端档位时才使用前端偏好。
 assert(typeof sandbox.applyProfileValue === "function", "applyProfileValue 未定义");
 // 这条用例验证“无进程记忆”分支；前面的 profile 交互会写入同一 Map，必须显式清理测试状态。
 vm.runInContext("processProfileUi.clear()", sandbox);
 storage.set("kz-profile", "dev-auto");
-sandbox.applyProfileValue("dev");
+sandbox.applyProfileValue("dev-auto");
 assert(
   byId.get("profile-select").value === "dev-auto",
   `无进程记忆时应回退到全局上次选择,实得 ${byId.get("profile-select").value}(重启后自主推进会被降级成结伴开发)`,
 );
 storage.set("kz-profile", "research");
-sandbox.applyProfileValue("dev");
+sandbox.applyProfileValue("dev-auto");
 assert(
-  byId.get("profile-select").value === "dev-pair",
-  "全局值与后端 profile 冲突时应回落 dev-pair,不能把 research 塞进 dev 进程",
+  byId.get("profile-select").value === "dev-auto",
+  "全局偏好冲突时应保留后端明确的 dev-auto 档位",
 );
 // R-184 P6(D-248):applyProfileValue 是**回显**,只读——切进程看一眼绝不许改写全局
 // kz-profile(否则用户全局档位被静默降级)。写全局只能发生在用户主动 change。
 storage.set("kz-profile", "dev-auto");
-sandbox.applyProfileValue("dev");
+sandbox.applyProfileValue("dev-auto");
 assert(
   storage.get("kz-profile") === "dev-auto",
   `回显(切进程)不得改写全局 kz-profile,实得 ${storage.get("kz-profile")}(D-248)`,
@@ -6552,7 +6575,7 @@ assert(
   "用户主动切换档位仍须写全局 kz-profile",
 );
 storage.set("kz-profile", "dev-auto");
-sandbox.applyProfileValue("dev");
+sandbox.applyProfileValue("dev-auto");
 profileSelectEl.value = "dev-pair";
 profileSelectEl._listeners.change?.forEach((fn) => fn({ target: profileSelectEl }));
 assert(
@@ -7112,13 +7135,6 @@ handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1
 await flush();
 assert(!byId.get("auto-stop-round").checked, "本轮后停后开关应自动取消勾选");
 assert(kzTest.stopReason().includes("本轮后停"), `本轮后停原因不对: ${kzTest.stopReason()}`);
-// ⑧ 旧版 Stop(MaxRounds) 事件仍可投影,但不得把次数上限误报为当前硬停机原因。
-byId.get("auto-continue").checked = true;
-kzTest.setRounds(3);
-handlers.get("kz:done")?.({ payload: { steps: 3, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "MaxRounds", max: 3 }, sessionId: "sess-smoke" } });
-await flush();
-assert(kzTest.rounds() === 3, "缺少轮次字段的旧版停止事件应保留已有计数");
-assert(!kzTest.stopReason().includes("已达连上限"), `旧版事件不应显示次数硬上限: ${kzTest.stopReason()}`);
 // ⑨ Stop(Paused):暂停中完成本轮 → 停;恢复后 Continue 再推进。
 byId.get("auto-continue").checked = true;
 kzTest.setRounds(1);
@@ -7342,8 +7358,8 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   const savedProcessList = payloads.process_list;
   payloads.process_list = lines;
   sandbox.renderProcesses(lines);
-  kzTest.setAutoState("p|bg-a", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
-  kzTest.setAutoState("p|bg-b", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-a", { enabled: true, paused: false, stopAfterRound: false });
+  kzTest.setAutoState("p|bg-b", { enabled: true, paused: false, stopAfterRound: false });
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-a" } });
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-b" } });
   const timerSessions = kzTest.timerSessions();
@@ -7360,26 +7376,20 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   sandbox.renderProcesses(savedProcessList);
 }
 
-// R-363:后台研究连跑两轮仍保留课题和工作流指令，选题等待必须停机。
+// Retired research workflow sessions obey the shared profile admission and stop their own timer.
 {
   const saved_research_processes = payloads.process_list;
   const research_process = { id: "p|bg-research", label: "后台研究", session_id: "sess-bg-research", running: false, profile: "research", research_topic: "alpha-study", project_dir: PROJECT, origin_project: PROJECT };
   payloads.process_list = [...saved_research_processes, research_process];
   sandbox.renderProcesses(payloads.process_list);
   kzTest.setAutoState(research_process.id, { enabled: true, paused: false, stopAfterRound: false });
-  const research_runs = () => invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === research_process.id);
-  for (let round = 1; round <= 2; round += 1) {
-    handlers.get("kz:done")?.({ payload: { sessionId: research_process.session_id, steps: 2, autoAction: { type: "Continue", rounds: round, prompt: `AUTO research 第 ${round} 轮继续` } } });
-    await flush();
-    assert(research_runs().length === round, "后台研究没有连续续跑");
-    const request = research_runs().at(-1).args;
-    assert(request.profile === "research" && request.agent === "research" && request.researchTopic === "alpha-study", "后台研究串到开发模式或丢失课题");
-    assert(request.prompt === `AUTO research 第 ${round} 轮继续`, "后台研究丢失后端阶段指令");
-  }
-  handlers.get("kz:done")?.({ payload: { sessionId: research_process.session_id, steps: 2, autoAction: { type: "Stop", reason: "ResearchWaiting", message: "等待选题" } } });
+  const count_before = invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === research_process.id).length;
+  handlers.get("kz:done")?.({ payload: { sessionId: research_process.session_id, steps: 2, autoAction: { type: "Stop", reason: "ProfileMismatch" } } });
   await flush();
-  assert(research_runs().length === 2 && !kzTest.timerSessions().includes(research_process.session_id), "等待选题时仍在续跑");
-  assert(kzTest.getAutoState(research_process.id)?.enabled === false, "等待选题未关闭所属研究续跑");
+  assert(!kzTest.timerSessions().includes(research_process.session_id), "档位不支持自动续跑时仍有计时器");
+  assert(kzTest.getAutoState(research_process.id)?.enabled === false, "未关闭所属研究对话的自动续跑");
+  assert(invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === research_process.id).length === count_before, "停止回执不应启动下一轮");
+  assert(payloads.process_list.find((item) => item.id === research_process.id).research_topic === "alpha-study");
   payloads.process_list = saved_research_processes;
   sandbox.renderProcesses(saved_research_processes);
 }
@@ -7398,7 +7408,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   const savedLoopList = payloads.process_list;
   payloads.process_list = loopLines;
   sandbox.renderProcesses(loopLines);
-  kzTest.setAutoState("p|bg-loop", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-loop", { enabled: true, paused: false, stopAfterRound: false });
   const loopRuns = () => invokeArgs.filter(({ cmd, args }) => cmd === "run_prompt" && args?.processId === "p|bg-loop").length;
   const before = loopRuns();
   handlers.get("kz:done")?.({ payload: { steps: 1, autoAction: { type: "Continue", rounds: 1, max: 10 }, sessionId: "sess-bg-loop" } });
@@ -7442,7 +7452,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   await flush();
   const lineSync = invokeArgs.findLast(({ cmd, args }) => cmd === "auto_state_update" && args?.sessionId === "sess-bg-loop");
   assert(lineSync?.args?.enabled === true, "线路页开后台线鞭挞未推该线后端状态机");
-  assert(!Object.hasOwn(lineSync.args, "maxRounds"), "线路页不应把兼容上限字段发送为硬门禁");
+  assert(!Object.hasOwn(lineSync.args, "maxRounds"), "线路状态同步不发送已删除的上限字段");
   assert(kzTest.getAutoState("p|bg-loop")?.enabled === true, "线路页开后台线鞭挞未落该线存档");
   assert(byId.get("auto-continue").checked === false, "线路页操控后台线污染了当前线的鞭挞勾选");
   sandbox.applyAutoUiState("p|bg-loop");
@@ -7539,7 +7549,7 @@ assert(kzTest.rounds() === 4, "用户拒绝后推进计数应保持原样(不再
   storage.set("kz-auto-continue", "1");
   byId.get("auto-continue").checked = true;
   storage.set("kz-profile", "dev-pair");
-  sandbox.applyProfileValue("dev"); // 回显把模式刷成结伴开发 → 顺带关掉鞭挞控件
+  sandbox.applyProfileValue("dev-auto"); // 回显把模式刷成结伴开发 → 顺带关掉鞭挞控件
   assert(
     storage.get("kz-auto-continue") === "1",
     `回显关掉的鞭挞不得写进全局 kz-auto-continue,实得 ${storage.get("kz-auto-continue")}(D-290:下次冷启动会被当成用户上次的选择)`,
@@ -7562,7 +7572,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
 {
   // ① 无记录线路必须默认关,不得继承全局键。
   storage.set("kz-auto-continue", "1");
-  const fresh = sandbox.normalizeAutoState(undefined, "d|C:/other-project");
+  const fresh = sandbox.normalizeAutoState(undefined);
   assert(fresh.enabled === false, "D-353:无记录线路必须默认关,不得继承全局 kz-auto-continue");
   storage.delete("kz-auto-continue");
   // ② 后台线引擎停机只落到该线自己的存档与后端,不碰当前线勾选框。
@@ -7573,7 +7583,7 @@ if (source.includes('processProfileUi.set(activeProcessId, $("profile-select").v
   const savedIsolationList = payloads.process_list;
   payloads.process_list = isolationLines;
   sandbox.renderProcesses(isolationLines);
-  kzTest.setAutoState("p|bg-iso", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+  kzTest.setAutoState("p|bg-iso", { enabled: true, paused: false, stopAfterRound: false });
   byId.get("auto-continue").checked = true;
   handlers.get("kz:done")?.({ payload: { steps: 1, halted: false, tools: { edit: 1 }, autoAction: { type: "Stop", reason: "BacklogEmpty" }, sessionId: "sess-bg-iso" } });
   await flush();
@@ -8838,7 +8848,7 @@ const docsB = {
   const sA = handlers.get("kz:tool-start");
   const pA = handlers.get("kz:task-progress");
   const eA = handlers.get("kz:tool-end");
-  handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev", contextLimit: 65536, sessionId: "sess-smoke" } });
+  handlers.get("kz:meta")({ payload: { model: "smoke-provider:main", profile: "dev-auto", contextLimit: 65536, sessionId: "sess-smoke" } });
   handlers.get("kz:turn")({ payload: { step: 1, maxSteps: 1, sessionId: "sess-smoke" } });
   assert(/等待模型|Waiting for model/.test(byId.get("runtime-context").textContent), "长 prefill 期间运行详情的上下文旧值未标注等待模型");
   handlers.get("kz:step")({ payload: { input: 200, output: 100, cacheRead: 20, cacheWrite: 0, sessionId: "sess-smoke" } });
@@ -9019,15 +9029,15 @@ const docsB = {
     ...payloads.collaboration_snapshot,
     {
       process_id: "p|claim", label: "认领线", branch: "claim-a1", worktree_path: "C:/smoke/wt/claim-a1",
-      claim: "R-001", phase: "空闲", current_tool: null, running: false,
-      steps: 1, input_tokens: 10, output_tokens: 5, changed_files: [],
+      tracker_line: "claim-a1", tracker_entries: ["R-001"], status: "idle", phase: "空闲", current_tool: null, running: false,
+      steps: 1, input_tokens: 10, output_tokens: 5, unmerged_files: [], uncommitted_files: [],
     },
   ];
   sandbox.renderLines(claimedSnapshot);
   const claimedRow = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"]');
   assert(claimedRow?.textContent.includes("● B"), `真实 claim 未渲染稳定线路代号:${claimedRow?.textContent}`);
   assert(
-    claimedRow?.textContent.includes("开工中") || claimedRow?.textContent.includes("Claimed"),
+    claimedRow?.textContent.includes("已登记") || claimedRow?.textContent.includes("Registered"),
     `真实 claim 未渲染「被取得」事实文案:${claimedRow?.textContent}`,
   );
   const unclaimedHead = document.querySelector('#documents-defect-list .doc-item[data-doc-id="D-001"]');
@@ -9040,13 +9050,11 @@ const docsB = {
     !staleClaim?.querySelector(".doc-claim-fact"),
     "claimed_by 指向的线已不在线时不得显示被取得标记(代号无从谈起)",
   );
-  // D-360 乙:回到无 claimed_by 的文档 = D-354 的「无字段 = 默认线」编码。默认线
-  // (d|smoke,worktree_path=null)在线、且 R-001 正是它占着的 WIP,此时徽标应该出现,
-  // 且必须给得出真代号——绝不能是问号。
+  // 主工作树的登记来自快照中的 tracker_entries，运行状态与焦点不决定登记。
   sandbox.renderDocuments(savedDocsPayload);
   sandbox.renderLines(payloads.collaboration_snapshot);
   const defaultHeld = document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-claim-fact');
-  assert(defaultHeld, "默认线在线且占着 R-001 时应显示被取得标记(D-354 编码:无字段=默认线)");
+  assert(defaultHeld, "主工作树中已登记的 R-001 应显示登记徽标");
   assert(
     !defaultHeld?.textContent.includes("?"),
     `被取得徽标不得出现问号代号:${defaultHeld?.textContent}`,
@@ -9304,7 +9312,7 @@ const docsB = {
   // D-314:即使 collaboration claim 未声明，线路对话唯一候选也必须自动回显。
   payloads.worktree_harvest_candidates = ["D-297"];
   const conversationCandidatePanel = sandbox.buildHarvestPanel(
-    { ...payloads.collaboration_snapshot[1], claim: "未声明条目" },
+    { ...payloads.collaboration_snapshot[1], tracker_entries: [] },
     PROJECT,
     "A",
   );
@@ -9315,7 +9323,7 @@ const docsB = {
   );
   payloads.worktree_harvest_candidates = ["D-297", "R-184"];
   const multipleCandidatePanel = sandbox.buildHarvestPanel(
-    { ...payloads.collaboration_snapshot[1], claim: "未声明条目" },
+    { ...payloads.collaboration_snapshot[1], tracker_entries: [] },
     PROJECT,
     "A",
   );
@@ -9329,8 +9337,8 @@ const docsB = {
 
   // D-310:没有真实 R-/D- claim 时,合并仍可完成,但格5不得伪装成可回写入口。
   document.querySelector('#lines-list .line-lane[data-process-id="p|bg"] .line-harvest-toggle')?.click();
-  const originalClaim = payloads.collaboration_snapshot[1].claim;
-  payloads.collaboration_snapshot[1].claim = "未声明条目";
+  const originalRegistration = payloads.collaboration_snapshot[1].tracker_entries;
+  payloads.collaboration_snapshot[1].tracker_entries = [];
   sandbox.renderLines(payloads.collaboration_snapshot);
   await flush();
   const noClaimLane = [...document.querySelectorAll("#lines-list .line-lane")]
@@ -9349,7 +9357,7 @@ const docsB = {
   noClaimPanel?.querySelector(".harvest-merge-run")?.click();
   await flush();
   const noClaimWriteback = noClaimPanel?.querySelector(".harvest-writeback-run");
-  payloads.collaboration_snapshot[1].claim = originalClaim;
+  payloads.collaboration_snapshot[1].tracker_entries = originalRegistration;
   payloads.worktree_harvest_candidates = ["R-184"];
   assert(noClaimWriteback?.disabled, "无有效 claim 时格5 回写入口必须保持禁用");
   assert(
@@ -10224,7 +10232,7 @@ const docsB = {
     const switchBtn = byId.get("project-switch");
     assert(switchBtn?.getAttribute("aria-haspopup") === "menu" && !switchBtn.hasAttribute("aria-controls"), "项目卡必须是菜单按钮(aria-haspopup=menu,不再 aria-controls 某个分区)");
     // 假 DOM 把按 id 建的节点拍平在 body 下,closest 判不了真实嵌套,这里按 HTML 原文判。
-    assert(/<div id="project-warn-slot" class="project-warn-slot" data-space-only="dev">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
+    assert(/<div id="project-warn-slot" class="project-warn-slot" data-space-only="dev-auto">\s*<div id="project-shared-warn"/.test(html), "D-170 隔离告警应在 .project-warn-slot 里常驻(原先在默认收起的分区里,平时看不见)");
     assert(/id="project-space-nav"[\s\S]*?<div id="project-warn-slot"/.test(html) && !html.slice(html.indexOf('id="workspace-bar"'), html.indexOf('id="research-section"')).includes("project-warn-slot"),
       "D-170 隔离告警 / 项目事实横幅的槽应在对话页页头(#project-space-nav)里,不能再挂在开发档整块隐藏的侧栏工作区头(UX-016)");
     assert(!/data-collapse-default="collapsed"[^>]*>[\s\S]{0,800}id="project-shared-warn"/.test(html), "D-170 隔离告警又被放进了默认收起的分区");
@@ -10542,7 +10550,7 @@ const docsB = {
   vm.runInContext("__kzAutoTestState.cancelTimers(); autoContinueTimers.clear()", sandbox);
   const savedList = payloads.process_list, savedGet = payloads.conversation_display_get, savedCreate = payloads.process_create;
   const created = [];
-  const main = { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, profile: "dev" };
+  const main = { id: "d|smoke", label: "主对话", session_id: "sess-smoke", running: false, profile: "dev-auto" };
   payloads.process_list = () => [main, ...created];
   payloads.conversation_display_get = ({processId}) => processId === main.id ? [{role:"assistant", parts:[{type:"text",text:"主对话的历史"}]}] : [];
   payloads.process_create = args => {
@@ -10557,7 +10565,7 @@ const docsB = {
     main.running = running;
     vm.runInContext(`transitionSession("sess-smoke", "${running ? "running" : "idle"}")`, sandbox);
     byId.get("new-chat").click(); await flush();
-    assert(created.at(-1)?.profile === "dev", "新对话默认应使用普通开发档位");
+    assert(created.at(-1)?.profile === "dev-auto", "新对话默认应使用普通开发档位");
     assert(vm.runInContext("activeProcessId", sandbox) === created.at(-1)?.id, "一次点击必须切到新讨论");
     assert(invokeArgs.filter(c => c.cmd === "conversation_clear").length === clears, "新讨论不得清空主对话");
     assert(byId.get("new-chat").getAttribute("aria-busy") !== "true", "创建后必须解除忙碌态");
@@ -10998,19 +11006,19 @@ const docsB = {
     const savedPhase = metaState.phase;
     sandbox.transitionSession("sess-smoke", "running");
     const status = byId.get("status-model");
-    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
-    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · 开发", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · 长期维护与开发", `⑥ 状态栏格式不对:"${status.textContent}"`);
     assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
-    for (const [profile, label] of [["dev", "开发"], ["research", "研究"], ["readonly", "只读"], ["isolated", "隔离执行"]]) {
+    for (const [profile, label] of [["dev-auto", "长期维护与开发"], ["dev-pair", "结伴开发"], ["research", "研究"], ["readonly", "只读"], ["isolated", "隔离执行"]]) {
       assert(esmModuleCache.get("03-shell.js").namespace.formatRunMeta({ model: "example", profile }) === `example · ${label}`, `状态栏应本地化 ${profile}`);
     }
     const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
-    handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     await flush();
     assert(invokeLog.filter((cmd) => cmd === "model_effective").length === before + 1, "⑥ kz:meta 与芯片解析不一致时应重取一次 model_effective");
-    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
-    assert(status.textContent === "codex:gpt-5.6-luna · 开发", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
+    assert(status.textContent === "codex:gpt-5.6-luna · 长期维护与开发", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
     vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
   }
 
@@ -11133,7 +11141,7 @@ const docsB = {
     const metaState = sandbox.sessionState("sess-smoke");
     const savedPhase = metaState.phase;
     sandbox.transitionSession("sess-smoke", "running");
-    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev", profile: "dev", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
+    handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 128000, sessionId: "sess-smoke" } });
     vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
     await flush();
     assert(shellNs.ctxLimit === 128000, `⑪ 前置:A 线 kz:meta 后上限应为 128k:${shellNs.ctxLimit}`);
@@ -11666,8 +11674,8 @@ const docsB = {
       ["work next resume", "work", { content: JSON.stringify({ schema_version: 1, decision: "resume", reason: "x", selected: { id: "R-364", title: "工具行摘要" } }, null, 2), input: { action: "next" } }, "继续 R-364 · 工具行摘要"],
       ["work next empty", "work", { content: JSON.stringify({ decision: "empty", selected: null }, null, 2), input: { action: "next" } }, "无可执行条目"],
       ["work claim", "work", { content: JSON.stringify({ claimed: "R-364", lifecycle_status: "doing" }), input: { action: "claim", id: "R-364" } }, "已领取 R-364"],
-      ["work handoff", "work", { content: "model completion declared: done\ncriterion: x\nevidence_refs: ", input: { action: "handoff" } }, "交付记录已提交"],
-      ["work local handoff", "work", { content: "model completion declared: source ready", input: { action: "handoff", handoff_scope: "work_item" } }, "交付记录已登记"],
+      ["work handoff", "work", { content: JSON.stringify({ status: "recorded", completion: "pending_controller_check" }), input: { action: "handoff", handoff_scope: "request" } }, "交付记录已提交"],
+      ["work local handoff", "work", { content: JSON.stringify({ status: "recorded", completion: "pending_controller_check" }), input: { action: "handoff", handoff_scope: "work_item" } }, "交付记录已登记"],
       // test_record
       ["test_record 通过带计数", "test_record", { content: `recorded T-1786922727068. active: 0, archived: 1 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)`, input: { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" } }, "已记录 T-…7068 · 3/3 通过"],
       ["test_record 运行中", "test_record", { content: `recorded T-1786922727068. active: 1, archived: 0 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)\n↳ 跑完请用 test_record 带 id=T-1786922727068 记终态`, input: { title: "cargo test", status: "running" } }, "已记录 T-…7068 · 运行中"],
@@ -11687,7 +11695,7 @@ const docsB = {
       ["browser 截图", "browser", { content: "浏览器已打开并截图:\ntitle: X\nurl: http://localhost:1420/\nviewport: desktop" }, "截图 · localhost:1420"],
       ["frontend_locate", "frontend_locate", { content: "2 处定义:\n  ui/style.css:12 .x {\n  ui/style.css:40 .x {" }, "2 处定义"],
       ["deliver", "deliver", { content: "[delivered] report.pdf (2048 bytes)", display: { kind: "file", name: "report.pdf", path: "out/report.pdf", bytes: 2048 } }, "已交付 report.pdf · 2.0 KB"],
-      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { lines: [{}, {}] } }, "2 个独立任务"],
+      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { conversations: [{}, {}], worktrees: [{}] } }, "2 个对话 · 1 个工作树"],
       // 兜底:tool_search 与未知 MCP 工具
       ["tool_search 兜底", "tool_search", { content: "{\n  \"tools\": [\"a\", \"b\"]\n}" }, "输出 3 行"],
       ["未知 MCP 工具兜底(源码行)", "mcp__x__y", { content: "     1\t// 这是一段中文源码注释说明" }, "完成"],
@@ -11753,7 +11761,7 @@ const docsB = {
       try {
         const oneFile = sum("glob", { content: "src/a.rs" }).text;
         const oneLine = sum("bash", { content: "exit code: 0\n{x" }).text;
-        const lines = sum("collaboration_status", { content: "x", display: { lines: [{}, {}] } }).text;
+        const lines = sum("collaboration_status", { content: "x", display: { conversations: [{}, {}], worktrees: [{}] } }).text;
         const addArg = toolArgSummary("req", { action: "add", title: "T" }).text;
         const updateArg = toolArgSummary("req", { action: "update", id: "R-364" }).text;
         const added = sum("req", { content: "added R-365 [todo] T", input: { action: "add" } }).text;
@@ -11761,7 +11769,7 @@ const docsB = {
         const candidates = sum("symbols", { content: "callers of `helper` (2 hits):\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }).text;
         const candidateArg = toolArgSummary("symbols", { callers: "helper" }).text;
         assert(oneFile === "1 file" && oneLine === "exit 0 · 1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
-        assert(lines === "2 independent tasks", `英文独立任务计数与行数撞义:"${lines}"`);
+        assert(lines === "2 conversations · 1 worktree", `英文独立任务计数与行数撞义:"${lines}"`);
         assert(addArg === "Add · T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
         assert(oneCandidate === "1 text candidate" && candidates === "2 text candidates" && candidateArg === "text candidates for helper", `symbols 英文仍将候选称为调用:"${oneCandidate}" / "${candidates}" / "${candidateArg}"`);
       } finally {
@@ -12790,7 +12798,7 @@ const docsB = {
     await flush();
 
     // ⑦ M8 线路页:取得条目在快照里查得到就是直达展开详情的链接;查不到只写文字。
-    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-001 冒烟需求", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", tracker_line: "kanzei/thread-smoke", tracker_entries: ["R-001"], status: "idle", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, unmerged_files: [], uncommitted_files: [] }]);
     const claimLink = document.querySelector("#lines-list .line-claim-link");
     assert(claimLink?.textContent.startsWith("R-001 · ") && claimLink.title.includes("点击查看详情"), `#4 线路页取得条目应是可点链接:${document.querySelector("#lines-list .line-claim")?.textContent}`);
     const r001 = itemOf("documents-req-list", "R-001");
@@ -12800,7 +12808,7 @@ const docsB = {
     await flush();
     assert(byId.get("view-documents").classList.contains("active") && expandedDetail(itemOf("documents-req-list", "R-001")),
       "#4 点线路页取得条目没有直达 R-001 展开的详情");
-    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", claim: "R-9999 线路里新登记", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, changed_files: [] }]);
+    sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", tracker_line: "kanzei/thread-smoke", tracker_entries: ["R-9999"], status: "idle", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, unmerged_files: [], uncommitted_files: [] }]);
     assert(!document.querySelector("#lines-list .line-claim-link") && document.querySelector("#lines-list .line-claim")?.textContent.includes("R-9999"),
       "#4 快照里查不到的取得条目不该渲染成点了落空的链接");
 
@@ -13126,7 +13134,7 @@ const docsB = {
   for (const name of DEAD_NAMES) delete sandbox[name];
   try {
     assert(DEAD_NAMES.every((name) => vm.runInContext(`typeof globalThis.${name}`, sandbox) === "undefined"), "ESM 回归前置:sandbox 全局未摘干净");
-    kzTest.setAutoState("p|esm-bg", { enabled: true, paused: false, stopAfterRound: false, maxRounds: 10 });
+    kzTest.setAutoState("p|esm-bg", { enabled: true, paused: false, stopAfterRound: false });
     const esmGlyph = () => sessionLinkOf("p|esm-bg");
     assert(esmGlyph()?.dataset.activity === "idle", `ESM 回归前置:后台线应为空闲,实为 ${esmGlyph()?.dataset.activity}`);
     // ① 逐事件线路投影:后台线的 kz:turn 只进路由层(不进 handler、不整表重绘),线路行只能靠它点亮。
@@ -13173,14 +13181,14 @@ const docsB = {
     assert(byId.get("settings-dirty").classList.contains("hidden"), "语言切换不该让「保存」表单变脏(它切换即存,不在表单里)");
     await sandbox.loadSettings({ force: true });
     await flush();
-    // ⑥ 默认线「被取得」:无 claimed_by 的 doing 条目由默认线持有的判据读主线焦点(focusForProcess)。
+    // 登记徽标只读取协作快照中的 tracker 记录，不从对话焦点推断。
     sandbox.renderProcesses(structuredClone(savedEsmProcessList));
     await flush();
     sandbox.renderDocuments(savedDocsPayload);
     sandbox.renderLines(payloads.collaboration_snapshot);
     assert(
       document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .doc-claim-fact'),
-      "ESM 回归:默认线占着 R-001 却没有被取得标记——focusForProcess 没执行",
+      "ESM 回归:主工作树的 R-001 登记未显示",
     );
   } finally {
     for (const [name, value] of stash) sandbox[name] = value;
@@ -15055,7 +15063,7 @@ const docsB = {
   {
     const devProcesses = payloads.process_list;
     const VERBATIM = `\\\\?\\${PROJECT.replaceAll("/", "\\")}`;
-    const line = { id: "p7|smoke-pair", session_id: "sess-pair-auto", profile: "dev", project_dir: VERBATIM, origin_project: VERBATIM, label: "结伴线", running: false };
+    const line = { id: "p7|smoke-pair", session_id: "sess-pair-auto", profile: "dev-auto", project_dir: VERBATIM, origin_project: VERBATIM, label: "结伴线", running: false };
     payloads.process_list = [...devProcesses, line];
     await sandbox.refreshProcesses();
     await flush();
@@ -15064,14 +15072,14 @@ const docsB = {
     const lastRun = () => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === line.id)?.args;
     await composeNs.sendAutoToSession("继续", "sess-pair-auto");
     let request = lastRun();
-    assert(request?.agent === "dev" && request?.profile === "dev", `未设置模式的对话续跑应使用 dev,实为 ${request?.agent}`);
+    assert(request?.agent === "dev-auto" && request?.profile === "dev-auto", `未设置模式的对话续跑应使用 dev,实为 ${request?.agent}`);
     assert(request?.projectDir === plain && !String(request?.projectDir).includes("\\\\?\\"), `续跑轮的 projectDir 应是去掉 \\\\?\\ 前缀的项目根,实为 ${request?.projectDir}`);
     assert(request?.workPriority === "requirement-first", `续跑轮读不到用户选的取活顺序(键不一致),实为 ${request?.workPriority}`);
     sandbox.releaseAutoContinue("sess-pair-auto");
     composeNs.processProfileUi.set(line.id, "dev-auto");
     await composeNs.sendAutoToSession("继续", "sess-pair-auto");
     request = lastRun();
-    assert(request?.agent === "dev", `自主线的续跑轮应按 dev 发,实为 ${request?.agent}`);
+    assert(request?.agent === "dev-auto", `自主线的续跑轮应按 dev 发,实为 ${request?.agent}`);
     sandbox.releaseAutoContinue("sess-pair-auto");
     composeNs.processProfileUi.delete(line.id);
     storage.delete(`kz-work-priority:${plain}`);
@@ -15258,8 +15266,8 @@ const docsB = {
   // 自举线每装一次新版就从自主推进掉回结伴。模拟重启——本地档位全清空,只剩后端 app.json 的 process_auto_state。
   {
     const devProcesses = payloads.process_list;
-    const line = { id: "p9|smoke-mode", session_id: "sess-mode", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "自主线", running: false };
-    const legacy = { id: "p10|smoke-legacy", session_id: "sess-legacy", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "旧存档线", running: false };
+    const line = { id: "p9|smoke-mode", session_id: "sess-mode", profile: "dev-auto", project_dir: PROJECT, origin_project: PROJECT, label: "自主线", running: false };
+    const legacy = { id: "p10|smoke-legacy", session_id: "sess-legacy", profile: "dev-auto", project_dir: PROJECT, origin_project: PROJECT, label: "旧存档线", running: false };
     payloads.process_list = [...devProcesses, line, legacy];
     await sandbox.refreshProcesses();
     await flush();
@@ -15273,10 +15281,10 @@ const docsB = {
     const lastRun = (id) => invokeArgs.findLast(({ cmd, args }) => cmd === "run_prompt" && args?.processId === id)?.args;
     await composeNs.sendAutoToSession("继续", line.session_id);
     sandbox.releaseAutoContinue(line.session_id);
-    assert(lastRun(line.id)?.agent === "dev", `重启后(本地档位已空)自主线的续跑轮应按后端记的档位发 dev,实为 ${lastRun(line.id)?.agent}`);
+    assert(lastRun(line.id)?.agent === "dev-auto", `重启后(本地档位已空)自主线的续跑轮应按后端记的档位发 dev,实为 ${lastRun(line.id)?.agent}`);
     await composeNs.sendAutoToSession("继续", legacy.session_id);
     sandbox.releaseAutoContinue(legacy.session_id);
-    assert(lastRun(legacy.id)?.agent === "dev", `升级前没记档位、鞭挞开着的线应按自主档续跑(那是它此前实际的档位),实为 ${lastRun(legacy.id)?.agent}`);
+    assert(lastRun(legacy.id)?.agent === "dev-auto", `升级前没记档位、鞭挞开着的线应按自主档续跑(那是它此前实际的档位),实为 ${lastRun(legacy.id)?.agent}`);
     assert(composeNs.processAutoState.get(legacy.id)?.mode === "dev-auto", "旧存档补记的档位应写回存档(一次性迁移)");
     // 写入侧:当前线切档位 → 存档带 mode,经 ui_prefs_set 落到后端。
     const before = invokeArgs.length;
@@ -15306,7 +15314,7 @@ const docsB = {
   // 这条线下一轮以别的结果收口,标记过期、行回到空闲。
   {
     const devProcesses = payloads.process_list;
-    const line = { id: "p11|smoke-bg-wait", session_id: "sess-bg-wait", profile: "dev", project_dir: PROJECT, origin_project: PROJECT, label: "等回答线", running: false };
+    const line = { id: "p11|smoke-bg-wait", session_id: "sess-bg-wait", profile: "dev-auto", project_dir: PROJECT, origin_project: PROJECT, label: "等回答线", running: false };
     payloads.process_list = [...devProcesses, line];
     await sandbox.refreshProcesses();
     await flush();
@@ -16228,7 +16236,7 @@ const docsB = {
       sandbox.confirmDialog = () => Promise.resolve(true);
       let releaseAnnotate;
       invokeGates.set("files_annotate", new Promise((resolveGate) => { releaseAnnotate = resolveGate; }));
-      payloads.files_annotate = { annotated: 2, failed: 0, total: 4, firstError: null, cancelled: true, cache: "x" };
+      payloads.files_annotate = { annotated: 2, failed: 0, directoryFailed: 0, total: 4, firstError: null, cancelled: true, cache: "x" };
       byId.get("files-annotate").click();
       await flush();
       assert(byId.get("files-annotate-label")?.textContent === i18nNs.t("停止"), "生成中按钮应变「停止」");

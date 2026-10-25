@@ -7,7 +7,7 @@ use std::path::{Component, Path};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::CollaborationLine;
+use super::{CollaborationConversation, CollaborationWorktree};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -53,47 +53,67 @@ fn path_overlaps(file: &str, query: &str) -> bool {
     file.starts_with(query) || (directory_boundary && query.starts_with(file))
 }
 
+fn changes_snapshot(files: &[String], error: Option<&str>, path: Option<&str>) -> Value {
+    json!({
+        "file_count": error.is_none().then_some(files.len()),
+        "path_changed": path.and_then(|path| error.is_none().then(|| files.iter().any(|file| path_overlaps(file, path)))),
+        "error": error,
+    })
+}
+
+pub(super) fn worktree_snapshot(
+    id: usize,
+    tree: &CollaborationWorktree,
+    path: Option<&str>,
+) -> Value {
+    json!({
+        "id": id, "path": tree.path, "branch": tree.branch, "branch_error": tree.branch_error,
+        "registered_work": {"source_field": "取得线", "value": tree.tracker_line,
+            "entry_ids": tree.tracker_entries, "error": tree.tracker_error},
+        "uncommitted": changes_snapshot(&tree.uncommitted_files, tree.uncommitted_error.as_deref(), path),
+        "unmerged": changes_snapshot(&tree.unmerged_files, tree.unmerged_error.as_deref(), path),
+        "writer_run_id": tree.writer_run_id, "waiting_writers": tree.waiting_writers,
+    })
+}
+
 pub(super) fn model_snapshot(
     origin: &str,
-    lines: &[CollaborationLine],
+    current_process_id: &str,
+    conversations: &[CollaborationConversation],
     path: Option<&str>,
 ) -> Value {
     let mut tree_ids = HashMap::new();
     let mut worktrees = Vec::new();
     let mut participants = Vec::new();
-    for line in lines {
-        let root = line.worktree_path.as_deref().unwrap_or(origin);
+    let mut current = None;
+    for conversation in conversations {
+        let root = conversation.worktree_path.as_deref().unwrap_or(origin);
         let next = worktrees.len();
         let tree_id = *tree_ids.entry(root).or_insert(next);
         if tree_id == next {
-            let path_changed = path.and_then(|path| {
-                line.changed_files_error.is_none().then(|| {
-                    line.changed_files
-                        .iter()
-                        .any(|file| path_overlaps(file, path))
-                })
-            });
-            worktrees.push(json!({
-                "id": tree_id, "path": root, "branch": line.branch,
-                "claim": line.claim, "claim_error": line.claim_error,
-                "changed_file_count": line.changed_files.len(),
-                "changed_files_error": line.changed_files_error,
-                "path_changed": path_changed,
-                "writer_run_id": line.writer_run_id, "waiting_writers": line.waiting_writers,
-            }));
+            let mut tree = conversation.tree.clone();
+            tree.path = root.into();
+            worktrees.push(worktree_snapshot(tree_id, &tree, path));
+        }
+        let identity = json!({"process_id": conversation.process_id, "session_id": conversation.session_id,
+            "run_id": conversation.run_id, "worktree": tree_id});
+        if conversation.process_id == current_process_id {
+            current = Some(identity);
         }
         participants.push(json!({
-            "process_id": line.process_id, "label": line.label, "worktree": tree_id,
-            "status": line.status, "status_error": line.status_error,
-            "phase": line.phase, "tool": line.current_tool,
+            "process_id": conversation.process_id, "session_id": conversation.session_id,
+            "run_id": conversation.run_id, "label": conversation.label, "worktree": tree_id,
+            "status": conversation.status, "status_error": conversation.status_error,
+            "phase": conversation.phase, "tool": conversation.current_tool,
+            "run_age_ms": conversation.run_age_ms, "event_idle_ms": conversation.event_idle_ms,
         }));
     }
-    json!({"lines": participants, "worktrees": worktrees, "query_path": path})
+    json!({"project_root": origin, "current": current, "conversations": participants, "worktrees": worktrees, "query_path": path})
 }
 
-pub(super) fn render_lines(title: &str, snapshot: &Value) -> String {
+pub(super) fn render_snapshot(snapshot: &Value) -> String {
     format!(
-        "## {title}\n{snapshot}\nGit changes and tracker claims belong to worktrees, not individual conversations. Counts include untracked files; they do not establish authorship or a conflict. Before editing or staging a shared path, call `collaboration_status` with its project-relative `path` to refresh the relevant trees, then inspect their Git diffs as needed."
+        "## 当前项目协作状态\n{snapshot}\n对话记录执行状态，工作树承载代码与 Git 变化，项目共享资料归主根维护。结合当前任务、目标工作树和实际差异判断协作影响，保留无关改动。需要确认同树变更或跨树整合范围时，按相关路径查询最新协作状态与差异。登记关系来自 tracker 的取得线字段，不证明对话所有权；活动时间不证明进展或卡住。协作快照提供状态参考，不自行扩展任务或授权。"
     )
 }
 

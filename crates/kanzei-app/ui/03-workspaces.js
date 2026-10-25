@@ -14,7 +14,7 @@ import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { composerDraftKey, composerDraftGet, composerDraftSet, composerDraftDelete, composerDraftStatus, onComposerDraftChange, loadComposerDrafts, flushComposerDrafts } from "./00-composer-drafts.js";
 
 // 导航偏好不承担运行配置；任务的 profile 与课题绑定来自 process_list。
-export let active_space = "dev";
+export let active_space = "dev-auto";
 export let development_project = null;
 export let workspace_switch_pending = false;
 let workspace_transition = null;
@@ -114,7 +114,7 @@ export function project_workspace(project = currentProject) {
   return {
     ...saved,
     space: active_space,
-    dev: { view: "chat", ...saved.dev },
+    "dev-auto": { view: "chat", ...saved["dev-auto"] },
     research: { view: "research", page: "overview", topic: "", category: "research", ...(library?.research ?? saved.research) },
   };
 }
@@ -124,9 +124,9 @@ export function save_workspace(patch, project = currentProject) {
   const changed_fields = (previous, fields) => Object.fromEntries(Object.entries(fields)
     .filter(([key, value]) => !Object.hasOwn(previous ?? {}, key) || previous[key] !== value));
   const delta = {};
-  if (project && patch.dev) {
-    const dev = changed_fields(workspace_preferences[project]?.dev, patch.dev);
-    if (Object.keys(dev).length) delta[project] = { dev };
+  if (project && patch["dev-auto"]) {
+    const dev = changed_fields(workspace_preferences[project]?.["dev-auto"], patch["dev-auto"]);
+    if (Object.keys(dev).length) delta[project] = { "dev-auto": dev };
   }
   const previous = workspace_preferences[library_preferences_key] ?? {};
   const library = {};
@@ -178,7 +178,7 @@ export async function restore_active_workspace() {
 }
 
 export function process_space(item) {
-  return item?.profile === "research" ? "research" : "dev";
+  return item?.profile === "research" ? "research" : "dev-auto";
 }
 
 export function preferred_workspace_process(items, space = project_workspace().space) {
@@ -192,7 +192,7 @@ export function preferred_workspace_process(items, space = project_workspace().s
 
 // Navigation remembers the selected conversation; it does not designate an owner.
 export function selected_workspace_process(items = processItems, project = currentProject) {
-  const saved = project_workspace(project).dev;
+  const saved = project_workspace(project)["dev-auto"];
   const candidates = items.filter(item => item.profile !== "research");
   return candidates.find(item => item.id === (project === currentProject ? activeProcessId : saved.process_id))
     ?? candidates.find(item => item.id === saved.process_id) ?? candidates[0];
@@ -207,9 +207,9 @@ export function workspace_processes(items) {
 export function view_allowed(view, project = currentProject) {
   // Overview/inbox browse an explicitly selected project without changing
   // the execution root of the general conversation.
-  if (view === "project" && active_space === "dev" && project && !isGeneralChat(project)) return true;
-  if (isGeneralChat() && active_space === "dev" && dev_views.has(view)) return false;
-  return view === "research" ? false : !dev_views.has(view) || active_space === "dev";
+  if (view === "project" && active_space === "dev-auto" && project && !isGeneralChat(project)) return true;
+  if (isGeneralChat() && active_space === "dev-auto" && dev_views.has(view)) return false;
+  return view === "research" ? false : !dev_views.has(view) || active_space === "dev-auto";
 }
 
 export function remember_workspace_view(view) {
@@ -276,7 +276,7 @@ export async function create_workspace_process(topic = null, is_current = () => 
     && (space !== "research" || project_workspace().research.topic === (topic || ""));
   const item = await invoke("process_create", {
     projectDir: project,
-    profile: active_space === "research" ? "research" : isGeneralChat() ? "dev" : overrides.discussion ? "readonly" : "dev",
+    profile: active_space === "research" ? "research" : overrides.discussion ? "readonly" : $("profile-select").value,
     researchTopic: active_space === "research" ? topic || undefined : undefined,
     subagentMode: "auto",
     ...(overrides.model ? { model: overrides.model } : {}),
@@ -310,7 +310,7 @@ export async function ensure_workspace_process() {
 }
 
 export async function switch_workspace(space, { isCurrent = () => true } = {}) {
-  if (space !== "dev" || !isCurrent()) return false;
+  if (space !== "dev-auto" || !isCurrent()) return false;
   // A new project may request dev while a cancelled research load is still
   // awaiting IPC. Wait for that transition to restore its root before entering
   // the new project; returning early would leave its session in research scope.
@@ -324,7 +324,7 @@ export async function switch_workspace(space, { isCurrent = () => true } = {}) {
   workspace_transition = transition;
   const previous_space = active_space;
   const previous_root = currentProject;
-  if (active_space === "dev" && currentProject && !isGeneralChat()) development_project = currentProject;
+  if (active_space === "dev-auto" && currentProject && !isGeneralChat()) development_project = currentProject;
   // 一次性接入旧的按项目保存的研究偏好。
   const saved_research = project_workspace().research;
   const restore_previous = async () => {
@@ -355,7 +355,7 @@ export async function switch_workspace(space, { isCurrent = () => true } = {}) {
       save_research_workspace({ page: "overview", view: "research" });
     }
     const saved = project_workspace()[space];
-    navigate_view(space === "dev" && !currentProject ? "workspace" : space === "research" && !target ? "research" : view_allowed(saved.view) ? saved.view : "chat", { prepared: true });
+    navigate_view(space === "dev-auto" && !currentProject ? "workspace" : space === "research" && !target ? "research" : view_allowed(saved.view) ? saved.view : "chat", { prepared: true });
     return true;
   } catch (error) {
     await restore_previous();

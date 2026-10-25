@@ -78,7 +78,7 @@ async fn conversation_with_an_embedded_checkout_reaches_the_provider() {
     harness.add(Policy);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.to_path_buf(),
             project_root: root.to_path_buf(),
             config: Arc::new(Default::default()),
@@ -130,6 +130,8 @@ async fn assert_input_interrupts(boundary: Boundary) {
         let mailbox = mailbox.clone();
         Arc::new(move || {
             pending.lock().unwrap().push(AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Human,
+                attachments: Vec::new(),
                 id: "new-question".into(),
                 text: "ANSWER_THIS_NOW".into(),
             });
@@ -184,7 +186,7 @@ async fn assert_input_interrupts(boundary: Boundary) {
         .add(SnapshotTool(Arc::new(CleanupProbe::default())));
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: Arc::new(Default::default()),

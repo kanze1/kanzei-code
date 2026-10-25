@@ -113,7 +113,8 @@ pub(super) fn permission_plan(
         pending_ask: Vec::new(),
         denied: None,
     };
-    if policy == kanzei_harness::ExecutionPolicy::ReadOnly
+    if (snapshot.profile() == kanzei_harness::ProfileKind::Readonly
+        || policy == kanzei_harness::ExecutionPolicy::ReadOnly)
         && (tool.read_only_support() == kanzei_harness::tool::ReadOnlySupport::Unsupported
             || (tool.read_only_support() != kanzei_harness::tool::ReadOnlySupport::ControlPlane
                 && !matches!(

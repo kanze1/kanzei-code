@@ -57,7 +57,7 @@ async fn restored_oversized_task_result_reaches_responses_as_a_recoverable_refer
     harness.add(Policy);
     let snapshot = harness
         .resolve(&ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.to_path_buf(),
             project_root: root.to_path_buf(),
             config: Arc::new(Default::default()),

@@ -44,7 +44,8 @@ async function harness() {
   const elements = new Map(), deps = new Map(), calls = [], handlers = new Map(), notices = [], deferred = [], menus = [], layouts = [], modelCalls = [];
   const get = id => { if (!elements.has(id)) { const element = new Element(); element.id = id; elements.set(id, element); } return elements.get(id); };
   get('new-chat').append(new Element('span')); get('project-shared-warn').classList.add('hidden');
-  const line = (project, id) => ({ id, session_id: `session:${id}`, origin_project: project, project_dir: project, profile: 'dev', running: false, label: id });
+  get('profile-select').value = 'dev-pair'; // The real select defaults to its first option.
+  const line = (project, id) => ({ id, session_id: `session:${id}`, origin_project: project, project_dir: project, profile: 'dev-auto', running: false, label: id });
   const lines = new Map([[GENERAL, [line(GENERAL, 'general-main')]], [PROJECT, [line(PROJECT, 'project-main'), line(PROJECT, 'user-selected')]]]);
   const shellValues = { currentProject: GENERAL, activeProcessId: 'general-main', activeSessionId: 'session:general-main', processItems: lines.get(GENERAL), running: false, attachments: [] };
   const set = (key, value) => { shellValues[key] = value; deps.get('./03-shell.js').setExport(key, value); if (key === 'currentProject') modules.get('./03-general-scope.js').namespace.setConversationRoot(value); };
@@ -52,7 +53,7 @@ async function harness() {
   const sessionState = id => { if (!states.has(id)) states.set(id, { phase: 'idle', running: false, converged: false }); return states.get(id); };
   let models = async () => {}, created = 0, paneReady = true;
   const document = { body: new Element('body'), getElementById: get, createElement: tag => new Element(tag), querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, dispatchEvent() {} };
-  document.body.dataset.space = 'dev'; document.body.dataset.view = 'chat'; document.body.dataset.appScope = 'global';
+  document.body.dataset.space = 'dev-auto'; document.body.dataset.view = 'chat'; document.body.dataset.appScope = 'global';
   const invoke = async (command, args = {}) => {
     calls.push({ command, args: JSON.parse(JSON.stringify(args)) });
     if (handlers.has(command)) return handlers.get(command)(args);
@@ -61,7 +62,7 @@ async function harness() {
     if (command === 'general_chat_link') { const linked = line(PROJECT, `linked-${++created}`); lines.get(PROJECT).push(linked); return linked; }
     if (command === 'projects_select') return { current: args.path, projects: [PROJECT], names: {} };
     if (command === 'process_list') return lines.get(args.projectDir) ?? [];
-    if (command === 'process_create') { const item = { ...line(args.projectDir, `created-${++created}`), profile: args.profile ?? 'dev' }; lines.get(args.projectDir).push(item); return item; }
+    if (command === 'process_create') { const item = { ...line(args.projectDir, `created-${++created}`), profile: args.profile ?? 'dev-auto' }; lines.get(args.projectDir).push(item); return item; }
     if (['conversation_list', 'conversation_display_get', 'conversation_trace_get'].includes(command)) return [];
     if (command === 'project_facts') return { git: { state: 'repo', has_commits: true }, stacks: [] };
     if (command === 'project_root_info') return { selected: args.projectDir, resolved: args.projectDir, shared: false };
@@ -148,8 +149,18 @@ await check('actual startNewConversation create receipt cannot undo newer settin
   const item = { ...h.lines.get(PROJECT)[0], id: 'created-late', session_id: 'session:created-late' }; h.lines.get(PROJECT).push(item); request.accept(item); await creating;
   assert.equal(h.document.body.dataset.view, 'settings'); assert.equal(h.shellValues.activeProcessId, 'project-main'); return { view: h.document.body.dataset.view, selected: h.shellValues.activeProcessId };
 });
-await check('normal project new-chat selects an independent conversation using the model default', 'PASS', async () => {
-  const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project'; await h.history.startNewConversation(); assert.equal(h.shellValues.activeProcessId, 'created-1'); assert.equal(h.document.body.dataset.view, 'chat'); const create = h.calls.find(call => call.command === 'process_create'); assert.equal(create.args.profile, before ? 'readonly' : 'dev'); return { selected: h.shellValues.activeProcessId, profile: create.args.profile };
+await check('normal project new-chat selects an independent conversation using the selected development mode', 'PASS', async () => {
+  const observed = [];
+  for (const profile of ['dev-pair', 'dev-auto']) {
+    const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project';
+    h.document.getElementById('profile-select').value = profile;
+    await h.history.startNewConversation();
+    assert.equal(h.shellValues.activeProcessId, 'created-1'); assert.equal(h.document.body.dataset.view, 'chat');
+    const create = h.calls.find(call => call.command === 'process_create');
+    assert.equal(create.args.profile, before ? 'readonly' : profile);
+    observed.push({ selected: h.shellValues.activeProcessId, profile: create.args.profile });
+  }
+  return observed;
 });
 await check('explicit readonly creation retains its profile and allows Auto delegation', 'PASS', async () => {
   const h = await harness(); h.select(PROJECT, 'project-main'); h.document.body.dataset.appScope = 'project';

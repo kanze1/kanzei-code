@@ -350,6 +350,7 @@ mod tests {
                 "喜欢简洁排版。api_key=sk-proj-0123456789abcdefgh",
                 Delivery::Queue,
                 Some("user"),
+                &[],
             )
             .unwrap();
         append(
@@ -362,6 +363,7 @@ mod tests {
         );
         let assistant = Message {
             role: kanzei_llm::Role::Assistant,
+            origin: kanzei_base::MessageOrigin::Unspecified,
             parts: vec![
                 Part::Text {
                     text: "助手推断：可能重视信息密度，等待用户确认。".into(),

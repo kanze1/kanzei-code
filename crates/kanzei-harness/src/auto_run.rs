@@ -73,11 +73,9 @@ pub enum AutoStopReason {
     Paused,
     /// 用户勾选「本轮后停」(一次性意图,不持久化)。
     StopAfterRound,
-    /// 旧版本的连续次数上限停止原因，仅为兼容历史事件保留；当前状态机不再产生此原因。
-    MaxRounds(u32),
     /// 连续两轮无实质动作。
     NoAction,
-    /// R-199:当前模式不允许自主推进(如 research/结对模式),引擎判定停止——
+    /// 当前档位不允许自动续跑，停止由共享控制器判定。
     /// 档位作为输入进 AutoRunCtx,前端不再持有引擎不知道的否决权。
     ProfileMismatch,
     /// D-403:连续 N 轮瞬态失败(退避重试仍失败),停止并通知——
@@ -124,7 +122,7 @@ pub enum AutoRunAction {
     /// R-322 B3:目标条件尚未达成,再推一轮(计数已 +1)。
     ///
     /// **与 [`AutoRunAction::Nudge`] 的区别是文案来源,不是行为**:Nudge 的内容是
-    /// 引擎发明的(`nudge_prompt`:去 backlog 最上面一条找活干),而这条的内容是
+    /// 引擎生成的(`nudge_prompt`:续跑提示和当前队列事实),而这条的内容是
     /// **用户自己写下的停止条件**,引擎只负责复述。前者是引擎替模型决定该干什么,
     /// 正是 #7 双控制器问题的来源;后者是用户给了目标、模型自己判断达没达成——
     /// 控制权仍在模型手里,引擎只是不让它半途散场。
@@ -148,80 +146,45 @@ pub struct SelectedItem {
     pub status: String,
 }
 
-/// UI2-0926 #13:Nudge 文案的输入——**只取项目的真实状态**。
-///
-/// 原文案写死了 kanzei 自己的队列(「从 defects.md 最上面一条开始…requirements.md 同理」)
-/// 和语气(「不要再做可行性判断」):「MD文件保存」项目根本没有 defects.md,而那一轮的
-/// 「可行性判断」(缺 Flutter 工具链)恰恰是正当的;它还与 dev 提示「只执行引擎选中的条目」
-/// 冲突。现在文案由这三项事实派生,不出现项目里不存在的文件名。
+/// 当前选择、现有队列及记录中的阻塞标记；只提供续跑时的状态投影。
+/// 记录不证明阻塞仍成立，也不扩大原委托的授权范围。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct NudgeFacts {
     /// 引擎当前选中的条目;None = 没有可取的条目(全阻塞/清空/没有 tracker)。
     pub selected: Option<SelectedItem>,
     /// 项目里实际存在的 tracker 队列文件名(如 `requirements.md`)。
     pub queues: Vec<String>,
-    /// 等用户拍板的活动条目 id(阻塞字段指向用户)。
+    /// 记录中阻塞字段指向用户的活动条目 ID。
     pub user_blocked: Vec<String>,
 }
 
-/// D-764:自动续跑轮的归属前缀。
-///
-/// 引擎发明的续跑/nudge 文本过去走和用户按键**完全相同**的准入链,以 `Role::User`
-/// 原样进上下文;压缩纪要又按「全部非工具用户消息」收「用户指令清单」,于是模型把
-/// 引擎的话读成用户批准,甚至在 tracker 里写下冒用用户名义的确认记录。归属必须在
-/// 投递点就写进内容本身——实时上下文、压缩纪要、会话回放和界面气泡看的是同一份文字。
-pub const ENGINE_ROUND_MARKER: &str = "Kanzei 引擎自动续跑（非用户新指令，不构成用户授权或确认）：";
-
-/// 给引擎投递的续跑文本加归属前缀。已标记的原样返回:事件重放或二次投递不得叠第二层前缀。
-pub fn mark_engine_round(prompt: &str) -> String {
-    if prompt.starts_with(ENGINE_ROUND_MARKER) {
-        return prompt.to_owned();
-    }
-    format!("{ENGINE_ROUND_MARKER}{prompt}")
-}
-
-/// 无动作时追加的具体推进指令(自主档才会发)。引擎生成后作为用户消息注入。
+/// Engine-authored continuation with factual queue state; it does not add authorization.
 pub fn nudge_prompt(facts: &NudgeFacts) -> String {
-    let mut out = String::from("上一轮没有实质动作。\n");
-    match (&facts.selected, facts.queues.is_empty()) {
-        (Some(item), _) => out.push_str(&format!(
-            "引擎当前选中 {}「{}」({}):说出它的下一个最小可执行步骤(具体到文件),然后立刻做掉。\n",
-            item.id, item.title, item.status
-        )),
-        (None, false) => out.push_str(&format!(
-            "用 `work next` 取引擎选中的条目(队列:{}),说出它的下一个最小可执行步骤(具体到文件),然后立刻做掉。\n",
-            facts.queues.join("、")
-        )),
-        (None, true) => out.push_str(
-            "项目里还没有 tracker 条目:按用户最近一条消息继续；提问和讨论直接回应，需求登记由用户明确选择，不作为继续对话或工作的前提。\n",
-        ),
-    }
-    out.push_str(
-        "普通选择由你自行决定：用 question 的 decision 字段记录选择、简短理由和影响，然后继续。\n\
-         只有无法取得的外部事实才用 question 的 missing_fact 字段登记，在相关条目上写\
-         「阻塞: …」与「解除条件: …」，然后 work next 推进独立工作。\n\
-         标着阻塞的条目先复核阻塞是否还成立:多数是你自己历轮写下的,解除条件可能早已满足,\
-         满足了就清空「阻塞」字段再取活。",
-    );
-    if facts.user_blocked.is_empty() {
-        out.push('\n');
-    } else {
+    let mut out =
+        String::from("自动续跑检查点：根据当前委托和现有证据，自主决定下一步或交付结果。\n");
+    if let Some(item) = &facts.selected {
         out.push_str(&format!(
-            "真正等用户拍板的是 {},把它们点名列给用户。\n",
+            "当前选中 {}「{}」({})。\n",
+            item.id, item.title, item.status
+        ));
+    }
+    if !facts.queues.is_empty() {
+        out.push_str(&format!("现有队列：{}。\n", facts.queues.join("、")));
+    }
+    if !facts.user_blocked.is_empty() {
+        out.push_str(&format!(
+            "记录中标为等待用户的条目：{}。\n",
             facts.user_blocked.join("、")
         ));
     }
-    out.push_str("不要为了凑动作去做与当前条目无关的事,也不要只更新追踪文档就算一轮。");
     out
 }
 
 /// 自主推进状态:跨轮计数与用户一次性意图。
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AutoRunState {
     /// 本轮内已自动续跑的轮数(手动发送归零)。
     pub rounds: u32,
-    /// 旧版连续次数上限,仅作为兼容配置保留,不参与状态机停止判定。
-    pub max_rounds: u32,
     /// 用户暂停。
     pub paused: bool,
     /// 「本轮后停」一次性意图(D-111:绝不持久化)。
@@ -257,21 +220,6 @@ pub const ZERO_OUTPUT_ROUND_LIMIT: u32 = 3;
 pub const GOAL_IDLE_ROUND_LIMIT: u32 = 3;
 
 impl AutoRunState {
-    pub fn new(max_rounds: u32) -> Self {
-        AutoRunState {
-            rounds: 0,
-            max_rounds: max_rounds.clamp(1, 100),
-            paused: false,
-            stop_after_round: false,
-            no_action_rounds: 0,
-
-            failed_rounds: 0,
-            zero_output_rounds: 0,
-            last_progress_signature: None,
-            goal_idle_rounds: 0,
-        }
-    }
-
     /// 手动发送/用户操作时归零(原前端 autoRounds=0; noActionRounds=0)。
     pub fn reset(&mut self) {
         self.rounds = 0;
@@ -300,7 +248,6 @@ impl AutoRunState {
     /// 目标段：goal_active → 状态签名/无动作预算 → GoalPending。
     /// 普通推进段：no_action/Nudge(由强度决定) → zero_output → Continue
     ///
-    /// `max_rounds` 保留用于兼容旧配置和状态投影,不再作为连续鞭挞的硬上限。
     /// ```
     ///
     /// `zero_output`(D-583)看着像任务判断,其实不是:它比对 (HEAD、worktree hash、
@@ -332,7 +279,6 @@ impl AutoRunState {
         }
         // D-403:失败轮不算「无动作」——模型没机会动作,不该吃 Nudge/NoAction 刹车。
         // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命/限流失败立即停不空转。
-        // 旧 max_rounds 仅保留为输入兼容字段,不属于资源兜底。
         if let Some(failure) = ctx.round_failure {
             self.no_action_rounds = 0;
             return match failure {
@@ -455,13 +401,6 @@ impl AutoRunState {
     }
 }
 
-/// 默认兼容值 10;不参与鞭挞停止判定。
-impl Default for AutoRunState {
-    fn default() -> Self {
-        AutoRunState::new(10)
-    }
-}
-
 /// R-322:门禁强度——引擎对**任务判断**介入多深。
 ///
 /// # 为什么需要这个维度
@@ -517,13 +456,11 @@ impl HarnessIntensity {
         match self {
             HarnessIntensity::Paired => IntensityPolicy {
                 engine_nudge: false,
-                redundancy_hints: false,
 
                 backlog_stops_loop: false,
             },
             HarnessIntensity::Autonomous => IntensityPolicy {
                 engine_nudge: true,
-                redundancy_hints: true,
 
                 backlog_stops_loop: true,
             },
@@ -537,10 +474,6 @@ pub struct IntensityPolicy {
     /// 引擎能否在模型本轮无实质动作时追加推进指令(Nudge)。
     /// false = 模型说没什么可做就是没什么可做,引擎不制造工作。
     pub engine_nudge: bool,
-    /// 冗余机械提醒(工具结果里就地追加 `[冗余提醒]`)。
-    /// 结伴档关闭:用户在场,重复的 git status 他自己看得见。
-    pub redundancy_hints: bool,
-
     /// backlog 空/全阻塞时是否停止本 loop。
     ///
     /// **只对自主档成立**:那一档的活**来自 tracker 队列**,队列空就是真的没活了。
@@ -556,7 +489,7 @@ pub struct AutoRunCtx<'a> {
     pub backlog: BacklogStatus,
     /// 用户拒绝/手动停止(前端 kz:done 的 halted 字段)。
     pub halted: bool,
-    /// 本轮门禁强度，决定引擎是否介入无动作 Nudge、冗余提醒与队列停止判断。
+    /// 本轮门禁强度，决定无动作续跑提示与队列停止判断。
     pub intensity: HarnessIntensity,
     /// 已由调用方核对当前请求/目标身份的完成范围。局部事项和批次只记进度。
     pub completion: Option<crate::handoff::HandoffScope>,
@@ -635,7 +568,7 @@ mod tests {
     #[test]
     fn 失败轮_瞬态退避重试_连续三轮停_致命立即停_成功清零() {
         let tools = mk_tools(&["edit"]);
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let mut fail = ctx_with_tools(&tools);
         fail.round_failure = Some(RoundFailure::Transient);
         assert_eq!(
@@ -689,9 +622,11 @@ mod tests {
     /// 「整轮只调 task」的委派必须能正常续跑;子代理也没动作时刹车照旧。
     #[test]
     fn 委派轮上卷子代理画像后不判空转() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 1; // no_action 只在 rounds > 0 时才触发,先跑过一轮
-                          // 主轮只留下一个 task 调用,上卷后画像里带上子代理真正调过的 edit。
+        let mut state = AutoRunState {
+            rounds: 1, // no_action 只在 rounds > 0 时才触发,先跑过一轮
+            ..Default::default()
+        };
+        // 主轮只留下一个 task 调用,上卷后画像里带上子代理真正调过的 edit。
         let tools = mk_tools(&["task", "edit"]);
         let ctx = AutoRunCtx {
             steps: 2,
@@ -708,8 +643,10 @@ mod tests {
     /// 依旧走无动作路径(第一次 Nudge,第二次 Stop(NoAction))。
     #[test]
     fn 子代理也没动作的委派轮仍判无动作() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 1;
+        let mut state = AutoRunState {
+            rounds: 1,
+            ..Default::default()
+        };
         let tools = mk_tools(&["task"]);
         let ctx = AutoRunCtx {
             steps: 2,
@@ -751,8 +688,10 @@ mod tests {
     /// R-199:模式不允许自主推进时引擎 Stop(ProfileMismatch)且计数不 +1(重置)。
     #[test]
     fn 模式不匹配时引擎停止且计数不漂移() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 3; // 假设已跑了 3 轮
+        let mut state = AutoRunState {
+            rounds: 3, // 假设已跑了 3 轮
+            ..Default::default()
+        };
         let tools = mk_tools(&["edit", "bash"]);
         let ctx = AutoRunCtx {
             auto_allowed: false,
@@ -769,7 +708,7 @@ mod tests {
     /// D-680/R-322:只有成功收口的显式完成声明才停止；临时无动作不应伪造该信号。
     #[test]
     fn d680_显式完成声明才停止鞭挞() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
             completion: Some(crate::handoff::HandoffScope::Request),
@@ -785,7 +724,7 @@ mod tests {
 
     #[test]
     fn 有实质动作的轮次_正常续跑并计数() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let ctx = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["read", "edit", "bash"]),
@@ -811,7 +750,7 @@ mod tests {
             tools: &mk_tools(&["memory_note", "read", "grep", "ui_dom"]),
             ..ctx_with_tools(&[])
         };
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         assert!(!has_progress_tools(&mk_tools(&[
             "memory_note",
             "read",
@@ -825,7 +764,7 @@ mod tests {
 
     #[test]
     fn 连续无动作_第一次追加推进指令_第二次才停() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         // 第 1 轮:有动作(武装 rounds=1)。
         let ok = AutoRunCtx {
             steps: 2,
@@ -851,7 +790,7 @@ mod tests {
 
     #[test]
     fn 旧连续次数上限不再阻断鞭挞_但轮次继续计数() {
-        let mut state = AutoRunState::new(2);
+        let mut state = AutoRunState::default();
         let ok = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["edit"]),
@@ -865,8 +804,10 @@ mod tests {
 
     #[test]
     fn 暂停时停止_恢复后继续() {
-        let mut state = AutoRunState::new(10);
-        state.paused = true;
+        let mut state = AutoRunState {
+            paused: true,
+            ..Default::default()
+        };
         let ok = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["edit"]),
@@ -882,8 +823,10 @@ mod tests {
 
     #[test]
     fn 本轮后停_是一次性意图且不持久化状态() {
-        let mut state = AutoRunState::new(10);
-        state.stop_after_round = true;
+        let mut state = AutoRunState {
+            stop_after_round: true,
+            ..Default::default()
+        };
         let ok = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["edit"]),
@@ -899,7 +842,7 @@ mod tests {
 
     #[test]
     fn 全部阻塞或清空_优先于其它判定停止() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         // 即使有动作、未暂停、未达上限:全阻塞照样停(前端 stopAutoWhenBacklogEmpty 最先跑)。
         let ok = AutoRunCtx {
             steps: 2,
@@ -926,7 +869,7 @@ mod tests {
     fn 阻塞解除后_恢复续跑() {
         // R-128 验收后半段:全阻塞停止后,阻塞字段清空、backlog 回到 Workable,
         // 下一轮判定应恢复正常续跑(停止仅由当时的 backlog 状态触发,不持久锁死)。
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let ok = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["edit"]),
@@ -946,7 +889,7 @@ mod tests {
 
     #[test]
     fn backlog查询失败_按可推进处理不误停() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let t = mk_tools(&["edit"]);
         let ctx = AutoRunCtx {
             backlog: BacklogStatus::Unknown,
@@ -968,8 +911,10 @@ mod tests {
 
     #[test]
     fn 用户拒绝_halted_不续跑也不重置计数() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 5;
+        let mut state = AutoRunState {
+            rounds: 5,
+            ..Default::default()
+        };
         let ctx = AutoRunCtx {
             halted: true,
             ..ctx_with_tools(&[])
@@ -980,8 +925,10 @@ mod tests {
 
     #[test]
     fn 手动输入_reset_归零() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 7;
+        let mut state = AutoRunState {
+            rounds: 7,
+            ..Default::default()
+        };
         let ok = AutoRunCtx {
             steps: 2,
             tools: &mk_tools(&["edit"]),
@@ -999,7 +946,7 @@ mod tests {
     #[test]
     fn 连续三轮真实签名不变_即使工具画像正常也熔断停鞭() {
         let tools = mk_tools(&["bash"]);
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let mut stuck = ctx_with_tools(&tools);
         stuck.steps = 2; // 排除 steps<=1 的既有空转判据,单独测 D-583 的签名比对
         stuck.progress_signature = "same-sig";
@@ -1033,7 +980,7 @@ mod tests {
     #[test]
     fn 真实签名变化后清零_不会跨轮误触熔断() {
         let tools = mk_tools(&["bash"]);
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let mut ctx = ctx_with_tools(&tools);
         ctx.steps = 2;
         ctx.progress_signature = "sig-a";
@@ -1058,41 +1005,13 @@ mod tests {
     #[test]
     fn 空签名视为不追踪_不会熔断() {
         let tools = mk_tools(&["bash"]);
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let mut ctx = ctx_with_tools(&tools);
         ctx.steps = 2;
         assert_eq!(ctx.progress_signature, "");
         for _ in 0..5 {
             assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
         }
-    }
-
-    #[test]
-    fn max_rounds_clamp_到1_100() {
-        assert_eq!(AutoRunState::new(0).max_rounds, 1);
-        assert_eq!(AutoRunState::new(500).max_rounds, 100);
-        assert_eq!(AutoRunState::new(10).max_rounds, 10);
-    }
-
-    /// D-764:引擎投递的续跑文本必须自证归属,且重放不得叠第二层前缀。
-    #[test]
-    fn engine_round_marker_标明非用户指令且幂等() {
-        let marked = mark_engine_round("继续推进,规则按系统提示执行。");
-        assert!(marked.starts_with(ENGINE_ROUND_MARKER), "{marked}");
-        assert!(marked.contains("非用户新指令"), "{marked}");
-        assert!(marked.contains("不构成用户授权"), "{marked}");
-        assert!(
-            marked.ends_with("继续推进,规则按系统提示执行。"),
-            "{marked}"
-        );
-
-        let replayed = mark_engine_round(&marked);
-        assert_eq!(replayed, marked, "二次投递不得重复加前缀");
-        assert_eq!(
-            replayed.matches(ENGINE_ROUND_MARKER).count(),
-            1,
-            "{replayed}"
-        );
     }
 
     /// UI2-0926 #13:文案只取项目真实状态——不写不存在的文件名,不再说「不要再做可行性判断」,
@@ -1115,23 +1034,28 @@ mod tests {
         );
         assert!(!p.contains("defects.md"), "项目里没有的文件不得出现: {p}");
         assert!(!p.contains("可行性判断"), "{p}");
-        assert!(p.contains("question"), "{p}");
-        assert!(p.contains("解除条件"), "{p}");
-        assert!(p.contains("复核阻塞是否还成立"), "{p}");
+        for directive in [
+            "question",
+            "立刻做掉",
+            "清空",
+            "最小可执行步骤",
+            "上一轮没有实质动作",
+        ] {
+            assert!(!p.contains(directive), "{p}");
+        }
 
         let blocked = nudge_prompt(&NudgeFacts {
             selected: None,
             queues: vec!["defects.md".into(), "requirements.md".into()],
             user_blocked: vec!["R-007".into(), "D-003".into()],
         });
-        assert!(blocked.contains("work next"), "{blocked}");
+        assert!(!blocked.contains("work next"), "{blocked}");
         assert!(blocked.contains("defects.md、requirements.md"), "{blocked}");
         assert!(blocked.contains("R-007、D-003"), "{blocked}");
 
         let empty = nudge_prompt(&NudgeFacts::default());
-        assert!(empty.contains("还没有 tracker 条目"), "{empty}");
         assert!(
-            empty.contains("用户明确选择") && !empty.contains("先用 req add"),
+            !empty.contains("tracker") && !empty.contains("req add"),
             "{empty}"
         );
         assert!(!empty.contains(".md"), "{empty}");
@@ -1143,8 +1067,10 @@ mod tests {
     fn 模型在等用户_两档都停_优先于任务判断() {
         let tools = mk_tools(&["edit", "bash"]);
         for intensity in [HarnessIntensity::Autonomous, HarnessIntensity::Paired] {
-            let mut state = AutoRunState::new(10);
-            state.rounds = 3;
+            let mut state = AutoRunState {
+                rounds: 3,
+                ..Default::default()
+            };
             let ctx = AutoRunCtx {
                 intensity,
                 awaiting_user: true,
@@ -1160,8 +1086,10 @@ mod tests {
         }
         // 无动作轮(本来会 Nudge)与挂着目标(本来会 GoalPending)都让位。
         let idle = mk_tools(&["read"]);
-        let mut state = AutoRunState::new(10);
-        state.rounds = 1;
+        let mut state = AutoRunState {
+            rounds: 1,
+            ..Default::default()
+        };
         assert_eq!(
             state.decide(&AutoRunCtx {
                 awaiting_user: true,
@@ -1169,7 +1097,7 @@ mod tests {
             }),
             AutoRunAction::Stop(AutoStopReason::AwaitingUser)
         );
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         assert_eq!(
             state.decide(&AutoRunCtx {
                 awaiting_user: true,
@@ -1180,7 +1108,7 @@ mod tests {
             "目标挂着也停(目标由调用方保留,不像 GoalMet 那样清除)"
         );
         // 零产出熔断也让位:同一签名连续多轮,只要在等用户就先停在 AwaitingUser。
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let busy = AutoRunCtx {
             steps: 4,
             progress_signature: "same",
@@ -1202,8 +1130,10 @@ mod tests {
     #[test]
     fn 等用户不遮住资源与用户段() {
         let tools = mk_tools(&["edit"]);
-        let mut paused = AutoRunState::new(10);
-        paused.paused = true;
+        let mut paused = AutoRunState {
+            paused: true,
+            ..Default::default()
+        };
         assert_eq!(
             paused.decide(&AutoRunCtx {
                 awaiting_user: true,
@@ -1211,8 +1141,10 @@ mod tests {
             }),
             AutoRunAction::Stop(AutoStopReason::Paused)
         );
-        let mut stop_after = AutoRunState::new(10);
-        stop_after.stop_after_round = true;
+        let mut stop_after = AutoRunState {
+            stop_after_round: true,
+            ..Default::default()
+        };
         assert_eq!(
             stop_after.decide(&AutoRunCtx {
                 awaiting_user: true,
@@ -1224,7 +1156,7 @@ mod tests {
             (RoundFailure::Fatal, AutoStopReason::FatalError),
             (RoundFailure::RateLimited, AutoStopReason::RateLimited),
         ] {
-            let mut state = AutoRunState::new(10);
+            let mut state = AutoRunState::default();
             assert_eq!(
                 state.decide(&AutoRunCtx {
                     awaiting_user: true,
@@ -1234,7 +1166,7 @@ mod tests {
                 AutoRunAction::Stop(reason)
             );
         }
-        let mut blocked = AutoRunState::new(10);
+        let mut blocked = AutoRunState::default();
         assert_eq!(
             blocked.decide(&AutoRunCtx {
                 awaiting_user: true,
@@ -1253,8 +1185,10 @@ mod tests {
         let tools = mk_tools(&["edit", "work"]);
         for intensity in [HarnessIntensity::Paired, HarnessIntensity::Autonomous] {
             for scope in [HandoffScope::WorkItem, HandoffScope::Batch] {
-                let mut state = AutoRunState::new(10);
-                state.rounds = 3;
+                let mut state = AutoRunState {
+                    rounds: 3,
+                    ..Default::default()
+                };
                 let ctx = AutoRunCtx {
                     intensity,
                     steps: 5,
@@ -1279,7 +1213,7 @@ mod tests {
             ),
             (HarnessIntensity::Autonomous, AutoRunAction::Continue),
         ] {
-            let mut state = AutoRunState::new(10);
+            let mut state = AutoRunState::default();
             let ctx = AutoRunCtx {
                 intensity,
                 steps: 5,
@@ -1289,7 +1223,7 @@ mod tests {
             assert_eq!(state.decide(&ctx), expected);
             assert_eq!(state.rounds, 1);
         }
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let ctx = AutoRunCtx {
             goal_active: true,
             steps: 5,
@@ -1307,8 +1241,10 @@ mod tests {
     /// 两条一起看才说明「变的只是模型声明这一条通路」,不是把刹车拆了。
     #[test]
     fn 未声明完成时_自主档仍走原有推进刹车() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 3;
+        let mut state = AutoRunState {
+            rounds: 3,
+            ..Default::default()
+        };
         let tools = mk_tools(&["read", "grep"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Autonomous,
@@ -1327,8 +1263,10 @@ mod tests {
     /// 用户在场,多半是在问问题而不是在等模型找活干。
     #[test]
     fn 结伴档_无动作直接停_不追加推进指令() {
-        let mut state = AutoRunState::new(10);
-        state.rounds = 3;
+        let mut state = AutoRunState {
+            rounds: 3,
+            ..Default::default()
+        };
         let tools = mk_tools(&["read"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
@@ -1347,7 +1285,7 @@ mod tests {
     fn 结伴档_资源类兜底一条不少() {
         let tools = mk_tools(&["edit", "bash"]);
         let paired = |over: AutoRunCtx<'_>| {
-            let mut state = AutoRunState::new(10);
+            let mut state = AutoRunState::default();
             (state.decide(&over), state)
         };
 
@@ -1368,8 +1306,10 @@ mod tests {
         assert_eq!(action, AutoRunAction::Stop(AutoStopReason::FatalError));
 
         // 旧版连续次数上限不再阻断结伴档的正常续跑,但轮次仍计数。
-        let mut state = AutoRunState::new(2);
-        state.rounds = 2;
+        let mut state = AutoRunState {
+            rounds: 2,
+            ..Default::default()
+        };
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
             steps: 5,
@@ -1383,7 +1323,7 @@ mod tests {
     /// 别看它长得像任务判断就按强度门控——那是无人值守唯一的失控兜底。
     #[test]
     fn 结伴档_零产出熔断仍然生效() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let tools = mk_tools(&["edit", "bash"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
@@ -1409,8 +1349,10 @@ mod tests {
     #[test]
     fn 用户意图仍然压过模型声明() {
         let tools = mk_tools(&["edit"]);
-        let mut state = AutoRunState::new(10);
-        state.paused = true;
+        let mut state = AutoRunState {
+            paused: true,
+            ..Default::default()
+        };
         let ctx = AutoRunCtx {
             completion: Some(crate::handoff::HandoffScope::Request),
             ..ctx_with_tools(&tools)
@@ -1434,9 +1376,9 @@ mod tests {
         assert_eq!(HarnessIntensity::default(), HarnessIntensity::Autonomous);
         // 默认必须是自主档:强度未接线的调用方(CLI/测试桩)保持引入前行为。
         let auto = HarnessIntensity::Autonomous.policy();
-        assert!(auto.engine_nudge && auto.redundancy_hints);
+        assert!(auto.engine_nudge);
         let paired = HarnessIntensity::Paired.policy();
-        assert!(!paired.engine_nudge && !paired.redundancy_hints);
+        assert!(!paired.engine_nudge);
     }
 
     /// R-322 B2:backlog 是**自主档**的取活真源,不是结伴档的。
@@ -1446,7 +1388,7 @@ mod tests {
     fn backlog空_只停自主档_不停结伴档() {
         let tools = mk_tools(&["edit", "bash"]);
         for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
-            let mut auto = AutoRunState::new(10);
+            let mut auto = AutoRunState::default();
             let expected = match backlog {
                 BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
                 _ => AutoStopReason::AllBlocked,
@@ -1462,7 +1404,7 @@ mod tests {
                 "自主档取活来自队列,队列 {backlog:?} 必须停"
             );
 
-            let mut paired = AutoRunState::new(10);
+            let mut paired = AutoRunState::default();
             assert_eq!(
                 paired.decide(&AutoRunCtx {
                     intensity: HarnessIntensity::Paired,
@@ -1480,7 +1422,7 @@ mod tests {
     /// 模型声明完成也停。这三条合起来才是「简单 loop」。
     #[test]
     fn 结伴档轻loop_有动作续跑_无动作即停() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let working = mk_tools(&["edit", "bash"]);
         let idle = mk_tools(&["read"]);
         fn paired_ctx(tools: &[String]) -> AutoRunCtx<'_> {
@@ -1506,7 +1448,7 @@ mod tests {
     /// 这是与 Nudge 的分水岭:Nudge 的内容是引擎发明的,这条是用户写的。
     #[test]
     fn 目标挂着_无动作不停而是复述目标再推一轮() {
-        let mut state = AutoRunState::new(10);
+        let mut state = AutoRunState::default();
         let idle = mk_tools(&["read"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
@@ -1523,7 +1465,7 @@ mod tests {
     #[test]
     fn 目标达成由模型声明_停止原因区分于普通交还() {
         let tools = mk_tools(&["edit"]);
-        let mut with_goal = AutoRunState::new(10);
+        let mut with_goal = AutoRunState::default();
         assert_eq!(
             with_goal.decide(&AutoRunCtx {
                 goal_active: true,
@@ -1532,7 +1474,7 @@ mod tests {
             }),
             AutoRunAction::Stop(AutoStopReason::GoalMet)
         );
-        let mut no_goal = AutoRunState::new(10);
+        let mut no_goal = AutoRunState::default();
         assert_eq!(
             no_goal.decide(&AutoRunCtx {
                 intensity: HarnessIntensity::Paired,
@@ -1547,7 +1489,7 @@ mod tests {
     /// 兜底:条件含糊或不可达时,连续 N 轮推不动就停,让用户改条件。
     #[test]
     fn 目标连续推不动_达上限即停并带轮数() {
-        let mut state = AutoRunState::new(50);
+        let mut state = AutoRunState::default();
         let idle = mk_tools(&["read"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
@@ -1567,7 +1509,7 @@ mod tests {
     /// 有实质动作的轮次清零空转计数——目标推进断断续续也不该被误判不可达。
     #[test]
     fn 目标空转计数被有动作的轮次清零() {
-        let mut state = AutoRunState::new(50);
+        let mut state = AutoRunState::default();
         let idle = mk_tools(&["read"]);
         let working = mk_tools(&["edit", "bash"]);
         fn goal_ctx(tools: &[String]) -> AutoRunCtx<'_> {
@@ -1595,7 +1537,7 @@ mod tests {
     fn 目标挂着时_backlog不再是停机判据() {
         let tools = mk_tools(&["edit"]);
         for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
-            let mut state = AutoRunState::new(10);
+            let mut state = AutoRunState::default();
             assert_eq!(
                 state.decide(&AutoRunCtx {
                     intensity: HarnessIntensity::Autonomous,
@@ -1614,7 +1556,7 @@ mod tests {
     /// 「每轮都调工具、磁盘一个字节没变」——否则无限空转。
     #[test]
     fn 目标挂着_零产出熔断仍是兜底() {
-        let mut state = AutoRunState::new(50);
+        let mut state = AutoRunState::default();
         let working = mk_tools(&["edit", "bash"]);
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
@@ -1640,8 +1582,10 @@ mod tests {
     #[test]
     fn 目标不能压过用户意图与资源兜底() {
         let tools = mk_tools(&["edit"]);
-        let mut paused = AutoRunState::new(10);
-        paused.paused = true;
+        let mut paused = AutoRunState {
+            paused: true,
+            ..Default::default()
+        };
         assert_eq!(
             paused.decide(&AutoRunCtx {
                 goal_active: true,
@@ -1650,7 +1594,7 @@ mod tests {
             AutoRunAction::Stop(AutoStopReason::Paused)
         );
 
-        let mut limited = AutoRunState::new(10);
+        let mut limited = AutoRunState::default();
         assert_eq!(
             limited.decide(&AutoRunCtx {
                 goal_active: true,
@@ -1660,8 +1604,11 @@ mod tests {
             AutoRunAction::Stop(AutoStopReason::RateLimited)
         );
 
-        let mut unlimited = AutoRunState::new(2);
-        unlimited.rounds = 2;
+        let mut unlimited = AutoRunState {
+            rounds: 2,
+
+            ..Default::default()
+        };
         assert_eq!(
             unlimited.decide(&AutoRunCtx {
                 goal_active: true,

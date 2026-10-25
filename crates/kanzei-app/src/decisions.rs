@@ -190,7 +190,7 @@ fn save_decision_review(
         return Err("带附件的反馈需要作为具体回复提交".into());
     }
     review.feedback =
-        crate::attachments::message_text(&root, &review.feedback, attachments.unwrap_or_default())
+        crate::attachments::response_text(&root, &review.feedback, attachments.unwrap_or_default())
             .map_err(|e| e.to_string())?;
     let _guard = kanzei_tools::atomic_file::lock_exclusive(&root.join(".kanzei/decision-reviews"))
         .map_err(|e| e.to_string())?;
@@ -250,7 +250,7 @@ fn sync_preference(root: &Path, decision: &DecisionRecord) -> anyhow::Result<Opt
         decision.question.chars().take(60).collect::<String>()
     );
     if let Some((_, existing)) = memory
-        .load_all()
+        .load_all_checked()?
         .into_iter()
         .find(|(_, e)| e.field("subject") == Some(subject.as_str()))
     {
@@ -358,8 +358,12 @@ mod tests {
         assert_eq!(pending.len(), 1);
         let feedback = first["decision"]["review"]["feedback"].as_str().unwrap();
         assert!(pending[0].prompt.contains(feedback));
-        let refs: serde_json::Value =
+        let source: serde_json::Value =
             serde_json::from_str(feedback.lines().last().unwrap()).unwrap();
+        assert_eq!(source["authority"], "untrusted_data");
+        let content: serde_json::Value =
+            serde_json::from_str(source["content"].as_str().unwrap()).unwrap();
+        let refs = &content["attachments"];
         assert!(std::fs::read_to_string(refs[0]["path"].as_str().unwrap())
             .unwrap()
             .contains("evidence"));

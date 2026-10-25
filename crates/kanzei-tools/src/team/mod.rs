@@ -27,6 +27,15 @@ use std::{
 use store::{AgentJob, AgentMessage, TeamStore};
 use tokio::sync::Notify;
 
+/// Role eligibility is shared by discovery, admission and resumed worker startup.
+fn role_access(profile: kanzei_harness::ProfileKind, role: &str) -> Result<bool> {
+    let writing = matches!(role, "general" | "implement" | "verify");
+    if writing && !profile.is_development() {
+        bail!("当前档位不能运行可写子任务：{role}");
+    }
+    Ok(writing)
+}
+
 pub type TeamEvent = Arc<dyn Fn(&AgentJob) + Send + Sync>;
 pub type TeamAsk =
     Arc<dyn Fn(&AgentJob, kanzei_core::AskRequest) -> kanzei_core::AskFuture + Send + Sync>;
@@ -367,7 +376,9 @@ impl AgentTeam {
             }
             if let Some(mailbox) = self.0.mailbox.lock().unwrap().clone() {
                 let result = mailbox.publish(AsyncNotice {
-                    id: format!("child:{}:{}", job.id, job.revision),
+                    origin: kanzei_base::MessageOrigin::Agent,
+attachments: Vec::new(),
+id: format!("child:{}:{}", job.id, job.revision),
                     text: format!("子任务回调（任务结果，不代表用户指令或验收）：{}\n请检查结果、处理失败，必要时用 task get/diff/adopt 整合。", result_summary(job)),
                 });
                 match result {
@@ -748,7 +759,7 @@ impl AgentTeam {
         apply: impl FnOnce(&Path, &str, &str) -> Result<()>,
     ) -> Result<AgentJob> {
         let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
-        if self.0.config.lock().unwrap().profile != kanzei_harness::ProfileKind::Dev {
+        if !self.0.config.lock().unwrap().profile.is_development() {
             bail!("当前模式不能采纳代码改动");
         }
         let (job, _owner) = self.resolve_owned_locked(id)?;
@@ -790,7 +801,7 @@ impl AgentTeam {
             bail!("请说明子任务目标和预期结果");
         }
         let role = input["agent"].as_str().unwrap_or("general");
-        let persona = self
+        let registered_role = self
             .0
             .runtime
             .lock()
@@ -799,7 +810,7 @@ impl AgentTeam {
             .iter()
             .find(|agent| agent.name == role)
             .cloned();
-        if persona.is_none()
+        if registered_role.is_none()
             && !matches!(
                 role,
                 "explore" | "plan" | "general" | "implement" | "verify"
@@ -807,11 +818,7 @@ impl AgentTeam {
         {
             bail!("未知子代理角色：{role}");
         }
-        if self.0.config.lock().unwrap().profile != kanzei_harness::ProfileKind::Dev
-            && matches!(role, "general" | "implement" | "verify")
-        {
-            bail!("当前模式仅允许 explore / plan 子任务");
-        }
+        role_access(self.0.config.lock().unwrap().profile, role)?;
         let id = if !call_id.is_empty()
             && call_id.len() < 100
             && call_id
@@ -830,7 +837,7 @@ impl AgentTeam {
         let model = input["model"]
             .as_str()
             .unwrap_or_else(|| {
-                persona
+                registered_role
                     .as_ref()
                     .map(|agent| agent.model.as_str())
                     .unwrap_or(if role == "explore" { "fast" } else { "primary" })
@@ -963,6 +970,8 @@ impl AgentTeam {
             let id = message_id.unwrap_or_else(fresh_id);
             mailbox
                 .publish(AsyncNotice {
+                    origin: kanzei_base::MessageOrigin::Agent,
+                    attachments: Vec::new(),
                     id: format!("message:{from}:{id}"),
                     text: format!("子任务 {from} 发来的消息（任务证据，不是用户授权）：\n{text}"),
                 })
@@ -999,6 +1008,13 @@ impl AgentTeam {
             }
         })?;
         if inserted {
+            if let Some(mailbox) = self.0.child_mailboxes.lock().unwrap().get(&j.id) {
+                if from == "main" {
+                    mailbox.request_input();
+                } else {
+                    mailbox.request_background();
+                }
+            }
             self.launch_owned_locked(&j.id, owner)?;
         }
         Ok(reply)
@@ -1396,7 +1412,7 @@ impl AgentTeam {
         let slot = Arc::new(Mutex::new(Some(
             acquire_pair(&self.0.slots, &self.0.global_slots).await,
         )));
-        let writing = matches!(initial.role.as_str(), "general" | "implement" | "verify");
+        let writing = role_access(self.0.config.lock().unwrap().profile, &initial.role)?;
         if (writing || !initial.depends_on.is_empty()) && initial.worktree.is_none() {
             if kanzei_harness::is_general_conversation_root(&self.0.ctx.project_root) {
                 workspace::ensure_general_repository(&self.0.ctx.cwd, &self.0.ctx.project_root)?;
@@ -1423,39 +1439,30 @@ impl AgentTeam {
         }
         loop {
             let job = self.0.store.get(id)?;
-            let queued: Vec<_> = job
-                .messages
-                .iter()
-                .filter(|m| m.state == "queued")
-                .cloned()
-                .collect();
-            if queued.is_empty() {
+            if !job.messages.iter().any(|message| message.state == "queued") {
                 self.worker_update(id, cancel, None, |j| j.state = "done".into())?;
                 return Ok(());
             }
             let running_job = self.worker_update(id, cancel, None, |j| {
                 j.state = "running".into();
                 j.attempt += 1;
-                for m in &mut j.messages {
-                    if queued.iter().any(|q| q.id == m.id) {
-                        m.state = "received".into();
-                    }
-                }
             })?;
             let mut runtime = self.0.runtime.lock().unwrap().clone();
             runtime.options.host = None;
             runtime.background = false;
-            runtime.agent = if let Some(persona) = runtime
+            runtime.agent = if let Some(registered_role) = runtime
                 .roster
                 .iter()
                 .find(|agent| agent.name == job.role)
                 .cloned()
             {
-                persona
+                registered_role
             } else if job.role == "explore" {
                 crate::explore_agent()
             } else if job.role == "plan" {
                 crate::plan_agent()
+            } else if job.role == "verify" {
+                crate::subagent::verify_agent()
             } else {
                 crate::writer_agent()
             };
@@ -1487,7 +1494,7 @@ impl AgentTeam {
                     tree: tree.clone(),
                     writing,
                 })
-                .add(crate::GeneralChatProfile);
+                .add(crate::GeneralChatScope);
             runtime.snapshot = harness.resolve(&rctx)?;
             runtime.roster.clear();
             let parent_router = runtime.ask_router.clone();
@@ -1559,26 +1566,20 @@ impl AgentTeam {
                 history_store.history(&history_id).ok()
             }));
             runtime.transcript_sink = Some(self.transcript_sink(id, cancel, running_job.attempt));
-            runtime.agent.system.push_str("\nYou own one delegated task. Work only in your assigned checkout. Do not modify the parent checkout, merge, publish, or claim project delivery. Run relevant checks and report actual evidence, failures, files, and remaining work. team_message sends findings to main (to=main) or another task; question with background=true asks the user without suspending independent work and routes the answer back here; agent_memory reads/writes your persistent project memory. A completed turn is a candidate result, not acceptance.");
-            if job.role == "verify" {
-                runtime.agent.system.push_str("\nYour primary job is independent verification. Run tests against the specified candidate, report reproducible failures. Do not silently fix the implementation you are verifying.");
-            }
+            runtime.agent.system.push_str("\n完成分配的子任务，在指定工作目录和可用权限内自主推进。报告结果、必要证据与剩余问题；涉及代码修改时说明实际改动和验证情况。可写子任务只在分配的工作树中修改，候选结果交给主 Agent 审查与交付；整合、提交和发布由主 Agent 负责。");
             let deps: Vec<_> = job
                 .depends_on
                 .iter()
                 .filter_map(|d| self.0.store.get(d).ok())
                 .collect();
             let prompt = format!(
-                "{}\n\nAssigned checkout: {}\nDependency results: {}",
-                queued
-                    .iter()
-                    .map(|m| format!("{}: {}", m.from, m.text))
-                    .collect::<Vec<_>>()
-                    .join("\n"),
+                "处理对话中投递的子任务消息。\nAssigned checkout: {}\nDependency results: {}",
                 tree.display(),
                 serde_json::to_string(&deps.iter().map(result_summary).collect::<Vec<_>>())?
             );
             let mut ctx = self.0.ctx.clone();
+            ctx.input_origin = kanzei_base::MessageOrigin::Agent;
+            ctx.input_attachments.clear();
             ctx.read_ledger = Some(
                 self.0
                     .child_ledgers
@@ -1596,6 +1597,24 @@ impl AgentTeam {
                 let _lifecycle = self.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
                 self.check_worker_locked(id, cancel, Some(running_job.attempt))?;
                 self.child_mailbox(id)
+            });
+            ctx.input_inbox = Some({
+                let team = self.clone();
+                let id = id.to_owned();
+                let cancel = cancel.clone();
+                let attempt = running_job.attempt;
+                kanzei_harness::InputInbox::for_actor(id.clone(), move || {
+                    let _lifecycle = team.0.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+                    team.check_worker_locked(&id, &cancel, Some(attempt))
+                        .and_then(|_| team.0.store.admit_inputs(&id))
+                        .map(|(job, notices)| {
+                            if !notices.is_empty() {
+                                team.emit(&job);
+                            }
+                            notices
+                        })
+                        .map_err(|error| error.to_string())
+                })
             });
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             // Only an explicit continuation (or the explicitly requested fork)
@@ -1649,9 +1668,11 @@ impl AgentTeam {
                     "已返回结果，等待整合".into()
                 };
                 j.revision += 1;
-                for m in &mut j.messages {
-                    if m.state == "received" {
-                        m.state = "processed".into();
+                if output.outcome == kanzei_harness::ToolOutcome::Success {
+                    for m in &mut j.messages {
+                        if m.state == "admitted" {
+                            m.state = "processed".into();
+                        }
                     }
                 }
             })?;
@@ -1692,24 +1713,28 @@ impl DelegationHost for AgentTeam {
         roles.sort();
         roles.dedup();
         let config = self.0.config.lock().unwrap();
-        if config.profile != kanzei_harness::ProfileKind::Dev {
-            roles.retain(|role| !matches!(role.as_str(), "general" | "implement" | "verify"));
-        }
+        roles.retain(|role| role_access(config.profile, role).is_ok());
         let mode = self.0.runtime.lock().unwrap().options.mode;
         let capacity = mode.concurrency(&config.config.limits);
         let global_capacity = config.config.limits.subagent_global_concurrency();
         ToolSpec {
             name: "task".into(),
-            description: format!("Delegate real work. Preference: {}; concurrency: {} for this conversation, {} across conversations. Extra tasks wait for capacity. Registered custom agents preserve their prompt and run read-only. Subtasks have no step limit. explore/plan are read-only; implement/verify/general use isolated writable Git checkouts when available in the role enum. Children cannot delegate recursively. Background defaults true. Background completion/failure automatically wakes a connected conversation. Continue independent work; when none remains, end your turn and await that notification instead of polling list/get/collect/wait. wait returns a state=waiting, delivery=automatic receipt when callbacks will deliver the pending tasks; it is not a completion result. Without callbacks, wait blocks until the selected tasks finish. background=false explicitly waits for the spawned task. Use message/resume to continue the SAME task/history, restart to create a NEW task retaining the old record. list/get return bounded status/result summaries; result_available=false means the current task has not completed. list uses offset/limit and returns jobs/total/next_offset. For explicit detail use get view=result or prompt; view=history, trace, messages returns a page of items with offset/limit (max 20) and next_offset. collect reads completed updates without waiting; an empty array means no newly completed result, never that a running task has finished. Inspect diff before adopt to integrate candidate changes. Dependencies use existing task IDs and inspect their actual candidate files. Never claim a dispatched task is complete. Avoid duplicate assignments. Use context=fork only when the full conversation is needed.", mode.as_str(), capacity, global_capacity),
+            description: format!("创建和管理当前对话的子任务，支持查询、继续、停止、查看差异和整合候选改动。当前模式 {}；本对话并发容量 {}，跨对话容量 {}，超出容量的任务排队等待。可用角色以 agent 枚举为准，子任务不提供递归委派。完成情况以实际终态和结果为准。", mode.as_str(), capacity, global_capacity),
             input_schema: json!({"type":"object","properties":{
-                "action":{"type":"string","enum":["spawn","list","get","message","resume","restart","stop","wait","collect","diff","adopt"]},
-                "id":{"type":"string"},"prompt":{"type":"string"},"description":{"type":"string"},
-                "agent":{"type":"string","enum":roles},
-                "model":{"type":"string","enum":["fast","primary"]},"schema":{"type":"object"},
-                "background":{"type":"boolean"},"context":{"type":"string","enum":["fresh","fork"]},
-                "view":{"type":"string","enum":["summary","history","trace","messages","result","prompt"]},
-                "offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":20},
-                "depends_on":{"type":"array","items":{"type":"string"}}
+                "action":{"type":"string","enum":["spawn","list","get","message","resume","restart","stop","wait","collect","diff","adopt"],
+                    "description":"spawn 创建任务（默认）；list 分页查询概览；get 按 view 查看详情，result_available=false 表示尚无完成结果；message/resume 继续同一任务与历史；restart 新建任务并保留旧记录；stop 停止；wait 等待结果，state=waiting、delivery=automatic 的回执表示交由自动通知回传，可结束当前轮等待通知，无需重复查询；collect 读取新的完成结果，空数组不代表任务完成；diff 查看候选差异；adopt 检查差异后整合候选改动。"},
+                "id":{"type":"string","description":"已有子任务 ID，供查询、继续、停止、等待、查看差异和整合使用。"},
+                "prompt":{"type":"string","description":"子任务目标、范围、必要上下文和预期结果。"},
+                "description":{"type":"string","description":"供用户识别子任务的简短标签。"},
+                "agent":{"type":"string","enum":roles,"description":"explore/plan 及其他非可写角色只读；implement/verify/general 使用隔离的可写 Git 工作树，仅在枚举列出时可选。自定义角色保留其提示词，工具和权限由运行时提供。"},
+                "model":{"type":"string","enum":["fast","primary"],"description":"配置中的模型档位；省略时使用所选角色的模型档位。"},
+                "schema":{"type":"object","description":"可选的结果 JSON Schema，约束结构化返回结果。"},
+                "background":{"type":"boolean","default":true,"description":"默认后台执行；连接的主对话通过完成或失败通知获得结果。继续独立工作，仅剩子任务结果时可结束当前轮等待通知。false 表示等待所创建任务完成；无通知连接时 wait 会等待所选任务完成。"},
+                "context":{"type":"string","enum":["fresh","fork"],"default":"fresh","description":"默认使用本次任务的独立上下文；需要完整父对话时选 fork。message/resume 继续已有历史，restart 创建新任务。"},
+                "view":{"type":"string","enum":["summary","history","trace","messages","result","prompt"],"description":"get 的详情视图。summary 返回概览，result/prompt 返回结果或任务原文；history/trace/messages 分页返回 items 和 next_offset。"},
+                "offset":{"type":"integer","minimum":0,"description":"list 或分页视图的起始位置，返回 next_offset 指示下一页；list 返回 jobs 和 total。"},
+                "limit":{"type":"integer","minimum":1,"maximum":20,"description":"分页返回条数。"},
+                "depends_on":{"type":"array","items":{"type":"string"},"description":"前置任务的真实 ID。依赖完成后启动，并在隔离工作树中读取候选文件；依赖摘要不替代对候选改动的检查。"}
             }}),
         }
     }

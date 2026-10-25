@@ -139,7 +139,7 @@ try {
   await page.locator("#new-chat").click();
   await until(async () => { discussion = (await invoke("process_list", { projectDir: project })).find(line => line.id !== owner.id); return discussion && (await selected()).processId === discussion.id; }, "UI-created discussion");
   await invoke("auto_state_update", { sessionId: discussion.session_id, enabled: false });
-  check(discussion.session_id !== owner.session_id && discussion.profile === "dev", "New conversation has an ordinary development identity");
+  check(discussion.session_id !== owner.session_id && discussion.profile === "dev-auto", "New conversation has an ordinary development identity");
   // This scenario exercises an explicitly read-only discussion, not a secondary rank.
   await invoke("process_update", { processId: discussion.id, profile: "readonly" });
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, discussion.id);
@@ -215,7 +215,7 @@ try {
   check(!JSON.stringify(await conversation(discussion.id)).includes("NATIVE_MAIN_REPLY"), "The main answer does not leak into the source discussion");
   await openMainChat();
   check(await page.locator("#prompt").inputValue() === mainDraft, "Automatic question presentation and reload preserve the original unsent main draft");
-  await invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev", agent: "dev-pair", prompt: "NATIVE_BACKGROUND_START 验证后台提问保留草稿。", autonomous: false });
+  await invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev-pair", agent: "dev-pair", prompt: "NATIVE_BACKGROUND_START 验证后台提问保留草稿。", autonomous: false });
   await until(() => Boolean(releaseBackground), "Held background request");
   await page.locator("#prompt").fill(backgroundDraft); await page.locator("#prompt").focus();
   releaseBackground();

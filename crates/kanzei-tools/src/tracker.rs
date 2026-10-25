@@ -183,63 +183,28 @@ impl Tool for TrackerTool {
     }
 
     fn description(&self) -> String {
-        // 三个维度必须在描述里一次说清:实测模型会把 severity 的值填进 priority
-        // (`priority: high`),失败一次、再补一个只改字段的提交,纯粹是描述没写全的代价。
-        let mut d = format!(
-            "Track {}s in the project doc. Actions: list, get(id), add(title, fields), \
-             update(id, status/fields), close(id), archive (move terminal entries to the archive \
-             file), reorder(order: complete id list — file order IS the user's dev order), \
-             raw_lines(id) (list this entry's stray non-addressable lines as [n] markers), \
-             raw_delete(id, ordinal=n) (delete exactly that stray line; all fields and other \
-             lines stay byte-identical), \
-             repair_reused_id(id), repair_missing_id(id, title, ...) (put back an entry recovered \
-             from git history at its original id), void_id(id, reason) (record that an allocated \
-             id legitimately has no entry — the ONLY sanctioned way to settle a gap; never \
-             fabricate a placeholder entry). status: {}.",
-            self.noun,
-            self.kind.statuses.join(" → "),
+        let mut description = format!(
+            "Read and maintain project {} records. get returns the current record; update uses a top-level id. \
+             reorder requires the complete ID order; archive moves terminal records. Repairs preserve historical IDs and require supporting records.", self.noun
         );
-        if matches!(self.tool_name, "idea" | "decision") {
-            d.insert_str(
-                0,
-                &format!(
-                    "Deferred tool; load it first with `tool_search select:{}`. ",
-                    self.tool_name
-                ),
-            );
-        }
-        if let Some(severities) = self.kind.severities {
-            d.push_str(&format!(" severity (impact): {}.", severities.join(" | ")));
-        }
-        if let Some(priorities) = self.kind.priorities {
-            d.push_str(&format!(
-                " priority (scheduling, a SEPARATE field from severity): {}.",
-                priorities.join(" | ")
-            ));
+        if self.kind.severities.is_some() && self.kind.priorities.is_some() {
+            description.push_str(" severity is impact; priority is scheduling.");
         }
         if self.requires_refs.is_some() {
-            d.push_str(" `refs` (source IDs) is REQUIRED on add.");
+            description.push_str(" Adding a record requires source refs.");
         }
         if matches!(self.kind.prefix, "S" | "F") {
-            d.push_str(" `topic` (lowercase kebab-case) is REQUIRED for source/finding actions; artifacts are stored under `.kanzei/research/<topic>/`.");
-        }
-        if self.kind.tags.is_some() {
-            d.push_str(" On add, pass the controlled `tag` as a top-level field.");
-        }
-        if self.kind.priorities.is_some() && self.kind.severities.is_none() {
-            d.push_str(" Requirement priority/tag/complexity are optional estimates, never a proxy for input completeness.");
+            description.push_str(
+                " All actions require topic; records belong to .kanzei/research/<topic>/.",
+            );
         }
         if self.kind.prefix == "R" {
-            d.push_str(" A core requirement with empty refs triggers R-248: pass top-level `prior_art` pointing to a validated `.kanzei/research/<topic>/prior-art.md`, or `prior_art_waiver` with the user's explicit reason. These fields are independent from refs. The `prior_art` field is not a tool call; the separate deferred research tool loads with `tool_search select:prior_art`.");
+            description.push_str(" requirement carries statement, acceptance and source; missing information remains draft. Preserve acceptance IDs on edits. Core additions with empty refs require prior_art or an explicit prior_art_waiver. close(done) requires criterion evidence tied to the current revision.");
         }
         if matches!(self.kind.prefix, "R" | "D") {
-            d.push_str(" For a user-requested backlog audit/cleanup, list with reason=backlog_maintenance. Ordinary execution uses work next. close(status=dropped/wontfix, reason=...) retires obsolete/cancelled/duplicate work without claiming completion; done/fixed still requires delivery evidence. update(status=awaiting_external) records implementation/local verification in 进展 and outstanding SSH/device checks in 外部验收; it does not block development or claim external acceptance passed. Return to doing/fixing if external checks find a problem.");
+            description.push_str(" Maintenance lists use reason=backlog_maintenance. Retirement states require a reason; completion states require delivery evidence. awaiting_external records pending external checks without declaring acceptance.");
         }
-        if self.kind.prefix == "R" {
-            d.push_str(" For new requirements use `requirement`: statement, acceptance[{id,text}], source{reference,quote}, optional kind/questions/links. One independently verifiable behavior per entry; split compound intent, share the source. Omit new acceptance IDs for allocation; preserve IDs on edits. Missing statement/acceptance/source or unresolved questions saves draft, excluded from execution. Fill the draft then update status=todo. Do not invent thresholds, scope, approvals or estimates. Put implementation/history in linked documents or execution records. Discovery Record is no longer required. For close(done), supply separate evidence[{criterion_id,revision,reference}] for the current req get revision; old evidence does not pass revised requirements.");
-        }
-        d.push_str(" 更新时，目标编号必须作为顶层 `id` 字段传入，不能放在 `fields` 内。");
-        d
+        description
     }
 
     /// schema 按文档类型动态收窄:action/status/severity/priority 全部给 enum。
@@ -357,6 +322,10 @@ impl Tool for TrackerTool {
         }
         if matches!(self.kind.prefix, "S" | "F") {
             required.push("topic");
+            schema["required"]
+                .as_array_mut()
+                .expect("TrackerInput has required fields")
+                .push(serde_json::json!("topic"));
         }
         let mut then_schema = serde_json::json!({ "required": required });
         if self.requires_refs.is_some() {
@@ -662,18 +631,11 @@ impl Tool for ResearchTrackerTool {
     }
 
     fn description(&self) -> String {
-        let mut description = format!(
-            "Research 回流桥接，只允许 `get(id)` 读取既有 {}，或 `add(title, fields)` 登记一条待 dev 确认的草稿；禁止 list/update/close/archive。",
+        format!(
+            "Read an existing {} with get(id), or add a draft for development review. \
+             Existing record status cannot be changed through this research feedback tool.",
             self.inner.noun
-        );
-        if self.inner.kind.prefix == "R" {
-            description.push_str(" 使用 requirement={statement,acceptance:[{text}],source:{reference,quote},questions}；缺正文、验收、来源或有开放问题时存为 draft，完整时为 todo。priority/tag/complexity 可省略。");
-        } else {
-            description
-                .push_str(" defect add 必须提供 severity、priority、受控 tag，初始状态 open。");
-        }
-        description.push_str("不得代替 dev 修改既有条目。");
-        description
+        )
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -1144,7 +1106,9 @@ fn unknown_id(id: &str, entries: &[Entry]) -> String {
 mod tests {
     use super::TrackerTool;
     use kanzei_harness::{Tool, ToolCtx};
-    use kanzei_memory::docstore::{DocStore, Entry, DEFECTS, IDEAS, REQUIREMENTS};
+    use kanzei_memory::docstore::{
+        DocStore, Entry, DEFECTS, FINDINGS, IDEAS, REQUIREMENTS, SOURCES,
+    };
     use serde_json::json;
     use std::process::Command;
 
@@ -1549,10 +1513,36 @@ mod tests {
             .and_then(|value| value.as_array())
             .unwrap();
         assert_eq!(actions, &[json!("get"), json!("add")]);
-        assert!(tool.description().contains("只允许 `get(id)` 读取"));
-        assert!(tool
-            .description()
-            .contains("禁止 list/update/close/archive"));
+    }
+
+    #[tokio::test]
+    async fn topic_requirement_matches_schema_and_execution_for_all_research_record_actions() {
+        let directory = kanzei_base::test_support::TestDir::new("kz-tracker-topic-schema-");
+        let ctx = ToolCtx::new(directory.as_path().into(), directory.as_path().into());
+        for (name, kind) in [("source", &SOURCES), ("finding", &FINDINGS)] {
+            let tool = TrackerTool {
+                tool_name: name,
+                noun: name,
+                kind,
+                requires_refs: None,
+            };
+            let schema = tool.input_schema();
+            assert!(schema["required"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("topic")));
+            for action in ["list", "get", "add"] {
+                let output = tool
+                    .execute(
+                        json!({"action":action,"id":"S-001","title":"Unbound"}),
+                        &ctx,
+                    )
+                    .await;
+                assert!(output.is_error, "{name}/{action}: {}", output.content);
+                assert!(output.content.contains("topic"), "{}", output.content);
+            }
+        }
+        assert!(!directory.join(".kanzei").exists());
     }
 
     #[tokio::test]
@@ -4274,16 +4264,13 @@ mod tests {
                 "action enum 缺 {expected}: {actions:?}"
             );
         }
-        let description = defects.description();
-        assert!(
-            description.contains("severity (impact): high | medium | low"),
-            "{description}"
+        assert_eq!(
+            schema["properties"]["severity"]["enum"],
+            json!(["high", "medium", "low"])
         );
-        assert!(description.contains("P0 | P1 | P2 | P3"), "{description}");
-        assert!(
-            description
-                .contains("更新时，目标编号必须作为顶层 `id` 字段传入，不能放在 `fields` 内"),
-            "{description}"
+        assert_eq!(
+            schema["properties"]["priority"]["enum"],
+            json!(["P0", "P1", "P2", "P3"])
         );
 
         // 需求没有 severity 维度:schema 里根本不该出现这个字段。

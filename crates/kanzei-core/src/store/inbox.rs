@@ -22,7 +22,7 @@ impl SessionStore {
     ) -> Result<Vec<StoredInput>, StoreError> {
         let mut statement = self.connection.prepare(
             "SELECT i.input_id,i.session_id,i.prompt,i.delivery,i.created_at,
-                (SELECT json_extract(e.payload_json,'$.source') FROM session_events e
+                (SELECT e.payload_json FROM session_events e
                  WHERE e.session_id=i.session_id AND e.event_type='prompt.admitted'
                    AND json_extract(e.payload_json,'$.input_id')=i.input_id ORDER BY e.sequence DESC LIMIT 1)
              FROM session_inputs i WHERE i.session_id=?1 ORDER BY i.created_at,i.rowid"
@@ -30,7 +30,7 @@ impl SessionStore {
         let rows = statement.query_map(params![session_id], |row| {
             Ok(StoredInput {
                 input: input_from_row(row)?,
-                source: row.get(5)?,
+                source: admission_metadata(row)?.source,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -89,9 +89,19 @@ impl SessionStore {
         input_id: &str,
         prompt: &str,
         item_id: &str,
+        origin: kanzei_base::MessageOrigin,
+        attachments: &[kanzei_base::InputAttachment],
     ) -> Result<AdmittedInput, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let input = admit_input_tx(&tx, session_id, input_id, prompt, Delivery::Queue, None)?;
+        let input = admit_input_tx(
+            &tx,
+            session_id,
+            input_id,
+            prompt,
+            Delivery::Queue,
+            Some(origin.as_str()),
+            attachments,
+        )?;
         append_event_tx(
             &tx,
             session_id,
@@ -133,9 +143,19 @@ impl SessionStore {
         input_id: &str,
         prompt: &str,
         delivery: Delivery,
+        origin: kanzei_base::MessageOrigin,
+        attachments: &[kanzei_base::InputAttachment],
     ) -> Result<AdmittedInput, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let input = admit_input_tx(&tx, session_id, input_id, prompt, delivery, None)?;
+        let input = admit_input_tx(
+            &tx,
+            session_id,
+            input_id,
+            prompt,
+            delivery,
+            Some(origin.as_str()),
+            attachments,
+        )?;
         append_event_tx(
             &tx,
             session_id,
@@ -164,7 +184,7 @@ impl SessionStore {
         prompt: &str,
         delivery: Delivery,
     ) -> Result<AdmittedInput, StoreError> {
-        self.admit_input_with_source(session_id, input_id, prompt, delivery, None)
+        self.admit_input_with_source(session_id, input_id, prompt, delivery, Some("human"), &[])
     }
 
     /// Admission metadata commits with the input, including background wake sources.
@@ -175,9 +195,18 @@ impl SessionStore {
         prompt: &str,
         delivery: Delivery,
         source: Option<&str>,
+        attachments: &[kanzei_base::InputAttachment],
     ) -> Result<AdmittedInput, StoreError> {
         let tx = self.connection.unchecked_transaction()?;
-        let input = admit_input_tx(&tx, session_id, input_id, prompt, delivery, source)?;
+        let input = admit_input_tx(
+            &tx,
+            session_id,
+            input_id,
+            prompt,
+            delivery,
+            source,
+            attachments,
+        )?;
         tx.commit()?;
         Ok(input)
     }
@@ -195,7 +224,11 @@ impl SessionStore {
     /// 返回尚未提升的输入,按 admission 顺序展示给前端队列面板。
     pub fn list_pending_inputs(&self, session_id: &str) -> Result<Vec<AdmittedInput>, StoreError> {
         let mut statement = self.connection.prepare(
-            "SELECT input_id, session_id, prompt, delivery, created_at
+            "SELECT input_id, session_id, prompt, delivery, created_at,
+             (SELECT e.payload_json FROM session_events e
+              WHERE e.session_id=session_inputs.session_id AND e.event_type='prompt.admitted'
+                AND json_extract(e.payload_json, '$.input_id')=session_inputs.input_id
+              ORDER BY e.sequence DESC LIMIT 1)
                  FROM session_inputs
                  WHERE session_id = ?1 AND status = 'pending'
                  ORDER BY created_at, rowid",
@@ -367,7 +400,11 @@ impl SessionStore {
     ) -> Result<Vec<AdmittedInput>, StoreError> {
         let limit = if one { " LIMIT 1" } else { "" };
         let sql = format!(
-            "SELECT input_id, session_id, prompt, delivery, created_at
+            "SELECT input_id, session_id, prompt, delivery, created_at,
+             (SELECT e.payload_json FROM session_events e
+              WHERE e.session_id=session_inputs.session_id AND e.event_type='prompt.admitted'
+                AND json_extract(e.payload_json, '$.input_id')=session_inputs.input_id
+              ORDER BY e.sequence DESC LIMIT 1)
                  FROM session_inputs WHERE session_id = ?1 AND delivery = ?2 AND status = 'pending'
                  ORDER BY created_at, rowid{limit}"
         );
@@ -429,6 +466,7 @@ fn admit_input_tx(
     prompt: &str,
     delivery: Delivery,
     source: Option<&str>,
+    attachments: &[kanzei_base::InputAttachment],
 ) -> Result<AdmittedInput, StoreError> {
     let inserted = tx.execute(
         "INSERT INTO session_inputs(input_id, session_id, prompt, delivery, status, created_at)
@@ -437,15 +475,48 @@ fn admit_input_tx(
     )?;
     if inserted > 0 {
         let mut payload = serde_json::json!({"input_id":input_id, "delivery":delivery.as_str()});
+        if !attachments.is_empty() {
+            payload["attachments"] = serde_json::json!(attachments);
+        }
         if let Some(source) = source {
             payload["source"] = serde_json::json!(source);
         }
         append_event_tx(tx, session_id, "prompt.admitted", &payload)?;
     }
     tx.query_row(
-        "SELECT input_id, session_id, prompt, delivery, created_at FROM session_inputs WHERE input_id = ?1 AND session_id = ?2",
-        params![input_id,session_id], input_from_row,
-    ).optional()?.ok_or_else(|| StoreError::InvalidInput("input_id 已属于其他会话".into()))
+        "SELECT input_id, session_id, prompt, delivery, created_at,
+         (SELECT e.payload_json FROM session_events e
+          WHERE e.session_id=session_inputs.session_id AND e.event_type='prompt.admitted'
+            AND json_extract(e.payload_json, '$.input_id')=session_inputs.input_id
+          ORDER BY e.sequence DESC LIMIT 1)
+         FROM session_inputs WHERE input_id = ?1 AND session_id = ?2",
+        params![input_id, session_id],
+        input_from_row,
+    )
+    .optional()?
+    .ok_or_else(|| StoreError::InvalidInput("input_id 已属于其他会话".into()))
+}
+
+#[derive(Default, serde::Deserialize)]
+struct AdmissionMetadata {
+    source: Option<String>,
+    #[serde(default)]
+    attachments: Vec<kanzei_base::InputAttachment>,
+}
+
+fn admission_metadata(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmissionMetadata> {
+    row.get::<_, Option<String>>(5)?
+        .map(|json| {
+            serde_json::from_str(&json).map_err(|error| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    5,
+                    rusqlite::types::Type::Text,
+                    Box::new(error),
+                )
+            })
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
 }
 
 /// 输入行解析。
@@ -456,7 +527,10 @@ fn input_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AdmittedInput> {
         "queue" => Delivery::Queue,
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
+    let metadata = admission_metadata(row)?;
     Ok(AdmittedInput {
+        origin: kanzei_base::MessageOrigin::from_admission(metadata.source.as_deref()),
+        attachments: metadata.attachments,
         input_id: row.get(0)?,
         session_id: row.get(1)?,
         prompt: row.get(2)?,
@@ -516,6 +590,7 @@ mod tests {
                 "scheduled context",
                 Delivery::Queue,
                 Some("schedule"),
+                &[],
             )
             .unwrap();
         store
@@ -525,20 +600,31 @@ mod tests {
                 "replacement",
                 Delivery::Steer,
                 Some("user"),
+                &[],
             )
             .unwrap();
         store
-            .admit_input(
+            .admit_input_with_source(
                 "ses_test",
                 "legacy",
                 "original unexpanded prompt",
                 Delivery::Queue,
+                None,
+                &[],
             )
             .unwrap();
         let records = store.original_session_inputs("ses_test").unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].input.prompt, "scheduled context");
         assert_eq!(records[0].source.as_deref(), Some("schedule"));
+        assert_eq!(
+            records[0].input.origin,
+            kanzei_base::MessageOrigin::Notification
+        );
+        assert_eq!(
+            records[1].input.origin,
+            kanzei_base::MessageOrigin::Unspecified
+        );
         assert_eq!(records[1].input.prompt, "original unexpanded prompt");
         assert_eq!(
             records[1].source, None,
@@ -612,10 +698,24 @@ mod tests {
             .admit_input("ses_test", "plain", "text", Delivery::Queue)
             .is_err());
         assert!(store
-            .admit_batch_input("ses_test", "batch", "text", Delivery::Queue)
+            .admit_batch_input(
+                "ses_test",
+                "batch",
+                "text",
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[]
+            )
             .is_err());
         assert!(store
-            .admit_work_input("ses_test", "work", "text", "R-001")
+            .admit_work_input(
+                "ses_test",
+                "work",
+                "text",
+                "R-001",
+                kanzei_base::MessageOrigin::Human,
+                &[]
+            )
             .is_err());
         assert!(store.list_pending_inputs("ses_test").unwrap().is_empty());
         assert!(store.list_events("ses_test", 0).unwrap().is_empty());
@@ -676,7 +776,14 @@ mod tests {
         let store = store();
         store.create_session("s", "project", None).unwrap();
         store
-            .admit_batch_input("s", "batch", "continue R-1", Delivery::Queue)
+            .admit_batch_input(
+                "s",
+                "batch",
+                "continue R-1",
+                Delivery::Queue,
+                kanzei_base::MessageOrigin::Human,
+                &[],
+            )
             .unwrap();
         store
             .admit_input("s", "chat", "explain this", Delivery::Queue)
@@ -1020,7 +1127,14 @@ fn work_target_follows_its_input_across_reopen_and_does_not_leak_to_chat() {
     let store = SessionStore::open(&path).unwrap();
     store.create_session("s", "project", None).unwrap();
     store
-        .admit_work_input("s", "work", "继续需求", "R-002")
+        .admit_work_input(
+            "s",
+            "work",
+            "继续需求",
+            "R-002",
+            kanzei_base::MessageOrigin::Human,
+            &[],
+        )
         .unwrap();
     store
         .admit_input("s", "chat", "问一句", Delivery::Queue)

@@ -1,11 +1,17 @@
-//! Agent / Command / Skill 定义与 Profile 标识。
+//! Agent / Skill 定义与 Profile 标识。
 
 use serde::{Deserialize, Serialize};
+
+pub const DEV_AUTO_AGENT: &str = "dev-auto";
+pub const DEV_PAIR_AGENT: &str = "dev-pair";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProfileKind {
-    Dev,
+    #[serde(rename = "dev-auto")]
+    DevAuto,
+    #[serde(rename = "dev-pair")]
+    DevPair,
     Research,
     /// 只读分析档位(R-102):read/glob/grep/task 放行,写与命令硬拒绝。
     Readonly,
@@ -17,32 +23,64 @@ impl std::str::FromStr for ProfileKind {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "dev" => Ok(ProfileKind::Dev),
+            "dev-auto" => Ok(ProfileKind::DevAuto),
+            "dev-pair" => Ok(ProfileKind::DevPair),
             "research" => Ok(ProfileKind::Research),
             "readonly" => Ok(ProfileKind::Readonly),
             "isolated" => Ok(ProfileKind::Isolated),
             other => Err(format!(
-                "unknown profile `{other}` (dev|research|readonly|isolated)"
+                "unknown profile `{other}` (dev-auto|dev-pair|research|readonly|isolated)"
             )),
         }
     }
 }
 
-/// agent 属于哪个 profile;All 表示两个模式都可用。
+impl ProfileKind {
+    pub fn is_development(self) -> bool {
+        matches!(self, Self::DevAuto | Self::DevPair)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::DevAuto => DEV_AUTO_AGENT,
+            Self::DevPair => DEV_PAIR_AGENT,
+            Self::Research => "research",
+            Self::Readonly => "readonly",
+            Self::Isolated => "isolated",
+        }
+    }
+}
+
+/// Agent 的适用档位；All 表示所有档位，实际能力由该档位的 Harness 决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProfileScope {
-    Dev,
+    Development,
+    #[serde(rename = "dev-auto")]
+    DevAuto,
+    #[serde(rename = "dev-pair")]
+    DevPair,
     Research,
     #[default]
     All,
 }
 
 impl ProfileScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Development => "development",
+            Self::DevAuto => "dev-auto",
+            Self::DevPair => "dev-pair",
+            Self::Research => "research",
+            Self::All => "all",
+        }
+    }
     pub fn includes(&self, profile: ProfileKind) -> bool {
         match self {
             ProfileScope::All => true,
-            ProfileScope::Dev => profile == ProfileKind::Dev,
+            ProfileScope::Development => profile.is_development(),
+            ProfileScope::DevAuto => profile == ProfileKind::DevAuto,
+            ProfileScope::DevPair => profile == ProfileKind::DevPair,
             ProfileScope::Research => profile == ProfileKind::Research,
         }
     }
@@ -68,7 +106,8 @@ pub struct AgentDef {
     pub mode: AgentMode,
     #[serde(default = "default_steps")]
     pub steps: u32,
-    /// 系统提示词正文(markdown body)。
+    /// The selected Agent's system text. Same-name source overrides replace this
+    /// definition; other Agent bodies and project conventions are not merged into it.
     #[serde(default)]
     pub system: String,
 }
@@ -129,9 +168,10 @@ pub struct SkillDef {
     pub source: String,
     pub name: String,
     pub description: String,
-    /// SKILL.md 路径;名称/描述/路径索引进提示词,正文由模型按此路径用 read 读取
-    /// (没有 skill 工具)。
+    /// Source locator; packaged resources are read through skill_read, not a filesystem path.
     pub path: std::path::PathBuf,
+    /// Full source version captured with its catalog metadata.
+    pub revision: String,
     /// Directory capability recorded by catalog discovery; never supplied by an IPC client.
     #[serde(skip)]
     pub content_root: Option<std::path::PathBuf>,

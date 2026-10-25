@@ -155,7 +155,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         "kanzei.toml 里的 N 必须被读进配置"
     );
     let rctx = ResolveCtx {
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         cwd: project.clone(),
         project_root: project.clone(),
         config: config.clone(),
@@ -177,7 +177,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
 
     let agent = kanzei_harness::AgentDef {
         name: "dev-pair".into(),
-        profile: kanzei_harness::ProfileScope::Dev,
+        profile: kanzei_harness::ProfileScope::Development,
         model: "mock".into(),
         mode: kanzei_harness::AgentMode::Primary,
         steps: 4,

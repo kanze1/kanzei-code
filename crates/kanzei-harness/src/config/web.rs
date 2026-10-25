@@ -75,7 +75,10 @@ mod tests {
                 context_limit: None,
             },
         };
-        assert_eq!(config.hosted_tools_for(&model, ProfileKind::Dev).len(), 1);
+        assert_eq!(
+            config.hosted_tools_for(&model, ProfileKind::DevAuto).len(),
+            1
+        );
         assert!(config
             .hosted_tools_for(&model, ProfileKind::Research)
             .is_empty());
@@ -85,10 +88,17 @@ mod tests {
             1
         );
         model.provider.protocol = "deepseek-responses".into();
-        assert!(config.hosted_tools_for(&model, ProfileKind::Dev).is_empty());
+        assert!(config
+            .hosted_tools_for(&model, ProfileKind::DevAuto)
+            .is_empty());
         model.provider.auth = Some("codex".into());
-        assert_eq!(config.hosted_tools_for(&model, ProfileKind::Dev).len(), 1);
+        assert_eq!(
+            config.hosted_tools_for(&model, ProfileKind::DevAuto).len(),
+            1
+        );
         config.web.native_search = Some(false);
-        assert!(config.hosted_tools_for(&model, ProfileKind::Dev).is_empty());
+        assert!(config
+            .hosted_tools_for(&model, ProfileKind::DevAuto)
+            .is_empty());
     }
 }

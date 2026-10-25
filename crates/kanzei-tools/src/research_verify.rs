@@ -450,14 +450,11 @@ impl Tool for ResearchVerifyTool {
                     ToolOutput::error(report.to_string())
                 }
             }
-            "budget_get" => match crate::research_control::budget(&ctx.project_root, topic) {
-                Ok(budget) => ToolOutput::ok(json!({"topic":topic,"effective":budget,"source":if dir.join("workflow.json").is_file() {"workflow"} else if dir.join("budget.json").is_file() {"override"} else {"plan"}}).to_string()),
+            "budget_get" => match crate::research_budget::load(&ctx.project_root, topic) {
+                Ok(budget) => ToolOutput::ok(json!({"topic":topic,"effective":budget,"source":if dir.join("budget.json").is_file() {"override"} else {"plan"}}).to_string()),
                 Err(error) => ToolOutput::error(error),
             },
             "budget_set" => {
-                if dir.join("workflow.json").exists() {
-                    return ToolOutput::needs_correction("AUTO_RESEARCH_BUDGET", "AUTO research 使用用户启动时设置的检索预算，请用 budget_get 回读，不能由模型重设");
-                }
                 let plan = match load_plan(&ctx.project_root, topic) {
                     Ok(Some(plan)) => plan,
                     Ok(None) => {

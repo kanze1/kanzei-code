@@ -30,7 +30,6 @@ export const commandParameters = {
   "auto_state_update": {
     "enabled": false,
     "goal": false,
-    "maxRounds": false,
     "paused": false,
     "sessionId": true,
     "stopAfterRound": false
@@ -658,24 +657,6 @@ export const commandParameters = {
     "title": true,
     "topic": true
   },
-  "research_workflow_get": {
-    "projectDir": true,
-    "topic": true
-  },
-  "research_workflow_start": {
-    "budget": true,
-    "maxMvpRuns": true,
-    "projectDir": true,
-    "topic": true
-  },
-  "research_workflow_update": {
-    "action": true,
-    "direction": false,
-    "maxMvpRuns": false,
-    "projectDir": true,
-    "revision": true,
-    "topic": true
-  },
   "reveal_path": {
     "path": false,
     "processId": false,
@@ -816,7 +797,6 @@ export const commandParameters = {
   },
   "ui_prefs_get": {},
   "ui_prefs_set": {
-    "auto_max": false,
     "backdrop": false,
     "continue_prompt": false,
     "memory_view": false,

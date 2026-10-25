@@ -189,7 +189,7 @@ pub async fn projects_create(
         Ok(json!({
             "prefs": prefs,
             "path": root.display().to_string(),
-            "facts": kanzei_tools::project_state::probe(&root),
+            "facts": kanzei_tools::project_state::probe(&root, &root),
             "git": git,
             "gitError": git_error,
             "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
@@ -245,7 +245,7 @@ pub async fn project_git_init(
             kanzei_tools::project_state::git_init(&root, initial_commit.unwrap_or(false))?;
         Ok(json!({
             "git": outcome,
-            "facts": kanzei_tools::project_state::probe(&root),
+            "facts": kanzei_tools::project_state::probe(&root, &root),
         }))
     })
     .await
@@ -259,7 +259,7 @@ pub async fn project_facts(project_dir: String) -> Result<serde_json::Value, Str
         if !root.is_dir() {
             return Err(format!("项目目录不存在: {}", root.display()));
         }
-        serde_json::to_value(kanzei_tools::project_state::probe_cached(&root))
+        serde_json::to_value(kanzei_tools::project_state::probe_cached(&root, &root))
             .map_err(|e| e.to_string())
     })
     .await

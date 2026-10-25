@@ -6,7 +6,7 @@
   <meta name="color-scheme" content="dark light" />
   <link rel="stylesheet" href="app.css" />
 </head>
-<body class="familiar-workspace" data-app-scope="global" data-view="workspace" data-space="dev">
+<body class="familiar-workspace" data-app-scope="global" data-view="workspace" data-space="dev-auto">
   <div id="app">
     <aside id="activitybar">
       <!-- 侧栏开合常驻在 rail 上:窄视口下侧栏是悬浮层会盖住顶栏里的开关,
@@ -53,7 +53,7 @@
         <!-- 品牌块只写「kanzei」:原来的副标题「工作台」与「所有项目」页名重复(命名词表 2026-10-01:全局项目页统一叫「所有项目」)。 -->
         <div class="workbench-header">
           <div class="workbench-brand">kanzei</div>
-          <button type="button" id="workbench-chat-history" class="icon-btn" data-space-only="dev" aria-haspopup="dialog" title="搜索所有对话" data-i18n-title="搜索所有对话" aria-label="搜索对话" data-i18n-aria-label="搜索对话">
+          <button type="button" id="workbench-chat-history" class="icon-btn" data-space-only="dev-auto" aria-haspopup="dialog" title="搜索所有对话" data-i18n-title="搜索所有对话" aria-label="搜索对话" data-i18n-aria-label="搜索对话">
             <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           </button>
         </div>
@@ -65,14 +65,14 @@
           </button>
         </div>
         <button type="button" id="workbench-schedules" class="workbench-nav-link" data-i18n-key="定时任务">定时任务</button>
-        <button type="button" id="workbench-home" class="workbench-nav-link active" data-space-only="dev" data-i18n-key="所有项目">所有项目</button>
-        <button type="button" id="workbench-attention" class="workbench-nav-link" data-space-only="dev"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5h16v15H4zM4 14h5l1.5 2h3l1.5-2h5"/></svg><span data-i18n-key="待我处理">待我处理</span><span id="workbench-attention-count" class="workbench-nav-count"></span></button>
-        <div id="workbench-conversation-scroll" data-space-only="dev">
+        <button type="button" id="workbench-home" class="workbench-nav-link active" data-space-only="dev-auto" data-i18n-key="所有项目">所有项目</button>
+        <button type="button" id="workbench-attention" class="workbench-nav-link" data-space-only="dev-auto"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5h16v15H4zM4 14h5l1.5 2h3l1.5-2h5"/></svg><span data-i18n-key="待我处理">待我处理</span><span id="workbench-attention-count" class="workbench-nav-count"></span></button>
+        <div id="workbench-conversation-scroll" data-space-only="dev-auto">
         <div class="workbench-nav-label">
           <span data-i18n-key="项目">项目</span>
           <button type="button" id="workbench-add-project" class="icon-btn" aria-haspopup="menu" title="添加项目" data-i18n-title="添加项目" aria-label="添加项目" data-i18n-aria-label="添加项目">＋</button>
         </div>
-        <div id="workbench-project-list" data-space-only="dev"></div>
+        <div id="workbench-project-list" data-space-only="dev-auto"></div>
         <div class="workbench-nav-label"><span data-i18n-key="对话">对话</span></div>
         <button type="button" id="workbench-general-chat" class="workbench-nav-link" data-i18n-key="无项目对话">无项目对话</button>
         <div id="workbench-general-list" role="group" aria-label="无项目对话" data-i18n-aria-label="无项目对话"></div>
@@ -80,7 +80,7 @@
       </nav>
       <!-- 兼容工作区项目选择器；开发空间使用上方的项目列表和新对话入口。 -->
       <div id="workspace-bar" class="workspace-bar">
-        <button type="button" id="project-switch" data-space-only="dev" class="project-switch" aria-haspopup="menu" aria-expanded="false" title="切换项目" data-i18n-title="切换项目">
+        <button type="button" id="project-switch" data-space-only="dev-auto" class="project-switch" aria-haspopup="menu" aria-expanded="false" title="切换项目" data-i18n-title="切换项目">
           <span class="project-switch-mark" aria-hidden="true">
             <img src="assets/kanzei.svg" width="32" height="32" alt="">
           </span>
@@ -146,7 +146,7 @@
                「还没提交」「空项目」「共用上级目录数据」一条都看不到。现在常驻在对话页页头里(grid 的 head 区,独占一行),用户落脚的地方。
                外包一层 slot:03-workspaces 会对 [data-space-only] 元素无条件切 .hidden,告警自己的显隐要另管。
                09-sessions.js renderProjectFactsBanner / checkProjectIsolation。 -->
-          <div id="project-warn-slot" class="project-warn-slot" data-space-only="dev">
+          <div id="project-warn-slot" class="project-warn-slot" data-space-only="dev-auto">
             <div id="project-shared-warn" class="project-shared-warn hidden" role="alert"></div>
             <div id="project-facts" class="project-facts hidden" role="status" aria-live="polite"></div>
           </div>
@@ -294,7 +294,7 @@
         <div id="composer-more-menu" class="k-surface k-menu composer-menu-panel hidden" popover="manual" data-placement="top-end" role="group" aria-label="更多" data-i18n-aria-label="更多">
 <section class="composer-menu-section"><span class="composer-menu-heading" data-i18n-key="执行选项">执行选项</span>
 <button id="native-desktop-choose" type="button" class="kz-ctl" data-i18n-key="选择原生窗口">选择原生窗口</button>
-<label data-space-only="dev" id="profile-mode-wrap" class="composer-mode-control">
+<label data-space-only="dev-auto" id="profile-mode-wrap" class="composer-mode-control">
                 <span class="composer-control-label" data-i18n-key="下一轮执行模式">下一轮执行模式</span>
                 <select id="profile-select" class="kz-ctl ctx-mode" aria-label="下一轮执行模式" data-i18n-aria-label="下一轮执行模式">
                   <option value="dev-pair" data-i18n-key="结伴开发">结伴开发</option>
@@ -318,7 +318,7 @@
               </label>
               <span id="subagent-control-state" class="subagent-control-state" role="status" aria-live="polite" aria-atomic="true"></span>
             </div>
-<div data-space-only="dev" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
+<div data-space-only="dev-auto" id="autorun-bar" class="autorun-bar" role="group" aria-label="自动推进控制" data-i18n-aria-label="自动推进控制">
                 <label id="auto-continue-wrap" class="kz-ctl" title="每轮跑完自动发「继续推进目标」" data-i18n-title="每轮跑完自动发「继续推进目标」">
                   <input type="checkbox" id="auto-continue" /> <span data-i18n-key="鞭挞">鞭挞</span>
                 </label>
@@ -357,7 +357,6 @@
                       <kbd class="menu-key">2</kbd>
                       <input type="checkbox" id="auto-stop-round" />
                     </label>
-                    <!-- 旧版连续推进上限控件已移除。旧 auto_max 仍由状态层兼容读取,但不再是硬停机条件。 -->
                     <!-- R-322 B3:目标条件(Claude Code /goal 的形状)。留空 = 沿用
                          「有没有实质动作」的旧判据;填了 = 停止规则整体换成
                          「模型判定条件达成前不停」,引擎不再替模型决定还有没有活干。 -->
@@ -588,7 +587,7 @@
               <button id="defect-open" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="defect" aria-label="打开 defects.md 原文" data-i18n-aria-label="打开 defects.md 原文"><span data-i18n-key="打开 defects.md 原文">打开 defects.md 原文</span></button>
               <button id="idea-open" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="ideas" aria-label="打开 ideas.md 原文" data-i18n-aria-label="打开 ideas.md 原文" title="想法收件箱原文;拆解由人点按钮触发子代理" data-i18n-title="想法收件箱原文;拆解由人点按钮触发子代理"><span data-i18n-key="打开 ideas.md 原文">打开 ideas.md 原文</span></button>
               <div class="k-menu-sep" role="separator"></div>
-              <button id="documents-conventions-open" class="k-menu-item" type="button" role="menuitem" title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议" data-i18n-title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议"><span class="k-menu-item-main"><span class="k-menu-item-label" data-i18n-key="开发规范…">开发规范…</span><span id="documents-conventions-note" class="k-menu-item-desc" data-i18n-raw></span></span></button>
+              <button id="documents-conventions-open" class="k-menu-item" type="button" role="menuitem" title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议" data-i18n-title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议"><span class="k-menu-item-main"><span class="k-menu-item-label" data-i18n-key="项目规范…">项目规范…</span><span id="documents-conventions-note" class="k-menu-item-desc" data-i18n-raw></span></span></button>
             </div>
           </div>
           <div id="documents-error" class="documents-error hidden" role="alert"></div>
@@ -1113,7 +1112,8 @@
           <div class="form-row">
             <label for="set-profile" data-i18n-key="默认空间">默认空间</label>
             <select id="set-profile">
-              <option value="dev" data-i18n-key="开发">开发</option>
+              <option value="dev-auto" data-i18n-key="长期维护与开发">长期维护与开发</option>
+              <option value="dev-pair" data-i18n-key="结伴开发">结伴开发</option>
               <option value="research" data-i18n-key="研究">研究</option>
             </select>
           </div>
@@ -1121,7 +1121,7 @@
 
           <details class="settings-group" id="sg-cadence">
             <summary data-i18n-key="验证与提交节奏">验证与提交节奏</summary>
-          <p class="dim" data-i18n-key="留空 = 用内置默认。这里的选择会告诉代理多久测试、提交、推送一次,真实改变它在开发空间里的验证与提交行为;发版前的检查与 CI 全量测试是硬性要求,不受这里影响。">留空 = 用内置默认。这里的选择会告诉代理多久测试、提交、推送一次,真实改变它在开发空间里的验证与提交行为;发版前的检查与 CI 全量测试是硬性要求,不受这里影响。</p>
+          <p class="dim" data-i18n-key="节奏用于安排已授权的工作。Pair 按当前请求选择验证范围，提交和推送按任务需要执行；配置本身不代表授权。验证方式与发布门禁遵循项目规范。留空使用内置默认。">节奏用于安排已授权的工作。Pair 按当前请求选择验证范围，提交和推送按任务需要执行；配置本身不代表授权。验证方式与发布门禁遵循项目规范。留空使用内置默认。</p>
           <div class="form-row">
             <label for="set-cadence-full-test" data-i18n-key="全量测试">全量测试</label>
             <select id="set-cadence-full-test">
@@ -1138,13 +1138,13 @@
             <select id="set-cadence-targeted-test">
               <option value="" data-i18n-key="默认">默认</option>
               <option value="every_commit" data-i18n-key="每次提交前">每次提交前</option>
-              <option value="off" data-i18n-key="关闭">关闭</option>
+              <option value="off" data-i18n-key="按任务决定">按任务决定</option>
             </select>
             <label for="set-cadence-commit" data-i18n-key="提交粒度">提交粒度</label>
             <select id="set-cadence-commit">
               <option value="" data-i18n-key="默认">默认</option>
-              <option value="per_batch" data-i18n-key="每批一提交(默认,多批条目按批落提交)">每批一提交(默认,多批条目按批落提交)</option>
-              <option value="per_entry" data-i18n-key="整条目只提交一次(提交更少)">整条目只提交一次(提交更少)</option>
+              <option value="per_batch" data-i18n-key="按工作批次提交">按工作批次提交</option>
+              <option value="per_entry" data-i18n-key="按条目提交">按条目提交</option>
             </select>
           </div>
           <div class="form-row">
@@ -1153,7 +1153,7 @@
               <option value="" data-i18n-key="默认">默认</option>
               <option value="per_entry" data-i18n-key="条目完成后">条目完成后</option>
               <option value="per_commit" data-i18n-key="每提交后">每提交后</option>
-              <option value="periodic" data-i18n-key="定期自动">定期自动</option>
+              <option value="periodic" data-i18n-key="按项目约定">按项目约定</option>
             </select>
           </div>
 
@@ -1415,8 +1415,9 @@
           </details>
 
           <details class="settings-group" id="sg-agents">
-            <summary data-i18n-key="子代理定义">子代理定义</summary>
-            <p class="dim" data-i18n-key="内置、全局和项目里定义的子代理(只读)。项目里的同名定义会覆盖全局的;要修改请点「打开原文」。">内置、全局和项目里定义的子代理(只读)。项目里的同名定义会覆盖全局的;要修改请点「打开原文」。</p>
+            <summary data-i18n-key="Agent 定义">Agent 定义</summary>
+            <p class="dim" data-i18n-key="主 Agent 与子代理的解析快照。仅选中或委派时装载其正文；定义不增加工具权限，项目规范单独维护。">主 Agent 与子代理的解析快照。仅选中或委派时装载其正文；定义不增加工具权限，项目规范单独维护。</p>
+            <p class="dim" data-i18n-key="同名定义按内置、全局、已批准项目的顺序覆盖。项目文件修改后需重新批准；打开原文可编辑，修改后刷新目录。">同名定义按内置、全局、已批准项目的顺序覆盖。项目文件修改后需重新批准；打开原文可编辑，修改后刷新目录。</p>
             <div class="form-row">
               <button id="agent-directory-refresh" class="ghost" type="button" data-i18n-key="刷新">刷新</button>
               <span id="agent-directory-status" class="dim" role="status" aria-live="polite"></span>
@@ -1598,6 +1599,7 @@
       <button id="conventions-close" class="icon-btn" aria-label="关闭项目规范" data-i18n-aria-label="关闭项目规范">✕</button>
     </div>
     <div class="conventions-body">
+      <p id="conventions-project" class="dim"></p>
       <p id="conventions-notice" class="dim"></p>
       <div class="conventions-actions">
         <button id="conventions-edit" class="ghost mini" data-i18n-key="编辑">编辑</button>

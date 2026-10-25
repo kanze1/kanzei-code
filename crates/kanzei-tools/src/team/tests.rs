@@ -6,6 +6,21 @@ use tokio::{
     net::TcpListener,
 };
 
+#[tokio::test]
+async fn readonly_resumed_writer_is_rejected_before_workspace_preparation() {
+    let team = answered_question_team("readonly-resumed-writer");
+    team.0
+        .store
+        .update("question-child", |job| job.role = "implement".into())
+        .unwrap();
+    let (job, worker) = fixture_worker(&team);
+    team.0.config.lock().unwrap().profile = ProfileKind::Readonly;
+    let error = team.worker(&job.id, &worker).await.unwrap_err();
+    assert!(error.to_string().contains("不能运行可写子任务"));
+    assert!(team.0.store.get(&job.id).unwrap().worktree.is_none());
+    assert!(!team.0.runtime.lock().unwrap().writable);
+}
+
 fn fixture_worker(team: &AgentTeam) -> (AgentJob, Arc<ChildWorker>) {
     let job = team
         .0
@@ -1185,6 +1200,16 @@ async fn stop_all_cancels_real_worker_when_state_write_fails_and_does_not_relaun
     )
     .await
     .unwrap();
+    // A main-message steer starts its next request in the same worker. Observe
+    // that request before stopping, so a pre-stop connection is not counted as replay.
+    let (mut continued, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(request(&mut continued)
+        .await
+        .to_string()
+        .contains("queued before stop"));
     let job = team.resolve("stop-failure-child").unwrap();
     let token = team.0.active.lock().unwrap().get(&job.id).unwrap().clone();
     let db = rusqlite::Connection::open(kanzei_core::project_state_path(&team.0.root)).unwrap();
@@ -1475,7 +1500,7 @@ async fn ask_registration_and_stop_share_lifecycle_and_late_asks_do_not_persist(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_original_messages() {
+async fn running_worker_admits_explicit_resume_without_replaying_original_messages() {
     let root = project();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let team = team(
@@ -1495,13 +1520,13 @@ async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_origin
         .unwrap()
         .unwrap();
     request(&mut first).await;
-    // A successful UI continuation is queued while the first real model request
-    // is held open; it must survive the worker's subsequent timeout Err.
+    // A successful UI continuation interrupts the pending model request and
+    // preserves the original assignment within the same worker attempt.
     team.ui_command(json!({"action":"resume","id":"timed-out-child","prompt":"explicit follow-up after timeout"})).await.unwrap();
     let (mut second, _) = tokio::time::timeout(Duration::from_secs(6), listener.accept())
         .await
         .unwrap()
-        .expect("accepted continuation must launch after timeout cleanup");
+        .expect("accepted continuation must interrupt the pending request");
     let continued = request(&mut second).await.to_string();
     assert!(continued.contains("explicit follow-up after timeout"));
     assert!(
@@ -1517,7 +1542,7 @@ async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_origin
     .unwrap()
     .unwrap();
     assert_eq!(team.resolve("timed-out-child").unwrap().state, "done");
-    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 2);
+    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 1);
     // Stop-in-progress is explicitly rejected; once stop is complete, the same
     // public UI resume is a valid new dispatch and keeps its new worker.
     team.stop("timed-out-child").unwrap();
@@ -1544,7 +1569,7 @@ async fn timed_out_worker_hands_off_new_explicit_resume_without_replaying_origin
     .unwrap()
     .unwrap();
     assert_eq!(team.resolve("timed-out-child").unwrap().state, "done");
-    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 3);
+    assert_eq!(team.resolve("timed-out-child").unwrap().attempt, 2);
 
     let orphan = answered_question_team("original-failure-owner");
     let (job, token) = fixture_worker(&orphan);
@@ -1694,9 +1719,124 @@ fn answered_question_team(owner: &str) -> AgentTeam {
 
 fn question_notice() -> AsyncNotice {
     AsyncNotice {
+        origin: kanzei_base::MessageOrigin::Agent,
+        attachments: Vec::new(),
         id: "question-callback".into(),
         text: "answer yes".into(),
     }
+}
+
+#[test]
+fn inbox_admission_commits_all_pending_messages_with_history_or_neither() {
+    let team = answered_question_team("inbox-transaction-owner");
+    let id = "question-child";
+    team.0
+        .store
+        .update(id, |job| {
+            job.messages = (0..13)
+                .map(|index| AgentMessage {
+                    id: format!("input-{index}"),
+                    from: "main".into(),
+                    text: format!("INPUT_BODY_{index}"),
+                    state: "queued".into(),
+                    at: index,
+                })
+                .collect();
+        })
+        .unwrap();
+    let mut harness = Harness::default();
+    harness.add(super::tools::TeamTools {
+        team: team.clone(),
+        id: id.into(),
+        tree: team.0.root.clone(),
+        writing: false,
+    });
+    let snapshot = harness.resolve(&team.0.config.lock().unwrap()).unwrap();
+    let (context, _) = snapshot.refreshable_system_baseline_with_report().unwrap();
+    assert!(
+        !context.contains("INPUT_BODY_"),
+        "message bodies use the durable input channel"
+    );
+    assert!(team
+        .0
+        .store
+        .get(id)
+        .unwrap()
+        .messages
+        .iter()
+        .all(|m| m.state == "queued"));
+    assert!(team.0.store.history(id).unwrap().is_empty());
+
+    let db = rusqlite::Connection::open(team.0.store.state_path()).unwrap();
+    db.execute_batch("CREATE TRIGGER reject_input_history BEFORE UPDATE OF history ON agent_team_jobs BEGIN SELECT RAISE(ABORT, 'injected inbox history failure'); END;").unwrap();
+    let error = team.0.store.admit_inputs(id).unwrap_err();
+    assert!(error.to_string().contains("injected inbox history failure"));
+    assert!(team
+        .0
+        .store
+        .get(id)
+        .unwrap()
+        .messages
+        .iter()
+        .all(|m| m.state == "queued"));
+    assert!(team.0.store.history(id).unwrap().is_empty());
+    db.execute_batch("DROP TRIGGER reject_input_history;")
+        .unwrap();
+
+    let (job, notices) = team.0.store.admit_inputs(id).unwrap();
+    assert_eq!(
+        notices.len(),
+        13,
+        "history preview limits cannot drop pending inputs"
+    );
+    assert!(job.messages.iter().all(|m| m.state == "admitted"));
+    let history = team.0.store.history(id).unwrap();
+    assert_eq!(history.len(), 13);
+    for (message, notice) in history.iter().zip(&notices) {
+        assert_eq!(
+            serde_json::to_value(message).unwrap(),
+            serde_json::to_value(Message::context_text(notice.origin, &notice.text)).unwrap()
+        );
+        assert!(notice.text.contains(&notice.id));
+    }
+    assert!(team.0.store.admit_inputs(id).unwrap().1.is_empty());
+    assert_eq!(team.0.store.history(id).unwrap().len(), 13);
+
+    team.0
+        .store
+        .update(id, |job| {
+            job.messages.push(AgentMessage {
+                id: "later".into(),
+                from: "peer".into(),
+                text: "LATER_BODY".into(),
+                state: "queued".into(),
+                at: 14,
+            })
+        })
+        .unwrap();
+    assert_eq!(
+        team.0.store.get(id).unwrap().messages.last().unwrap().state,
+        "queued"
+    );
+    assert_eq!(team.0.store.admit_inputs(id).unwrap().1.len(), 1);
+    assert_eq!(team.0.store.history(id).unwrap().len(), 14);
+
+    db.execute(
+        "DELETE FROM agent_team_jobs WHERE owner=? AND id=?",
+        rusqlite::params![team.0.owner, id],
+    )
+    .unwrap();
+    let failure = snapshot
+        .refreshable_system_baseline_with_report()
+        .unwrap_err();
+    assert!(
+        failure.sources.iter().any(|source| {
+            source.key == "team/inbox"
+                && source.requirement == kanzei_harness::ContextRequirement::Required
+                && source.status == kanzei_harness::ContextSourceStatus::Failed
+        }),
+        "an unreadable inbox cannot masquerade as no messages"
+    );
 }
 
 #[tokio::test]
@@ -2434,7 +2574,7 @@ fn team_with_ctx(root: PathBuf, url: &str, ctx: ToolCtx) -> AgentTeam {
     let rctx = ResolveCtx {
         cwd: root.clone(),
         project_root: root.clone(),
-        profile: ProfileKind::Dev,
+        profile: ProfileKind::DevAuto,
         config: config.clone(),
     };
     let mut harness = Harness::default();
@@ -2926,6 +3066,10 @@ async fn parallel_children_fork_context_and_steering_are_delivered_before_next_r
         .unwrap();
     let steered = request(&mut next).await;
     assert!(steered.to_string().contains("STEERING_NEXT_REQUEST"));
+    assert_eq!(
+        steered.to_string().matches("STEERING_NEXT_REQUEST").count(),
+        1
+    );
     respond(&mut next, json!({"content":"A followed updated direction"})).await;
     tokio::time::timeout(
         Duration::from_secs(8),
@@ -2947,6 +3091,9 @@ async fn parallel_children_fork_context_and_steering_are_delivered_before_next_r
         .iter()
         .all(|j| j["state"] == "done"));
     assert!(!team.has_updates());
+    assert!(serde_json::to_string(&team.0.store.history("a").unwrap())
+        .unwrap()
+        .contains("STEERING_NEXT_REQUEST"));
     assert!(team
         .0
         .store
@@ -3158,24 +3305,24 @@ async fn empty_child_result_is_a_failure_not_completion() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn custom_persona_is_visible_and_preserves_system_without_a_step_limit() {
+async fn custom_role_is_visible_and_preserves_system_without_a_step_limit() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let team = team(
         project(),
         &format!("http://{}/v1", listener.local_addr().unwrap()),
-        "persona-owner",
+        "registered_role-owner",
     );
-    let mut persona = crate::plan_agent();
-    persona.name = "auditor".into();
-    persona.system = "CUSTOM_PERSONA_EVIDENCE".into();
-    persona.steps = 7;
-    team.0.runtime.lock().unwrap().roster.push(persona);
+    let mut registered_role = crate::plan_agent();
+    registered_role.name = "auditor".into();
+    registered_role.system = "CUSTOM_PERSONA_EVIDENCE".into();
+    registered_role.steps = 7;
+    team.0.runtime.lock().unwrap().roster.push(registered_role);
     assert!(team.spec().input_schema["properties"]["agent"]["enum"]
         .as_array()
         .unwrap()
         .contains(&json!("auditor")));
     team.command(
-        "persona",
+        "registered_role",
         json!({"agent":"auditor","prompt":"Inspect source"}),
     )
     .await
@@ -3186,7 +3333,13 @@ async fn custom_persona_is_visible_and_preserves_system_without_a_step_limit() {
         .unwrap();
     let payload = request(&mut socket).await;
     assert!(payload.to_string().contains("CUSTOM_PERSONA_EVIDENCE"));
-    assert!(team.0.store.get("persona").unwrap().worktree.is_none());
+    assert!(team
+        .0
+        .store
+        .get("registered_role")
+        .unwrap()
+        .worktree
+        .is_none());
     respond(&mut socket, json!({"content":"checked"})).await;
     tokio::time::timeout(
         Duration::from_secs(8),

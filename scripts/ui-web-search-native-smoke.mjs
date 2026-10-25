@@ -79,10 +79,10 @@ try {
   await page.locator(".workbench-project-name").filter({ hasText: "网页搜索原生验收" }).click();
   const lines = [];
   for (const mode of ["NATIVE_SEARCH_DENY", "NATIVE_SEARCH_ALLOW", "NATIVE_SEARCH_UNATTENDED", "NATIVE_SEARCH_AUTO_ALLOW"]) {
-    const line = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:test", subagentMode: "off" }); lines.push(line);
+    const line = await invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:test", subagentMode: "off" }); lines.push(line);
     await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, line.id);
     const before = requests.length, autonomous = mode === "NATIVE_SEARCH_UNATTENDED" || mode === "NATIVE_SEARCH_AUTO_ALLOW";
-    await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${mode}：检索指定范围并保留实际来源。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous, autoAllow: mode === "NATIVE_SEARCH_AUTO_ALLOW" });
+    await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `${mode}：检索指定范围并保留实际来源。`, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous, autoAllow: mode === "NATIVE_SEARCH_AUTO_ALLOW" });
     if (!autonomous) {
       await until(async () => (await invoke("pending_asks_get", { projectDir: project, processId: line.id })).some(ask => ask.action === "websearch"), "Search waits for actual permission");
       check(requests.length === before, `${mode}: zero native HTTP requests before permission`);

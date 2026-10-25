@@ -24,18 +24,17 @@ use serde_json::json;
 use tauri::Emitter;
 
 use crate::state::MutexPoisonExt;
-use crate::{
-    prompt_attachment_parts, typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment,
-};
+use crate::{typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment};
 
 mod components;
-use components::{DiscussionBoundary, TrackerWritePolicyComponent};
+use components::TrackerWritePolicyComponent;
 
 /// R-253 批7b:进入运行域的调用契约三分组之一——**本轮输入**(`RoundRequest`)。
 /// IPC 入口(run_prompt)解析后的「这一轮要跑什么」:提示词、附件、工作目录/主根/
 /// 会话身份、投递方式、已准入输入、进程身份。
 /// 生命周期:一次性——随本轮产生、随本轮消费,不跨轮复用。
 pub(crate) struct RoundRequest {
+    pub(crate) input_origin: kanzei_base::MessageOrigin,
     pub(crate) prompt: String,
     pub(crate) attachments: Option<Vec<PromptAttachment>>,
     pub(crate) project_dir: String,
@@ -72,7 +71,7 @@ pub(crate) struct RunMode {
 
 impl RunMode {
     pub(crate) fn ask_policy(&self, agent: &str) -> kanzei_core::AskPolicy {
-        if !self.autonomous && agent == "dev" {
+        if !self.autonomous && agent == kanzei_harness::DEV_AUTO_AGENT {
             kanzei_core::AskPolicy::DeferredQuestions
         } else if !self.autonomous {
             kanzei_core::AskPolicy::Interactive
@@ -87,11 +86,11 @@ impl RunMode {
     pub(crate) fn uses_project_workflow(&self) -> bool {
         self.profile
             .as_deref()
-            .is_none_or(|profile| profile == "dev")
+            .is_none_or(|profile| profile == "dev-auto")
             && self
                 .agent_name
                 .as_deref()
-                .is_none_or(|agent| agent == "dev")
+                .is_none_or(|agent| agent == kanzei_harness::DEV_AUTO_AGENT)
     }
 }
 
@@ -130,7 +129,6 @@ pub(crate) struct RuntimeHandles {
 /// context monolith;对每一个参数组都要能说出它属于哪一层生命周期。
 pub(crate) struct RuntimeDeps {
     pub(crate) project_root: PathBuf,
-    pub(crate) research_topic: Option<String>,
     pub(crate) config: Arc<KanzeiConfig>,
     pub(crate) profile: kanzei_harness::ProfileKind,
     pub(crate) rctx: ResolveCtx,
@@ -229,7 +227,7 @@ pub(crate) async fn assemble_run(
         ));
     }
     if let Some(topic) = &mode.research_topic {
-        harness.add(kanzei_tools::research_workflow::ResearchWorkflowContext(
+        harness.add(kanzei_tools::research_topic::ResearchTopicContext(
             topic.clone(),
         ));
     }
@@ -237,23 +235,9 @@ pub(crate) async fn assemble_run(
     let mut agent = snapshot
         .select_primary_agent(mode.agent_name.as_deref())?
         .clone();
-    crate::skills::append_explicit_instructions(
-        &mut agent.system,
-        request
-            .promoted_input
-            .as_ref()
-            .map(|input| input.prompt.as_str())
-            .unwrap_or(&request.prompt),
-    )?;
-    if project_workflow {
-        append_dev_guidance(&mut agent.system, profile, work_priority, &config);
-    }
     if !mode.subagent_mode.enabled() {
         agent.system.push('\n');
         agent.system.push_str(mode.subagent_mode.guidance());
-    }
-    if let Some(topic) = mode.research_topic.as_deref() {
-        agent.system.push_str(&format!("\n\n当前研究课题: {topic}。本会话的研究工件位于 .kanzei/research/{topic}/。来源、发现、计划、实验和报告均使用该 topic；其他课题仅在用户明确要求比较时读取，不改变当前课题归属。"));
     }
     stage(
         "装配",
@@ -294,6 +278,7 @@ pub(crate) async fn assemble_run(
         &config,
         mode.reasoning_override.as_deref(),
         &ctx.project_root,
+        rctx.profile,
         // D-281:自动轮默认 NonInteractive(避免后台 ASK 挂起弹窗);用户勾选
         // 自动放行后传 AutoAllow——权限询问直接放行并落 PermissionResolved
         // 事件,不再静默 declined(开关因此对鞭挞/自主推进轮生效)。
@@ -329,7 +314,6 @@ pub(crate) async fn assemble_run(
     let session_id = request.session_id.clone();
     let mut deps = RuntimeDeps {
         project_root,
-        research_topic: mode.research_topic.clone(),
         config,
         profile,
         rctx,
@@ -374,7 +358,7 @@ async fn prepare_session(
     handles: &RuntimeHandles,
     halt_token: &kanzei_core::CancellationToken,
     deps: &mut RuntimeDeps,
-    ctx: ToolCtx,
+    mut ctx: ToolCtx,
 ) -> anyhow::Result<(SessionContext, RoundContext)> {
     let profile = deps.profile;
     let agent = &mut deps.agent;
@@ -386,58 +370,86 @@ async fn prepare_session(
         &ctx.project_root.display().to_string(),
         None,
     )?;
-    let promoted = if let Some(input) = request.promoted_input {
-        input
+    let mut immediate_attachments = request.attachments.unwrap_or_default();
+    let (promoted, prepared_parts) = if let Some(input) = request.promoted_input {
+        (input, None)
     } else {
+        // Fresh files must be persisted before admission. Already admitted inputs
+        // enter the guarded startup below before rejecting any replacement files.
+        let crate::attachments::PreparedAttachments {
+            references: attachment_refs,
+            parts,
+        } = crate::attachments::prepare(
+            &ctx.project_root,
+            std::mem::take(&mut immediate_attachments),
+        )?;
         let input_id = format!(
             "input_{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
         );
         if let Some(item_id) = request.work_item_id.as_deref() {
-            store.admit_work_input(&request.session_id, &input_id, &request.prompt, item_id)?;
+            store.admit_work_input(
+                &request.session_id,
+                &input_id,
+                &request.prompt,
+                item_id,
+                request.input_origin,
+                &attachment_refs,
+            )?;
         } else if mode.execution_batch || mode.autonomous {
             store.admit_batch_input(
                 &request.session_id,
                 &input_id,
                 &request.prompt,
                 request.delivery,
+                request.input_origin,
+                &attachment_refs,
             )?;
         } else {
-            store.admit_input(
+            store.admit_input_with_source(
                 &request.session_id,
                 &input_id,
                 &request.prompt,
                 request.delivery,
+                Some(request.input_origin.as_str()),
+                &attachment_refs,
             )?;
         }
-        store
+        let input = store
             .promote_next_input(&request.session_id)?
-            .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?
+            .ok_or_else(|| anyhow::anyhow!("无法提升已提交的桌面端输入"))?;
+        (input, Some((input_id, parts)))
     };
     let promoted_input_id = promoted.input_id.clone();
     let mut startup_writer = None;
     let prepared = async {
+        anyhow::ensure!(
+            immediate_attachments.is_empty(),
+            "已准入输入的附件由原始准入记录持有，不能在提升时重新附加文件"
+        );
+        let initial_parts = match prepared_parts {
+            Some((input_id, parts)) if input_id == promoted.input_id => parts,
+            _ => crate::attachments::load_parts(&promoted.attachments)?,
+        };
         let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
         anyhow::ensure!(
             work_item_id.is_none() || ctx.project_workflow,
             "领取需求请切换到自主推进；结伴开发按当前对话执行"
         );
         anyhow::ensure!(
-            work_item_id.is_none()
-                || (profile == kanzei_harness::ProfileKind::Dev && !mode.block_tracker_writes),
+            work_item_id.is_none() || (profile.is_development() && !mode.block_tracker_writes),
             "当前对话不能领取需求，请返回可写的开发主对话开始"
         );
+        ctx.input_origin = promoted.origin;
+        ctx.input_attachments = promoted.attachments;
         let prompt = promoted.prompt;
-        let initial_parts = prompt_attachment_parts(request.attachments.unwrap_or_default())?;
-        let mut typed_user_parts = initial_parts.clone();
-        if !prompt.is_empty() {
-            typed_user_parts.insert(
-                0,
-                kanzei_llm::Part::Text {
-                    text: prompt.clone(),
-                },
-            );
-        }
+        ctx.invoked_skills = kanzei_harness::skills::invoked_context(&deps.snapshot, &prompt)?;
+        let typed_user_message = kanzei_core::input_message(
+            ctx.input_origin,
+            &prompt,
+            &ctx.input_attachments,
+            &initial_parts,
+        );
         // promoted → running,并记住本轮身份与墙钟(D-173)。少了 running/completed 这段
         // 生命周期,跑完的输入永远停在 promoted,以后任何一次停止都会把它追认成 cancelled。
         let promoted_input_id = promoted.input_id.clone();
@@ -445,18 +457,25 @@ async fn prepare_session(
             store.start_input(&promoted_input_id)?,
             "桌面输入已变化，未开始重复执行"
         );
-        let completion_goal = handles
+        let completion = handles
             .auto_runs
             .lock_or_recover()
             .get(&request.session_id)
-            .and_then(|controller| controller.goal.clone());
-        // 完成声明契约只给开发档(UX-008):只读讨论与研究档没有 work 工具、轮末也不消费
-        // handoff,注入只会让模型把范围/目标/证据当散文讲给用户。判据见 context_prompt_for。
-        if ctx.project_workflow || completion_goal.is_some() {
+            .map(|controller| (controller.enabled, controller.goal.clone()));
+        // 只在启用继续推进或设置目标时提供完成契约；Pair 的请求循环不接管项目队列。
+        if let Some((enabled, goal)) =
+            completion.filter(|(enabled, goal)| !general && (*enabled || goal.is_some()))
+        {
+            let completion_mode = if enabled && ctx.project_workflow {
+                kanzei_harness::handoff::CompletionMode::ProjectQueue
+            } else {
+                kanzei_harness::handoff::CompletionMode::Request
+            };
             if let Some(contract) = kanzei_harness::handoff::context_prompt_for(
                 profile,
                 &promoted_input_id,
-                completion_goal.as_deref(),
+                goal.as_deref(),
+                completion_mode,
             ) {
                 agent.system.push_str(&contract);
             }
@@ -499,13 +518,9 @@ async fn prepare_session(
             &request.session_id,
             persisted,
         );
-        let user_committed = typed_writer.lock_or_recover().user_message(
-            &promoted_input_id,
-            kanzei_llm::Message {
-                role: kanzei_llm::Role::User,
-                parts: typed_user_parts,
-            },
-        );
+        let user_committed = typed_writer
+            .lock_or_recover()
+            .user_message(&promoted_input_id, typed_user_message);
         anyhow::ensure!(
             user_committed,
             "用户输入未持久化: {}",
@@ -746,22 +761,6 @@ pub(crate) fn resolve_proxy(
     }
 }
 
-pub(crate) fn append_dev_guidance(
-    system: &mut String,
-    profile: kanzei_harness::ProfileKind,
-    work_priority: &str,
-    config: &kanzei_harness::config::KanzeiConfig,
-) {
-    if profile != kanzei_harness::ProfileKind::Dev {
-        return;
-    }
-    system.push('\n');
-    system.push('\n');
-    // 通用执行与节奏在 tools profile 中单源注入，桌面只补自身能力边界。
-    let _ = (work_priority, config);
-    system.push_str("Desktop: ui inspection tools inspect the running Kanzei UI, not an arbitrary project's browser or mobile app. Before committing shared work, use `collaboration_status` to check ownership.");
-}
-
 /// kz:meta 载荷:本轮**实际**使用的模型、思考档与 Fast mode(UI-0926 #3)。
 ///
 /// 状态栏据此显示「上一轮实际使用」;reasoning/codexFastMode 直接取自已构造好的
@@ -774,7 +773,7 @@ pub(crate) fn run_meta_payload(
     runner_config: &kanzei_core::RunnerConfig,
 ) -> serde_json::Value {
     json!({
-        "profile": format!("{profile:?}").to_lowercase(),
+        "profile": profile.as_str(),
         "agent": agent_name,
         "model": format!("{}:{}", resolved.provider_name, resolved.model),
         "contextLimit": resolved.provider.context_limit,
@@ -788,18 +787,14 @@ pub(crate) fn build_run_harness(
     block_tracker_writes: bool,
     collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
 ) -> kanzei_harness::Harness {
-    // R-256 批4:与 CLI 共用 kanzei_runtime::build_harness(对照表 #5 公共部分单点);
-    // FrontendTools 在 Markdown 前(middle),TrackerWritePolicy/Collaboration 在
-    // Config 后(tail),顺序与原来逐字节一致。
+    // Runtime owns Agent precedence and the final projectless projection.
+    // Desktop tools precede user sources; application execution policy follows config.
     kanzei_runtime::build_harness(
         profile,
         |harness| {
             harness.add(crate::harness_ext::FrontendToolsComponent);
-            // R-221 B1:桌面端也注册 readonly 档位；组件只在 ProfileKind::Readonly 生效。
-            harness.add(kanzei_tools::ReadonlyProfile);
         },
         |harness| {
-            harness.add(DiscussionBoundary);
             harness.add(TrackerWritePolicyComponent {
                 block: block_tracker_writes,
             });
@@ -808,7 +803,6 @@ pub(crate) fn build_run_harness(
                     probe: probe.clone(),
                 });
             }
-            harness.add(crate::general_chat::GeneralChatBoundary);
         },
     )
 }
@@ -823,7 +817,7 @@ pub(crate) fn resolve_profile(
         Some(profile) => profile
             .parse()
             .map_err(|error: String| anyhow::anyhow!(error)),
-        None => Ok(config.default_profile()),
+        None => config.default_profile().map_err(anyhow::Error::msg),
     }
 }
 
@@ -959,7 +953,7 @@ mod startup_tests {
             };
             let snapshot = kanzei_harness::Harness::default().resolve(&rctx).unwrap();
             let agent = serde_json::from_value(json!({
-                "name":"fixture", "profile":"dev", "mode":"primary", "steps":1, "system":"test"
+                "name":"fixture", "profile":"dev-auto", "mode":"primary", "steps":1, "system":"test"
             }))
             .unwrap();
             let runner_config = kanzei_core::RunnerConfig {
@@ -979,7 +973,6 @@ mod startup_tests {
             };
             let deps = RuntimeDeps {
                 project_root: root.clone(),
-                research_topic: None,
                 config,
                 profile,
                 rctx,
@@ -998,7 +991,7 @@ mod startup_tests {
 
                 subagent_mode: kanzei_harness::SubagentMode::Off,
                 block_tracker_writes: false,
-                profile: Some(format!("{profile:?}").to_lowercase()),
+                profile: Some(profile.as_str().into()),
                 research_topic: None,
                 agent_name: None,
                 model_override: None,
@@ -1025,6 +1018,7 @@ mod startup_tests {
 
         fn request(&self, promoted_input: Option<kanzei_core::AdmittedInput>) -> RoundRequest {
             RoundRequest {
+                input_origin: kanzei_base::MessageOrigin::Human,
                 prompt: "new prompt".into(),
                 attachments: None,
                 project_dir: self.root.display().to_string(),
@@ -1370,7 +1364,16 @@ mod startup_tests {
                 .user_message("old", kanzei_llm::Message::user_text("old unfinished turn")));
             historical.turn_started(1, 1);
             drop(historical);
-            let mut request = fixture.request(None);
+            let promoted = if baseline {
+                None
+            } else {
+                fixture
+                    .store
+                    .admit_input("ses", "saved", "saved input", kanzei_core::Delivery::Queue)
+                    .unwrap();
+                fixture.store.promote_next_input("ses").unwrap()
+            };
+            let mut request = fixture.request(promoted);
             if baseline {
                 fixture.inject("CREATE TRIGGER reject_baseline BEFORE INSERT ON session_events WHEN NEW.event_type='run.baseline' BEGIN SELECT RAISE(ABORT,'injected baseline'); END;");
             } else {
@@ -1385,7 +1388,7 @@ mod startup_tests {
             assert!(error.to_string().contains(if baseline {
                 "injected baseline"
             } else {
-                "附件数据为空"
+                "已准入输入的附件由原始准入记录持有"
             }));
             assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
             assert_eq!(
@@ -1428,9 +1431,70 @@ mod startup_tests {
     }
 
     #[tokio::test]
+    async fn invalid_fresh_attachments_fail_before_input_admission() {
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        let mut request = fixture.request(None);
+        request.attachments = Some(vec![PromptAttachment {
+            file_name: "empty.png".into(),
+            media_type: "image/png".into(),
+            data: String::new(),
+        }]);
+        let error = fixture.prepare(request).await.err().unwrap();
+        assert!(error.to_string().contains("附件数据为空"));
+        assert_eq!(fixture.count("prompt.admitted"), 0);
+        assert_eq!(fixture.count("prompt.promoted"), 0);
+        assert!(fixture.store.list_session_facts("ses").unwrap().is_empty());
+        assert_eq!(fixture.requests.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn fifo_input_uses_its_own_attachments_and_preserves_new_input_files() {
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        let saved = crate::attachments::prepare(
+            &fixture.root,
+            vec![PromptAttachment {
+                file_name: "first.txt".into(),
+                media_type: "text/plain".into(),
+                data: "Zmlyc3QgZmlsZQ==".into(),
+            }],
+        )
+        .unwrap();
+        fixture
+            .store
+            .admit_input_with_source(
+                "ses",
+                "first",
+                "first input",
+                kanzei_core::Delivery::Queue,
+                Some("human"),
+                &saved.references,
+            )
+            .unwrap();
+        let mut request = fixture.request(None);
+        request.attachments = Some(vec![PromptAttachment {
+            file_name: "second.txt".into(),
+            media_type: "text/plain".into(),
+            data: "c2Vjb25kIGZpbGU=".into(),
+        }]);
+        let (session, round) = fixture.prepare(request).await.unwrap();
+        assert_eq!(session.promoted_input_id, "first");
+        assert_eq!(session.prompt, "first input");
+        assert_eq!(session.initial_parts, saved.parts);
+        let pending = fixture.store.list_pending_inputs("ses").unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].prompt, "new prompt");
+        assert_eq!(pending[0].attachments[0].name, "second.txt");
+        assert_ne!(pending[0].attachments, saved.references);
+        fixture
+            .execute_if_prepared(Ok((session, round)))
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
     async fn dev_run_can_reach_provider_while_another_run_owns_the_mutation_slot() {
         use kanzei_harness::orchestration::WriterLeaseRequest;
-        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Dev).await;
+        let mut fixture = Fixture::new(kanzei_harness::ProfileKind::DevAuto).await;
         let coordinator = fixture.handles.coordinator.clone();
         let blocker = coordinator
             .acquire_writer_lease(WriterLeaseRequest {
@@ -1494,7 +1558,7 @@ mod startup_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_dev_guidance, build_run_harness};
+    use super::build_run_harness;
     use kanzei_harness::ProfileKind;
 
     #[test]
@@ -1504,7 +1568,7 @@ mod tests {
 
             subagent_mode: kanzei_harness::SubagentMode::Auto,
             block_tracker_writes: false,
-            profile: Some("dev".into()),
+            profile: Some("dev-auto".into()),
             research_topic: None,
             agent_name: None,
             model_override: None,
@@ -1515,10 +1579,10 @@ mod tests {
         };
         use kanzei_core::AskPolicy::{AutoAllow, DeferredQuestions, Interactive, NonInteractive};
         for (agent, autonomous, auto_allow, expected) in [
-            ("dev", false, false, DeferredQuestions),
-            ("dev", false, true, DeferredQuestions),
-            ("dev", true, false, NonInteractive),
-            ("dev", true, true, AutoAllow),
+            ("dev-auto", false, false, DeferredQuestions),
+            ("dev-auto", false, true, DeferredQuestions),
+            ("dev-auto", true, false, NonInteractive),
+            ("dev-auto", true, true, AutoAllow),
             ("dev-pair", false, false, Interactive),
             ("dev-pair", true, false, NonInteractive),
             ("dev-pair", true, true, AutoAllow),
@@ -1536,7 +1600,7 @@ mod tests {
             !mode.uses_project_workflow(),
             "a paired goal is independent of the project queue"
         );
-        mode.agent_name = Some("dev".into());
+        mode.agent_name = Some("dev-auto".into());
         assert!(mode.uses_project_workflow());
     }
 
@@ -1559,42 +1623,30 @@ mod tests {
             kanzei_harness::Effect::Allow
         );
         assert_eq!(snapshot.evaluate("bash", "*"), kanzei_harness::Effect::Deny);
-        for (action, resource) in [
-            ("req", "write:add"),
-            ("work", "write:next"),
-            ("deliver", "*"),
-            ("memory_note", "*"),
-            ("git", "commit"),
+        let tools = snapshot.materialize_tools();
+        for name in ["req", "work", "deliver", "memory_note", "bash", "browser"] {
+            assert!(
+                !tools.iter().any(|tool| tool.name() == name),
+                "readonly must not expose {name}"
+            );
+        }
+        for name in [
+            "read",
+            "symbols",
+            "webfetch",
+            "websearch",
+            "skill_read",
+            "skill_list",
         ] {
-            assert_eq!(
-                snapshot.evaluate(action, resource),
-                kanzei_harness::Effect::Deny,
-                "discussion must not mutate {action}"
+            assert!(
+                tools.iter().any(|tool| tool.name() == name),
+                "readonly observation missing: {name}"
             );
         }
         assert_eq!(
             snapshot.evaluate("git", "status"),
             kanzei_harness::Effect::Allow
         );
-    }
-
-    #[test]
-    fn 开发提示词强制逐文件暂存并在提交前刷新协作状态() {
-        let config = kanzei_harness::config::KanzeiConfig::default();
-        let mut system = String::new();
-        append_dev_guidance(&mut system, ProfileKind::Dev, "defect-first", &config);
-        assert!(system.contains("`collaboration_status`"));
-        assert!(system.contains("running Kanzei UI"));
-        assert!(!system.contains("cargo test"));
-
-        let mut research = String::new();
-        append_dev_guidance(
-            &mut research,
-            ProfileKind::Research,
-            "defect-first",
-            &config,
-        );
-        assert!(research.is_empty(), "提交纪律只属于开发档位");
     }
 
     /// UI-0926 #3:kz:meta 带上本轮实际的思考档与 Fast mode,取自真正发出去的 RunnerConfig。
@@ -1609,25 +1661,27 @@ mod tests {
             &config,
             None,
             std::path::Path::new("C:/kanzei-run-meta"),
+            ProfileKind::DevAuto,
             kanzei_core::AskPolicy::Interactive,
             None,
         );
-        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        let payload = super::run_meta_payload(ProfileKind::DevAuto, "dev-auto", &resolved, &runner);
         assert_eq!(payload["model"], "codex:gpt-5.6-luna");
         assert_eq!(payload["reasoning"], "high");
         assert_eq!(payload["codexFastMode"], true);
-        assert_eq!(payload["profile"], "dev");
-        assert_eq!(payload["agent"], "dev");
+        assert_eq!(payload["profile"], "dev-auto");
+        assert_eq!(payload["agent"], "dev-auto");
         // 本线覆盖成 xhigh:载荷报的是覆盖后的实际档位,不是配置默认档。
         let runner = kanzei_runtime::build_runner_config(
             &resolved,
             &config,
             Some("xhigh"),
             std::path::Path::new("C:/kanzei-run-meta"),
+            ProfileKind::DevAuto,
             kanzei_core::AskPolicy::Interactive,
             None,
         );
-        let payload = super::run_meta_payload(ProfileKind::Dev, "dev", &resolved, &runner);
+        let payload = super::run_meta_payload(ProfileKind::DevAuto, "dev-auto", &resolved, &runner);
         assert_eq!(payload["reasoning"], "xhigh");
     }
 }

@@ -1,4 +1,4 @@
-//! 前端自查与快速记录组件。
+//! 桌面界面检查、交付与快速记录组件；能力说明随各自工具提供。
 
 use std::sync::Arc;
 
@@ -19,9 +19,7 @@ impl kanzei_harness::Tool for UiDomTool {
         "ui_dom"
     }
     fn description(&self) -> String {
-        "读取当前运行中窗口里匹配选择器的 DOM 子树(标签、class、可见文本、层级)。\
-         改完前端用它确认渲染结果——node --check 只查语法,查不出渲染成什么样。只读。"
-            .into()
+        "按 selector 读取当前运行中 Kanzei 窗口的 DOM、文本和元素属性，用于检查界面结构与状态。只读。".into()
     }
     fn input_schema(&self) -> serde_json::Value {
         serde_json::to_value(schemars::schema_for!(UiProbeInput)).unwrap()
@@ -57,8 +55,7 @@ impl kanzei_harness::Tool for UiConsoleTool {
         "ui_console"
     }
     fn description(&self) -> String {
-        "读取当前窗口自加载以来累积的 console 错误与警告(含未捕获异常)。\
-         前端改动后必查:ReferenceError 一类问题不会让页面白屏,只会让某一块悄悄失效。只读。"
+        "读取当前运行中 Kanzei 窗口自加载以来累积的 console 错误、警告和未捕获异常，用于排查界面运行问题。记录可能包含历史问题。只读。"
             .into()
     }
     fn input_schema(&self) -> serde_json::Value {
@@ -88,8 +85,7 @@ impl kanzei_harness::Tool for UiStyleTool {
         "ui_style"
     }
     fn description(&self) -> String {
-        "读取匹配元素的计算样式与盒模型(display/位置/尺寸/关键布局属性)。\
-         用来判断「为什么它没显示出来」「为什么挤成一团」,比猜 CSS 快得多。只读。"
+        "按 selector 读取当前运行中 Kanzei 窗口内元素的计算样式与盒模型，包括 display、位置、尺寸和关键布局属性，用于排查可见性与布局问题。只读。"
             .into()
     }
     fn input_schema(&self) -> serde_json::Value {
@@ -119,8 +115,7 @@ impl kanzei_harness::Tool for UiStyleTool {
     }
 }
 
-/// R-249 批2:窗口截图。ui_dom/ui_style 读得到结构与数值,但看不见渲染结果——
-/// 对齐、遮挡、观感一类问题只有像素能回答。
+/// 读取当前 Kanzei 窗口区域的屏幕像素；窗口遮挡也会进入截图。
 struct UiScreenshotTool;
 pub(crate) async fn capture_desktop(ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
     use kanzei_harness::Tool;
@@ -132,12 +127,7 @@ impl kanzei_harness::Tool for UiScreenshotTool {
         "ui_screenshot"
     }
     fn description(&self) -> String {
-        "截取当前运行中窗口的实际画面,以图片返回。ui_dom/ui_style 给的是结构与数值,\
-         这个给的是「看起来到底什么样」——对齐、间距、配色、观感只能靠它判断。\
-         改完前端先用 ui_dom 确认结构、再用本工具确认观感。\
-         注意:抓的是屏幕上该窗口矩形区域的像素,**压在上面的其它窗口会一并入画**。\
-         看到画面里有明显不属于本应用的内容时,说明窗口被遮挡了——按那部分下判断是错的,\
-         请说明情况而不是硬解读。整幅空白会直接报错,但部分遮挡检测不到。只读。"
+        "截取当前运行中 Kanzei 窗口区域的屏幕像素并返回图片，用于检查布局、配色与实际画面。遮挡窗口也会入画；整幅空白会报错，部分遮挡需结合画面判断。只读。"
             .into()
     }
     fn input_schema(&self) -> serde_json::Value {
@@ -200,8 +190,9 @@ impl kanzei_harness::Tool for DeliverTool {
     }
 
     fn description(&self) -> String {
-        "Hand an existing file to the USER as a card in the conversation (name, size, open / \n         reveal-in-explorer; images show a thumbnail, .html files get a Preview button that \n         opens them in the web preview pane). Params: path; optional caption saying what it is \n         and why now. Use it for artifacts the user should look at or keep — a generated \n         report, chart, export. This is NOT for reading a file into your own context: that is \n         `read`. Deliver a finished deliverable when it is ready rather than only mentioning \n         its path in prose."
-            .into()
+        "Deliver an existing file as a conversation card with its name, size and open/reveal actions. \
+         Images include thumbnails and HTML includes a preview action. path identifies the artifact; caption describes it. \
+         Returns a delivery receipt.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -454,7 +445,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
                 kanzei_harness::Effect::Allow,
             ));
         }
-        if ctx.profile == kanzei_harness::ProfileKind::Dev {
+        if ctx.profile.is_development() {
             draft.tools.insert(
                 "desktop",
                 Arc::new(crate::native_desktop::DesktopTool::default()),
@@ -469,7 +460,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
 
 pub(crate) struct QuickCaptureComponent {
     pub(crate) capture: &'static str,
-    pub(crate) source_reference: String,
+    pub(crate) source: crate::tracker_capture::CaptureSession,
 }
 impl kanzei_harness::Component for QuickCaptureComponent {
     fn contribute(
@@ -493,17 +484,13 @@ impl kanzei_harness::Component for QuickCaptureComponent {
             }
         };
         let name = tool.tool_name;
-        if self.capture == "req" {
-            draft.tools.insert(
-                name,
-                Arc::new(crate::requirement_capture::CaptureRequirementTool {
-                    inner: tool,
-                    source_reference: self.source_reference.clone(),
-                }),
-            );
-        } else {
-            draft.tools.insert(name, Arc::new(tool));
-        }
+        draft.tools.insert(
+            name,
+            Arc::new(crate::tracker_capture::RegistrationTracker {
+                inner: tool,
+                source: self.source.clone(),
+            }),
+        );
         draft.permissions.push(kanzei_harness::rule(
             name,
             "*",
@@ -513,9 +500,11 @@ impl kanzei_harness::Component for QuickCaptureComponent {
     }
 }
 
-/// R-252 验收③/⑤:想法拆解子代理的工具面——req/defect 可写(产出拆解条目),
-/// idea 可读写(读原想法全文、拆解后把该想法 update 成 split + refs)。
-pub(crate) struct IdeaSplitComponent;
+/// Registration is scoped to new R/D records; completion is an explicit, validated update of the selected idea.
+pub(crate) struct IdeaSplitComponent {
+    pub(crate) idea: kanzei_memory::docstore::Entry,
+    pub(crate) source: crate::tracker_capture::CaptureSession,
+}
 impl kanzei_harness::Component for IdeaSplitComponent {
     fn contribute(
         &self,
@@ -539,13 +528,25 @@ impl kanzei_harness::Component for IdeaSplitComponent {
                 &IDEAS as &'static kanzei_memory::docstore::DocKind,
             ),
         ] {
-            let tool = kanzei_tools::tracker::TrackerTool {
+            let inner = kanzei_tools::tracker::TrackerTool {
                 tool_name,
                 noun,
                 kind,
                 requires_refs: None,
             };
-            draft.tools.insert(tool_name, Arc::new(tool));
+            let tool: Arc<dyn kanzei_harness::Tool> = if tool_name == "idea" {
+                Arc::new(crate::tracker_capture::IdeaSplitTracker {
+                    inner,
+                    idea: self.idea.clone(),
+                    source: self.source.clone(),
+                })
+            } else {
+                Arc::new(crate::tracker_capture::RegistrationTracker {
+                    inner,
+                    source: self.source.clone(),
+                })
+            };
+            draft.tools.insert(tool_name, tool);
             draft.permissions.push(kanzei_harness::rule(
                 tool_name,
                 "*",
@@ -563,7 +564,7 @@ mod browser_registration_tests {
     fn ctx() -> ResolveCtx {
         let root = std::path::PathBuf::from("C:/kanzei-browser-registration");
         ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root,
             config: std::sync::Arc::new(KanzeiConfig::default()),
@@ -593,10 +594,10 @@ mod browser_registration_tests {
             "FrontendToolsComponent 自己注册 browser"
         );
 
-        let desktop = crate::run::assembly::build_run_harness(ProfileKind::Dev, false, None);
+        let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto, false, None);
         assert_eq!(browser_count(desktop), 1, "同名覆盖,不重复");
 
-        let cli = kanzei_runtime::build_harness(ProfileKind::Dev, |_| {}, |_| {});
+        let cli = kanzei_runtime::build_harness(ProfileKind::DevAuto, |_| {}, |_| {});
         assert_eq!(browser_count(cli), 1, "CLI 仍有无头 browser");
 
         // 权限分级对桌面版同样生效(规则挂在 BaseComponent,按 action 名匹配)。

@@ -133,7 +133,7 @@ fn defect_review_snapshot_is_strictly_read_only() {
         std::env::temp_dir().join(format!("kanzei-defect-review-tools-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let rctx = kanzei_harness::ResolveCtx {
-        profile: kanzei_harness::ProfileKind::Dev,
+        profile: kanzei_harness::ProfileKind::DevAuto,
         cwd: root.clone(),
         project_root: root.clone(),
         config: Arc::new(kanzei_harness::KanzeiConfig::default()),
@@ -155,7 +155,7 @@ fn defect_review_snapshot_is_strictly_read_only() {
 
 #[test]
 fn defect_review_rejects_empty_model_report() {
-    let empty = kanzei_core::RunSummary {
+    let mut empty = kanzei_core::RunSummary {
         text: "  ".into(),
         usage: kanzei_llm::Usage::default(),
         last_input_tokens: None,
@@ -169,6 +169,9 @@ fn defect_review_rejects_empty_model_report() {
         round_messages: vec![],
     };
     assert!(defect_review_report(&empty).is_err());
+    empty.text = "已核对第一项，余下项目尚未审查。".into();
+    empty.step_limit_reached = true;
+    assert!(defect_review_report(&empty).unwrap().contains("审查未完成"));
 }
 
 #[tokio::test]

@@ -76,7 +76,7 @@ try {
   await page.evaluate(async ({projectDir,line})=>{
     await window.__TAURI__.core.invoke("process_update",{processId:line.id,subagentMode:false});
     await window.__TAURI__.core.invoke("auto_state_update",{sessionId:line.session_id,enabled:true});
-    await window.__TAURI__.core.invoke("run_prompt",{projectDir,processId:line.id,prompt:"提出验收范围问题并等待回复",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:false});
+    await window.__TAURI__.core.invoke("run_prompt",{projectDir,processId:line.id,prompt:"提出验收范围问题并等待回复",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:true,autoAllow:false});
   },{projectDir:project,line});
   await waitBackend(async projectDir=>{
     const snap=await window.__TAURI__.core.invoke("workspace_snapshot",{projectDir});window.__replySnapshot=snap;
@@ -127,7 +127,7 @@ try {
   // The interactive question remains a live suspended tool, not a persisted decision.
   await page.evaluate(async ({sessionId,projectDir,processId})=>{
     await window.__TAURI__.core.invoke("auto_state_update",{sessionId,enabled:false});
-    await window.__TAURI__.core.invoke("run_prompt",{projectDir,processId,prompt:"直接选择验收",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
+    await window.__TAURI__.core.invoke("run_prompt",{projectDir,processId,prompt:"直接选择验收",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
   },{sessionId:line.session_id,projectDir:project,processId:line.id});
   await waitBackend(async()=> (await window.__TAURI__.core.invoke("softwire_questions")).some(q=>q.question.startsWith("直接选择验收")));
   await page.waitForFunction(()=>document.querySelector("#status-mode").textContent==="待你回复");

@@ -649,7 +649,7 @@ pub(crate) fn memory_search_page(
             &root,
             &query,
             &all_hits,
-            false,
+            &[],
             "lexical",
             &kanzei_memory::memory::RetrievalTiming::default(),
             None,

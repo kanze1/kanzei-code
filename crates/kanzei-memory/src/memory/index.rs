@@ -67,8 +67,8 @@ impl IndexQuery {
 pub struct IndexHit {
     pub id: String,
     pub category: String,
-    /// description 是检索钩子(与 RecallHit.action 同义)。
-    pub action: String,
+    /// 记忆的检索描述与适用线索。
+    pub description: String,
     pub status: String,
     /// 相关度:lexical 通道是归一化 BM25/Tier0 得分,越大越相关。
     pub score: f64,
@@ -79,7 +79,7 @@ impl IndexHit {
         Self {
             id: entry.id.clone(),
             category: entry.category.clone(),
-            action: entry.description.clone(),
+            description: entry.description.clone(),
             status: entry.status.clone(),
             score,
         }
@@ -135,9 +135,7 @@ impl SqliteMemoryIndex {
     pub fn with_embedder(project_root: &Path, embedder: Option<Arc<dyn Embedder>>) -> Self {
         let fp = FingerprintIndex::build(project_root);
         let mut entries: HashMap<String, MemoryEntry> = HashMap::new();
-        // R-194:全局(用户级)记忆废弃——检索只消费项目 store。全局库 0 active、
-        // 0 召回且 5/9 候选与项目重复(同一失败双投),跨项目偏好已有配置文件与
-        // 系统提示承载,不再让空转的二级库参与任何注入/检索。
+        // 检索与失败召回只消费项目库；用户保存的全局偏好由独立上下文装配。
         for (_, entry) in MemoryStore::project(project_root).load_all() {
             if entry.status != "active" {
                 continue;
@@ -204,7 +202,7 @@ impl SqliteMemoryIndex {
 
     /// Tier1:BM25 候选 + 查询相关性和状态排序(ranking 唯一实现处,D-366)。
     /// store.search_candidates 只给 bm25 相关度与候选,采纳率/状态加权、排序截断
-    /// 都在这里;hits 与采纳观测均不参与排序。R-194:全局记忆废弃,只检索项目 store。
+    /// 都在这里；hits 与采纳观测均不参与排序，只检索项目 store。
     /// 返回完整 SearchHit(snippet/path/hits 来自存储候选)。
     fn tier1(
         &self,
@@ -223,7 +221,7 @@ impl SqliteMemoryIndex {
             // bm25 越小越相关(fts5 返回负值);取负得正相关度。
             // R-150:退役 hits 乘子——搜索命中是自增强循环(常被搜到→排更前→更常被搜到),
             // 与采纳率权重「召回未采纳→沉底」方向冲突;理论 importance ≠ semantic salience。
-            // 排序权重只留 bm25 相关度 + 采纳率决策价值,hit_count 降为观测(SearchHit.hits)。
+            // 排序使用 bm25 与查询相关性，hit_count 仅作观测(SearchHit.hits)。
             let mut score = -c.bm25 * weight;
             // 注入与读取是观测事实，不作为采纳率加权；候选状态单独降权。
             if c.entry.status != "active" {
@@ -263,7 +261,7 @@ impl SqliteMemoryIndex {
                 // 命中计数必须与 Tier1 的 SearchCandidate.hits 同源；否则指纹通道
                 // 的 SearchHit 永远显示 0，控制面无法复算指纹召回画像。
                 let hit_counts = MemoryStore::project(&self.project_root).hits_map();
-                return Ok(self.materialize_hits(hits, &hit_counts));
+                return self.materialize_hits(hits, &hit_counts);
             }
         }
         if query.text.trim().is_empty() {
@@ -293,12 +291,8 @@ impl SqliteMemoryIndex {
         &self,
         query: &IndexQuery,
         limit: usize,
-    ) -> anyhow::Result<Vec<IndexHit>> {
-        Ok(self
-            .lexical_hits(query, None, Some("active"), limit)?
-            .into_iter()
-            .map(|hit| IndexHit::from_entry(&hit.entry, hit.score))
-            .collect())
+    ) -> anyhow::Result<Vec<SearchHit>> {
+        self.lexical_hits(query, None, Some("active"), limit)
     }
 
     /// 检索副作用(观测,R-125):对最终命中的条目 hits+1。纯探测/内部通道不记。
@@ -663,7 +657,7 @@ impl SqliteMemoryIndex {
         // search_hybrid_with_timing 已完成最终结果的 record_hits；重新读取持久化
         // 计数，避免 SearchHit 物化时把 Tier0/Tier1/hybrid 统一显示为 0。
         let hit_counts = MemoryStore::project(&self.project_root).hits_map();
-        let out = self.materialize_hits(hits, &hit_counts);
+        let out = self.materialize_hits(hits, &hit_counts)?;
         Ok((out, timing))
     }
 
@@ -672,14 +666,15 @@ impl SqliteMemoryIndex {
         &self,
         hits: Vec<IndexHit>,
         counts: &std::collections::BTreeMap<String, u64>,
-    ) -> Vec<SearchHit> {
+    ) -> anyhow::Result<Vec<SearchHit>> {
         let current: HashMap<_, _> = MemoryStore::project(&self.project_root)
-            .load_all()
+            .load_all_checked()?
             .into_iter()
             .filter(|(_, entry)| entry.status == "active")
             .map(|(path, entry)| (entry.id.clone(), (path, entry)))
             .collect();
-        hits.into_iter()
+        Ok(hits
+            .into_iter()
             .filter_map(|hit| {
                 current.get(&hit.id).map(|(path, entry)| SearchHit {
                     entry: entry.clone(),
@@ -689,7 +684,7 @@ impl SqliteMemoryIndex {
                     score: hit.score,
                 })
             })
-            .collect()
+            .collect())
     }
 }
 
@@ -698,7 +693,6 @@ mod tests {
     use super::*;
     use crate::memory::store::AddOutcome;
     use crate::memory::MemoryScope;
-    use kanzei_core::RecallPolicy;
 
     fn temp_root() -> (kanzei_base::test_support::TestDir, MemoryStore) {
         let dir = kanzei_base::test_support::TestDir::new("kz-mem-index-");
@@ -865,7 +859,7 @@ mod tests {
             .search_lexical(&IndexQuery::fingerprint("edit", "old_string not found"), 5)
             .unwrap();
         assert_eq!(fp_hits.len(), 1, "指纹必须精确命中: {:?}", fp_hits);
-        assert!(fp_hits[0].action.contains("edit"), "{:?}", fp_hits[0]);
+        assert!(fp_hits[0].description.contains("edit"), "{:?}", fp_hits[0]);
         assert_eq!(fp_hits[0].score, 1.0);
 
         // BM25 文本命中:无指纹条目靠描述/正文召回。
@@ -873,7 +867,9 @@ mod tests {
             .search_lexical(&IndexQuery::text("cargo build 网络错误 重试"), 5)
             .unwrap();
         assert!(
-            bm25_hits.iter().any(|h| h.action.contains("cargo build")),
+            bm25_hits
+                .iter()
+                .any(|h| h.description.contains("cargo build")),
             "BM25 必须命中 cargo 条目: {:?}",
             bm25_hits
         );
@@ -947,7 +943,7 @@ mod tests {
             )
             .unwrap();
         assert!(
-            hits.iter().any(|h| h.action.contains("read")),
+            hits.iter().any(|h| h.description.contains("read")),
             "指纹 miss 时文本兜底必须命中: {:?}",
             hits
         );
@@ -1298,13 +1294,13 @@ mod tests {
         }
     }
 
-    /// R-194:全局(用户级)记忆废弃——检索/常驻/失败召回路径不再遍历全局 store。
+    /// 普通知识检索、指纹索引与失败召回不遍历全局 store。
     /// 在临时 HOME 下构造全局 active 条目,断言各路径都看不见它;项目 store
     /// 条目照常可见(证明摘除的是全局分支,不是整个检索)。
     #[test]
-    fn 全局记忆废弃_检索常驻召回均不再遍历全局store() {
+    fn 知识检索与失败召回不遍历全局store() {
         crate::memory::test_home::run(
-            "memory::index::tests::全局记忆废弃_检索常驻召回均不再遍历全局store",
+            "memory::index::tests::知识检索与失败召回不遍历全局store",
             |home| {
                 // 项目 store + 全局 store 各放一条 active 条目。
                 let root = home.join("project");
@@ -1368,18 +1364,23 @@ mod tests {
                 policy.search = Ok(Arc::new(
                     crate::memory::recall_search::RecallSearch::start().unwrap(),
                 ));
-                let tier1_hits = policy.retrieve(&kanzei_core::RecallTrigger {
-                    tool: "bash".into(),
-                    kind: "test".into(),
-                    sample: "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
-                    target: String::new(),
-                    failure_count: 1,
-                    previous_retrieved_ids: Vec::new(),
-                });
+                let tier1_hits = policy
+                    .search
+                    .as_ref()
+                    .unwrap()
+                    .search(
+                        &root,
+                        "R-194 全局废弃钩子 全局 store 的 active 条目正文".into(),
+                        std::time::Instant::now() + std::time::Duration::from_secs(5),
+                    )
+                    .unwrap();
                 assert!(
-                    tier1_hits.iter().all(|h| h.id != global_entry.id),
+                    tier1_hits.iter().all(|h| h.entry.id != global_entry.id),
                     "失败召回不得返回全局条目: {:?}",
-                    tier1_hits.iter().map(|h| h.id.clone()).collect::<Vec<_>>()
+                    tier1_hits
+                        .iter()
+                        .map(|h| h.entry.id.clone())
+                        .collect::<Vec<_>>()
                 );
 
                 Arc::try_unwrap(policy.search.unwrap())

@@ -221,7 +221,7 @@ impl Tool for ResearchPlanTool {
     }
 
     fn description(&self) -> String {
-        "研究计划兼容入口：旧课题用 get/create/clarify/request_approval；有 workflow.json 时仅 get 读取，推进与恢复统一走 research_workflow。agent 不得自行 approve 或运行未批准计划。".into()
+        "读取和维护课题计划：get/create/clarify/request_approval。计划审批通过用户入口完成。".into()
     }
 
     fn input_schema(&self) -> Value {
@@ -254,26 +254,9 @@ impl Tool for ResearchPlanTool {
         if let Err(error) = plan_path(Self::root(ctx), topic) {
             return ToolOutput::needs_correction("INVALID_TOPIC", error);
         }
-        if action != "get" {
-            match crate::research_control::workflow(Self::root(ctx), topic) {
-                Ok(Some(_)) => {
-                    return ToolOutput::needs_correction(
-                        "WORKFLOW_CONTROL",
-                        "AUTO 课题的计划由 research_workflow 管理；research_plan 仅作兼容读取",
-                    )
-                }
-                Ok(None) => {}
-                Err(error) => return ToolOutput::error(error),
-            }
-        }
         match action {
             "get" => match load_plan(Self::root(ctx), topic) {
-                Ok(Some(mut plan)) => {
-                    match crate::research_control::workflow(Self::root(ctx), topic) {
-                        Ok(Some(workflow)) => plan.budget = workflow.budget,
-                        Ok(None) => {}
-                        Err(error) => return ToolOutput::error(error),
-                    }
+                Ok(Some(plan)) => {
                     ToolOutput::ok(serde_json::to_string_pretty(&plan).unwrap_or_default())
                 }
                 Ok(None) => ToolOutput::ok(json!({ "exists": false, "topic": topic }).to_string()),

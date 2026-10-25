@@ -1,11 +1,5 @@
-//! 子代理组件(R-004/R-012):task 工具派生的只读探索代理。
-//! 只读快照含 read/glob/grep/files/symbols 与 git；git 仅放行只读 action，写动作的 Ask 在子代理内拒绝。
-//!
-//! R-176:新增**可写子代理档位** `WritableSubagentBase`。它是独立组件,不是给
-//! 只读档位加工具——只读白名单是审计资产,构造后与执行前各复核一次(验收⑦)。
-//! 可写档位装配 read/glob/grep/edit/insert/write/bash/git，**写工具的权限不预设 Allow**:
-//! 由 harness 权限规则裁决(用户 deny 就拒绝),只有只读工具保留 Allow。写子代理
-//! 必须自己 `acquire_writer_lease`(B2),不得继承主代理租约、不得绕过协调器。
+//! 子 Agent 的只读和可写工具组件及内置角色定义。
+//! 工具权限由 harness 裁决，写操作的租约由运行时按工作树获取。
 
 use std::sync::Arc;
 
@@ -13,7 +7,7 @@ use kanzei_harness::{
     rule, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileScope, ResolveCtx,
 };
 
-/// 子代理的工具集与权限:全只读、全放行(ask 在子代理里无人应答,必须为零)。
+/// 只读角色的工具面；Git 仅放行 status、diff 和 log。
 pub struct SubagentBase;
 
 impl Component for SubagentBase {
@@ -22,11 +16,7 @@ impl Component for SubagentBase {
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
-        // R-218:勘察角色扩容——files(文件地图)与 git 只读子命令(status/diff/log,
-        // 查 git 历史与工作树状态)。保持全 allow 零 ask:files 纯只读;git 只对
-        // 只读 action 放行,写类 action(stage/commit/merge_ff/finalize)不设规则,
-        // 子代理内 ask 恒 Deny → 被拒(验收②)。webfetch 暂不加(网络面未审计)。
-        // R-234:symbols 符号级视图,勘察/质量评估用,纯只读。
+        // 文件地图、符号和 Git 调查共用只读权限边界。
         draft
             .tools
             .insert("files", Arc::new(crate::files::FilesTool));
@@ -48,13 +38,7 @@ impl Component for SubagentBase {
     }
 }
 
-/// R-176 B1:可写子代理档位——装配写工具,但写权限不预设 Allow。
-///
-/// 与 [`SubagentBase`] 的区别只在工具面:只读档位代码层面不存在写工具
-/// (审计资产,验收⑦);可写档位把写工具**装配进来**,权限交给 harness 规则集
-/// 裁决——用户/项目的 deny 规则原样生效,写子代理不是免死金牌。
-/// 装配点必须与 B2 的写租约强制成对:写子代理执行任何写工具前要先
-/// `acquire_writer_lease`(写工具不得绕过协调器,验收②)。
+/// 可写角色的工具面；写权限由 harness 裁决，运行时负责获取工作树写租约。
 pub struct WritableSubagentBase;
 
 impl Component for WritableSubagentBase {
@@ -76,8 +60,7 @@ impl Component for WritableSubagentBase {
             .tools
             .insert("bash", Arc::new(crate::bash::BashTool::default()));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
-        // 只读三件套沿用全放行(无人应答权限询问);写工具不预设 Allow——
-        // 由 harness 权限规则集(用户/项目规则)裁决,deny 即拒绝。
+        // 读取工具默认放行；写操作继续遵守用户和项目权限规则。
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
@@ -95,26 +78,11 @@ pub fn explore_agent() -> AgentDef {
         model: "fast".into(),
         mode: AgentMode::Subagent,
         steps: 0,
-        system: "You are a read-only exploration subagent with tools read/glob/grep/files/\
-                 symbols and git read-only subcommands (status/diff/log). Issue independent \
-                 read/glob/grep calls in the SAME step — they run in parallel, cost one round \
-                 trip. Subtasks have no step limit. Complete the \
-                 given task precisely and reply with ONLY the requested information: file \
-                 paths with line numbers, code excerpts, symbol maps, git history facts, or \
-                 a short factual summary. No preamble, no suggestions. If nothing is found, \
-                 state that explicitly."
-            .into(),
+        system: "你是只读探索子 Agent。根据分配的任务检索代码、文件、符号和 Git 事实，按需选择调查范围。围绕请求返回结果，并提供支持结论的来源位置；未找到或尚未确认的内容如实说明。".into(),
     }
 }
 
-/// R-327:plan 子代理定义——**只读的架构分析人格**。
-///
-/// 与 [`explore_agent`] 跑在**同一个只读快照**上,工具集一个不多一个不少;
-/// 差别在主模型(不是 fast)和要求「先摸清约束再下结论」的提示词。
-/// 两者均不设步数上限，按任务需要持续探索。
-///
-/// plan 始终只读；可写角色由桌面团队运行时另行装配，边界见
-/// `SubagentRuntime::roster` 的说明。
+/// 只读分析角色，使用主模型；与探索角色共享只读工具面。
 pub fn plan_agent() -> AgentDef {
     AgentDef {
         name: "plan".into(),
@@ -122,12 +90,11 @@ pub fn plan_agent() -> AgentDef {
         model: "primary".into(),
         mode: AgentMode::Subagent,
         steps: 0,
-        system: "You are a read-only architecture analysis subagent with tools                  read/glob/grep/files/symbols and git read-only subcommands. You do NOT write                  files, run bash, or change git state. Before concluding, establish the actual                  constraints: read the relevant code and its callers, check for an existing                  design doc or tracker entry covering it, and name the invariants a change                  would have to preserve. Then answer with a concrete plan: the files to touch,                  the order, what could break, and what evidence would prove it works. Cite                  file:line for every claim about current behaviour. If the request is                  underspecified, say exactly which decision is missing rather than guessing."
-            .into(),
+        system: "你是只读分析与规划子 Agent。结合任务需要理解现有代码、调用关系和约束，提出具体可行的方案，说明涉及范围、关键取舍和验证方式。对当前行为的判断提供必要来源；区分已查证事实、假设和需要主 Agent 决定的问题。".into(),
     }
 }
 
-/// R-176 B1:可写子代理定义。写工具受权限门禁约束,不得绕过协调器。
+/// 实现角色的基础定义，具体工具与工作目录由宿主运行时装配。
 pub fn writer_agent() -> AgentDef {
     AgentDef {
         name: "writer".into(),
@@ -135,13 +102,19 @@ pub fn writer_agent() -> AgentDef {
         model: "primary".into(),
         mode: AgentMode::Subagent,
         steps: 0,
-        system: "You are a writable implementation subagent. You may edit/insert/write files and \
-                 run bash/git, but every write action must go through the coordinator \
-                 lease and permission rules — never bypass them. You are accountable for \
-                 every file you change: report exactly which files you touched and why. \
-                 Prefer small, verifiable steps; run the relevant tests before claiming \
-                 completion."
-            .into(),
+        system: "你是可写执行子 Agent。围绕分配的目标和范围自主推进，理解现有实现并复用已有能力。需要修改时保留无关改动，并按任务需要验证结果，说明实际改动、验证情况和剩余问题。".into(),
+    }
+}
+
+/// 验证角色独立检查候选版本，不继承实现角色的修改目标。
+pub(crate) fn verify_agent() -> AgentDef {
+    AgentDef {
+        name: "verify".into(),
+        profile: ProfileScope::All,
+        model: "primary".into(),
+        mode: AgentMode::Subagent,
+        steps: 0,
+        system: "你是验证子 Agent。独立检查指定候选版本，给出结论和可复现的证据。发现实现问题时先报告，不把修复混入未授权的验证任务。按任务需要选择检查方式，如实说明已验证、未验证和剩余问题。".into(),
     }
 }
 
@@ -158,7 +131,7 @@ mod tests {
             .rules
             .push(rule("read", "*/.env", Effect::Deny));
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: std::env::temp_dir(),
             project_root: std::env::temp_dir(),
             config: std::sync::Arc::new(config),
@@ -176,7 +149,7 @@ mod tests {
     #[test]
     fn subagent_snapshot_is_read_only() {
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: std::env::temp_dir(),
             project_root: std::env::temp_dir(),
             config: std::sync::Arc::new(KanzeiConfig::default()),
@@ -217,12 +190,11 @@ mod tests {
         }
     }
 
-    /// R-176 验收⑦回归:只读子代理档位的白名单**未被本条放宽**——
-    /// SubagentBase 仍只含 read/glob/grep,写工具在代码层面不存在。
+    /// 可写组件的存在不能扩展只读角色的工具面。
     #[test]
     fn subagent_readonly_snapshot_unchanged_by_writable_component() {
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: std::env::temp_dir(),
             project_root: std::env::temp_dir(),
             config: std::sync::Arc::new(KanzeiConfig::default()),
@@ -260,7 +232,7 @@ mod tests {
             .rules
             .push(rule("bash", "rm -rf *", Effect::Deny));
         let ctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: std::env::temp_dir(),
             project_root: std::env::temp_dir(),
             config: std::sync::Arc::new(config),

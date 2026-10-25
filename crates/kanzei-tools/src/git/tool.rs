@@ -59,7 +59,9 @@ impl Tool for GitTool {
     }
 
     fn description(&self) -> String {
-        "Safe Git status/diff/log/stage/commit/commit_plan/finalize/merge_ff/init. commit_plan (also called preflight) reports affected crates, test evidence, governance metadata, and the safe explicit stage set before mutations. log shows recent commits (count, optional path filter). stage requires explicit files and returns staged_hash; commit requires that exact hash, so reviewed staged content cannot silently change. merge_ff fast-forwards branch `into` from ref `from` (finds the worktree where `into` is checked out; refuses non-fast-forward). init creates an independent repository (branch main) in the project root and writes .kanzei/.gitignore for runtime files; it asks the user first. The tool only operates on the project's OWN repository: when the project folder merely sits inside a parent repository it refuses instead of touching the parent. Do not use bash for git add/commit/merge/init.".into()
+        "Inspect or update the project's own Git repository. commit_plan reports the proposed stage set and gate evidence. \
+         stage requires explicit files and returns staged_hash; commit requires that hash. merge_ff requires a fast-forward. \
+         init creates an independent repository after confirmation. A project nested inside another repository cannot mutate that parent repository.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {

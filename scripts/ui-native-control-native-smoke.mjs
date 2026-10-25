@@ -58,7 +58,7 @@ try{
     await app.page.locator('#composer-more').click();await app.page.locator('#native-desktop-choose').click();
     await app.page.locator('#native-desktop-dialog .native-window-list button').filter({hasText:window.title}).click();
     await app.page.locator('#native-desktop-dialog').waitFor({state:'hidden'});
-    await app.invoke('run_prompt',{projectDir:app.project,processId:line.id,prompt:`NATIVE_CONTROL_CASE:${mode}`,profile:'dev',agent:'dev-pair',model:'stub:test',autonomous:true,autoAllow:true});
+    await app.invoke('run_prompt',{projectDir:app.project,processId:line.id,prompt:`NATIVE_CONTROL_CASE:${mode}`,profile: "dev-pair",agent:'dev-pair',model:'stub:test',autonomous:true,autoAllow:true});
     if(mode==='inflight'){
       await until(async()=>(await fixture()).blocked===true&&(await status()).helper_pid,'A real native input helper is inside the blocked control callback',60000);
       const active=await status(),pid=active.helper_pid;process.kill(pid,0);

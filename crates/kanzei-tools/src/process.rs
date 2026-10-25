@@ -49,15 +49,10 @@ impl Tool for ProcessTool {
     }
 
     fn description(&self) -> String {
-        "Inspect background processes started by `bash` with background=true or interactive=true. input(id, text, close?) writes exact stdin bytes; include a newline to submit a line, close=true sends EOF. \
-         Actions: watch(id, until?, interval_secs?) subscribes to continuous log updates in the actor mailbox without blocking; until is an optional regex. unwatch(id) cancels only the subscription. subscriptions lists this actor's subscriptions. list (all processes of this project with state and exit code), \
-         output(id) (captured stdout+stderr so far, tail-truncated), stop(id) (terminate the process tree), \
-         discover (R-180: list persistent services registered in previous runs — the ones that \
-         survived their owner run; each is either running and can be adopted/killed, or dead and \
-         gets marked failed and pruned, leaving no ghost entries), \
-         adopt(id) (take over a running persistent service into this run's registry), \
-         kill(id) (terminate a registered persistent service's process tree and remove its entry),          wait(id, until?, timeout_secs?) (block until the output matches the `until` regex, or —          with no `until` — until the process exits; returns matched/exited/timeout plus the output          tail). Use `wait` instead of calling `output` in a loop: each poll costs a full model          round trip, `wait` costs one. Typical: start a dev server with bash background=true,          then wait for its ready line before driving the UI."
-            .into()
+        "Read output/status, send stdin, wait for output or exit, watch log updates, or stop a bash background process. \
+         input writes exact text; a newline submits a line and close=true sends EOF. \
+         wait returns matched/exited/timeout plus the output tail. watch sends updates to the owner mailbox without blocking. \
+         discover lists persistent services; adopt takes ownership and kill stops/removes a registered service.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -365,10 +360,7 @@ fn breach_report(process: &crate::background::BackgroundProcess) -> String {
         ));
     }
     out.push_str(
-        "The shell is not a write channel for .kanzei/project or .kanzei/memory, background or \
-         not. Redo the change through the dedicated tool (`req`/`defect`/`idea`/`decision`, \
-         `architecture`, `test_record`, `memory_*`). For deferred tracker and index tools, load the \
-         needed one with `tool_search select:idea,decision,architecture,conventions`.",
+        "Managed project/memory files use their owning write tools. Available tools are listed in the current catalog.",
     );
     out
 }

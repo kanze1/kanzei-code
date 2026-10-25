@@ -80,7 +80,6 @@ pub(super) struct RunOnceAssembly<'a> {
     pub(super) futile_compactions: u32,
     pub(super) overflow_traces: Vec<String>,
     pub(super) calibration: f64,
-    pub(super) redundancy: RedundancyWatch,
     pub(super) recall: RecallWatch<'a>,
     pub(super) step: u32,
 }
@@ -108,23 +107,17 @@ fn append_subagent_spec(
     }
 }
 
-/// R-202 批6:run_once_with_parts 装配段——工具物化、task 注册、system 分块
-/// (agent/baseline/记忆提示)、context_report 账单、prior 清洗与用户消息装载、
-/// 以及全部轮级运行态(usage/停止文本/会话批准/压缩计数/校准/冗余门禁/召回)
-/// 的初始化。
-///
-/// 行为与原内联段逐字节对齐(行为零变更):
-/// - task 注册仍只发生在 subagent.is_some()(R-173 批4.5 口径,见内联注释);
-/// - baseline 进 Context Epoch,refreshable_baseline 每步在调用方刷新;
-/// - messages 先经 filter_message_history 清洗孤儿工具 part,再装载用户消息;
-/// - halted 闭包与 config.halt 生命周期耦合,留在调用方构造。
+/// Assemble tool/system sources, clean paired history and project the current input.
+/// Live execution and durable session facts use the same source-aware input projection.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn assemble_run_once<'a>(
     snapshot: &HarnessSnapshot,
     agent: &AgentDef,
     config: &'a RunnerConfig,
     prompt: &str,
+    ctx: &kanzei_harness::ToolCtx,
     memory_hints: Option<&str>,
+    invoked_skills: Option<&kanzei_harness::skills::InvokedSkills>,
     prior: &[Message],
     initial_parts: Option<&[Part]>,
     subagent: Option<&SubagentRuntime>,
@@ -189,7 +182,6 @@ pub(super) fn assemble_run_once<'a>(
         if runtime.options.mode.enabled() {
             guidance.push('\n');
             guidance.push_str(kanzei_harness::subagent_policy::DELEGATION_GUIDANCE);
-            guidance.push_str("\nWhen the task tool reports automatic completion delivery, continue independent work while tasks run; when only their results remain, end this turn and await the notification. A task wait receipt with state=waiting hands control to automatic delivery; do not poll again. An empty collect result means no new completed result. Only a terminal task result or completion notification supports saying a task has returned.");
         }
         context_report.push(("runtime/delegation".into(), guidance.chars().count()));
         stable_system.push(guidance);
@@ -218,6 +210,13 @@ pub(super) fn assemble_run_once<'a>(
         }
     }
 
+    if let Some(skills) = invoked_skills {
+        let text = skills.as_str();
+        context_report.push(("skills/invoked".into(), text.chars().count()));
+        stable_system.push(text.into());
+        stable_system_sources.push(vec![("skills/invoked".into(), text.len())]);
+    }
+
     // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
     // 在尚未触发上下文压缩时就把非法消息交给 provider。
     let mut messages: Vec<Message> = crate::history::filter_message_history(prior);
@@ -227,27 +226,12 @@ pub(super) fn assemble_run_once<'a>(
         &mut specs,
         &mut context_report,
     );
-    let user_parts = match initial_parts {
-        Some(parts) => {
-            let mut parts = parts.to_vec();
-            if !prompt.is_empty() {
-                parts.insert(
-                    0,
-                    Part::Text {
-                        text: prompt.to_string(),
-                    },
-                );
-            }
-            parts
-        }
-        None => vec![Part::Text {
-            text: prompt.to_string(),
-        }],
-    };
-    messages.push(Message {
-        role: Role::User,
-        parts: user_parts,
-    });
+    messages.push(crate::input_message(
+        ctx.input_origin,
+        prompt,
+        &ctx.input_attachments,
+        initial_parts.unwrap_or_default(),
+    ));
     let total_usage = Usage::default();
     // The anchor is complete provider input, including cache reads and writes.
     // None means this run has not received valid usage yet.
@@ -272,8 +256,6 @@ pub(super) fn assemble_run_once<'a>(
     // D-592:B2 冷启动先用保守上限,避免首个真实 usage 到达前中文/代码/工具 schema
     // 的 bytes/4 系统性低估放飞;收到 usage 后再由 EMA 持续下调。
     let calibration = conservative_calibration();
-    // R-100 冗余机械门禁:按单次运行持有(跨轮清零),提醒追加进工具结果不阻断。
-    let redundancy = RedundancyWatch::new(config.intensity.policy().redundancy_hints);
     // R-162 事件触发召回:工具失败瞬间把相关记忆 Packet 注入下一请求前。
     // 策略从 config 借用(不拥有);None = 关闭召回,零行为变化。
     let recall = RecallWatch::new(config.recall.as_deref());
@@ -300,7 +282,6 @@ pub(super) fn assemble_run_once<'a>(
         futile_compactions,
         overflow_traces,
         calibration,
-        redundancy,
         recall,
         step,
     })

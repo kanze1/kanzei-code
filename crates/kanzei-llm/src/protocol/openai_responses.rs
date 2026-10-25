@@ -30,7 +30,7 @@ pub fn build_body_for_channel(request: &LlmRequest, provider_channel: &str) -> V
                     match part {
                         Part::Text { text } => input.push(json!({
                             "type": "message", "role": "user",
-                            "content": [{"type": "input_text", "text": text}],
+                            "content": [{"type": "input_text", "text": message.model_text(text)}],
                         })),
                         Part::ToolResult { call_id, content, is_error } => {
                             let output = if *is_error {

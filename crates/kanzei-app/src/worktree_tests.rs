@@ -885,7 +885,11 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     let root = git_repo();
     let canonical = crate::normalized_project_root(&root);
     std::fs::create_dir_all(canonical.join(".kanzei/project")).unwrap();
-    std::fs::write(canonical.join(".kanzei/kanzei.toml"), "profile = \"dev\"\n").unwrap();
+    std::fs::write(
+        canonical.join(".kanzei/kanzei.toml"),
+        "profile = \"dev-auto\"\n",
+    )
+    .unwrap();
     kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
         .save(&[])
         .unwrap();
@@ -1818,7 +1822,7 @@ fn 同父目录下两个项目的同名工作树不撞路径() {
     for project in ["alpha", "beta"] {
         let root = parent.join(project);
         std::fs::create_dir_all(&root).unwrap();
-        let (target, _) = worktree_target(&root, "dev").unwrap();
+        let (target, _) = worktree_target(&root, "dev-auto").unwrap();
         targets.push(target);
     }
     assert_ne!(

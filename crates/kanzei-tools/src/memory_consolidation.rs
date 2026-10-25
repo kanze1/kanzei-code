@@ -62,12 +62,13 @@ impl ProjectManager {
         };
         let client = LlmClient::new(&proxy)?;
         let rctx = ResolveCtx {
-            profile: ProfileKind::Dev,
+            profile: ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: config.clone(),
         };
         let ctx = ToolCtx {
+            input_origin: kanzei_base::MessageOrigin::Engine,
             cwd: root.clone(),
             project_root: root,
             ..Default::default()
@@ -423,7 +424,7 @@ async fn consolidate_owned_inbox(
             .map_or_else(kanzei_memory::memory::inbox_manager_agent, |dream| {
                 dream.agent()
             });
-        agent.steps = agent.steps.min(available);
+        agent.steps = available;
         let prompt = match dream.as_ref().map(|dream| dream.prompt()).transpose() {
             Ok(Some(prompt)) => prompt,
             Ok(None) => consolidation_prompt(&batch.text, current_episode_id),
@@ -792,7 +793,7 @@ mod tests {
         configuration.limits.memory_job_steps = Some(1);
         let config = std::sync::Arc::new(configuration);
         let rctx = kanzei_harness::ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: config.clone(),
@@ -837,7 +838,7 @@ mod tests {
             "[models]\nprimary='stub:test'\nfast='stub:test'\n[providers.stub]\nprotocol='openai'\nbase_url='http://127.0.0.1:9/v1'\ncontext_limit=64000\n"
         ).unwrap());
         let rctx = kanzei_harness::ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: config.clone(),
@@ -894,7 +895,7 @@ mod tests {
             .unwrap();
         let config=std::sync::Arc::new(toml::from_str::<kanzei_harness::KanzeiConfig>("[models]\nprimary='stub:test'\nfast='stub:test'\n[providers.stub]\nprotocol='openai'\nbase_url='http://127.0.0.1:9/v1'\ncontext_limit=64000\n").unwrap());
         let rctx = kanzei_harness::ResolveCtx {
-            profile: kanzei_harness::ProfileKind::Dev,
+            profile: kanzei_harness::ProfileKind::DevAuto,
             cwd: root.clone(),
             project_root: root.clone(),
             config: config.clone(),

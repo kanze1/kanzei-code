@@ -110,7 +110,7 @@ pub(super) async fn enforce_context_budget(
             let fallback = subagent.map(DigestModel::from_subagent);
             // A cancelled summary is an uncommitted transaction. Keep history
             // and dropped-message accounting together until the whole attempt
-            // (connection, stream and quality retry) completes.
+            // (connection and stream) completes.
             let mut compacted = messages.clone();
             let mut traces = overflow_traces.clone();
             let outcome = tokio::select! {

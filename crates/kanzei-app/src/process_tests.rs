@@ -312,7 +312,7 @@ fn process_persist_then_restart_restores_line_state() {
         model: Arc::new(std::sync::Mutex::new(Some(
             "deepseek:deepseek-v4-flash".into(),
         ))),
-        profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
+        profile: Arc::new(std::sync::Mutex::new(Some("dev-auto".into()))),
         research_topic: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(Some("high".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -332,7 +332,10 @@ fn process_persist_then_restart_restores_line_state() {
         restored.model.lock().unwrap().as_deref(),
         Some("deepseek:deepseek-v4-flash")
     );
-    assert_eq!(restored.profile.lock().unwrap().as_deref(), Some("dev"));
+    assert_eq!(
+        restored.profile.lock().unwrap().as_deref(),
+        Some("dev-auto")
+    );
     assert_eq!(restored.reasoning.lock().unwrap().as_deref(), Some("high"));
 
     assert!(restored.subagent_mode.lock().unwrap().enabled());
@@ -391,7 +394,7 @@ fn repeated_process_restore_does_not_overwrite_live_settings() {
         worktree_path: None,
         branch: None,
         model: Arc::new(std::sync::Mutex::new(Some("old-model".into()))),
-        profile: Arc::new(std::sync::Mutex::new(Some("dev".into()))),
+        profile: Arc::new(std::sync::Mutex::new(Some("dev-auto".into()))),
         research_topic: Arc::new(std::sync::Mutex::new(None)),
         reasoning: Arc::new(std::sync::Mutex::new(Some("medium".into()))),
         manual_models: Arc::new(std::sync::Mutex::new(Vec::new())),

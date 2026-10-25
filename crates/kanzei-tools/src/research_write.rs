@@ -274,15 +274,6 @@ fn read_loop_status(root: &Path, topic: &str) -> Result<(String, String), String
 }
 
 fn require_writing_ready(root: &Path, topic: &str) -> Result<(), String> {
-    if let Some(workflow) = crate::research_workflow::load(root, topic)? {
-        return if workflow.stage == crate::research_workflow::Stage::WritePaper
-            && workflow.runnable()
-        {
-            Ok(())
-        } else {
-            Err("请从 research_workflow 恢复论文写作阶段".into())
-        };
-    }
     let (status, phase) = read_loop_status(root, topic)?;
     if matches!(status.as_str(), "ready_to_write" | "budget_exhausted") && phase == "synthesize" {
         Ok(())
@@ -435,7 +426,7 @@ impl Tool for ResearchWriteTool {
     }
 
     fn description(&self) -> String {
-        "研究写作操作：write_outline/write_section/assemble_paper 使用同一章节和稿件。AUTO 默认 latex/paper.tex，提交 claims 后经 research_workflow submit_paper/review_paper 核验，compile_paper 复用其编译门；旧课题兼容根目录 paper.tex 和 compile.json，失败最多修复 3 次。".into()
+        "课题写作工件：write_outline/write_section/assemble_paper 维护章节与 paper.tex，compile_paper 编译并记录结果，repair_paper 修复失败稿件。".into()
     }
 
     fn input_schema(&self) -> Value {
@@ -471,50 +462,8 @@ impl Tool for ResearchWriteTool {
             Ok(dir) => dir,
             Err(error) => return ToolOutput::needs_correction("INVALID_TOPIC", error),
         };
-        let workflow = match crate::research_workflow::load(&ctx.project_root, topic) {
-            Ok(workflow) => workflow,
-            Err(error) => return ToolOutput::error(error),
-        };
-        let artifact = workflow
-            .as_ref()
-            .and_then(|w| w.paper.as_ref())
-            .map(|p| p.tex.as_str())
-            .unwrap_or(if workflow.is_some() {
-                "latex/paper.tex"
-            } else {
-                "paper.tex"
-            });
-        let paper_path = topic_root.join(artifact);
-        let dir = paper_path.parent().unwrap().to_path_buf();
-        let tex_name = paper_path
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        if let Some(workflow) = &workflow {
-            if action == "repair_paper" {
-                return match crate::research_workflow::paper::repair(&ctx.project_root, topic, workflow.revision, input["content"].as_str().unwrap_or("")) {
-                    Ok(state) => ToolOutput::ok(json!({"stage":state.stage,"next_action":"review_paper","revision":state.revision}).to_string()),
-                    Err(error) => ToolOutput::error(error),
-                };
-            }
-            if action == "compile_paper" {
-                return match crate::research_workflow::paper::compile(
-                    &ctx.project_root,
-                    topic,
-                    workflow.revision,
-                )
-                .await
-                {
-                    Ok(state) => ToolOutput::ok(serde_json::to_string(&state).unwrap_or_default()),
-                    Err(error) => ToolOutput::error(error),
-                };
-            }
-            if !workflow.runnable() || workflow.stage != crate::research_workflow::Stage::WritePaper
-            {
-                return ToolOutput::needs_correction("WORKFLOW_CONTROL", "章节工件与 AUTO 使用同一稿件；请先 submit_paper/review_paper，失败后重新提交修订稿");
-            }
-        }
+        let dir = topic_root;
+        let tex_name = "paper.tex";
         match action {
             "write_outline" => {
                 if let Err(error) = require_writing_ready(&ctx.project_root, topic) {
@@ -585,7 +534,7 @@ impl Tool for ResearchWriteTool {
                     Ok(outline) => outline,
                     Err(error) => return ToolOutput::error(error),
                 };
-                let paper_path = dir.join(&tex_name);
+                let paper_path = dir.join(tex_name);
                 if paper_path.exists() {
                     return ToolOutput::error("paper.tex 已存在；使用 compile_paper 或失败后的 repair_paper".to_string());
                 }
@@ -604,14 +553,14 @@ impl Tool for ResearchWriteTool {
                 }
             }
             "compile_paper" => {
-                if !dir.join(&tex_name).is_file() {
+                if !dir.join(tex_name).is_file() {
                     return ToolOutput::error("paper.tex 不存在，请先 assemble_paper".to_string());
                 }
                 let previous = match load_compile_state(&dir) {
                     Ok(state) => state,
                     Err(error) => return ToolOutput::error(error),
                 };
-                compile_and_record(&dir, &tex_name, previous)
+                compile_and_record(&dir, tex_name, previous)
             }
             "repair_paper" => {
                 let previous = match load_compile_state(&dir) {
@@ -629,10 +578,10 @@ impl Tool for ResearchWriteTool {
                 if content.is_empty() {
                     return ToolOutput::needs_correction("EMPTY_REPAIR", "repair_paper 必须提供修复后的完整 paper.tex 内容");
                 }
-                if let Err(error) = atomic_write(&dir.join(&tex_name), content) {
+                if let Err(error) = atomic_write(&dir.join(tex_name), content) {
                     return ToolOutput::error(error);
                 }
-                compile_and_record(&dir, &tex_name, Some(previous))
+                compile_and_record(&dir, tex_name, Some(previous))
             }
             _ => ToolOutput::needs_correction("INVALID_ACTION", "action 只能是 write_outline/write_section/assemble_paper/compile_paper/repair_paper"),
         }

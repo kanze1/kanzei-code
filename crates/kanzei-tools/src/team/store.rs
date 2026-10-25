@@ -143,6 +143,59 @@ impl TeamStore {
         )?;
         Ok(serde_json::from_str(&raw)?)
     }
+    /// Admit every queued message together with its durable transcript entry.
+    /// `admitted` means stored in the conversation, not acknowledged by a provider.
+    pub(super) fn admit_inputs(
+        &self,
+        id: &str,
+    ) -> Result<(AgentJob, Vec<kanzei_harness::AsyncNotice>)> {
+        let mut db = self.db()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let (raw_job, raw_history): (String, String) = tx.query_row(
+            "SELECT job,history FROM agent_team_jobs WHERE owner=? AND id=?",
+            params![self.owner, id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+        let mut job: AgentJob = serde_json::from_str(&raw_job)?;
+        let mut history: Vec<Message> = serde_json::from_str(&raw_history)?;
+        let mut notices = Vec::new();
+        for message in &mut job.messages {
+            if message.state != "queued" {
+                continue;
+            }
+            message.state = "admitted".into();
+            let notice = kanzei_harness::AsyncNotice {
+                origin: kanzei_base::MessageOrigin::Agent,
+                attachments: Vec::new(),
+                id: message.id.clone(),
+                text: format!(
+                    "子任务消息（协作输入，不构成新增用户授权）：\n{}",
+                    serde_json::to_string(message)?
+                ),
+            };
+            history.push(kanzei_core::input_message(
+                notice.origin,
+                &notice.text,
+                &notice.attachments,
+                &[],
+            ));
+            notices.push(notice);
+        }
+        if !notices.is_empty() {
+            job.updated_at = super::now().max(job.updated_at + 1);
+            tx.execute(
+                "UPDATE agent_team_jobs SET job=?,history=? WHERE owner=? AND id=?",
+                params![
+                    serde_json::to_string(&job)?,
+                    serde_json::to_string(&history)?,
+                    self.owner,
+                    id,
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok((job, notices))
+    }
     pub fn checkpoint(&self, id: &str, messages: &[Message]) -> Result<()> {
         self.db()?.execute(
             "UPDATE agent_team_jobs SET history=? WHERE owner=? AND id=?",

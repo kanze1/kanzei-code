@@ -35,6 +35,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn document_snapshot_binds_entries_and_full_source_revision_including_unstructured_notes() {
+        let directory = kanzei_base::test_support::TestDir::new("decision-document-snapshot");
+        let store = DocStore::open(&directory, &DECISIONS);
+        assert!(store.load_snapshot().unwrap().is_none());
+        assert!(store.load().unwrap().is_empty());
+        std::fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        let original = "# Decisions\n\n## A-001 example [accepted]\n- 决定: source conclusion\n\nUnstructured source note.\n";
+        std::fs::write(&store.path, original).unwrap();
+        let snapshot = store.load_snapshot().unwrap().unwrap();
+        assert_eq!(snapshot.entries[0].id, "A-001");
+        assert_eq!(snapshot.entries[0].status, "accepted");
+        assert_eq!(
+            snapshot.revision,
+            kanzei_base::content_hash(original.as_bytes())
+        );
+        let updated = original.replace(
+            "Unstructured source note.",
+            "Updated unstructured source note.",
+        );
+        std::fs::write(&store.path, &updated).unwrap();
+        let refreshed = store.load_snapshot().unwrap().unwrap();
+        assert_eq!(refreshed.entries, snapshot.entries);
+        assert_ne!(refreshed.revision, snapshot.revision);
+        assert_eq!(store.load().unwrap(), refreshed.entries);
+        std::fs::write(&store.path, [0xff, 0xfe]).unwrap();
+        assert!(store.load_snapshot().is_err());
+        assert!(store.load().is_err());
+    }
+
+    #[test]
     fn topic_store_isolates_source_and_finding_files() {
         let root = std::env::temp_dir().join(format!(
             "kz-topic-store-{}-{}",

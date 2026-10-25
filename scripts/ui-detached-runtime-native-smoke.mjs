@@ -63,7 +63,7 @@ const invoke = (command, args = {}) => page.evaluate(async ({ command, args }) =
   catch (error) { throw new Error(`${command}: ${error}`); }
 }, { command, args });
 const command = input => invoke("agent_team_command", { projectDir: project, processId: owner.id, input });
-const prompt = (text, extra = {}) => invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev", agent: "dev-pair", model: "stub:chosen", prompt: text, autonomous: false, ...extra });
+const prompt = (text, extra = {}) => invoke("run_prompt", { projectDir: project, processId: owner.id, profile: "dev-pair", agent: "dev-pair", model: "stub:chosen", prompt: text, autonomous: false, ...extra });
 const running = async () => (await invoke("process_list", { projectDir: project })).find(p => p.id === owner.id)?.running;
 async function until(fn, label, ms = 50000) { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return; await new Promise(resolve => setTimeout(resolve, 150)); } throw new Error(`${label} timed out`); }
 async function idle() { await until(async () => !await running(), "main idle"); }
@@ -93,11 +93,11 @@ try {
   check(prefs.projects.length===1&&prefs.names[project.replaceAll("/","\\")]==="后台运行验收","Concurrent project and UI preference saves preserve project identity");
   await page.evaluate(async prefs => (await import("./09-sessions.js")).enterProject(prefs), prefs);
   check((await invoke("process_list", { projectDir: project })).length === 0, "Project initialization leaves an unsent draft without an implicit conversation");
-  owner = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:interactive-main" });
+  owner = await invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:interactive-main" });
   await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, owner.id);
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
   await invoke("docs_update", { projectDir: project, kind: "req", action: "add", id: "", title: "原生条目绑定验收", status: "todo", priority: "P1", fields: { "复杂度": "小", "标签": "前端", "验收": "工作台选择的 R-001 在真实 IPC 中认领并绑定本轮" } });
-  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { agent: "dev", executionBatch: true, workItemId: "R-001" });
+  await prompt("MAIN_WORK_ITEM validate this native start/continue binding", { agent: "dev-auto", executionBatch: true, workItemId: "R-001" });
   await until(() => held.has("work-main"), "bound work main request");
   const boundDocs = await invoke("docs_snapshot", { projectDir: project });
   check(boundDocs.requirements.find(item => item.id === "R-001")?.status === "doing", "Native workItemId IPC claims the selected requirement before model execution");
@@ -161,7 +161,7 @@ try {
   await until(() => counts.has("terminal-callback"), "terminal final callback"); await idle();
   check(requests.some(r => r.kind === "terminal-callback" && JSON.stringify(r.messages).includes("LOG_DONE")), "Final terminal callback contains the complete final output");
   await invoke("auto_state_update", { sessionId: owner.session_id, enabled: true, paused: false, goal: "AUTO_GOAL verify continued execution after closing the UI" });
-  await prompt("AUTO_GOAL initial round", { agent: "dev", autonomous: true }); await until(() => held.has("auto"), "auto first request");
+  await prompt("AUTO_GOAL initial round", { agent: "dev-auto", autonomous: true }); await until(() => held.has("auto"), "auto first request");
   await closeUi(); held.get("auto")(); await until(() => held.has("auto-next"), "backend next round", 65000);
   check(true, "Autonomous next-round scheduling continues while the desktop process is closed");
   await open(); await invoke("stop_run", { projectDir: project, processId: owner.id });

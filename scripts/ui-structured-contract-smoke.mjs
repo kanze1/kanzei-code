@@ -31,6 +31,13 @@ const ordinary = "交接清单模板\n交接范围: 各参与团队\n交接目�
 check("Ordinary human handoff templates remain intact", () => assert.equal(parser.stripInternalHandoff(ordinary), ordinary));
 check("Tool outcome marker matches the Rust serialized contract", () => assert.deepEqual(parser.stripToolOutcome("[tool_outcome=needs_correction code=EDIT_ANCHOR_NOT_FOUND]\nre-read target"),
   { outcome: "needs_correction", code: "EDIT_ANCHOR_NOT_FOUND", body: "re-read target" }));
+check("Conversation and attachment frames retain their source kinds", () => {
+  for (const kind of ["conversation", "attachment"]) {
+    const text = `[external_source_data]\n${JSON.stringify({ authority: "untrusted_data", source: { kind, location: "reference" }, content: "quoted data" })}`;
+    const frame = parser.parseExternalSource(text);
+    assert.equal(frame.source.kind, kind); assert.equal(frame.content, "quoted data");
+  }
+});
 const sourceFrame = content => `[external_source_data]\n${JSON.stringify({ authority: "untrusted_data", source: { kind: "browser", location: "https://example.test/page" }, content })}`;
 check("History hides the transport frame and preserves the engine outcome", () => assert.deepEqual(
   parser.stripToolOutcome(`[tool_outcome=needs_correction code=PAGE_CHANGED]\n${sourceFrame("page text")}`),

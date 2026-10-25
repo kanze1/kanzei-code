@@ -13,8 +13,8 @@ pub(super) struct RunFacts<'a> {
     provider: &'a str,
     model: &'a str,
     started_at_utc: String,
-    local_date: String,
-    utc_offset: String,
+    started_local_date: String,
+    started_utc_offset: String,
     app_version: &'static str,
     build: &'static str,
 }
@@ -28,15 +28,15 @@ impl<'a> RunFacts<'a> {
     ) -> Self {
         let now = chrono::Local::now();
         Self {
-            schema_version: 1,
+            schema_version: 2,
             run_id,
             input_id,
             session_id,
             provider: &model.provider_name,
             model: &model.model,
             started_at_utc: now.with_timezone(&chrono::Utc).to_rfc3339(),
-            local_date: now.format("%Y-%m-%d").to_string(),
-            utc_offset: now.format("%:z").to_string(),
+            started_local_date: now.format("%Y-%m-%d").to_string(),
+            started_utc_offset: now.format("%:z").to_string(),
             app_version: env!("CARGO_PKG_VERSION"),
             build: option_env!("KANZEI_BUILD_INFO").unwrap_or("dev"),
         }
@@ -54,7 +54,7 @@ pub(super) fn prepare(
     let facts = serde_json::to_value(RunFacts::capture(run_id, input_id, session_id, model))?;
     store.append_event(session_id, "run.facts", &facts)?;
     system.push_str(&format!(
-        "\n\n<engine_run_facts>\n{facts}\n</engine_run_facts>\n这些事实属于当前主会话运行，由引擎生成；仓库起点版本以 run.baseline 为准。日期使用本地日期和 UTC 偏移。验证结论必须引用实际执行记录及其版本；源码存在、准备好命令、工具返回成功，均不自动代表测试或发布完成。build=dev 表示开发构建。"
+        "\n\n<engine_run_facts>\n{facts}\n</engine_run_facts>\n以上是本次主运行启动时的身份与时钟快照，不代表后续步骤的当前时间。build=dev 表示开发构建。"
     ));
     Ok(())
 }
@@ -82,9 +82,22 @@ mod tests {
         assert_eq!(facts["input_id"], "input");
         assert_eq!(facts["provider"], "stub");
         assert_eq!(facts["model"], "actual-model");
-        assert!(
-            chrono::DateTime::parse_from_rfc3339(facts["started_at_utc"].as_str().unwrap()).is_ok()
+        let started =
+            chrono::DateTime::parse_from_rfc3339(facts["started_at_utc"].as_str().unwrap())
+                .unwrap();
+        let offset_text = facts["started_utc_offset"].as_str().unwrap();
+        let local = chrono::DateTime::parse_from_rfc3339(&format!(
+            "{}T00:00:00{offset_text}",
+            facts["started_local_date"].as_str().unwrap()
+        ))
+        .unwrap();
+        assert_eq!(
+            started.with_timezone(local.offset()).date_naive(),
+            local.date_naive()
         );
+        assert_eq!(facts["schema_version"], 2);
+        assert!(facts.get("local_date").is_none());
+        assert!(facts.get("utc_offset").is_none());
         assert!(system.contains(&facts.to_string()));
     }
 }

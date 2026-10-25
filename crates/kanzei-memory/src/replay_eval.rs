@@ -83,13 +83,16 @@ impl ReplayMemoryProvider {
         let Some(trigger) = Self::trigger_for(case) else {
             return String::new();
         };
-        let hits = self.policy.retrieve(&trigger);
+        let hits = match self.policy.retrieve(&trigger) {
+            Ok(hits) => hits,
+            Err(error) => return format!("[memory retrieval unavailable] {error}"),
+        };
         if hits.is_empty() {
             return String::new();
         }
         let mut out = String::from("[recalled] 失败时相关的记忆条目:\n");
         for hit in hits {
-            out.push_str(&format!("- [{}] {}\n", hit.category, hit.action));
+            out.push_str(&format!("- [{}] {}\n", hit.category, hit.description));
         }
         out
     }
@@ -119,7 +122,7 @@ impl ReplayMemoryProvider {
             .map(|h| kanzei_core::RecallHit {
                 id: h.id.clone(),
                 category: h.category.clone(),
-                action: h.action.clone(),
+                description: h.description.clone(),
                 status: h.status.clone(),
                 source: format!("memory_hybrid:{}", h.id),
                 policy_action: "hybrid".into(),
@@ -161,7 +164,7 @@ impl ReplayMemoryProvider {
         }
         let mut out = String::from("[recalled] 失败时相关的记忆条目:\n");
         for hit in recall_hits {
-            out.push_str(&format!("- [{}] {}\n", hit.category, hit.action));
+            out.push_str(&format!("- [{}] {}\n", hit.category, hit.description));
         }
         out
     }
@@ -200,12 +203,17 @@ impl MemoryContextProvider for ReplayMemoryProvider {
         let Some(trigger) = Self::trigger_for(case) else {
             return Vec::new();
         };
-        self.policy
-            .retrieve(&trigger)
-            .into_iter()
-            .next()
-            .map(|hit| vec![hit.id])
-            .unwrap_or_default()
+        match self.policy.retrieve(&trigger) {
+            Ok(hits) => hits
+                .into_iter()
+                .next()
+                .map(|hit| vec![hit.id])
+                .unwrap_or_default(),
+            Err(error) => {
+                tracing::error!(%error, "replay memory targets unavailable");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -341,11 +349,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn candidate臂_有记忆条目时用hybrid检索并落recall_events() {
-        // 验收②装配:Candidate 臂走三通道混合检索,命中后分段延迟落 recall_events。
-        let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-cand-");
-        let store = crate::memory::MemoryStore::project(&root);
+    fn seed_recall_memory(root: &std::path::Path) -> String {
+        let store = crate::memory::MemoryStore::project(root);
         // 种子:一条与 SAMPLE 失败指纹(tool=edit,kind=old string not found)精确匹配的
         // 记忆条目——fingerprint 触发应命中。
         store
@@ -378,11 +383,19 @@ mod tests {
             .find(|(_, e)| e.title == "edit 失败处理")
             .map(|(p, e)| (e.id, p))
             .unwrap();
-        let eid = crate::memory::seed_episode(&root, "ses");
+        let eid = crate::memory::seed_episode(root, "ses");
         crate::memory::seed_entry_recovery(&store, eid, &cand_id);
         store
             .promote(&cand_id, &[(eid, Some(0), Some(5))], Some("replay-test"))
             .unwrap();
+        cand_id
+    }
+
+    #[test]
+    fn candidate臂_有记忆条目时用hybrid检索并落recall_events() {
+        // 验收②装配:Candidate 臂走三通道混合检索,命中后分段延迟落 recall_events。
+        let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-cand-");
+        let cand_id = seed_recall_memory(&root);
         // 构造带 embedder 的 provider(FakeEmbedder:同文本同向量,query 用相同文本必命中)。
         let mut provider = ReplayMemoryProvider::new(&root);
         provider.hybrid = SqliteMemoryIndex::with_embedder(
@@ -429,20 +442,20 @@ mod tests {
     }
 
     #[test]
-    fn leave_one_out_去掉第一条命中_无命中时不变() {
+    fn leave_one_out_去掉第一条命中_无失败步骤时不变() {
         let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-loo-");
+        seed_recall_memory(&root);
         let provider = ReplayMemoryProvider::new(&root);
-        let case = parse_trace_payload(SAMPLE, "t2").unwrap();
+        let mut case = parse_trace_payload(SAMPLE, "t2").unwrap();
         let current = provider.context_for(&Arm::Current, &case);
         let loo = provider.context_for(&Arm::LeaveOneOut, &case);
-        if current.is_empty() {
-            // 无命中:消融无物可消,与 Current 相同。
-            assert_eq!(loo, current);
-        } else {
-            assert_ne!(loo, current, "有命中时消融必须改变注入");
-            assert!(loo.len() < current.len());
-            assert!(!loo.contains("old_string not found"), "第一条命中被移除");
-        }
+        assert!(current.contains("[recalled]"), "{current}");
+        assert_ne!(loo, current, "有命中时消融必须改变注入");
+        assert!(loo.len() < current.len());
+        assert!(!loo.contains("old_string not found"), "第一条命中被移除");
+        case.steps.clear();
+        assert!(provider.context_for(&Arm::Current, &case).is_empty());
+        assert!(provider.context_for(&Arm::LeaveOneOut, &case).is_empty());
     }
 
     #[test]

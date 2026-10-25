@@ -54,7 +54,7 @@ try {
   await invoke("projects_init",{path:project,name:"交付验收"});
   await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true",null,{timeout:30000});
   const line=(await invoke("process_list",{projectDir:project}))[0];
-  await invoke("run_prompt",{projectDir:project,processId:line.id,prompt:"交付 build/android-r1-current-debug.apk 并提供可点击文件",profile:"dev",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
+  await invoke("run_prompt",{projectDir:project,processId:line.id,prompt:"交付 build/android-r1-current-debug.apk 并提供可点击文件",profile: "dev-pair",agent:"dev-pair",model:"stub:test",autonomous:false,autoAllow:false});
   await waitBackend(async projectDir=>{
     const rows=await window.__TAURI__.core.invoke("delivered_files",{projectDir});
     const lines=await window.__TAURI__.core.invoke("process_list",{projectDir});

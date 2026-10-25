@@ -423,13 +423,15 @@ fn execute_work_unit_action(
                 ))
             }
         };
-        crate::work::log::append(
+        if let Err(error) = crate::work::log::append(
             &ctx.project_root,
             "execution_bound",
             Some(id),
             ctx,
             execution,
-        );
+        ) {
+            tracing::warn!(%error, "execution binding observation could not be recorded");
+        }
         if let Err(error) = crate::prior_art::check_start(&ctx.project_root, outcome) {
             return Some(ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error));
         }
@@ -667,35 +669,12 @@ impl Tool for WorkTool {
     }
 
     fn description(&self) -> String {
-        "Resolve the authoritative work decision. Legacy requirements/defects keep next/claim; \
-         requirements opting into `work_units_v1` use create_unit, claim, checkpoint, block, \
-         unblock, verify, evidence, complete and supersede over append-only events. \
-         Recursive work uses node.kind (goal/requirement/implementation/defect/research/design/documentation/verification), \
-         and optional node.custom_type={name,description,deliverable}. Read graph and reuse project type definitions; \
-         custom types are vocabulary only, never tool permissions or acceptance exemptions. \
-         Planning decompose/refine does not require claim or prior-art completion; use it to resolve missing knowledge, \
-         while implementation claim retains all execution gates. \
-         acceptance may be omitted while capturing a goal or planning a child; missing criteria produce plan readiness, \
-         never executable or verified work. Use refine to define acceptance before claim or before splitting that node. \
-         questions, explanation, sources and verification methods are optional knowledge, not a form to fill with placeholders. \
-         Use decompose(id,expected_sequence,reason,children) atomically; \
-         each child declares node.covers from the parent acceptance and a local key; @key dependencies refer to siblings. \
-         Use refine with expected_sequence and the full refinement contract after new evidence. \
-         For a direction change use impact(id), then begin_revision(id,expected_versions,direction,reason). \
-         It freezes affected contracts, not running processes. Owners must stop their old work at a safe checkpoint, \
-         await/cancel pending verification, then revision_yield(id,revision_id,reason). \
-         Re-read impact; apply_revision(id,revision_id,expected_versions,revision_decisions,additions) \
-         atomically decides retain/revise/reverify/replace/retire for every affected node. \
-         Preserve completed history; use successor contracts for replaced or revalidated results and repair dependencies. \
-         No claim is needed for replanning. A pending or replaced result cannot satisfy acceptance. \
-         graph shows readiness; parents wait for children and require their own integration evidence. \
-         For background verification submit bash with verification={unit_id,criteria,environment,resource}; \
-         it freezes source and releases development WIP. Read verification_jobs; cancel with verification_cancel(id=job_id). \
-         WIP discipline is per line: items held by other lines appear as foreign_wip (read-only \
-         background) and are never selected for this line; claiming one requires an explicit \
-         takeover reason. Queue priority comes from the run and cannot be overridden by tool input. \n         Use action `handoff` with handoff_scope=work_item|batch|request|goal and handoff_target. \n         work_item/batch record local delivery without stopping the loop. request targets the current \n         admitted input id; goal targets the exact active goal text supplied in the completion contract. \n         Always provide criterion and nonblank evidence_refs. Never narrow the user's requested \n         completion or replace requested release/install evidence with source-only checks. \n         The auto-run controller validates scope/target and continues an autonomous queue while work remains. "
-            .to_owned()
-            + kanzei_harness::handoff::INTERNAL_RECORD_NOTICE
+        "Read queue decisions and maintain work units, plans, revisions, verification evidence and handoffs. \
+         next returns the current decision; graph exposes readiness and planning gaps. Planning needs no execution claim. \
+         Lifecycle actions use exact unit IDs and declared acceptance; parents require their own integration evidence. \
+         Decomposition uses node.covers and sibling @key dependencies. Revisions use observed versions and owner yields before applying affected decisions. \
+         Claiming another conversation's work requires a takeover reason. Priority comes from the run. \
+         Verification jobs are submitted through bash.verification. Handoff records completed scope and evidence; it does not itself schedule more work.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -733,7 +712,7 @@ impl Tool for WorkTool {
             .get("action")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("unknown");
-        // R-322:handoff 是控制面声明,不碰磁盘,按只读归类(权限上无副作用可管)。
+        // handoff 是控制面声明，写入过程记录，不修改业务条目。
         let read_only = matches!(
             action,
             "next"
@@ -795,7 +774,7 @@ impl Tool for WorkTool {
             if criterion.is_none() {
                 return ToolOutput::needs_correction(
                     "HANDOFF_COMPLETION_CRITERION_REQUIRED",
-                    "handoff 只能声明整个任务完成；请提供 criterion，写明本次满足的精确完成条件。临时批次收尾、等待样本或当前轮无动作不要 handoff。",
+                    "请提供 criterion，说明本次声明范围内已满足的完成条件；局部交付使用 work_item 或 batch。",
                 );
             }
             if input.evidence_refs.is_empty()
@@ -819,7 +798,7 @@ impl Tool for WorkTool {
             ) else {
                 return ToolOutput::needs_correction(
                     "HANDOFF_SCOPE_REQUIRED",
-                    "请提供 handoff_scope 和 handoff_target。work_item/batch 只记录局部交付；request 对应当前输入 id，goal 对应当前目标原文。局部完成不会结束自动推进。",
+                    "请提供 handoff_scope 和 handoff_target：work_item 对应工作项，batch 对应阶段，request/goal 对应本轮完成契约中的请求标识或目标原文。",
                 );
             };
             let declaration = kanzei_harness::handoff::HandoffDeclaration {
@@ -830,20 +809,23 @@ impl Tool for WorkTool {
                 summary: Some(summary.into()),
             };
             // 声明属于本轮过程事实,不是条目状态;保留原文供用户复核。
-            crate::work::log::append(
+            if let Err(error) = crate::work::log::append(
                 &ctx.project_root,
                 "handoff",
                 input.id.as_deref(),
                 ctx,
                 serde_json::to_value(&declaration).unwrap(),
+            ) {
+                return ToolOutput::failed("HANDOFF_RECORD_WRITE_FAILED", error.to_string());
+            }
+            return ToolOutput::ok(
+                json!({
+                    "status": "recorded", "handoff": declaration,
+                    "completion": "pending_controller_check",
+                    "notice": kanzei_harness::handoff::INTERNAL_RECORD_NOTICE,
+                })
+                .to_string(),
             );
-            // 回执里的字段名是给控制器与交付记录核对用的内部记录;末行提醒模型别把它们
-            // 当成要向用户交代的内容复述(UX-008)。
-            return ToolOutput::ok(format!(
-                "model completion declared: {summary}\nscope: {scope:?}\ntarget: {target}\ncriterion: {criterion}\nevidence_refs: {}\nauto-run controller checks scope and target; work_item/batch never end delegation, and an autonomous queue continues while work remains.\n{}",
-                input.evidence_refs.join(", "),
-                kanzei_harness::handoff::INTERNAL_RECORD_NOTICE
-            ));
         }
         if input.action == "claim" {
             if let Some(id) = input
@@ -1072,7 +1054,7 @@ impl Tool for WorkTool {
         // 控制状态——于是这行必然过期的快照跟着条目进每一次 `work next` 与文档快照,
         // 只写不读却永久占上下文(全仓 grep,唯一"读者"就是覆盖它的这段自己)。
         // 现在落 append-only 过程事实,与 incident 同一去处。
-        crate::work::log::append(
+        if let Err(error) = crate::work::log::append(
             &ctx.project_root,
             "claim",
             Some(id),
@@ -1087,7 +1069,9 @@ impl Tool for WorkTool {
                 },
                 "decision": format!("{:?}", state.decision),
             }),
-        );
+        ) {
+            tracing::warn!(%error, "claim observation could not be recorded");
+        }
         // D-354:落「取得线」事实(设计 parallel_lines_ui §1.2:被取得是事实不是推断)。
         // 默认线不写字段(无字段 = 默认线),接管时清掉他线残留。
         match &me {

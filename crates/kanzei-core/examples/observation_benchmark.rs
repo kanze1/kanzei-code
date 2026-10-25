@@ -46,8 +46,8 @@ async fn main() -> anyhow::Result<()> {
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     let client = LlmClient::new(&proxy)?;
     let cases = [
-        ("stale-recipient", "crates/kanzei-app/src/commands/run.rs", "recipient_mode", "For general=false, stored=Some(\"isolated\"), requested=Some(\"dev\"), agent=Some(\"dev-pair\"), return JSON with profile and agent strings and evidence_path naming the observed repository source file.", json!({"profile":"isolated","agent":"isolated","evidence_path":"crates/kanzei-app/src/commands/run.rs"})),
-        ("general-normalization", "crates/kanzei-app/src/general_chat.rs", "normalize_profile", "Evaluate normalize_profile for Some(\"isolated\"), Some(\"research\"), and None. The supplied supports_profile defines exactly dev or isolated. Return JSON with isolated, research, default strings and evidence_path naming the observed repository source file.", json!({"isolated":"isolated","research":"dev","default":"dev","evidence_path":"crates/kanzei-app/src/general_chat.rs"})),
+        ("stale-recipient", "crates/kanzei-app/src/commands/run.rs", "recipient_mode", "For general=false, stored=Some(\"isolated\"), requested=Some(\"dev-auto\"), agent=Some(\"dev-pair\"), return JSON with profile and agent strings and evidence_path naming the observed repository source file.", json!({"profile":"isolated","agent":"isolated","evidence_path":"crates/kanzei-app/src/commands/run.rs"})),
+        ("general-normalization", "crates/kanzei-app/src/general_chat.rs", "normalize_profile", "Evaluate normalize_profile for Some(\"isolated\"), Some(\"research\"), and None. The supplied supports_profile defines exactly dev or isolated. Return JSON with isolated, research, default strings and evidence_path naming the observed repository source file.", json!({"isolated":"isolated","research":"dev-auto","default":"dev-auto","evidence_path":"crates/kanzei-app/src/general_chat.rs"})),
     ];
     let mut records = Vec::new();
     for (case_index, (id, path, name, question, expected)) in cases.into_iter().enumerate() {

@@ -363,48 +363,79 @@ impl ProjectKnowledge {
         selected
     }
 
-    /// Baseline 只注入分层目录与计数；正文通过 architecture context 按需展开。
-    pub fn overview(&self, budget: usize) -> String {
+    /// 只提供采样范围、首层目录和记录计数，不规定执行流程。
+    pub fn overview(&self, budget: usize) -> Result<String, String> {
         if !self.enabled {
-            return String::new();
+            return Ok(String::new());
         }
-        let mut out = String::from(
-            "<project-knowledge>\n项目结构与依赖由当前代码树生成。经验正文按需加载。\n",
+        let mut out = format!(
+            "<project-knowledge>\n项目知识采样概览，非实时完整状态。\ncode_root: {}\nproject_root: {}\n",
+            self.code_root, self.project_root
         );
-        let mut folded = 0;
-        for area in &self.areas {
-            // 概览只列项目的第一层；模块在请求上下文时展开。
-            if area.parent.is_some() {
-                continue;
-            }
+        let areas: Vec<_> = self
+            .areas
+            .iter()
+            .filter(|area| area.parent.is_none())
+            .collect();
+        let unassigned = self
+            .memories
+            .iter()
+            .filter(|memory| memory.status == "active" && memory.links.is_empty())
+            .count();
+        let review = self
+            .memories
+            .iter()
+            .filter(|memory| memory.status != "active" || !memory.missing_areas.is_empty())
+            .count();
+        let ending = |folded, warnings| {
+            format!(
+            "未归类 active 记忆: {unassigned}；待复核记录: {review}；预算未列出区域: {folded}；未列出诊断: {warnings}。\n可按需使用 architecture action=context 查询模块或文件；关联可能含推断，active 不代表已验证。\n</project-knowledge>"
+        )
+        };
+        let mut used =
+            out.chars().count() + ending(areas.len(), self.warnings.len()).chars().count();
+        if used > budget {
+            return Err("项目概览预算不足以容纳来源与省略说明。".into());
+        }
+        let (mut folded, mut omitted_warnings) = (0, 0);
+        for area in areas {
             let count = self
                 .memories
                 .iter()
                 .filter(|memory| {
                     memory.status == "active"
+                        && memory.missing_areas.is_empty()
                         && memory.links.iter().any(|link| {
                             link.area == area.id || link.area.starts_with(&format!("{}/", area.id))
                         })
                 })
                 .count();
             let line = format!(
-                "{} · {} 条有效经验 · 依赖: {}\n",
+                "{} · active 记忆: {} · 依赖: {}\n",
                 area.id,
                 count,
                 area.dependencies.join(", ")
             );
-            if out.chars().count() + line.chars().count() > budget {
+            let size = line.chars().count();
+            if used + size > budget {
                 folded += 1;
                 continue;
             }
             out.push_str(&line);
+            used += size;
         }
-        out.push_str(&format!(
-            "未归类经验: {}；未列出区域: {folded}。\n",
-            self.unassigned.len()
-        ));
-        out.push_str("修改前用 architecture action=context, area=模块或文件路径，加载职责、约束、上下游与踩坑。推断关联仅供探索；候选和失效经验不作为既定约束。新经验用 memory_note 附 area 与 refs；任务进度留在需求/缺陷。\n</project-knowledge>");
-        out
+        for warning in &self.warnings {
+            let line = format!("来源诊断: {warning}\n");
+            let size = line.chars().count();
+            if used + size > budget {
+                omitted_warnings += 1;
+            } else {
+                out.push_str(&line);
+                used += size;
+            }
+        }
+        out.push_str(&ending(folded, omitted_warnings));
+        Ok(out)
     }
 
     pub fn context(
@@ -494,7 +525,7 @@ mod tests {
         let off = snapshot(&fixture.0, &fixture.0);
         assert!(!off.enabled);
         assert!(off.areas.is_empty() && off.memories.is_empty());
-        assert!(off.overview(1000).is_empty());
+        assert!(off.overview(1000).unwrap().is_empty());
         assert!(off.context(None, None, 1000).is_err());
         set_enabled(&fixture.0, true).unwrap();
         let on = snapshot(&fixture.0, &fixture.0);
@@ -552,7 +583,7 @@ mod tests {
                 == 1
         );
         assert!(
-            !knowledge.overview(1000).contains("decode pitfall"),
+            !knowledge.overview(1000).unwrap().contains("decode pitfall"),
             "正文不能常驻"
         );
     }
@@ -567,6 +598,79 @@ mod tests {
             .unwrap();
         assert!(!context.contains("retired body"));
         assert!(!context.contains("decode pitfall"));
+    }
+
+    #[test]
+    fn overview_budgets_include_roots_diagnostics_and_receipts_without_claiming_validation() {
+        let fixture = Fixture::new();
+        let mut knowledge = snapshot_checked(&fixture.0, &fixture.0).unwrap();
+        let template = knowledge
+            .areas
+            .iter()
+            .find(|area| area.parent.is_none())
+            .unwrap()
+            .clone();
+        for index in 0..30 {
+            let mut area = template.clone();
+            area.id = format!("extra-{index}-{}", "long-area".repeat(5));
+            knowledge.areas.push(area);
+        }
+        knowledge.warnings.push("oversized diagnostic ".repeat(200));
+        let overview = knowledge.overview(800).unwrap();
+        assert!(overview.chars().count() <= 800);
+        assert!(overview.ends_with("</project-knowledge>"));
+        assert!(!overview.contains("预算未列出区域: 0；"));
+        assert!(overview.contains("未列出诊断: 1"));
+        assert!(!overview.contains("有效经验") && !overview.contains("修改前用"));
+        assert!(knowledge.overview(0).is_err());
+    }
+
+    #[test]
+    fn detailed_context_separates_unreadable_and_changed_sources_and_uses_asset_root_paths() {
+        let fixture = Fixture::new();
+        fixture.memory(
+            "M-006",
+            "active",
+            "base/network/decode",
+            "must disappear when unreadable",
+        );
+        fixture.memory(
+            "M-007",
+            "active",
+            "base/network/decode",
+            "stable source body",
+        );
+        let knowledge = snapshot_checked(&fixture.0, &fixture.0).unwrap();
+        fixture.memory(
+            "M-001",
+            "active",
+            "base/network/decode",
+            "changed source body",
+        );
+        std::fs::remove_file(fixture.0.join(".kanzei/memory/M-006-entry.md")).unwrap();
+        let context = knowledge
+            .context(Some("base/network/decode"), None, 3000)
+            .unwrap();
+        assert!(context.contains("来源修订变化: 1 项"));
+        assert!(context.contains("来源不可读: 1 项"));
+        assert!(!context.contains("decode pitfall") && !context.contains("changed source body"));
+        assert!(!context.contains("must disappear when unreadable"));
+        assert!(context.contains("stable source body"));
+        assert!(context.contains(&format!(
+            "file: {}",
+            fixture.0.join(".kanzei/memory/M-007-entry.md").display()
+        )));
+        assert!(context.contains(&format!("project_root: {}\n", fixture.0.display())));
+        assert!(context.chars().count() <= 3000 && context.ends_with("</project-context>"));
+    }
+
+    #[test]
+    fn context_projection_does_not_assume_a_repository_design_directory() {
+        let fixture = Fixture::new();
+        fixture.write("docs/design", "this is a project file, not a directory");
+        let knowledge = snapshot_checked(&fixture.0, &fixture.0).unwrap();
+        assert!(knowledge.enabled && !knowledge.areas.is_empty());
+        assert!(!knowledge.overview(2000).unwrap().contains("docs/design"));
     }
 
     #[test]

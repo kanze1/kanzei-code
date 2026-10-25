@@ -5,7 +5,6 @@ import { activeProcessId, currentProject, navigate_view, processItems, toastErro
 import { active_space, create_workspace_process, project_workspace, save_research_workspace } from "./03-workspaces.js";
 import { renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
 import { clear_research_focus, refreshResearchLatexHistory, refreshResearchLatexTemplates, researchPlan, researchSnapshot, researchTopicLabel, selectedResearchTopicData, select_research_topic } from "./19-research.js";
-import { renderResearchWorkflow, researchWorkflow } from "./19-research-auto.js";
 import { load_research_library, research_library, selected_library_entry } from "./03-research-library.js";
 
 // 研究计划并入概览(B32):原「研究计划」页只有一棵树加一个批准按钮,不值一个页面;现在计划直接画在概览里。
@@ -108,7 +107,7 @@ export function show_research_page(page) {
   if (page === "writing") void Promise.all([refreshResearchLatexTemplates(), refreshResearchLatexHistory()]);
 }
 
-// 概览按数据签名重画:原来每秒 replaceChildren,AUTO 预算输入框一秒内就失焦。
+// 概览按数据签名重画；编辑控件持有焦点时保留当前 DOM。
 // 签名没变不动;焦点在概览里的输入框上时也不动(放下焦点后下一次刷新补画)。
 export function render_research_overview() {
   const host = $("research-overview");
@@ -116,7 +115,7 @@ export function render_research_overview() {
   const topic = selectedResearchTopicData();
   const entry = selected_library_entry();
   const key = JSON.stringify([entry?.id || "", entry?.kind, topic.topic, topic.legacy, topic.label, topic.available, topic.storage_root,
-    (topic.sources ?? []).length, (topic.findings ?? []).length, (topic.runs ?? []).length, Boolean(topic.report), researchWorkflow, Boolean(researchPlan)]);
+    (topic.sources ?? []).length, (topic.findings ?? []).length, (topic.runs ?? []).length, Boolean(topic.report), Boolean(researchPlan)]);
   if (host.dataset.sig === key) return;
   const active = document.activeElement;
   if (active && host.contains?.(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(String(active.tagName ?? ""))) return;
@@ -161,7 +160,6 @@ export function render_research_overview() {
     host.appendChild(create_topic());
     return;
   }
-  renderResearchWorkflow(host);
   const rows = [
     ["文献与发现", `${(topic.sources ?? []).length} ${t("来源")} · ${(topic.findings ?? []).length} ${t("发现")}`, "literature"],
     ["实验", `${(topic.runs ?? []).length} ${t("次运行")}`, "experiments"],

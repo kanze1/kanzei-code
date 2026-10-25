@@ -100,8 +100,8 @@ try {
   await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await invoke("projects_init", { path: project, name: "现有 Edge 接管原生验收" }); await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await page.locator(".workbench-project-name").filter({ hasText: "现有 Edge 接管原生验收" }).click();
-  const line = await invoke("process_create", { projectDir: project, profile: "dev", model: "stub:test", subagentMode: "off" });
-  await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `NATIVE_CONNECTED_FORM：使用我已授权的现有 Edge CDP ${endpoint}，只在 ${origin}/form 标签页填写 React 表单，授权上传 attachment.txt，校验更正、提交并保存正文，然后断开连接。`, profile: "dev", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: true });
+  const line = await invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:test", subagentMode: "off" });
+  await invoke("run_prompt", { projectDir: project, processId: line.id, prompt: `NATIVE_CONNECTED_FORM：使用我已授权的现有 Edge CDP ${endpoint}，只在 ${origin}/form 标签页填写 React 表单，授权上传 attachment.txt，校验更正、提交并保存正文，然后断开连接。`, profile: "dev-pair", agent: "dev-pair", model: "stub:test", autonomous: false, autoAllow: true });
   await until(async () => {
     assert.equal(errors.length, 0, errors.join("; "));
     for (const ask of await invoke("pending_asks_get", { projectDir: project, processId: line.id })) { assert.equal(ask.action, "browser"); await invoke("answer_ask", { id: ask.id, reply: "once" }); }

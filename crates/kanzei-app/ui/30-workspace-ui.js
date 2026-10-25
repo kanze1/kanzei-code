@@ -45,7 +45,7 @@ defer(() => {
 
   const projectLabel = $("settings-tools-project");
   const links = $("settings-project-links");
-  for (const [label, view] of [["运行记录", "metrics"], ["开发规范", "conventions"], ["测试记录", "tests"], ["并行线路", "lines"]]) {
+  for (const [label, view] of [["运行记录", "metrics"], ["项目规范", "conventions"], ["测试记录", "tests"], ["并行线路", "lines"]]) {
     const button = node("button", "ghost", t(label)); button.type = "button";
     button.dataset.resource = view;
     button.addEventListener("click", async () => {
