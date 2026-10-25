@@ -55,18 +55,22 @@ pub(super) async fn execute_question(
                 _ = mailbox.cancelled() => { let _ = kanzei_harness::pending_question::settle(&root,&reply_id,"cancelled"); return; },
                 answer = response => answer,
             };
-            let text = match answer {
+            let (origin, text) = match answer {
                 AskResponse::Answer(answer) => {
                     let answered = kanzei_harness::question_ref::question_ref(&run_id, &call_id);
-                    format!("用户回答异步问题 {reply_id}\n原问题：{question}\n回答：{answer}\n需要用户确认留痕时,把作答凭证 {answered} 逐字写进 tracker 条目的 `确认记录`。")
+                    (
+                        kanzei_base::MessageOrigin::Human,
+                        format!("用户回答异步问题 {reply_id}\n原问题：{question}\n回答：{answer}\n回答凭证：{answered}"),
+                    )
                 }
-                AskResponse::Cancelled => format!(
-                    "用户取消了异步问题 {reply_id}：{question}。没有提供回答，不得视为同意。"
+                AskResponse::Cancelled => (
+                    kanzei_base::MessageOrigin::Notification,
+                    format!("异步问题 {reply_id} 已取消：{question}。没有提供回答，不得视为同意。"),
                 ),
                 AskResponse::Permission(_) => return,
             };
             if let Err(error) = mailbox.publish(kanzei_harness::AsyncNotice {
-                origin: kanzei_base::MessageOrigin::Notification,
+                origin,
                 attachments: Vec::new(),
                 id: reply_id.clone(),
                 text,
@@ -220,6 +224,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(notice.id, "pending-question:original-run:original-question");
+        assert_eq!(notice.origin, kanzei_base::MessageOrigin::Human);
         assert_eq!(
             kanzei_harness::question_ref::find_question_ref(&notice.text),
             Some("question:original-run:original-question")
@@ -461,6 +466,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(notice.text.contains("没有提供回答"));
+        assert_eq!(notice.origin, kanzei_base::MessageOrigin::Notification);
         assert!(kanzei_harness::question_ref::find_question_ref(&notice.text).is_none());
         mailbox.close();
     }
