@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
   subgraph source_grp["组件来源"]
-    dev_profile["dev 档组件<br/>profiles/dev.rs"]:::entry
+    development_profile["dev-auto / dev-pair 组件<br/>profiles/development.rs"]:::entry
     research_profile["research 档组件<br/>profiles/research.rs"]:::entry
     readonly_profile["只读档<br/>profiles/readonly.rs"]:::muted
     config["kanzei.toml<br/>全局 → 项目层叠"]
@@ -25,9 +25,9 @@ flowchart LR
   pipeline["工具流水线<br/>guards → 本体 → policies → observers"]
   design_doc["设计文档<br/>harness_m1.md"]:::ext
 
-  dev_profile --> tools_reg
-  dev_profile --> context
-  dev_profile --> rules
+  development_profile --> tools_reg
+  development_profile --> context
+  development_profile --> rules
   research_profile --> tools_reg
   readonly_profile -.-> rules
   config --> rules
@@ -43,7 +43,7 @@ flowchart LR
   runner --> pipeline
   snapshot -.-> design_doc
 
-  click dev_profile "crates/kanzei-tools/src/profiles/dev.rs" "dev 档:注册工具、上下文源与权限规则"
+  click development_profile "crates/kanzei-tools/src/profiles/development.rs" "开发组件:注册 dev-auto / dev-pair 的工具、上下文源与权限规则"
   click research_profile "crates/kanzei-tools/src/profiles/research.rs" "research 档组件"
   click readonly_profile "crates/kanzei-tools/src/profiles/readonly.rs" "只读档:收紧写权限"
   click config "crates/kanzei-harness/src/config.rs" "kanzei.toml:全局 ~/.kanzei 再叠项目 .kanzei"
