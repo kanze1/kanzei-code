@@ -1,30 +1,6 @@
 # Memory Index (project)
 
 - M-001 [fact] 前端动态 i18n 必须保存源文案并在语言切换时重算 — 处理前端动态 i18n 中文内容无法回译/切换失效故障时必读
-- M-003 [fact] tracker 状态机只进不退：cannot move backward 时核对状态与当前提交证据 — 处理 req/defect/goal 的 update 报 cannot move backward，或 defect 关闭缺当前 HEAD 的 verify 证据时必读：不要回退到更早状态；核对允许的单向迁移，并让 verification.json 绑定要关闭的这次提交后重跑 verify。
-- M-004 [fact] TrackerTool req/defect list 阻塞感知稳定后置，不改写 Markdown 顺序 — 处理 TrackerTool req/defect list 输出、阻塞条目排序或相关回归测试时必读:list 具备阻塞感知稳定后置能力
-- M-005 [sop] .kanzei/project 托管文件禁止 edit,须用专用工具 — 处理 .kanzei/project/defects.md 或其他 policy-managed 文件写入时必读：先不要调用 edit；若出现 tracker integrity broken 或 permission denied by ruleset，立即改用允许的专用写入/grep 通道并先修复报告的完整性门禁，避免重复 edit。
-- M-006 [fact] 前端需求/缺陷显示阻塞原因与筛选,独立文档页顺序与调度一致 — 处理需求/缺陷 UI 阻塞显示与筛选、独立文档页排序、docs_snapshot 或 renderDocList 改动/回归时必读：把有效阻塞与显式停车分开显示和筛选，停车项须先复核前提或恢复后再取活，不能当失效阻塞清除。
-- M-007 [fact] 设置页工作资料导出功能(export_project_data) — 需要了解/修改设置页导出记忆、需求、缺陷、项目配置功能(实现位置、目录约束、返回值)时必读
-- M-008 [fact] runner 首次请求统一清洗 prior 历史(filter_message_history) — 调试 runner 首请求消息构造、prior 历史孤儿 ToolCall/ToolResult、上下文压缩相关问题时必读
-- M-009 [sop] edit 报 old_string not found + must match exactly:先重读再精确构造含 whitespace 与缩进—非唯一匹配勿设 replace_all — 处理 edit 报 old_string not found、尤其 bash/cargo 修改失败时必读：先 read 重读目标文件并核对实际换行、缩进和空白，再构造与原文逐字符匹配的 old_string；多处匹配时不要盲用 replace_all。
-- M-012 [fact] ID 同现于活动与归档时改用 terminal 专用操作 — 处理 goal/defect/req 报 `id` is required、is archived、ID 同现于活动与归档，或 policy-managed 文件写入触发 tracker integrity/permission 门禁时必读：先判定条目是否为 terminal；terminal 不要调用普通 edit/update，归档终态改用 req fix_terminal 并提供合法 status 与 reason，文件写入改走专用通道。
-- M-029 [fact] 所有 git mutation 在 bash 都被拦截,必须走结构化 git 工具 — 处理任何 Git 分支/索引变更(merge/restore/rebase/add/commit/reset)在 bash 报 "is blocked in bash: git mutations must use the structured git tool" 时必读:不要换别的 git 子命令重试,改用结构化 git 工具——显式 stage 指定文件、核对 staged_hash/diff,再用该 hash commit;快进合并走 git merge_ff。
-- M-030 [fact] 鞭挞与 backlog 判定集中在引擎，前端只执行 autoAction — 处理自动运行鞭挞、backlog 或继续文案改动时必读：判定逻辑只改 harness/kanzei-tools 单源，桌面端转发，前端仅执行 autoAction；不要在前端重复判定或维护旧继续文案。
-- M-041 [sop] autonomous 会话报 permission requires user approval 是档位限制,不是死路 — 处理 autonomous(自动推进)会话里 edit/bash/git/cargo/conventions_patch 被拒并报 "permission requires user approval" 时必读:这是权限档位而非工具故障——把该动作留给交互轮或先在 .kanzei/kanzei.toml 加白名单;不要反复重试、不要换等价命令绕道、也不要判定为死路而放弃整条任务。
-- M-112 [fact] Git tests 跨轮复发与前端标签关闭前必须有 UI smoke 证据 — 处理 failures: git::tests 跨轮复发或关闭带“前端”标签的需求/缺陷时必读：先核对真实失败行、完整批次字段和前置条件；关闭前必须附 T-测试记录、file:line 或提交号，并至少跑过本项目 UI smoke（ui-runtime-smoke、ui-lint-smoke、parallel-lines-regression 或 ui-a11y/ui-i18n smoke）；证据不足就显式记录降级或用户执行，禁止沉默跳过或把重试成功当根因。
-- M-247 [sop] bash guard全文件改写拦截SOP — 识别whole-file rewrites via shell bypass并使用edit/memory writer完成写入【新版】 — M-247 bash guard全文件改写拦截 — 遇[fp:bash|...]必read再update：whole-file rewrites→ident→用edit/memwriter
-- M-258 [fact] bash/cargo失败模式：先核对完整结束标记与实际失败行再定位根因 — 处理 bash/cargo 输出局部显示测试通过但命令 exit code 非零或后续有 Diff 时必读：不要被 `test result: ok` 误导；核对完整输出、退出码、结束标记及实际失败行（尤其摘要之后的 diff/断言失败），再定位根因；未定位前不盲目重试或改代码。
-- M-270 [fact] refresh_derived 写 INDEX 前必须逐行核对 active 描述 — 处理 MemoryStore 刷新 INDEX.md、或发现 INDEX 与 active M-*.md 描述可能串号时必读：写入前逐行核对 id 与源文件 description；有任何不一致就失败并先修复源数据，禁止生成不一致索引。
-- M-271 [sop] read 报 path not found 时先核对项目 memory 根路径与目标文件 — 处理 read/grep 报 `path not found`，特别是检查过记忆仍复发时必读：先列出实际父目录并确认目标文件存在；若父目录无可列出文件，停止沿错误文本中的路径或最近邻候选重试，转而查真实目录、生成步骤或路径配置。
-- M-273 [fact] 基础层只提供文件、路径与审计原语 — 改原子写、文件指纹、路径或写入日志时核对基础层与调用者边界
-- M-274 [fact] Harness 定义能力契约与装配快照 — 改工具、权限、上下文、Skills 或区域注册表时核对 Harness 职责
-- M-275 [fact] 协议层归一请求、流事件与错误 — 改模型消息、工具调用、SSE 或协议错误时核对协议层职责
-- M-276 [fact] Core 负责执行循环和持久会话事实 — 改执行、恢复、压缩、并行工具批或会话数据时核对 Core 边界
-- M-277 [fact] 记忆层保存真源并执行准入与证据门槛 — 改记忆写入、检索、索引或生命周期时核对 memory 真源与门禁
-- M-278 [fact] 工具层组合能力并提供公共运行装配 — 改工具实现、profile、架构、文件浏览或运行装配时核对公共入口
-- M-279 [fact] 桌面端负责 IPC、界面与运行生命周期适配 — 改桌面 command、事件、会话切换或页面时核对前后端接线
-- M-280 [fact] CLI 是共享能力的命令行入口 — 改 kz run、根解析、历史恢复或 CLI 收尾时核对共享能力入口
 - M-281 [fact] 代码树与项目资产根必须分别传递 — 工作树探索、文件用途和架构位置不一致时核对 cwd/project_root
 - M-282 [fact] 层级与依赖图用于定位，不能证明完整影响范围 — 评估修改影响、跨模块关联或图上缺边时核对解析范围
 - M-283 [fact] 用途摘要只在当前指纹匹配时有效 — 生成或复用文件/目录摘要时核对有效性与并发变化边界
@@ -32,7 +8,6 @@
 - M-285 [fact] 工具错误布尔值与业务终态不能混用 — 调工具重试、记忆失败采集或界面错误状态时核对 ToolOutcome
 - M-286 [fact] 开跑提示与失败召回走不同消息通道 — 改记忆召回或处理上下文重复积累时核对 system 与 ToolResult
 - M-287 [fact] 新段、关闭身份与永久清理是三种操作 — 改 --new、过程关闭、永久删除或历史恢复时核对存储范围
-- M-288 [fact] 全局 Skills 与项目知识开关不共用作用域 — 项目切换或工作树共享设置时核对 global_home 与项目配置
 - M-289 [fact] 前端接线须覆盖 command、订阅和源状态 — 新增桌面能力、改 IPC 数据或 ESM 状态时核对真实调用链
 - M-290 [fact] 公共消息变更须核对所有协议与流恢复 — 改 Part、LlmEvent、错误分类或流式恢复时核对同步范围
 - M-291 [fact] 检索索引与图投影不能升级候选或失效知识 — 修索引、修改记忆区域或加载局部上下文时核对真源与状态

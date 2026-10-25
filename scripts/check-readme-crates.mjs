@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// R-266:workspace crate 清单与 README 项目结构表机械同步校验。
+// R-266:workspace crate 清单与系统合同的组件表机械同步校验。
 // 从 Cargo.toml [workspace] members 取 crate 名(规范化 `crates/kanzei-base` →
-// `kanzei-base`),与 README `## 项目结构` 表逐行比对:README 缺 crate、或有多余
-// crate(不在 members 里),都判失败并点名。README 表用 crate 名首列精确匹配。
+// `kanzei-base`),与系统合同 `## 组件与依赖` 的链接首列精确比对。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,39 +31,44 @@ if (members.length === 0) {
   process.exit(1);
 }
 
-// 2) 从 README `## 项目结构` 表取 crate 名单列。
-const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
-const tableStart = readme.indexOf("## 项目结构");
+// 2) 系统合同是组件所有权清单的唯一文档来源。
+const documentPath = "docs/design/system_contracts.md";
+const document = fs.readFileSync(path.join(root, documentPath), "utf8");
+const heading = "## 组件与依赖";
+const tableStart = document.indexOf(heading);
 if (tableStart === -1) {
-  console.error("R-266: README 缺少 `## 项目结构` 章节");
+  console.error(`R-266: ${documentPath} 缺少 ${heading} 章节`);
   process.exit(1);
 }
-const tableSection = readme.slice(tableStart, readme.indexOf("\n## ", tableStart + 10));
-const readmeCrates = [];
+const sectionEnd = document.indexOf("\n## ", tableStart + heading.length);
+const tableSection = document.slice(tableStart, sectionEnd === -1 ? document.length : sectionEnd);
+const documentedCrates = [];
 for (const line of tableSection.split(/\r?\n/)) {
-  const m = line.match(/^\|\s*`([a-zA-Z0-9_-]+)`\s*\|/);
-  if (m) readmeCrates.push(m[1]);
+  const m = line.match(/^\|\s*\[([a-zA-Z0-9_-]+)\]\([^)]+\)\s*\|/);
+  if (m) documentedCrates.push(m[1]);
 }
-if (readmeCrates.length === 0) {
-  console.error("R-266: README 项目结构表未解析到任何 crate 行");
+if (documentedCrates.length === 0) {
+  console.error(`R-266: ${documentPath} 组件表未解析到任何 crate 行`);
   process.exit(1);
 }
 
-// 3) 比对:README 缺成员 / README 多出非成员。
+// 3) 缺失、多余和重复行均不能代表一个完整的所有权清单。
 const membersSet = new Set(members);
-const readmeSet = new Set(readmeCrates);
-const missing = members.filter((c) => !readmeSet.has(c)).sort();
-const extra = readmeCrates.filter((c) => !membersSet.has(c)).sort();
+const documentedSet = new Set(documentedCrates);
+const missing = members.filter((c) => !documentedSet.has(c)).sort();
+const extra = documentedCrates.filter((c) => !membersSet.has(c)).sort();
+const duplicate = [...documentedSet].filter(c => documentedCrates.filter(value => value === c).length > 1).sort();
 const failures = [];
 if (missing.length > 0) {
-  failures.push(`README 缺少 crate: ${missing.join(", ")}`);
+  failures.push(`系统合同缺少 crate: ${missing.join(", ")}`);
 }
 if (extra.length > 0) {
-  failures.push(`README 有多余 crate(不在 Cargo.toml members): ${extra.join(", ")}`);
+  failures.push(`系统合同有多余 crate(不在 Cargo.toml members): ${extra.join(", ")}`);
 }
+if (duplicate.length > 0) failures.push(`系统合同有重复 crate: ${duplicate.join(", ")}`);
 if (failures.length > 0) {
   console.error(`R-266 校验失败(${failures.length} 项):`);
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log(`R-266 通过:${members.length} 个 crate 与 README 项目结构表一致`);
+console.log(`R-266 通过:${members.length} 个 crate 与系统合同组件表一致`);

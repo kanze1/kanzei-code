@@ -13602,3 +13602,11 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 汇整来源: window-chrome；源码快照 edc972e23f39c230863619d5d8e403053850c085；原编号 T-1786922727177；原文件 .kanzei/project/tests.md。保留原始状态，不代表本次发布验证。
 - 命令: pwsh -NoProfile -File .\scripts\verify.ps1 -Full（由 .kanzei/tmp/finish-two-fixes-7e30afa7.ps1 在 .release-1024 串行编排；只有 Full 与其正式回执通过后才执行打包发布）
 - 摘要: 候选HEAD=7e30afa7b069d4df30198fddc6ed559632003639。此前Tauri旧绝对路径缓存已用cargo clean -p tauri清理，clippy与229个IPC签名定向重验实际通过(T-1786922727175)。本次重跑Full；尚不能标记通过或已发布。
+
+
+## T-1786922727210 清理改动提交前定向验证 [passed]
+- 命令: ./scripts/verify.ps1
+- 时长: 289.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727210.json; 仅背书该命令的验证范围
+- 收尾: 1792907637
+- 源码指纹: v2 scripts/check-readme-crates.mjs@ebebd2b9db28

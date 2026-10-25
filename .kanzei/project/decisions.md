@@ -60,19 +60,19 @@
 - 现状校正(2026-10-02): 当前 index.html 使用 type=module，模块显式 import/export，runtime smoke 使用 vm.SourceTextModule；仍无应用打包器或前端框架。Rust 文件级拆分边界保留，旧 classic 限制只描述历史。
 
 ## A-009 发布证据链:无绑定 commit 的验证证据不得打包发布 [accepted]
-- 决定: 公开发布(package.ps1)前必须存在 dist/verification.json:其 commit 与 HEAD 全 SHA 一致且全部检查通过,否则中止;证据由 scripts/verify.ps1 在干净工作树上产出;GitHub Actions 当前由 workflow_dispatch 手动触发独立环境复跑，不保证每次 push 后运行。"Agent 说 done"不作为发布依据,发布只认绑定 commit 且满足当前 verify-policy 全量策略的证据；独立环境结果另记。
+- 决定: 公开发布前必须有绑定最终干净 HEAD 的本地 dist/verification.json，全部要求的检查通过；定向、真实设备/服务、发布及安装分别留证。按根工程规则不新增、启用或运行 GitHub Actions CI。
 - 依据: 2026-08-09 用户定调(评审 P0:release gate 机械化——package.ps1 有 -Ack 范围核对却不验证"该 commit 跑过测试",正确性依赖约定而非机制,与"规则进代码"哲学矛盾)。与 D-183(防夹带)、D-198(防假安装)同族。
 - 日期: 2026-08-09
 - refs: R-152 A-007
-- 备注: 方案 docs/design/ci_release_evidence_chain.md;通道语义(stable/nightly)、多平台、签名/SBOM、CI 直发显式不在本决策范围。
+- 备注: 2026-10-24 清理：统一为已经确定的本地验证规则，替代本条旧的手动 CI 描述。历史依据保留于 Git 与清理前归档；现行流程见 CONTRIBUTING.md。
 - 现状校正(2026-10-02): CI 手动触发是当前文件事实，本文不声称已运行；本地与 CI 的 ESM 启动参数差异仍需代码修复。清单以实际脚本为准。
 
-## A-010 验证与提交节奏可调:批内定向,关闭与发版全量,CI 手动复核 [accepted]
-- 决定: 全量 cargo test --workspace 的默认触发点 = 条目关闭前一次 + 发版前(verify.ps1);批内提交只做定向测试(cargo test -p 改动 crate,被依赖 crate 另加下游 cargo check);多批次条目每批提交后 push,如需独立复核则手动触发 CI 并核对其结果，不依赖 push 自动兜底。节奏是参数不是铁律,通用节奏由引擎内置规范与当前 cadence 配置承载,引擎化配置(kanzei.toml+设置页+循环注入)由 R-157 交付。不可调降底线:发版门禁全量以及显式发起的 CI 全量;任何全量红灯当场修复。
+## A-010 验证与提交节奏匹配改动面，发布前本地全量验证 [accepted]
+- 决定: 验证与提交节奏按实际改动面和有效 cadence 配置执行；批内做相关定向检查，关闭按原验收与当前策略核对，公开发布必须对最终干净提交运行本地全量门禁。验证与发布不依赖 GitHub Actions CI。
 - 依据: 2026-08-09 用户定调:全量测试触发频率与提交频率明显拖慢开发效率(稳定性不错,但「每提交一次全量」把验证成本乘在提交频率上;拆解类 27 批 = 27 次全量纯属浪费);当时 R-152 规划每次 push 的独立环境全量复跑,本地重复全量信息量低。是 A-004(验证匹配改动面)的同向延伸,并修订其「提交前全量一次」细则。
 - 日期: 2026-08-09
 - refs: R-157 R-152 A-004
-- 备注: conventions §1.3/§1.4、§9 已按此修订;monolith_decomposition.md 执行纪律与 R-153/R-155 验收同步。
+- 备注: 2026-10-24 清理：保留匹配改动面的原则及已有节奏配置，移除旧手动 CI 约定；工程规则、当前验证注册表及 CONTRIBUTING.md 是现行入口。
 - 现状校正(2026-10-02): 保留匹配改动面的原则；CI 触发方式现为手动，历史自动兜底不能用来省略本条目必要验证。旧 conventions §1.3/§1.4 引用是迁入引擎前的位置。
 
 ## A-011 向量检索翻案:废止「不要向量库」,向量作为第二检索通道引入 [draft]
@@ -80,12 +80,12 @@
 - 决策: 废止 memory_system.md §0「不要向量库」条款(2026-08-08 的早期取舍,用户明示已不合适)。向量检索引入,但定位为**第二通道**:fingerprint 与 BM25 优先,dense 只在语义模糊/无精确命中时触发;无 embedder 时系统必须完整可用。
 - 技术边界(用户拍板): ①Embedder 第一实现走 provider 体系 openai 兼容 /embeddings(含本地 ollama),进程内模型只做 benchmark challenger 绝不 bundle;②sqlite-vec brute-force 起步,不依赖 experimental ANN;③融合用 RRF,禁止拍脑袋线性加权;④默认启用须先过 R-163 回放台三臂对比门禁(lexical/dense/hybrid),不默认相信 dense。
 - 依据: 2026-08-10 deep research——Mem0 V3 从 semantic-only 转 hybrid(semantic+BM25+entity);Qdrant Edge 出现使嵌入式 hybrid 不再需要自拼引擎(但 v1 仍 SQLite-first);DeMem 证明语义相似≠决策等价,故向量不得作为 merge 判据。coding memory 的 exact token(错误码/符号/命令)信息密度高于 embedding,lexical 降级路径必须始终完整。
-- refs: R-164 R-103 A-001 docs/design/memory_control_plane.md
+- refs: R-164 R-103 A-001 docs/design/system_contracts.md
 - 备注: 部分推翻 A-001(仅其「不用向量」子句;文件优先/不要知识图谱引擎/不用外部框架/子代理管记忆均不动)。memory_system.md §0 对应条款随本决策废止。
 - 现状校正(2026-10-02): 当前向量落在 SQLite memory_vectors 表，并由 Rust 做余弦扫描与 RRF 融合；下文 sqlite-vec 是初期技术设想，未作为该扩展依赖实现。没有 embedder 时保留完整 lexical 路径；本次不把回放启用条件写成已验收。
 
 ## A-012 运行时会话事实用 SQLite，Markdown 用于可读治理与长期记忆 [draft]
-- refs: A-001 A-005 D-209 D-349 R-241 R-242 R-245 docs/design/deepseek_harness_upgrade.md
+- refs: A-001 A-005 D-209 D-349 R-241 R-242 R-245 docs/design/system_contracts.md
 - 依据: 会话事件需要原子 sequence、事务、并发追加、索引查询、崩溃恢复和确定性物理删除；用 Markdown 实现会重新制造 WAL、索引、事务和局部更新协议。Markdown 的优势是人可读、可编辑、可 Git 审计，适合低频治理与长期记忆，不适合每秒流式追加。压缩属于 surface projection：无论底层是 SQLite 还是文件，都应保留 raw facts 并生成可替换投影。
 - 决定: 运行时会话、typed events、流式草稿、工具调用结果引用、线路与运行状态以项目 state.db 为权威真源；Markdown 继续作为需求/缺陷/设计/长期记忆的权威载体，也可由会话事件生成可读导出，但不承担高频运行事件真源。
 - 日期: 2026-08-14

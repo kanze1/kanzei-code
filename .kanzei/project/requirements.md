@@ -197,7 +197,7 @@
 - 标签: 核心
 - 边界: 不做 MCP/skills/hooks;不改 Part::ToolResult 与 LlmRequest 结构;research/readonly/子代理不分层;已加载集不跨重启持久化
 - 验收: ①dev 档主代理首个请求的 tools 只含常驻层(CLI 20、桌面 21),延迟工具以「名称 — 一句话」进 system,账单有 tools/catalog;②tool_search 支持 select 精确加载与关键词检索,加载后下一步起可调用,压缩与溢出恢复后仍可用;③直接调用未加载的延迟工具时自动加载并执行;④预算门禁拆为常驻面与延迟目录两个数,research/readonly/子代理工具面不变;⑤对延迟托管工具的硬拒提示指向 tool_search select;⑥Anthropic/Responses 原生延迟加载经探针核对后启用且加载不改变 tools 前缀,其余协议走追加路径并在账单可见
-- refs: D-662 R-312 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: D-662 R-312 docs/design/system_contracts.md
 - 优先级: P1
 - 进展: 2026-10-23 文档对账：B1 提交 811497b8。2026-09-26 的 B2 未提交/等待隔离描述已由 2026-10-20 对账取代，df452a2c 已包含 deferred catalog、tool_search 与消费链；不再要求用户隔离当时已经提交的源码。现有实现包括 resident/deferred 分层、串行加载、直接调用时加载、prior 历史预加载、overflow 恢复、tools/catalog 与 tools/loaded:<name> 计费，以及托管拒绝/发现指引。T-1786922727074 至 T-1786922727080 为原批定向验证记录，不冒充本次重跑。剩余工作按原验收核对 Anthropic/Responses 原生延迟加载探针、启用边界与 B4 同源/硬拒覆盖，再据实际证据更新批次；本次不改变 doing、批次或验收。
 - observed_head: ea4f15600aa43424d8db179a1dcf4d9018330548
@@ -219,7 +219,7 @@
 - 标签: 核心
 - 边界: 不做 web.run 的 click/screenshot/finance 等命令;不声明 Anthropic web_fetch 服务端工具;不给 DeepSeek/本地模型原生搜索;不改 html_to_text 与 fetch_bytes 共享函数
 - 验收: ①B1 的探针结论与脱敏样例写入设计文档,通道开关可追溯到探针证据;②探针通过的订阅通道上主对话可用模型自带搜索,条目持久化后下一轮原样回放不报错,异通道条目不进请求体;③webfetch 支持 url|ref、行号翻页、页内查找、链接清单与按问题提取(失败回落原文分页),同 URL 15 分钟内不重复联网,预览路径格式不变;④websearch 支持 1-4 个查询与时间/域名过滤,结果带 ref,codex 后端失效时自动退回 DuckDuckGo 并注明;⑤research 档默认不开原生搜索,引用未经 webfetch 存证的来源在 add_finding 被拒;⑥桌面显示搜索工具块与编号来源列表,重开会话后一致
-- refs: R-023 R-217 R-248 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: R-023 R-217 R-248 docs/design/system_contracts.md
 - 优先级: P1
 - 进展: 批次计数 2/5：已完成独立批次 B3 webfetch 与 B4 websearch/research 存证门禁(先越过被 Claude quota 卡住的 B1 子通道，故完成批次顺序不是 B1→B4)。B3 支持 url/ref、编号分页、from_line/find/links、同 session 15 分钟缓存、同主机重定向、跨域不跟随、PDF 落到绝对可读取的 artifacts/web、[models].web_extract 默认 fast，按问题提取失败回落原文；定向测试 T-1786922727110/T-1786922727111 和 config merge 测试 T-1786922727112 通过。B4 保持旧 query 并支持 1-4 queries、recency/domains；primary Codex 订阅路线使用已实测的 /alpha/search，不可用逐查询退回 DuckDuckGo 并标注原因，结果 ref 会持久化供 webfetch 使用；research add_finding 拒绝未 webfetch 存证的 source URL。查询规范化、Codex 结果解析/失败回退、refs 和 research gate 定向测试 T-1786922727113/T-1786922727116/T-1786922727118 通过。R-365 仍进行中：B2a/B2b 原生搜索协议、runner/config 与桌面呈现尚待实现。B1 的 Codex P1/P2/P4 通过；Claude P3 仍 HTTP 429 rate_limit_error，Claude 通道保持关闭、不恢复 OAuth，等额度恢复或获准替代认证后补测。
 - observed_head: 21c36e9d3a332ebb10a1e0d841887713d9911571
@@ -238,7 +238,7 @@
 - 标签: 核心
 - 边界: 不另建链接库作为真源;不新增工具;不引入图库;不覆盖项目根之外的研究工作区;存量违规只报告不阻断
 - 验收: ①抽取覆盖 refs、依赖、设计文档关联头、测试关联、记忆 refs/supersedes 与行内弱引用,每条边带锚点行号;②tracker 写入 refs 时不存在的 ID 或路径返回纠错并列出 token,存量不阻断;③kz refs check 报告悬空引用、设计与决策单向、缺关联头、改名残留路径、从未存在的 T 与脏 token;④任一文档可查看出入边与引用历史,事件区分建立、删除、搬运、改号并带提交号;⑤前端可从任意编号或设计文档路径跳转,邻域图与依赖图共用渲染器;⑥不新增 agent 工具,索引与历史缓存可删可重建
-- refs: R-307 R-353 R-358 docs/design/doc_reference_graph.md
+- refs: R-307 R-353 R-358 docs/design/system_contracts.md
 - 优先级: P2
 - 执行模型: work_units_v1
 - 目标树迁移: 2026-10-24：按用户要求显式迁入 R-368/W1；旧编号、状态、验收和历史原文不变。关系词表待审阅、verify 与根外研究区范围延后决定，保留为规划问题；refs 不转依赖。
@@ -252,7 +252,7 @@
 - 标签: 核心
 - 边界: 不新增工具(只在 task 与 git 上加参数和动作);不做运行中子代理插话;不给编排角色开后台或可写;重启后不自动恢复后台子代理执行
 - 验收: ①.kanzei/agents/*.md 中 mode: subagent 的 agent 出现在 task 枚举,人格缺省模型生效;②background:true 只后台化该次调用,完成通知进入主对话(运行中排队、空闲开新一轮),可单条停止;③isolation:"worktree" 时主树零改动,子代理内 git 写动作与 .kanzei 托管写入被硬拒,合并经 merge_task 与常规 commit 门禁;④resume 可续已结束的任务且跨重启可用,未知或运行中的 id 返回稳定 code;⑤子代理仍不能嵌套,CLI 与 readonly 档的 schema 不出现 background/isolation
-- refs: R-175 R-176 R-281 R-327 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: R-175 R-176 R-281 R-327 docs/design/system_contracts.md
 - 优先级: P1
 - 进展: 2026-09-28 自举审计确认：普通 task 已可并行只读勘察，当时并非可写委派；p20 同轮两个 task 实际并行，但 collaboration_status 未纳入 task 注册表、21 次为空。计划衔接统一活动快照，在派发/整合/暂存边界检查冲突，可写任务按 worktree 隔离。历史前置 D-772/D-774/D-773 与阅读器验证见 docs/reports/2026-09-28-bootstrap-stall-and-subagents.md；当时仅核查设计、批次 0/3。 2026-10-02：当前 task 团队已有持久 ID、消息、等待/停止、继续/重启、独立可写工作树、diff/adopt；本次修复 Markdown persona/步数丢失，协作快照纳入 children，并按子任务身份隔离读取收据。使用统一 task 命令接口，原规格的 merge_task 参数方案未作为第二套接口实现；重启中断不自动重放。局部测试通过，完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 清单收口 checkpoint：已根据报告和当前源码尝试完成原验收①-⑤对账，但 tracker 拒绝关单：存量 observed_head=21c36e9d3a332ebb10a1e0d841887713d9911571 不在当前 HEAD 祖先链；状态未关闭、未归档，本轮未更改源码。工作树已有与本批无关的基线脏文件，未暂存/提交。下一步在当前 dev HEAD 对 task 名册/后台通知/worktree 隔离/续聊/schema 逐条重核并补当前提交的定向验证，再更新这条记录并重试关闭；不得把旧 release 报告直接当作当前 HEAD 验收。 2026-10-04 当前 HEAD 定向复核（commit 501af237）：首次误用 `cargo test -p kanzei --test background_subagent_dispatch`，失败原因为该包仅有 `integration` target（T-1786922727144）；改用 `cargo test -p kanzei --test integration background_subagent_dispatch` 后 5 passed（T-1786922727145）；`cargo test -p kanzei-tools --lib team::tests` 37 passed/2 ignored（T-1786922727146）。当前代码证据：自定义 agent roster/model fallback 与后台、续聊、worktree/adopt 在 `crates/kanzei-tools/src/team/mod.rs:678-803,1280-1310,1566-1600`，主要生命周期/持久化/通知/隔离回归在 `crates/kanzei-tools/src/team/tests.rs`。但原验收⑤仍未通过：`crates/kanzei-app/src/run/coordinator.rs:300-321` 将 `AgentTeam` host 注入 subagent runtime，而 `team/mod.rs:1586-1594` 暴露包含 spawn/background 的 `task` schema；本轮未能证明子代理不能嵌套以及 readonly/CLI schema 不出现该参数。因此 R-369 继续 todo，不归档；不改源码。下一步需单独核实/修复嵌套委派与非 Dev/CLI schema，再补针对测试并重试关单。 2026-10-04 清单交接 checkpoint 已提交 `cc5bab96`：同一批要求把 R-245/R-288/R-322 转为 SSH/设备外部验收；R-369 的 5 passed/0 failed 集成、37 passed/2 ignored team 定向测试及错误 target 记录均保留，条目仍 todo（验收⑤的嵌套委派/readonly/CLI schema 未完成）。下一步仍是核实并修复该能力缺口、补当前证据；本次未改源码、未发版。
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
@@ -270,7 +270,7 @@
 - 标签: 核心
 - 边界: 不给模型定时任务工具;不做事件触发(留 v2);v1 只做项目级任务;不引入 YAML/cron crate
 - 验收: ①§5.10 示例定义能被识别,解析失败带行号显示在面板;②每次运行是独立会话,主对话零污染,需要询问的动作被拒并列出,运行继续到结束;③四种回写可多选且逐项记录成败;④面板用频率选择器,不出现 cron,开发与研究空间都可见;⑤catch_up 行为正确,新建或刚启用的任务不补跑;⑥host=system 在应用关闭时照常运行,host=server 在远端运行并拉回,回写只做一次
-- refs: A-016 A-018 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: A-016 A-018 docs/design/system_contracts.md
 - 优先级: P1
 - 进展: 2026-10-02：已实现 MD 任务定义、app/system/server 注册、独立执行、同槽去重、过期定义保护、超时/异常清理、实际结果回写、三次失败停用和任务面板。Windows 原生计时触发退出码 0、独立会话及真实文件回写已验；临时任务已取消。真实 SSH 服务端端到端未验收，时区为明确 UTC 偏移。完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 维护核对：保留上述实现与本地证据，按用户新要求转为待外部验收。真实现场尚未通过；本条不占开发名额、不阻塞其他开发。待测事项见外部验收字段。
 - observed_head: 54b04021ad093ab3ad59b958817d2fbc0af7750d
@@ -291,7 +291,7 @@
 - 标签: 核心
 - 边界: 不改 queue 语义与 run 边界循环;不做手机端插话;不给子代理转发插话
 - 验收: ①run 进行中发送的 steer 在下一次 provider 请求前以一条 user 消息进入上下文,同一 run 内模型可见;②queue 仍在 run 边界处理,最后一步才到达的 steer 留到 run 边界开新 run;③插话被持久化,重启后对话与下一轮 prior 中仍在;④送达后输入状态为 completed,之后停止不改写;⑤界面气泡显示已送达,排队条同步消失;⑥子代理与 CLI 不消费 steer
-- refs: R-241 R-242 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: R-241 R-242 docs/design/system_contracts.md
 - 优先级: P2
 - 执行模型: work_units_v1
 - 目标树迁移: 2026-10-24：按用户要求显式迁入 R-371/W1；旧编号、todo 状态、验收、steer/queue 边界及历史原文不变，不将 R-241/R-242 refs 转为新依赖。
@@ -305,7 +305,7 @@
 - 标签: 后端
 - 边界: 保留 summarize_chat；用户 2026-10-02 新授权扩展到自动压缩调研与改进：结果可回取、保护约束与失败事实、实际预算触发、压缩质量回放。
 - 验收: ①桌面输入 /compact [焦点] 与 kz compact [--focus 文本] 都能手动触发压缩,焦点进入 L1 纪要指令;②压缩结果以 compaction 事务持久化,下一轮 prior 与重启后都是压缩后的 surface;③关闭子代理时轮内、轮末与手动压缩都能产出纪要;④运行中手动压缩被拒,压缩进行中的新发送被拒;⑤无可压缩内容时给出说明且不写事务
-- refs: R-236 D-181 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: R-236 D-181 docs/design/system_contracts.md
 - 优先级: P1
 - 进展: 2026-10-02：/compact 与 kz compact 已实现；不依赖子代理运行时、独立 compact 模型、原文归档、任务约束/近期原文保留、摘要质量和实际 token 节省检查、并发 CAS、恢复投影共用。已调研 OpenAI/Anthropic Compaction、The Complexity Trap、ACON；局部回归通过，真实任务三组对照尚未跑，不宣称质量增益。完整发布门禁通过。 现状与证据：docs/reports/2026-10-02-harness-repair.md。 最终交付 build-e4ab88e5，提交 e4ab88e5ce952737c396169241a39eeb368da1bd；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2189 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 最终交付 build-2173dd60，提交 2173dd60e2eb6592864f34f20c5b12ca574e34d2；发行版 15 项全绿、资产 hash/尺寸/HTTP 206 验收通过；主目录 2191 项测试通过，桌面 pending 更新待下次启动。证据：output/harness-release-2026-10-02/release-evidence.json。原条目的未验收边界继续保留。 2026-10-04 当前源码定向核验（commit cc5bab96；本批未改源码）：`cargo test -p kanzei-core --lib runner::compaction::tests` 13 passed（T-1786922727147）；`cargo test -p kanzei-app --bin kzapp` 624 passed/0 failed（T-1786922727148，完整日志 test result 行已核对）。调用实现核对：桌面 `crates/kanzei-app/src/manual_compact.rs:17-110`（focus、运行/压缩互斥、排队输入拒绝、无内容 no-op、带 source sequence 的 checked compaction transaction）；CLI `crates/kanzei/src/cli/compact.rs:4-79`（--focus、运行/排队拒绝、无内容 no-op、源哈希 CAS 与持久化事务）；L1 焦点进入 DigestModel system 指令见 `crates/kanzei-core/src/runner/compaction.rs:579-583`。原验收①-⑤对应的当前实现和定向测试已核验；旧进展中“真实任务质量三组对照尚未跑、不宣称质量增益”仍保留，不把质量提升写作验收结果。
 - observed_head: aa812a03e5f85489924f688952591aaf1aef9cdf
@@ -323,7 +323,7 @@
 - 标签: 模型
 - 边界: B1 不改 system 拼装与缓存断点;不改 Chat Completions/DeepSeek 请求;不做 UI 看板
 - 验收: ①主代理每个 run 的 episodes.metrics_json 含 cache.read/cache.write 总量与逐步 step_usage,数组长度等于步数;②每步记录 refreshable_changed,可分组比较命中率,口径统一为 cache_read/(input+cache_read+cache_write);③Responses 请求带 prompt_cache_key,其他协议请求体不变;④有一份基于真实数据的结论决定 B2 做或不做,写回设计文档
-- refs: R-106 R-184 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: R-106 R-184 docs/design/system_contracts.md
 - 优先级: P2
 - 执行模型: work_units_v1
 - 目标树迁移: 2026-10-24：按用户要求显式迁入 R-373/W1；旧编号、todo 状态、验收、条件性 B2 决策和历史原文不变。Codex key 支持待真实测量，未取得数据不预先决定挪动刷新段。
@@ -337,7 +337,7 @@
 - 标签: 前端
 - 边界: 不修手机端 question 只能批准/拒绝的缺口(另登缺陷);运行时不强制选项数量;不改 question 的权限规则
 - 验收: ①旧形态 {question, options, default, multiple} 不报错,等价于一个元素的 questions,单题结果逐字保持「User answer: …」;②交互运行中 1-4 个问题在一个弹窗内展示并一次提交,结果按顺序列出每题问题与答案,「其他」原样返回;③questions 为空、超过 4 个或某题为空时返回纠错且不打扰用户;④非交互运行返回 QUESTION_PENDING,display 含各题且不带 default;⑤中途取消返回错误并附已答题;⑥模型可见 schema 只推新形态且不含 $ref
-- refs: D-337 D-745 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: D-337 D-745 docs/design/system_contracts.md
 - 优先级: P2
 - 执行模型: work_units_v1
 - 目标树迁移: 2026-10-24：按用户要求显式迁入 R-374/W1；旧编号、todo 状态、验收及历史原文不变。保留旧单问兼容、非交互、取消及单弹窗边界；refs 不改为依赖。
@@ -350,7 +350,7 @@
 - 标签: 后端
 - 边界: 不读全局 AGENTS.md;不支持 AGENTS.override.md、.claude/CLAUDE.md 与 @import;不改 dev/conventions 注入
 - 验收: ①从仓库根到 cwd 逐层,每层优先 AGENTS.md,不存在才取 CLAUDE.md,根到叶顺序拼接并标出相对路径;②worktree 线读 worktree 里的文件;③总预算 32 KiB,超出时显式注明原大小与截掉字节数,截断落在字符边界;④没有指令文件时不产生段落与账单项;⑤task 子代理不注入,且该段不随每步刷新
-- refs: D-201 docs/design/cc_codex_alignment_20260925.md docs/design/cc_codex_alignment_impl_maps.md
+- refs: D-201 docs/design/system_contracts.md
 - 优先级: P2
 - 执行模型: work_units_v1
 - 目标树迁移: 2026-10-24：按用户要求显式迁入 R-375/W1；旧编号、todo 状态、验收及历史原文不变。保留逐层优先级、worktree 读自身、32KiB 上限、task 不注入与不刷新边界。
@@ -363,7 +363,7 @@
 - 来源: 波次质量审计 2026-09-26 发现 R-366 B1 的 blob 已在生产落盘而无任何清理归属;用户原话「回退我很常用很重要」决定了保留策略需要用户拍板
 - 标签: 后端
 - 验收: ①存储报告与 kz artifacts stats 单列检查点占用;②清理计划只回收无引用 blob 并有 dry-run;③会话删除同步删除检查点行;④保留策略经用户拍板后实施并有测试
-- refs: R-366 R-245 docs/design/bootstrap_quality_audit.md
+- refs: R-366 R-245 docs/design/system_contracts.md
 - 优先级: P2
 - 进展: 2026-10-20 清理：R-366 已完成，改为 refs；检查点保留策略和可达性回收仍未验收，继续作为独立任务。
 - observed_head: df452a2cb79055ef7ce9b28a68bf989ba058fc23
