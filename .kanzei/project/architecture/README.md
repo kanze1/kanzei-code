@@ -11,6 +11,8 @@
 
 ## live_design
 
+- [identity: live_design; last_verified_commit: 9b1c07851dd1] [`system_contracts.md`](../../../docs/design/system_contracts.md)：当前系统所有权与上下文装配合同；源码核对基线不代表全量验证、发布或安装完成。
+
 - [identity: live_design; last_verified_commit: 172f4f02] [`recursive_goal_development.md`](../../../docs/design/recursive_goal_development.md)：长期维护与开发模式、递归工作节点、依赖、证据与逐层验收；提交号锚定实现，完整门禁以最终发布回执为准。
 
 - [identity: live_design; last_verified_commit: c0ea88d] [`ci_release_evidence_chain.md`](../../../docs/design/ci_release_evidence_chain.md)：本地验证与发布证据链：定向工作树回执、最终干净提交全量回执与安装验收分别记录；根工程规则禁用 GitHub Actions CI。旧提交号保留历史验证锚点，当前正文为 live_design。
