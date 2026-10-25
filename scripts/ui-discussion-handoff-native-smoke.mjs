@@ -48,8 +48,9 @@ const model = task.server(http.createServer(async (req, res) => {
     const data = JSON.parse(raw), messages = data.messages || [];
     const system = JSON.stringify(messages.filter(message => message.role === "system"));
     const prompt = JSON.stringify(messages.findLast(message => message.role === "user")?.content || "");
-    const kind = system.includes("You capture ONE requirement") ? "unexpected-capture"
-      : system.includes("You own one delegated task") || prompt.includes("你是只读勘察代理") || prompt.includes("你是只读复核代理") ? "unexpected-child"
+    const tools = data.tools || [];
+    const kind = tools.length === 1 && ["req", "defect"].includes(tools[0].function?.name) ? "unexpected-capture"
+      : system.includes("完成分配的子任务") ? "unexpected-child"
         : prompt.includes("用户回答异步问题") ? "answer"
           : prompt.includes("NATIVE_BACKGROUND_START") ? "background-main"
             : prompt.includes("用户明确交给其它对话的结论") && prompt.includes(handoffText) ? "handoff-main"
@@ -86,7 +87,8 @@ const app = spawn(exe, [], { cwd: project, windowsHide: true, stdio: "ignore", e
 } });
 let browser, page, owner, discussion;
 const invoke = (command, args = {}) => page.evaluate(({ command, args }) => window.__TAURI__.core.invoke(command, args), { command, args });
-const conversation = processId => invoke("conversation_display_get", { projectDir: project, processId });
+// Persistence checks use the complete model history; display projections hide callbacks.
+const conversation = processId => invoke("conversation_get", { projectDir: project, processId });
 const pending = async label => (await invoke("softwire_questions")).find(question => question.question === label);
 const receivedReply = (messages, label) => messages.some(message => ["user", "tool"].includes(message.role) && JSON.stringify(message.content ?? message.parts ?? []).includes(label));
 const messageText = message => typeof message?.content === "string" ? message.content : (message?.content || []).map(part => part.text || "").join("\n");
@@ -108,14 +110,12 @@ const selected = () => page.evaluate(async () => {
   return { project: shell.currentProject, processId: shell.activeProcessId, sessionId: shell.activeSessionId, view: document.body.dataset.view };
 });
 async function openMainChat() {
-  const back = page.locator(".sw-reply-complete").getByRole("button", { name: "返回工作", exact: true });
-  if (await back.isVisible()) await back.click();
   await page.locator('#project-work-switch [data-work-surface="chat"]').click();
   await until(async () => { const active = await selected(); return active.view === "chat" && active.processId === owner.id; }, "Main chat selection");
 }
 async function answerChoice(label) {
   await page.locator(".sw-choices").getByRole("button", { name: label, exact: true }).click();
-  await page.locator(".sw-reply-complete").waitFor({ state: "visible" });
+  await page.locator(".sw-question").waitFor({ state: "hidden" });
 }
 const listenEvents = () => page.evaluate(async () => {
   window.__handoffEvents = [];
@@ -130,6 +130,8 @@ try {
   await invoke("projects_init", { path: project, name: "番剧讨论交接与提问验收" });
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
   await page.evaluate(async () => { const prefs = await window.__TAURI__.core.invoke("projects_get"); await (await import("./09-sessions.js")).enterProject(prefs); });
+  const created = await invoke("process_create", { projectDir: project, profile: "dev-pair", model: "stub:primary", subagentMode: "off" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, created.id);
   owner = (await invoke("process_list", { projectDir: project })).find(line => !["readonly", "research"].includes(line.profile));
   assert(owner, "Main executor exists");
   await invoke("process_update", { processId: owner.id, subagentMode: "off", });
@@ -137,7 +139,9 @@ try {
   await listenEvents();
   await page.locator("#prompt").fill(mainDraft);
   await page.locator("#new-chat").click();
-  await until(async () => { discussion = (await invoke("process_list", { projectDir: project })).find(line => line.id !== owner.id); return discussion && (await selected()).processId === discussion.id; }, "UI-created discussion");
+  discussion = await invoke("process_create", { projectDir: project, profile: "dev-auto", model: "stub:primary", subagentMode: "off" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, discussion.id);
+  check((await selected()).processId === discussion.id, "Explicit conversation creation selects its own durable identity");
   await invoke("auto_state_update", { sessionId: discussion.session_id, enabled: false });
   check(discussion.session_id !== owner.session_id && discussion.profile === "dev-auto", "New conversation has an ordinary development identity");
   // This scenario exercises an explicitly read-only discussion, not a secondary rank.
@@ -174,12 +178,12 @@ try {
   await idle(discussion.id);
   check(!await pending(discussionQuestion), "Answering the automatically shown discussion question clears its own durable record");
   check(receivedReply(await conversation(discussion.id), discussionReply) && !receivedReply(await conversation(owner.id), discussionReply), "Discussion reply is committed only to the original discussion and never to the main conversation");
-  await page.locator(".sw-reply-complete").getByRole("button", { name: "返回工作", exact: true }).click();
   await until(async () => { const active = await selected(); return active.view === "chat" && active.processId === discussion.id && active.sessionId === discussion.session_id; }, "Return to original discussion");
   check(await page.locator("#prompt").inputValue() === discussionDraft, "Returning from the answered discussion question restores that discussion's unsent draft");
-  check(await page.locator("#project-handoff").isVisible(), "After the question reply the original discussion remains available for handoff");
-  await page.screenshot({ path: path.join(output, "discussion-returned-draft.png") });
   await page.locator("#prompt").fill(handoffText);
+  await page.locator("#composer-more").click();
+  check(await page.locator("#project-handoff").isVisible(), "After the question reply the conversation menu exposes handoff for the original discussion");
+  await page.screenshot({ path: path.join(output, "discussion-returned-draft.png") });
   await page.locator("#project-handoff").click();
   const form = page.locator(".project-handoff-form"), conclusion = form.getByRole("textbox", { name: "交给其它对话的结论", exact: true });
   check(await conclusion.inputValue() === handoffText, "Native handoff form contains only the user's short instruction");
@@ -189,7 +193,9 @@ try {
   const handed = requests.find(request => request.kind === "handoff-main");
   const handedPrompt = messageText(handed.messages.findLast(message => message.role === "user"));
   check(handedPrompt.includes(handoffText) && handedPrompt.includes(libraryScope) && handedPrompt.includes(syncScope), "Actual main model receives both business scopes when only the short handoff instruction was entered");
-  check(handedPrompt.includes(discussion.session_id) && handedPrompt.includes(discussion.id) && handedPrompt.includes("来源项目") && handedPrompt.includes("来源会话"), "The forwarded context names the exact source project, process and durable session");
+  const sourceFrame = JSON.parse(handedPrompt.split("[external_source_data]\n")[1]);
+  const sourceSnapshot = JSON.parse(sourceFrame.content);
+  check(sourceFrame.authority === "untrusted_data" && sourceSnapshot.project === project && sourceSnapshot.conversation === discussion.id && sourceSnapshot.session_id === discussion.session_id, "The forwarded context names the exact source project, process and durable session without granting authority");
   check(handedPrompt.includes("DISCUSSION_LIBRARY_ACK") && handedPrompt.includes("DISCUSSION_SYNC_ACK"), "The source snapshot includes persisted assistant conclusions as well as original user turns");
   const shown = page.locator(".sw-question").filter({ hasText: foregroundQuestion });
   await shown.waitFor({ state: "visible" });
@@ -233,7 +239,10 @@ try {
   await until(() => requests.some(request => ["answer", "background-main"].includes(request.kind) && receivedReply(request.messages, backgroundReply)), "Main model receives background reply");
   await idle(owner.id);
   check(!await pending(backgroundQuestion), "An explicitly opened background question can be answered and cleared normally");
-  check(receivedReply(await conversation(owner.id), backgroundReply) && !JSON.stringify(await conversation(discussion.id)).includes("NATIVE_BACKGROUND_REPLY"), "Background answer also resumes only its original main conversation");
+  const backgroundMessages = await conversation(owner.id);
+  check(receivedReply(backgroundMessages, backgroundReply) && !JSON.stringify(await conversation(discussion.id)).includes("NATIVE_BACKGROUND_REPLY"), "Background answer also resumes only its original main conversation");
+  const replyOrigins = backgroundMessages.filter(message => message.role === "user" && JSON.stringify(message.content ?? message.parts).includes(backgroundReply)).map(message => message.origin);
+  check(replyOrigins.length === 1 && replyOrigins[0] === "human", `The actual background answer retains human provenance in durable model history: ${JSON.stringify(replyOrigins)}`);
   await openMainChat();
   check(await page.locator("#prompt").inputValue() === backgroundDraft, "Replying through Needs attention preserves the separate main composer draft");
   check(!requests.some(request => ["unexpected-child", "unexpected-capture"].includes(request.kind)), "Handoff and question acceptance do not dispatch an unrelated capture model or child task");

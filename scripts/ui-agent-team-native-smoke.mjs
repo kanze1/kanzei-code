@@ -35,7 +35,7 @@ const model = task.server(http.createServer(async (req, res) => {
   let body = ""; for await (const part of req) body += part;
   if (req.url !== "/v1/chat/completions") { res.writeHead(404); res.end(); return; }
   const data = JSON.parse(body), messages = data.messages || [];
-  const serialized = JSON.stringify(messages), delegated = serialized.includes("You own one delegated task");
+  const serialized = JSON.stringify(messages), delegated = !(data.tools || []).some(tool => tool.function?.name === "task");
   const text = JSON.stringify(messages.findLast(m => m.role === "user")?.content || "");
   const tools = messages.filter(m => m.role === "tool");
   const kind = !delegated ? "main" : serialized.includes("NATIVE_WRITER") ? "writer" : serialized.includes("NATIVE_PLAN") ? "plan" : "recovery";
@@ -89,6 +89,8 @@ try {
   check((await invoke("projects_get")).projects.length === 0, "Disposable desktop profile contains no user project");
   await invoke("projects_init", { path: project, name: "子代理实验验收" });
   await page.reload(); await page.waitForFunction(() => document.body.dataset.appReady === "true");
+  const created = await invoke("process_create", { projectDir: project, profile: "dev-pair", model: "stub:primary-test", subagentMode: "auto" });
+  await page.evaluate(async id => { const sessions = await import("./09-sessions.js"); const prefs = await window.__TAURI__.core.invoke("projects_get"); await sessions.enterProject(prefs); await sessions.refreshProcesses(); await sessions.switchProcess(id, true); }, created.id);
   owner = (await invoke("process_list", { projectDir: project })).find(p => !["readonly", "research"].includes(p.profile));
   assert(owner);
   await invoke("process_update", { processId: owner.id, subagentMode: "auto", });
@@ -125,7 +127,7 @@ try {
   check(collected[2].messages.some(m => JSON.stringify(m).includes("NATIVE_RESULT")), "Main receives the actual child result before integration");
   check(collected.some(r => r.messages.some(m => m.role === "tool" && JSON.stringify(m).includes("native child result"))), "Main inspects file evidence after integration");
   check(requests.find(r => r.kind === "writer").model === "primary-test", "Implementation uses the primary model");
-  const planner = await command({ agent: "plan", description: "继续原计划", prompt: "NATIVE_PLAN: retain this plan context" });
+  const planner = await command({ action: "spawn", agent: "plan", description: "继续原计划", prompt: "NATIVE_PLAN: retain this plan context" });
   await until(async () => (await jobs()).find(j => j.id === planner.id)?.state === "done", "Plan result");
   await page.evaluate(async ({ owner, id }) => { await (await import("./27-agent-team.js")).refreshAgents(); (await import("./06-agent-panel.js")).openSubagentPanel(`${owner}|${id}`); }, { owner: owner.session_id, id: planner.id });
   await page.locator(".team-reply-input").fill("FOLLOWUP: explain the original evidence"); await page.locator(".team-reply-input").press("Enter");
@@ -137,12 +139,12 @@ try {
   await until(async () => await page.locator(".team-send-status").innerText() === "已处理", "Processed reply receipt");
   check(await page.locator(".team-send-status").innerText() === "已处理", "Reply editor replaces its old queued receipt");
   await page.screenshot({ path: path.join(output, "continued-dark.png") });
-  const stopped = await command({ agent: "plan", description: "停止验收", prompt: "HOLD_STOP" });
+  const stopped = await command({ action: "spawn", agent: "plan", description: "停止验收", prompt: "HOLD_STOP" });
   await until(async () => (await jobs()).find(j => j.id === stopped.id)?.state === "running", "Stop target");
   await command({ action: "stop", id: stopped.id });
   await until(async () => (await jobs()).find(j => j.id === stopped.id)?.state === "stopped", "Single stop");
   check((await jobs()).find(j => j.id === planner.id)?.state === "done", "Stopping one child preserves other results");
-  const recovery = await command({ agent: "plan", description: "中断恢复验收", prompt: "HOLD_PERSIST PERSIST_CONTEXT" });
+  const recovery = await command({ action: "spawn", agent: "plan", description: "中断恢复验收", prompt: "HOLD_PERSIST PERSIST_CONTEXT" });
   await until(() => requests.some(r => r.kind === "recovery" && JSON.stringify(r.messages).includes("PERSIST_CONTEXT")), "Persisted request");
   // Closing only the UI now keeps work alive. This case intentionally crashes
   // the runtime to exercise interrupted-task recovery.

@@ -130,7 +130,7 @@ try {
   check(!await welcomeHint.isVisible(), "Sending the first message removes autonomous guidance with the welcome state");
   const peerRequest = await last("run_prompt");
   check(peerRequest.profile === "dev-auto" && ["dev-auto", "dev-pair"].includes(peerRequest.agent), `Conversation sends with its selected development mode: ${JSON.stringify(peerRequest)}`);
-  // The handoff form is a compatibility API; the retired composer entry is no longer a user surface.
+  // Exercise the snapshot form directly; native acceptance covers its More-menu entry.
   await page.evaluate(async () => (await import("/26-project-conversations.js")).openHandoffForm());
   check((await page.locator(".project-handoff-form").innerText()).includes("将附上当前对话上下文"), "Handoff explains that source context accompanies the user's conclusion");
   await page.getByLabel("选择对话", { exact: true }).selectOption(owner.id);
