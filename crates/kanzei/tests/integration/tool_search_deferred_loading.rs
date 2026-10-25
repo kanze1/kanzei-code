@@ -64,7 +64,7 @@ fn tool_call_response(name: &str, input: Value) -> Value {
             "index": 0,
             "delta": {"tool_calls": [{
                 "index": 0,
-                "id": "call_deferred",
+                "id": format!("call_{name}"),
                 "type": "function",
                 "function": {
                     "name": name,
@@ -256,7 +256,54 @@ async fn direct_deferred_call_auto_loads_and_executes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn prior_tool_call_seeds_deferred_schema_for_the_next_run() {
+async fn paired_management_tools_load_on_demand_and_queue_reads_still_execute() {
+    let management = ["req", "defect", "work", "test_record", "memory_note"];
+    let (project, output, requests) = run_cli(
+        "management-discovery",
+        Vec::new(),
+        vec![
+            tool_call_response(
+                "tool_search",
+                json!({"query":format!("select:{}", management.join(","))}),
+            ),
+            tool_call_response("work", json!({"action":"next"})),
+            success_response("inspected queue"),
+        ],
+    )
+    .await;
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(requests.len(), 3);
+    for name in management {
+        assert!(!tool_names(&requests[0]).contains(&name), "eager {name}");
+        for request in &requests[1..] {
+            assert_eq!(
+                tool_names(request)
+                    .iter()
+                    .filter(|loaded| **loaded == name)
+                    .count(),
+                1
+            );
+        }
+    }
+    let result = requests[2]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|message| message["role"] == "tool" && message["tool_call_id"] == "call_work")
+        .expect("queue read must return a tool result")["content"]
+        .as_str()
+        .unwrap();
+    assert!(result.contains("decision"), "{result}");
+    assert!(!result.contains("[tool_outcome=failed"), "{result}");
+    std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn prior_tool_calls_preserve_history_without_loading_schemas_for_the_next_run() {
     let prior = vec![
         kanzei_llm::Message::assistant(vec![kanzei_llm::Part::ToolCall {
             id: "prior_call".into(),
@@ -277,6 +324,11 @@ async fn prior_tool_call_seeds_deferred_schema_for_the_next_run() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(requests.len(), 1);
-    assert!(tool_names(&requests[0]).contains(&"memory_stats"));
+    assert!(!tool_names(&requests[0]).contains(&"memory_stats"));
+    assert!(requests[0]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|message| { message["role"] == "tool" && message["content"] == "previous result" }));
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
 }

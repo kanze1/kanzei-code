@@ -1,6 +1,5 @@
 //! 按需工具发现、加载与上下文字数账单。
 use super::{HarnessSnapshot, Tool, ToolSpec};
-use kanzei_llm::{Message, Part};
 
 pub(super) fn tool_spec(tool: &dyn Tool) -> ToolSpec {
     ToolSpec {
@@ -22,22 +21,6 @@ fn append_tool_spec(
     context_report.push((format!("tools/loaded:{}", spec.name), spec.char_len()));
     specs.push(spec);
     true
-}
-
-/// Prior transcript tool calls seed the current run's deferred schema set.
-pub(super) fn load_deferred_tools_from_history(
-    snapshot: &HarnessSnapshot,
-    messages: &[Message],
-    specs: &mut Vec<ToolSpec>,
-    context_report: &mut Vec<(String, usize)>,
-) {
-    for message in messages {
-        for part in &message.parts {
-            if let Part::ToolCall { name, .. } = part {
-                auto_load_deferred_tool(snapshot, name, specs, context_report);
-            }
-        }
-    }
 }
 
 pub(super) fn auto_load_deferred_tool(

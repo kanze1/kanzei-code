@@ -202,7 +202,7 @@ pub fn render_catalog(deferred: &[Arc<dyn Tool>]) -> Option<String> {
         return None;
     }
     let total = deferred.len();
-    let mut catalog=format!("<deferred-tools total=\"{total}\">\nLoad schemas with tool_search: keywords or query=\"select:name1,name2\". Empty query lists a page; offset continues it. Schemas join the next request and remain loaded for this run; direct calls also auto-load.\n");
+    let mut catalog=format!("<deferred-tools total=\"{total}\">\nLoad schemas with tool_search: keywords or query=\"select:name1,name2\". Empty query lists a page; offset continues it. Schemas join the next request and remain loaded for this run only; direct calls also auto-load. New runs start with resident tools.\n");
     let footer = |listed| {
         format!("Listed {listed}/{total}. More: tool_search query=\"\" offset={listed}.\n</deferred-tools>")
     };

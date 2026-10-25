@@ -220,12 +220,6 @@ pub(super) fn assemble_run_once<'a>(
     // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
     // 在尚未触发上下文压缩时就把非法消息交给 provider。
     let mut messages: Vec<Message> = crate::history::filter_message_history(prior);
-    super::tool_catalog::load_deferred_tools_from_history(
-        snapshot,
-        &messages,
-        &mut specs,
-        &mut context_report,
-    );
     messages.push(crate::input_message(
         ctx.input_origin,
         prompt,

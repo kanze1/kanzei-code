@@ -147,8 +147,7 @@ mod worktree_run_tests {
 
 #[cfg(test)]
 mod assembly_tests {
-    use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
-    use kanzei_tools::{BaseComponent, DevelopmentProfile, ResearchProfile};
+    use kanzei_harness::{KanzeiConfig, ProfileKind, ResolveCtx};
     use std::path::PathBuf;
     use std::sync::Arc;
 
@@ -232,84 +231,90 @@ mod assembly_tests {
 
     #[test]
     fn 桌面工具schema字符账单增量() {
-        let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
-        let collaboration_probe = crate::collaboration::CollaborationProbe::new(
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-            root.clone(),
-            "r364-budget-probe".into(),
-        );
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevAuto,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(BaseComponent)
-            .add(DevelopmentProfile)
-            .add(ResearchProfile)
-            .add(crate::harness_ext::FrontendToolsComponent)
-            .add(crate::collaboration::CollaborationComponent {
-                probe: collaboration_probe,
-            })
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let resident_names: Vec<&str> = snapshot
-            .resident_tools()
-            .iter()
-            .map(|tool| tool.name())
-            .collect();
-        assert!(resident_names.contains(&"tool_search"));
-        assert!(resident_names.contains(&"collaboration_status"));
-        assert_eq!(
-            resident_names.len() + 1,
-            21,
-            "桌面 resident 另含 core task_spec"
-        );
-        let deferred = snapshot.deferred_tools();
-        assert_eq!(deferred.len(), 21);
-        assert!(deferred.iter().any(|tool| tool.name() == "desktop"));
-        assert!(!resident_names.contains(&"desktop"));
-        let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
-            .materialize_tools()
-            .iter()
-            .map(|tool| kanzei_llm::ToolSpec {
-                name: tool.name().to_string(),
-                description: tool.description(),
-                input_schema: tool.input_schema(),
-            })
-            .collect();
-        let ui_tools = crate::harness_ext::DESKTOP_DEFERRED_TOOLS;
-        let specs: Vec<_> = all_specs
-            .into_iter()
-            .filter(|spec| ui_tools.contains(&spec.name.as_str()))
-            .collect();
-        for &expected in ui_tools {
-            assert!(
-                specs.iter().any(|spec| spec.name.as_str() == expected),
-                "桌面增量工具缺失: {expected}"
+        for (profile, resident_budget, deferred_budget) in [
+            (ProfileKind::DevPair, 16, 28),
+            (ProfileKind::DevAuto, 17, 27),
+        ] {
+            let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
+            let collaboration_probe = crate::collaboration::CollaborationProbe::new(
+                std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+                root.clone(),
+                "r364-budget-probe".into(),
             );
-        }
+            let ctx = ResolveCtx {
+                profile,
+                cwd: root.clone(),
+                project_root: root,
+                config: Arc::new(KanzeiConfig::default()),
+            };
+            let harness =
+                super::assembly::build_run_harness(profile, false, Some(collaboration_probe));
+            let snapshot = harness.resolve(&ctx).unwrap();
+            let resident_names: Vec<&str> = snapshot
+                .resident_tools()
+                .iter()
+                .map(|tool| tool.name())
+                .collect();
+            assert!(resident_names.contains(&"tool_search"));
+            assert!(resident_names.contains(&"collaboration_status"));
+            assert_eq!(
+                resident_names.len() + 1,
+                resident_budget,
+                "桌面 resident 另含 core task_spec"
+            );
+            let deferred = snapshot.deferred_tools();
+            assert_eq!(deferred.len(), deferred_budget);
+            for name in ["req", "defect", "test_record", "memory_note"] {
+                assert!(snapshot.is_deferred(name));
+                assert!(!resident_names.contains(&name));
+            }
+            assert_eq!(
+                snapshot.is_deferred("work"),
+                profile == ProfileKind::DevPair
+            );
+            assert!(deferred.iter().any(|tool| tool.name() == "desktop"));
+            assert!(!resident_names.contains(&"desktop"));
+            let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
+                .materialize_tools()
+                .iter()
+                .map(|tool| kanzei_llm::ToolSpec {
+                    name: tool.name().to_string(),
+                    description: tool.description(),
+                    input_schema: tool.input_schema(),
+                })
+                .collect();
+            let ui_tools = crate::harness_ext::DESKTOP_DEFERRED_TOOLS;
+            let specs: Vec<_> = all_specs
+                .into_iter()
+                .filter(|spec| ui_tools.contains(&spec.name.as_str()))
+                .collect();
+            for &expected in ui_tools {
+                assert!(
+                    specs.iter().any(|spec| spec.name.as_str() == expected),
+                    "桌面增量工具缺失: {expected}"
+                );
+            }
 
-        let mut rows: Vec<(&str, usize, usize)> = specs
-            .iter()
-            .map(|spec| {
-                let bytes =
-                    spec.name.len() + spec.description.len() + spec.input_schema.to_string().len();
-                (spec.name.as_str(), spec.char_len(), bytes / 4)
-            })
-            .collect();
-        rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
-        eprintln!("Desktop Dev UI 增量 schema 字符账单:工具\t字符\tbytes/4 估算 tokens");
-        for (name, chars, token_estimate) in &rows {
-            eprintln!("{name}\t{chars}\t{token_estimate}");
+            let mut rows: Vec<(&str, usize, usize)> = specs
+                .iter()
+                .map(|spec| {
+                    let bytes = spec.name.len()
+                        + spec.description.len()
+                        + spec.input_schema.to_string().len();
+                    (spec.name.as_str(), spec.char_len(), bytes / 4)
+                })
+                .collect();
+            rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+            eprintln!("Desktop Dev UI 增量 schema 字符账单:工具\t字符\tbytes/4 估算 tokens");
+            for (name, chars, token_estimate) in &rows {
+                eprintln!("{name}\t{chars}\t{token_estimate}");
+            }
+            let row_sum: usize = rows.iter().map(|row| row.1).sum();
+            let spec_sum: usize = specs.iter().map(kanzei_llm::ToolSpec::char_len).sum();
+            assert_eq!(row_sum, spec_sum, "桌面增量账单总数必须等于逐项之和");
+            eprintln!("Desktop UI increment total={spec_sum}; collaboration_status 单独 probe");
         }
-        let row_sum: usize = rows.iter().map(|row| row.1).sum();
-        let spec_sum: usize = specs.iter().map(kanzei_llm::ToolSpec::char_len).sum();
-        assert_eq!(row_sum, spec_sum, "桌面增量账单总数必须等于逐项之和");
-        eprintln!("Desktop UI increment total={spec_sum}; collaboration_status 单独 probe");
     }
 
     // ══ R-240:按需求类型/复杂度聚合运行指标 ══

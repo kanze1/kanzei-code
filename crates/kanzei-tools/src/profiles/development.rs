@@ -2,7 +2,8 @@
 
 use super::*;
 
-/// B1 定稿:CLI Dev 延迟层名单,只在 DevelopmentProfile 已注册全部工具后加入草稿。
+/// Specialized capabilities stay discoverable without expanding their schemas at startup.
+/// Queue execution keeps `work` resident only in DevAuto; DevPair loads it on demand.
 pub const DEVELOPMENT_DEFERRED_TOOLS: &[&str] = &[
     "process",
     "sandbox",
@@ -17,6 +18,10 @@ pub const DEVELOPMENT_DEFERRED_TOOLS: &[&str] = &[
     "idea",
     "decision",
     "memory_stats",
+    "req",
+    "defect",
+    "test_record",
+    "memory_note",
 ];
 
 pub struct DevelopmentProfile;
@@ -269,6 +274,9 @@ impl Component for DevelopmentProfile {
                 .iter()
                 .map(|name| (*name).to_owned()),
         );
+        if ctx.profile == ProfileKind::DevPair {
+            draft.deferred_tools.insert("work".into());
+        }
         Ok(())
     }
 }
