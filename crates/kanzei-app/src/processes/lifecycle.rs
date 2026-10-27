@@ -59,6 +59,17 @@ pub fn cancel_input(
     let state_path = kanzei_core::project_state_path(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
+    let Some(input) = store
+        .list_pending_inputs(&session_id)
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|input| input.input_id == input_id)
+    else {
+        return Ok(false);
+    };
+    if input.origin != kanzei_base::MessageOrigin::Human {
+        return Err("只能撤销用户发送的排队输入；后台消息由会话调度器处理".into());
+    }
     let cancelled = store
         .cancel_input(&session_id, &input_id)
         .map_err(|error| error.to_string())?;

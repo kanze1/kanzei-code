@@ -879,6 +879,7 @@
     ],
     "paths": [
       "scripts/ui-async-input-smoke.mjs",
+        "crates/kanzei-app/ui/09-sessions.js",
       "crates/kanzei-app/ui/01-runtime-events.js",
       "crates/kanzei-app/ui/08-compose*.js",
       "crates/kanzei-app/ui/07-events.js",

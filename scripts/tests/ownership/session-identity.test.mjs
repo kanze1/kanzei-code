@@ -142,30 +142,30 @@ test("late project A input list cannot replace B", async () => {
   const h = await harness(), a = deferred(), b = deferred();
   h.handlers.set("list_pending_inputs", args => args.projectDir === A ? a.promise : b.promise);
   const first = h.sessions.refreshPendingInputs(); h.select(B); const second = h.sessions.refreshPendingInputs();
-  b.resolve([{ input_id: "b1", prompt: "B prompt" }]); await second;
-  a.resolve([{ input_id: "a1", prompt: "A prompt" }]); await first; assert.deepEqual(h.prompts(), ["B prompt"]);
+  b.resolve([{ input_id: "b1", origin: "human", prompt: "B prompt" }]); await second;
+  a.resolve([{ input_id: "a1", origin: "human", prompt: "A prompt" }]); await first; assert.deepEqual(h.prompts(), ["B prompt"]);
 });
 
 test("older same-session input snapshot cannot replace a newer list", async () => {
   const h = await harness(), older = deferred(), newer = deferred(); let count = 0;
   h.handlers.set("list_pending_inputs", () => ++count === 1 ? older.promise : newer.promise);
   const first = h.sessions.refreshPendingInputs(), second = h.sessions.refreshPendingInputs();
-  newer.resolve([]); await second; older.resolve([{ input_id: "already-cancelled", prompt: "old" }]); await first; assert.deepEqual(h.prompts(), []);
+  newer.resolve([]); await second; older.resolve([{ input_id: "already-cancelled", origin: "human", prompt: "old" }]); await first; assert.deepEqual(h.prompts(), []);
 });
 
 test("old A queue button never sends A input ID to B", async () => {
-  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", prompt: "A prompt" }]); const button = h.cancelButton();
+  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", origin: "human", prompt: "A prompt" }]); const button = h.cancelButton();
   h.select(B); await button.click(); assert.equal(h.calls.filter(call => call.command === "cancel_input").length, 0);
 });
 
 test("queue cancellation retains legitimate original routing and refreshes", async () => {
-  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", prompt: "A prompt" }]);
+  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", origin: "human", prompt: "A prompt" }]);
   h.handlers.set("cancel_input", () => true); await h.cancelButton().click();
   assert.deepEqual(h.calls.find(call => call.command === "cancel_input").args, { projectDir: A, inputId: "a1", processId: ids(A).process }); assert.deepEqual(h.prompts(), []);
 });
 
 test("already-consumed input false receipt still reloads authoritative queue", async () => {
-  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", prompt: "A prompt" }]);
+  const h = await harness(); h.sessions.renderPendingInputs([{ input_id: "a1", origin: "human", prompt: "A prompt" }]);
   h.handlers.set("cancel_input", () => false); await h.cancelButton().click(); assert.deepEqual(h.prompts(), []);
 });
 

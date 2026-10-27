@@ -1476,6 +1476,9 @@ defer(() => {
 
 // ---------- 队列输入 ----------
 export function renderPendingInputs(items) {
+  // The durable scheduler also holds callbacks and engine wakeups. Composer
+  // controls belong only to inputs with recorded human authorship.
+  const userInputs = items.filter(item => item.origin === "human");
   const forProject = currentProject;
   const forProcess = activeProcessId;
   const forSession = activeSessionId;
@@ -1483,17 +1486,17 @@ export function renderPendingInputs(items) {
   const list = $("queue-list");
   const count = $("queue-count");
   // 排队条挂在 composer(用户定调:排队输入放到排队按钮那里),空队列整条隐藏。
-  $("composer-queue")?.classList.toggle("hidden", !items.length);
+  $("composer-queue")?.classList.toggle("hidden", !userInputs.length);
   list.innerHTML = "";
-  count.textContent = items.length ? `(${items.length})` : "";
-  if (!items.length) {
+  count.textContent = userInputs.length ? `(${userInputs.length})` : "";
+  if (!userInputs.length) {
     const empty = document.createElement("div");
     empty.className = "queue-empty";
     empty.textContent = t("暂无排队输入");
     list.appendChild(empty);
     return;
   }
-  for (const item of items) {
+  for (const item of userInputs) {
     const entry = document.createElement("div");
     entry.className = "queue-entry";
     entry.title = item.prompt;

@@ -42,6 +42,46 @@ async function open({ selected = false, idle = false, delivery = null } = {}) {
 }
 
 try {
+  const queued = await open();
+  await queued.page.locator("#prompt").fill("尚未发送的真实用户草稿");
+  const queueProjection = await queued.page.evaluate(async owner => {
+    const sessions = await import("/09-sessions.js");
+    const inputs = [
+      { input_id: "human-steer", origin: "human", delivery: "steer", prompt: "用户补充方向" },
+      { input_id: "child-result", origin: "notification", delivery: "steer", prompt: "子任务返回结果" },
+      { input_id: "human-reply", origin: "human", delivery: "queue", prompt: "用户回答后台问题" },
+      { input_id: "automatic", origin: "engine", delivery: "queue", prompt: "自动继续" },
+      { input_id: "agent-message", origin: "agent", delivery: "steer", prompt: "代理消息" },
+      { input_id: "tool-message", origin: "tool", delivery: "steer", prompt: "工具完成" },
+      { input_id: "summary", origin: "summary", delivery: "queue", prompt: "历史摘要" },
+      { input_id: "legacy", delivery: "queue", prompt: "来源未记录" },
+    ].map(input => ({ ...input, session_id: owner.session, created_at: 1 }));
+    window.__kzPreview.setCommand("list_pending_inputs", () => inputs);
+    window.__kzPreview.setCommand("cancel_input", ({ inputId }) => {
+      const index = inputs.findIndex(input => input.input_id === inputId);
+      if (index < 0) return false;
+      inputs.splice(index, 1); return true;
+    });
+    await sessions.refreshPendingInputs();
+    return {
+      prompts: [...document.querySelectorAll("#queue-list .queue-prompt")].map(row => row.textContent),
+      count: document.querySelector("#queue-count").textContent,
+      cancellable: document.querySelectorAll("#queue-list .queue-cancel").length,
+      draft: document.querySelector("#prompt").value,
+    };
+  }, queued.owner);
+  check("Scheduler callbacks never appear as cancellable user input", queueProjection,
+    { prompts: ["用户补充方向", "用户回答后台问题"], count: "(2)", cancellable: 2, draft: "尚未发送的真实用户草稿" });
+  await queued.page.locator("#queue-list .queue-cancel").first().click();
+  await queued.page.waitForFunction(() => document.querySelectorAll("#queue-list .queue-entry").length === 1);
+  check("Cancel targets only the real user input", await queued.page.evaluate(() =>
+    window.__kzPreview.calls.filter(call => call.cmd === "cancel_input").map(call => call.args.inputId)), ["human-steer"]);
+  await queued.page.locator("#queue-list .queue-cancel").click();
+  await queued.page.waitForFunction(() => document.querySelector("#composer-queue").classList.contains("hidden"));
+  check("Only background messages pending leaves the user queue empty", await queued.page.locator("#queue-count").textContent(), "");
+  check("Background delivery preserves the unsent draft", await queued.page.locator("#prompt").inputValue(), "尚未发送的真实用户草稿");
+  await queued.page.screenshot({ path: `${output}/callback-queue.png`, fullPage: true });
+  await queued.page.close();
   const stopping = await open();
   const stopState = await stopping.page.evaluate(async owner => {
     const { sessionState } = await import("/00-session-state.js");
