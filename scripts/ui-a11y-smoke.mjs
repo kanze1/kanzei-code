@@ -215,7 +215,8 @@ assert.doesNotMatch(css, /\.ctx-chip[^{}]*\{\s*display: none/, "项目上下文�
 assert.doesNotMatch(css, /#auto-status[^{}]*\{\s*display: none/, "鞭挞停机原因不得在窄窗口下被整个藏掉");
 assert.doesNotMatch(html, /id="process-tabs"/, "顶部进程切换条不应与左侧线路状态按钮重复");
 assert.match(css, /@media \(max-width: 900px\)[\s\S]*#sidebar:not\(\.collapsed\)[\s\S]*position: absolute/);
-assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*max-width: min\(320px, calc\(100vw - 360px\)\)/);
+assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*top: var\(--window-chrome-height\)/, "导航抽屉必须让开窗口栏和常驻开关");
+assert.match(css, /#sidebar:not\(\.collapsed\)[^}]*width: min\(280px, calc\(100vw - 32px\)\)/, "窄窗导航保留可读宽度");
 assert.match(css, /#sidebar\.collapsed[\s\S]*width: 0/);
 // 侧栏停靠在网格第 2 列(从顶部到状态栏上沿);停靠判据与抽屉在 ui-narrow-layout-smoke 里真布局验证。
 assert.match(css, /#main > #tasks-panel \{ grid-column: 2; grid-row: 1 \/ span 2; \}/, "#tasks-panel 必须在 #main 网格第 2 列跨视图与日志两行");

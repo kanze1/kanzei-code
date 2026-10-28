@@ -1,17 +1,14 @@
 import assert from "node:assert/strict";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+import { startPreviewServer } from "./ui-preview/server.mjs";
 
-// 窗口尺寸 × 左侧栏开合 × 后台任务侧栏开合的真实布局冒烟(无头 Edge 打开静态 index.html,脚本不执行,
-// 状态由这里按 06-agent-panel.js reconcileTasksPanel 的同一套判据手动写上)。
+// Production shell in Edge with fixture IPC. Force geometry states after the
+// actual shell has mounted; navigation is assembled by the production owner.
 //
 // UI2-0926 #14:用户推翻 R-334「这两个不用占用一个侧边栏」,活动/子代理两块浮层合成 Claude 式的停靠侧栏。
 // 判据随之反转:停靠时侧栏在 #main 网格第 2 列,从顶部到状态栏上沿,对话列(输入区、上下文行)与运行日志
 // 都不被它压住,状态栏保持全宽;停靠后对话列不足 600px(主区宽 − 侧栏宽)时改抽屉——absolute 盖在对话上、
 // 遮罩可见、主区宽度不变。侧栏关闭时视图占满主区(非对话视图的尺寸与改前一致)。
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const htmlPath = path.join(root, "crates/kanzei-app/ui/index.html");
 const viewports = [
   { width: 800, height: 500 },
   { width: 800, height: 600 },
@@ -31,7 +28,8 @@ const states = [
 // 与 06-side-policy.js 同一口径:默认宽 clamp(360, 26vw, 520),夹到 [320, min(760, 主区 − 600)],
 // 主区宽 − 侧栏宽 ≥ 600 才停靠。
 const SIDE = { chatMin: 600, min: 320, max: 760 };
-const url = `file:///${htmlPath.replace(/\\/g, "/")}`;
+const server = await startPreviewServer({ port: 0 });
+const url = `${server.origin}/?scene=empty&theme=dark`;
 const browser = await chromium.launch({ channel: "msedge", headless: true });
 const failures = [];
 const baselineMainWidths = new Map();
@@ -40,14 +38,8 @@ let drawers = 0;
 let previewChecked = 0;
 try {
   const page = await browser.newPage({ viewport: viewports[0] });
-  await page.goto(url, { waitUntil: "domcontentloaded" });
-  // This layout-only fixture measures chat explicitly; the shipped HTML now
-  // defaults to the workbench and its scripts are intentionally not executed here.
-  await page.evaluate(() => {
-    document.body.dataset.view = "chat";
-    document.body.dataset.appScope = "project";
-    for (const view of document.querySelectorAll(".view")) view.classList.toggle("active", view.id === "view-chat");
-  });
+  await page.goto(url, { waitUntil: "load" });
+  await page.waitForFunction(() => globalThis.__kzPreview?.ready);
   for (const viewport of viewports) {
     await page.setViewportSize(viewport);
     for (const state of states) {
@@ -87,7 +79,12 @@ try {
         };
         const overlap = (a, b) => Boolean(a && b && a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5);
         const viewport = { width: globalThis.innerWidth, height: globalThis.innerHeight };
-        const content = ["#main", ".empty-state", "#prompt", "#composer-context", "#composer-bar", "#statusbar"];
+        const content = ["#main", ".empty-state", "#prompt", "#composer-bar", "#statusbar"];
+        if (globalThis.getComputedStyle($("#composer-context")).display !== "none") content.push("#composer-context");
+        else {
+          const identity = rect("#workspace-project-name");
+          if (!identity || identity.width <= 0 || identity.height <= 0) errors.push("紧凑窗口缺少当前项目身份");
+        }
         const boxes = Object.fromEntries(content.map((selector) => [selector, rect(selector)]));
         for (const [selector, box] of Object.entries(boxes)) {
           if (!box || box.width <= 0 || box.height <= 0) errors.push(`${selector} 不可见`);
@@ -96,7 +93,8 @@ try {
           }
         }
         const mainBox = boxes["#main"];
-        // ≤900px 时左侧栏是盖在主区上的抽屉,主区用 padding-left 让位(D-712):全宽按主区内容盒算。
+        // Docked navigation consumes width; an overlay keeps the workspace's
+        // geometry and leaves its restore control above the drawer.
         const mainStyle = globalThis.getComputedStyle(main);
         const inner = mainBox && { left: mainBox.left + parseFloat(mainStyle.paddingLeft), right: mainBox.right - parseFloat(mainStyle.paddingRight) };
         const status = boxes["#statusbar"];
@@ -137,14 +135,23 @@ try {
             if (!scrimBox || scrimBox.width <= 0 || globalThis.getComputedStyle(scrim).display === "none") errors.push("抽屉态遮罩不可见");
           }
         }
-        for (const selector of [".hint", "#prompt", "#composer-context", "#composer-bar"]) {
-          const box = rect(selector);
-          if (box && sidebarBox && overlap(box, sidebarBox)) errors.push(`${selector} 与侧栏重叠`);
+        const navigationOverlays = sidebarBox && globalThis.getComputedStyle($("#sidebar")).position === "absolute";
+        if (navigationOverlays) {
+          if (parseFloat(mainStyle.paddingLeft) !== 0 || Math.abs(mainBox.width - viewport.width) > 1) errors.push("覆盖式导航改变了工作区宽度");
+          const home = $("#workbench-home");
+          if (home.scrollWidth > home.clientWidth + 1) errors.push("抽屉导航文字被裁切");
+        } else {
+          for (const selector of [".hint", "#prompt", "#composer-context", "#composer-bar"]) {
+            const box = rect(selector);
+            if (box && sidebarBox && overlap(box, sidebarBox)) errors.push(`${selector} 与停靠导航重叠`);
+          }
+          if (status && sidebarBox && overlap(status, sidebarBox)) errors.push("状态栏与停靠导航重叠");
         }
-        if (status && sidebarBox && overlap(status, sidebarBox)) errors.push("状态栏与左侧栏重叠");
         const focusTarget = $("#rail-sidebar-toggle");
         focusTarget.focus();
         const focusBox = focusTarget.getBoundingClientRect();
+        if (navigationOverlays && overlap(focusBox, sidebarBox)) errors.push("导航开关被自己的抽屉遮住");
+        if (document.activeElement !== focusTarget) errors.push("导航开关不能接收键盘焦点");
         if (focusBox.left < 0 || focusBox.top < 0 || focusBox.right > viewport.width || focusBox.bottom > viewport.height) {
           errors.push(`键盘焦点越出视口 ${JSON.stringify(focusBox)}`);
         }
@@ -249,6 +256,7 @@ try {
   // ── 分区:网页预览前端(完) ──
 } finally {
   await browser.close();
+  await server.close();
 }
 assert.deepEqual(failures, [], `窄窗口布局回归失败:\n${failures.join("\n")}`);
 // 判据自证:宽窗口必须出现停靠,窄窗口必须出现抽屉——两种形态都真的被测到。

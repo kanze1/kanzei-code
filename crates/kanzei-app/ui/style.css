@@ -74,6 +74,7 @@
   /* 全应用四档字阶：辅助 12、正文 14、节标题 16、页标题 24。 */
   --fs-12: 12px; --fs-14: 14px; --fs-16: 16px; --fs-24: 24px;
   --hairline: .5px;
+  --window-chrome-height: 0px;
   /* D-380 层级。 */
   --z-base: 1; --z-raised: 2; --z-sticky: 3; --z-rail: 19; --z-panel: 20;
   --z-handle: 30; --z-drawer: 50;
@@ -951,7 +952,7 @@ html:is([data-kz-activity="running"], [data-kz-activity="stopping"]) .picker-btn
    remains in the chrome, above the drawer, and the workspace keeps its width. */
 @media (max-width: 900px) {
   #sidebar:not(.collapsed) {
-    position: absolute; left: 0; top: var(--window-chrome-height, 0px); bottom: 0; z-index: var(--z-rail);
+    position: absolute; left: 0; top: var(--window-chrome-height); bottom: 0; z-index: var(--z-rail);
     width: min(280px, calc(100vw - 32px)); max-width: none;
     box-shadow: none;
   }
