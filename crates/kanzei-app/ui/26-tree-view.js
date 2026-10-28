@@ -133,12 +133,12 @@ export function renderTreeView(items, prior = null, controls = {}) {
     if (prior?.known && !prior.known.has(item.id)) branch.classList.add("work-node-new");
     const summary = text("div", "work-tree-row", "");
     const descendants = children.get(item.id) || [];
-    const caret = text("button", "work-tree-toggle", descendants.length ? "›" : "·");
+    const caret = text("button", "work-tree-toggle", descendants.length ? "›" : "  ");
     caret.type = "button"; caret.tabIndex = -1;
     caret.setAttribute("aria-label", t("展开或收起")); caret.disabled = !descendants.length;
     caret.onclick = event => { event.stopPropagation(); toggle(item.id); focus(item.id); };
     const status = item.statusLabel;
-    branch.setAttribute("aria-label", `${item.title} · ${status}`);
+    branch.setAttribute("aria-label", `${item.title}  ${status}`);
     const glyph = text("span", "work-tree-glyph", item.glyph); glyph.setAttribute("aria-hidden", "true");
     const kind = text("span", "work-tree-kind", item.kindLabel);
     kind.title = item.kindLabel;

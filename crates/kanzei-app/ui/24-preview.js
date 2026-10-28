@@ -873,7 +873,7 @@ function syncConsoleBadge() {
     badge.classList.toggle("hidden", !count);
   }
   if (toggle) {
-    const label = count ? `${t("控制台")} · ${count} ${t("个错误")}` : t("控制台");
+    const label = count ? `${t("控制台")}  ${count} ${t("个错误")}` : t("控制台");
     if (toggle.getAttribute("aria-label") !== label) toggle.setAttribute("aria-label", label);
   }
 }
@@ -934,7 +934,7 @@ function syncChrome() {
   if (consoleToggle) consoleToggle.setAttribute("aria-pressed", String(state.consoleOpen));
   const device = $("preview-device");
   if (device) {
-    const label = `${t("视口与配色")}:${deviceLabel(state.device)} · ${schemeLabel(state.scheme)}`;
+    const label = `${t("视口与配色")}:${deviceLabel(state.device)}  ${schemeLabel(state.scheme)}`;
     if (device.getAttribute("aria-label") !== label) {
       device.setAttribute("aria-label", label);
       device.title = label;
@@ -1175,7 +1175,7 @@ export function mountToolShots(block, images, { action = null } = {}) {
   if (!images?.length && !action) return null;
   const strip = el("div", "tool-shots");
   images.slice(0, 4).forEach((rel, index) => {
-    strip.append(thumbButton(`${t("查看截图")} ${index + 1}`, () => loadToolImage(rel), `${t("截图")} · ${block.name ?? ""}`));
+    strip.append(thumbButton(`${t("查看截图")} ${index + 1}`, () => loadToolImage(rel), `${t("截图")}  ${block.name ?? ""}`));
   });
   if (action) strip.append(previewActionButton(action));
   if (block.detail?.parentNode === wrap) wrap.insertBefore(strip, block.detail);
@@ -1354,8 +1354,8 @@ defer(() => {
     side: "top",
     min: 96,
     max: () => Math.max(96, Math.round(($("preview-dock")?.getBoundingClientRect?.().height || 600) * 0.7)),
-    title: t("拖动调整控制台高度 · 双击复位"),
-    titleKey: "拖动调整控制台高度 · 双击复位",
+    title: t("拖动调整控制台高度  双击复位"),
+    titleKey: "拖动调整控制台高度  双击复位",
     ariaLabel: t("调整控制台高度"),
     ariaKey: "调整控制台高度",
     onChange: () => scheduleBounds(),

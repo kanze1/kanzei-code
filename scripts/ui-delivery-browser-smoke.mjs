@@ -24,7 +24,7 @@ try {
     const snapshot=f.commands.workspace_snapshot(), project=snapshot.projects[0];
     project.work_units=[]; for(const l of project.lines) {l.running=false;l.stage="空闲";}
     const row={id:"delivery-1",kind:"file",name:"android-r1-current-debug.apk",path:project.path+"/build/android-r1-current-debug.apk",
-      bytes:230506809,caption:"R-001 Android · 等待真机验收",project_dir:project.path,worktree_root:project.path,session_id:project.lines[0].session_id,created_at:Date.now(),status:"available"};
+      bytes:230506809,caption:"R-001 Android  等待真机验收",project_dir:project.path,worktree_root:project.path,session_id:project.lines[0].session_id,created_at:Date.now(),status:"available"};
     window.__deliveryTest={rows:[row],snapshot,project};
     window.__kzPreview.setCommand("workspace_snapshot",()=>structuredClone(snapshot));
     window.__kzPreview.setCommand("delivered_files",()=>structuredClone(window.__deliveryTest.rows));

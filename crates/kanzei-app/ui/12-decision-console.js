@@ -162,7 +162,7 @@ export function renderDecisionConsole(snapshot, callbacks) {
   ui.projectSelect.value = projectFilter;
   ui.reviewSelect.value = reviewFilter;
   setText(ui.freshness, snapshot.observed_at ? `${t("更新于")} ${new Date(snapshot.observed_at).toLocaleTimeString()}` : t("尚无更新时间"));
-  const errors = selectedProjects.filter((p) => p.error && consoleTab !== "projects").map((p) => `${p.name} · ${t("项目读取失败")}: ${p.error}`);
+  const errors = selectedProjects.filter((p) => p.error && consoleTab !== "projects").map((p) => `${p.name}  ${t("项目读取失败")}: ${p.error}`);
   if (ui.errorSignature !== JSON.stringify(errors)) {
     ui.errors.replaceChildren(...errors.map((error) => node("p", error, "console-error")));
     ui.errorSignature = JSON.stringify(errors);
@@ -268,7 +268,7 @@ function createDecision(project, d) {
 function decisionOrigin(project, d) {
   const line = (project.lines ?? []).find((item) => (d.process_id && item.id === d.process_id) || (d.session_id && item.session_id === d.session_id));
   const name = line?.title || (line?.label === "默认" ? t("对话") : line?.label);
-  return [project.name, name, d.work_unit_id].filter(Boolean).join(" · ");
+  return [project.name, name, d.work_unit_id].filter(Boolean).join("  ");
 }
 
 function reworkLabel(status) {
@@ -295,7 +295,7 @@ function renderDecisionBody(entry) {
     row.append(node("p", d.resolution.answer, "console-answer"));
     const details = node("dl", undefined, "console-reason");
     details.append(node("dt", t("选择理由")), node("dd", d.resolution.rationale), node("dt", t("影响范围")), node("dd", d.resolution.impact));
-    if (d.resolution.preference_refs?.length) details.append(node("dt", t("参考偏好")), node("dd", d.resolution.preference_refs.join(" · ")));
+    if (d.resolution.preference_refs?.length) details.append(node("dt", t("参考偏好")), node("dd", d.resolution.preference_refs.join("  ")));
     row.append(details);
   }
   if (d.missing_fact) row.append(node("p", d.missing_fact, "console-missing"));
@@ -305,7 +305,7 @@ function renderDecisionBody(entry) {
       entry.rework = node("p", reworkLabel(project.rework?.[d.review.rework_input_id]), "dim console-rework");
       row.append(entry.rework);
     }
-    if (d.review.preference_id) row.append(node("p", `${d.review.scope === "global" ? t("全局偏好") : t("项目偏好")} · ${d.review.preference_id}`, "console-preference"));
+    if (d.review.preference_id) row.append(node("p", `${d.review.scope === "global" ? t("全局偏好") : t("项目偏好")}  ${d.review.preference_id}`, "console-preference"));
     else if (d.review.scope !== "once") row.append(button(t("偏好待保存，点击重试"), () => void retryPreference(project, d)));
   }
   const operations = node("div", undefined, "console-operations");
@@ -436,10 +436,10 @@ function renderDeliveries(projects) {
     setText(entry.acceptance, acceptance);
     entry.acceptance.classList.toggle("stale", stale);
     const row = entry.body;
-    row.replaceChildren(node("p", `${project.name} · ${unit.unit_id} · ${unit.base_revision || t("未绑定版本")}`, "dim"));
+    row.replaceChildren(node("p", `${project.name}  ${unit.unit_id}  ${unit.base_revision || t("未绑定版本")}`, "dim"));
     if (job) {
       const labels = { queued: t("验证排队中"), running: t("后台验证中"), passed: t("验证通过"), failed: t("验证失败"), timed_out: t("验证超时"), cancelled: t("验证已取消"), interrupted: t("验证已中断"), stale: t("验证结果已过期"), superseded: t("已替代") };
-      row.append(node("p", `${labels[job.status] || job.status} · ${job.environment || ""}`, "console-status"));
+      row.append(node("p", `${labels[job.status] || job.status}  ${job.environment || ""}`, "console-status"));
       row.append(node("p", `${t("冻结版本")}: ${job.source_fingerprint}`, "console-evidence"));
       row.append(node("p", `${t("验证日志")}: ${job.log_path}`, "console-evidence"));
       if (job.error) row.append(node("p", job.error, "console-missing"));
@@ -453,7 +453,7 @@ function renderDeliveries(projects) {
       }));
     }
     if (unit.blocked_reason) row.append(node("p", unit.blocked_reason, "console-missing"));
-    for (const evidence of unit.evidence ?? []) row.append(node("p", `${evidence.criterion} · ${(evidence.evidence_refs ?? []).join(" · ")}`, "console-evidence"));
+    for (const evidence of unit.evidence ?? []) row.append(node("p", `${evidence.criterion}  ${(evidence.evidence_refs ?? []).join("  ")}`, "console-evidence"));
     if (!unit.evidence?.length) row.append(node("p", t("尚无验证结果"), "dim"));
     if (pendingDelivery(project, unit)) row.append(button(t("我已试用，通过"), async (event) => {
       const trigger = event.currentTarget;

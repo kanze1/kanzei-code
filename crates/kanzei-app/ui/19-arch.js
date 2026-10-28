@@ -180,7 +180,7 @@ function renderArchTree(snap) {
     const flags = [];
     if (isUnindexed) flags.push(t("未入册"));
     if (isKebab(name)) flags.push(t("命名不合规"));
-    dim.textContent = `${name}${flags.length ? ` · ${flags.join(" · ")}` : ""}`;
+    dim.textContent = `${name}${flags.length ? `  ${flags.join("  ")}` : ""}`;
     if (isKebab(name)) dim.title = t("设计文档文件名应为 snake_case(architecture 工具会报 not snake_case)");
     if (notes.has(name)) row.title = notes.get(name);
     row.append(label, dim);
@@ -237,7 +237,7 @@ function renderArchTree(snap) {
     appendGroup("unindexed", t("未入册"), unindexed.map((d) => d.name), { warn: true });
   }
   $("arch-summary").textContent = query
-    ? fillTemplate(t("{n}篇设计文档 · 匹配 {m} 篇"), { n: docs.length, m: shown })
+    ? fillTemplate(t("{n}篇设计文档  匹配 {m} 篇"), { n: docs.length, m: shown })
     : `${docs.length}${t("篇设计文档")}`;
   if (!docs.length) {
     const empty = document.createElement("p");
@@ -434,7 +434,7 @@ function renderArchFoot(tab, source, graph) {
   } else {
     foot.append(span("arch-foot-path", tab.path));
   }
-  if (graph) foot.append(span("", `${graph.nodes.size} ${t("个节点")} · ${graph.edges.length} ${t("条边")}`));
+  if (graph) foot.append(span("", `${graph.nodes.size} ${t("个节点")}  ${graph.edges.length} ${t("条边")}`));
   // 只在图画出来且确有可点节点时提示(加载中、出错、没有 click 行的图都不提示)。
   if (graph?.mapped?.length) foot.append(span("", t("点击节点打开实现或文档")));
   const kinds = legendKinds(tab, source ?? "");
@@ -466,7 +466,7 @@ function renderArchIssues(tab) {
     row.dataset.severity = issue.severity;
     const code = document.createElement("span");
     code.className = "arch-issue-code";
-    code.textContent = `${issue.code} · ${fillTemplate(t("第 {line} 行"), { line: issue.line })}`;
+    code.textContent = `${issue.code}  ${fillTemplate(t("第 {line} 行"), { line: issue.line })}`;
     const text = document.createElement("span");
     text.textContent = issue.message;
     const hint = document.createElement("span");

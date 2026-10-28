@@ -741,7 +741,7 @@ export async function runSurfaceGallerySmoke({ channel = "msedge", outDir = path
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { failures, notes } = await runSurfaceGallerySmoke();
-  for (const note of notes) console.log(`  · ${note}`);
+  for (const note of notes) console.log(`  ${note}`);
   assert.deepEqual(failures, [], `弹层样例浏览器冒烟失败:\n${failures.join("\n")}`);
   console.log("弹层样例浏览器冒烟通过:特性探测、双主题 token/对比度/包围盒、下拉亮度、Esc 叠放、index.html 运行时对照");
 }

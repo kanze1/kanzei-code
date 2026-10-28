@@ -21,7 +21,7 @@ assert.match(inline, /<strong>bold<\/strong>/, "粗体回归失败");
 const paragraphs = markdown.renderMarkdown("first\n\nsecond");
 assert.equal(paragraphs, "<p>first</p><p>second</p>", "段落边界未保留");
 const css = await readFile(new URL("../crates/kanzei-app/ui/style.css", import.meta.url), "utf8");
-for (const [level, token] of [[1, "20"], [2, "18"], [3, "16"], [4, "14"], [5, "13"], [6, "12"]]) {
+for (const [level, token] of [[1, "24"], [2, "16"], [3, "16"], [4, "14"], [5, "14"], [6, "12"]]) {
   assert.match(css, new RegExp(`\\.md-h-${level}\\s*\\{[^}]*font-size: var\\(--fs-${token}\\)`), `${level} 级标题字号 token 未定义`);
 }
 const paragraphSpacing = css.match(/\.msg\.md p\s*\{[^}]*\bmargin:\s*([\d.]+)em\s+0\s*;/);
@@ -154,7 +154,7 @@ assert.match(unsafeHtml, /&lt;img/, "原始 HTML 未安全转义");
   const perm = parse.parsePermissionResource("bash", '{"command":"cargo test","workdir":"C:/p"}');
   assert.deepEqual([perm.kind, perm.command, perm.workdir], ["command", "cargo test", "C:/p"], "bash 权限资源未解析成命令形态");
   assert.equal(parse.parsePermissionResource("edit", "src/a.rs").kind, "path", "路径资源未识别");
-  assert.equal(parse.permissionResourceText("bash", JSON.stringify({ command: "cargo test --workspace\ncargo fmt", workdir: "C:/p" })), "bash · cargo test --workspace …", "权限短文本不对(多行命令只取首行)");
+  assert.equal(parse.permissionResourceText("bash", JSON.stringify({ command: "cargo test --workspace\ncargo fmt", workdir: "C:/p" })), "bash  cargo test --workspace …", "权限短文本不对(多行命令只取首行)");
   assert.deepEqual(
     ["observed_head", "优先级", "refs", "停车", "验收", "进展", "状态纠正-2", "发现记录"].map(parse.classifyTrackerField),
     ["engine", "meta", "refs", "condition", "list", "timeline", "timeline", "prose"],

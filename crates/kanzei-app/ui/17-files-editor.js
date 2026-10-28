@@ -180,13 +180,13 @@ function setText(el, text) {
 }
 function metaText(doc) {
   if (!doc) return "";
-  if (doc.binary) return `${t("二进制文件")} · ${humanSize(doc.size)}`;
+  if (doc.binary) return `${t("二进制文件")}  ${humanSize(doc.size)}`;
   const parts = [humanSize(doc.size)];
   if (doc.encoding === "utf-8") parts.push(doc.bom ? "UTF-8 BOM" : "UTF-8");
   parts.push(doc.eol === "crlf" ? "CRLF" : "LF");
   if (doc.truncated) parts.push(t("已截断预览前 4MB"));
   if (doc.mixedEol && !doc.readonly) parts.push(`${t("混合换行,保存时统一为")} ${doc.eol === "crlf" ? "CRLF" : "LF"}`);
-  return parts.join(" · ");
+  return parts.join("  ");
 }
 export function renderFilesHead() {
   const doc = filesDoc;
@@ -222,7 +222,7 @@ export function renderFilesHead() {
   if (reason) {
     setText($("files-readonly-text"), doc.readonly
       ? labelled("只读", readonlyText(doc.readonly))
-      : `${labelled("保存被拒", readonlyText(doc.blocked))} · ${t("你的修改还在编辑器里,可以复制出来;处理好之后再保存,或放弃修改")}`);
+      : `${labelled("保存被拒", readonlyText(doc.blocked))}  ${t("你的修改还在编辑器里,可以复制出来;处理好之后再保存,或放弃修改")}`);
     const goto = $("files-readonly-goto");
     const memory = /^\.kanzei\/memory\//i.test(doc.path);
     show(goto, reason === "managed");
@@ -285,7 +285,7 @@ function ensureEditor(monaco) {
     automaticLayout: true,
     theme: monacoTheme,
     minimap: { enabled: true },
-    fontSize: 13,
+    fontSize: 14,
     scrollBeyondLastLine: false,
     // 默认 "prompt" 会在打开含 U+2028 的文件时弹窗;原样保留,不改用户的字节。
     unusualLineTerminators: "off",
@@ -441,7 +441,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
     disposeModel(detached);
     filesDoc = doc;
     renderFilesHead();
-    showPlaceholder(`${t("二进制文件")} · ${humanSize(doc.size)}`);
+    showPlaceholder(`${t("二进制文件")}  ${humanSize(doc.size)}`);
     void showImageIfAny(doc, isCurrent);
     return true;
   }
@@ -603,7 +603,7 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
     void clearDiskDraft(doc.root, doc.path);
     if (version !== model.getAlternativeVersionId()) scheduleDraftPersist(); // 保存期间又打了字:那部分仍是未保存,草稿要重新落盘
     syncNote = "";
-    toast(result.evidence ? `${t("已保存")} · ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : t("已保存"), { kind: "ok" });
+    toast(result.evidence ? `${t("已保存")}  ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : t("已保存"), { kind: "ok" });
     hooks.onSaved(doc.path);
     // 网页预览(24-preview.js)据此防抖重载正开着的静态页:保存后不用手点刷新。
     document.dispatchEvent(new CustomEvent("kz:file-saved", { detail: { root: doc.root, path: doc.path } }));
@@ -687,7 +687,7 @@ export async function openFilesCompare() {
     // 中缝的「还原」按钮栏:Monaco 自带样式给它画一圈 1px 焦点蓝框(未分层 CSS,压不过),且与横幅上的三个选择重复。
     renderGutterMenu: false,
     minimap: { enabled: false },
-    fontSize: 13,
+    fontSize: 14,
     scrollBeyondLastLine: false,
   });
   diff.setModel({ original, modified: model });
@@ -793,7 +793,7 @@ export function resetFilesDoc() {
   show($("files-image"), false);
   const placeholder = $("files-placeholder");
   if (placeholder) {
-    placeholder.textContent = t("选择左侧文件查看内容 · 目录行显示聚合度量 · 「用途说明」用 fast 模型生成一句话说明");
+    placeholder.textContent = t("选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明");
     show(placeholder, true);
   }
 }

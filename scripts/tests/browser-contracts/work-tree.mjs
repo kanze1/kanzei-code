@@ -49,7 +49,7 @@ export default async function run({ browser, server, check, output }) {
   check("Goal tree is open by default", await outer.evaluate(node => node.open), true);
   check("Desktop starts with the card map", await outer.locator(".work-tree-workspace").getAttribute("data-view"), "map");
   check("Every node is shown exactly once", await outer.locator(".work-tree-node").count(), 4);
-  check("Cancelled work is separate from verified work", await outer.locator(":scope > summary").innerText(), "目标树 · 1 已验证节点 · 1 已替代节点");
+  check("Cancelled work is separate from verified work", await outer.locator(":scope > summary").innerText(), "目标树 1 已验证节点 1 已替代节点");
   check("The defect belongs under its implementation node", await outer.locator('[data-work-node-id="R-910/W3"] .work-tree-children [data-work-node-id="R-910/W4"]').count(), 1);
   check("Parent state is waiting rather than pretending to execute", await outer.locator('[data-work-node-id="R-910/W1"] > .work-tree-row .work-unit-status').innerText(), "等待前提满足");
   check("Parent waiting reason comes from the domain", (await outer.innerText()).includes("子节点未结束: 实现可以纠正的偏好记忆"), true);
@@ -65,7 +65,7 @@ export default async function run({ browser, server, check, output }) {
   check("Custom type deliverable stays inspectable", (await outer.locator(".work-tree-inspector").innerText()).includes("偏好研究报告"), true);
   const implementation = outer.locator('[data-work-node-id="R-910/W3"]');
   await implementation.locator(":scope > .work-tree-row").click();
-  check("Cross-branch dependency uses its human title", await outer.locator(".work-node-reference").innerText(), "查看依赖 · 研究偏好保存和纠正机制");
+  check("Cross-branch dependency uses its human title", await outer.locator(".work-node-reference").innerText(), "查看依赖 研究偏好保存和纠正机制");
   check("Map cards keep explanation out of the overview", (await research.locator(":scope > .work-tree-row").innerText()).includes("根据偏好纠正场景选择方案"), false);
   check("Compact cards fit within 120px for the fixture titles", await outer.locator(".work-tree-row").evaluateAll(rows => rows.every(row => row.getBoundingClientRect().height <= 120)), true);
   await outer.getByRole("button", { name: "大纲", exact: true }).click();
@@ -184,8 +184,8 @@ export default async function run({ browser, server, check, output }) {
     docs.requirements[0].work_readiness[node.unit_id] = { step: "wait", blockers: [node.blocked_reason], uncovered: [] };
     (await import("/12-docs-pages.js")).renderDocsSnapshot(docs);
   });
-  check("Outer summary names the blocked work without its machine ID", await outer.locator(":scope > summary").innerText(), "目标树 · 1 已验证节点 · 1 已替代节点 · 分析偏好读取性能 · 阻塞");
-  check("Node counts do not pretend to be project completion fractions", await entry.locator(".work-unit-badge").innerText(), "1 已验证节点 · 阻塞");
+  check("Outer summary names the blocked work without its machine ID", await outer.locator(":scope > summary").innerText(), "目标树 1 已验证节点 1 已替代节点 分析偏好读取性能 阻塞");
+  check("Node counts do not pretend to be project completion fractions", await entry.locator(".work-unit-badge").innerText(), "1 已验证节点 阻塞");
   await page.evaluate(async () => {
     const docs = window.__workTreeDocs, research = docs.work_units[1];
     research.review = { request: { revision_id: "R-910/W1@9", anchor_id: "R-910/W1", direction: "优先本地运行", reason: "减少远端依赖" }, basis_sequence: 2, resolution: null };
@@ -208,7 +208,7 @@ export default async function run({ browser, server, check, output }) {
   check("Revalidation is distinguished from verified completion", await research.locator(":scope > .work-tree-row .work-unit-status").innerText(), "由后继节点重验");
   await outer.locator('[data-section="revision"] > summary').click();
   check("Review history gives the disposition reason", (await outer.locator(".work-tree-inspector").innerText()).includes("验证本地方案"), true);
-  await outer.getByRole("button", { name: "后继工作 · 实现可以纠正的偏好记忆", exact: true }).click();
+  await outer.getByRole("button", { name: "后继工作 实现可以纠正的偏好记忆", exact: true }).click();
   check("Successor navigation selects the new work", await implementation.getAttribute("aria-selected"), "true");
   await outer.locator(".work-node-revise").click();
   const revisionDialog = page.getByRole("dialog", { name: "调整方向", exact: true });

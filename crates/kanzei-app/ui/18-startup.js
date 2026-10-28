@@ -57,7 +57,7 @@ defer(() => {
       }
       versionEl.title = `v${info.version} (${info.build})`;
       $("update-current").textContent = String(info.build).split(" ")[0];
-      log(`kanzei ${t("桌面端启动")} · v${info.version} (${info.build})`);
+      log(`kanzei ${t("桌面端启动")}  v${info.version} (${info.build})`);
     } catch (err) {
       log(`${t("获取版本失败")}:${err}`, "warn");
     }

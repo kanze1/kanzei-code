@@ -67,7 +67,7 @@ try {
   assert(correction.review.request_id && correction.review.expected_revision > 0);
   await page.getByRole("combobox", { name: "决策状态" }).selectOption("all");
   await row.getByText("修改意见已排入原对话", { exact: true }).waitFor();
-  await row.getByText(/项目偏好 · M-preview/).waitFor();
+  await row.getByText(/项目偏好\s+M-preview/).waitFor();
   // 后台验证和用户试用独立显示；纠正的旧证据不可接受。
   await page.getByRole("button", { name: "交付与验证", exact: true }).click();
   assert.equal(await page.getByText("纠正后待重新验证", { exact: true }).count(), 1);

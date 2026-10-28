@@ -42,13 +42,13 @@ export function renderNativeControl(root,state,{compact=false,t=value=>value,sto
   for(const action of compact?trace.slice(-3):trace) {
     const row=element("li","native-control-step");row.dataset.status=action.status;row.dataset.actionId=String(action.id);
     if(action.started_at){const at=new Date(action.started_at),time=element("time","native-control-time",at.toLocaleTimeString([],{hour12:false}));time.dateTime=at.toISOString();row.append(time);}
-    row.append(element("span","native-control-action",`${t(actionWords(action.action))}${action.target?` · ${action.target}`:""}`),element("span","native-control-result",t(resultWords(action.status))));
+    row.append(element("span","native-control-action",`${t(actionWords(action.action))}${action.target?`  ${action.target}`:""}`),element("span","native-control-result",t(resultWords(action.status))));
     list.append(row);
   }
   if(compact)root.append(list);
   else {
     const details=element("details","native-control-details");details.open=detailsOpen;
-    details.append(element("summary","",`${t("操作轨迹")} · ${trace.length}`),list);root.append(details);
+    details.append(element("summary","",`${t("操作轨迹")}  ${trace.length}`),list);root.append(details);
   }
   if(state.error) { const error=element("p","native-control-error",state.error);error.setAttribute("role","alert");root.append(error); }
 }

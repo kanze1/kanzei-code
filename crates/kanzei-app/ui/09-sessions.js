@@ -187,7 +187,7 @@ export function renderLinesWorktrees() {
     meta.className = "lines-worktree-meta";
     const bound = processItems.find((process) => process.id === item.bound_process);
     const boundText = bound ? processName(bound) : t("未绑定独立任务");
-    meta.textContent = `${boundText} · ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
+    meta.textContent = `${boundText}  ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
     meta.title = item.path;
     main.append(branch, meta);
     const actions = document.createElement("div");
@@ -298,11 +298,11 @@ export function parallelTaskView(item) {
       : pendingNow ? t("鞭挞等待")
         : waitingNow ? t("在等你回答")
           : t("空闲");
-  const name = `${lineAuthorityLabel(item)} · ${processName(item)}${item.branch ? ` · ${item.branch}` : ""}`;
+  const name = `${lineAuthorityLabel(item)}  ${processName(item)}${item.branch ? `  ${item.branch}` : ""}`;
   const title = askWaiting
     ? `${name}\n${t("有权限请求在等你批准,切到这个对话处理")}`
     : runningNow
-    ? `${name}\n${[localizedStage(stage) || t("运行中"), state.detail].filter(Boolean).join(" · ")}`
+    ? `${name}\n${[localizedStage(stage) || t("运行中"), state.detail].filter(Boolean).join("  ")}`
     : pendingNow
       ? `${name}\n${t("等待下一轮")}`
       : waitingNow
@@ -338,7 +338,7 @@ export function renderParallelTaskStatus(items) {
   })]);
   if (processes.length && target._renderSignature === signature && target.firstChild) {
     for (const item of processes) {
-      if (item.id === activeProcessId && parallelTaskView(item).pendingNow) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+      if (item.id === activeProcessId && parallelTaskView(item).pendingNow) setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
     }
     return;
   }
@@ -367,7 +367,7 @@ export function renderParallelTaskStatus(items) {
     // 一行:字形 +「身份 · 名称」(分支名暗色跟在后面、可省略号截断)+ 靠右的单个状态词。
     const head = document.createElement("span");
     head.className = "parallel-task-head";
-    head.append(`${lineAuthorityLabel(item)} · ${processName(item)}`);
+    head.append(`${lineAuthorityLabel(item)}  ${processName(item)}`);
     if (item.branch) {
       const branch = document.createElement("span");
       branch.className = "parallel-task-branch";
@@ -400,7 +400,7 @@ export function renderParallelTaskStatus(items) {
     target.appendChild(line);
     renderLineConversationHistory(item.id);
     if (item.id === activeProcessId && view.pendingNow) {
-      setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+      setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
     }
   }
 }
@@ -423,7 +423,7 @@ export function refreshParallelTaskProjection(sessionId) {
   // 开发空间的会话行在侧栏树里:等你回答 / 鞭挞等待 / 停止中这类相位变化要立刻落到那一行的运行态点上(不等 3 秒轮询)。
   syncSessionActivity();
   if (item.id === activeProcessId && pendingNow) {
-    setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+    setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
   } else if (item.id === activeProcessId && stoppingNow) {
     setStopping(t("停止中…"));
   } else if (item.id === activeProcessId && running !== runningNow) {
@@ -557,7 +557,7 @@ export function renderProcesses(items, queryId = null) {
     setRunning(activeRunning, activeRunning ? t("运行中") : activeTerminalStatus || t("空闲"));
   }
   if (activeStopping) setStopping(t("停止中…"));
-  if (activePending) setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+  if (activePending) setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
   for (const item of workspace_processes(processItems)) adoptReportedStage(item);
   renderParallelTaskStatus(processItems);
   // 侧栏会话树与历史弹层随进程列表更新(内容签名不变就不重建,见 12-session-tree.js)。
@@ -669,7 +669,7 @@ export async function switchProcess(processId, forceReload = false) {
   // R-086:运行态投影自该会话的状态机(后台终态已收敛),不直接信 processItems
   // 的瞬时轮询值——事件先到状态机,切回时看到的才是准的。
   if (sessionState(target.session_id).phase === "stopping") setStopping(t("停止中…"));
-  else if (sessionState(target.session_id).phase === "auto_pending") setRunPending(`${t("鞭挞")} · ${t("等待下一轮")}`);
+  else if (sessionState(target.session_id).phase === "auto_pending") setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
   else setRunning(processRunning(target), processRunning(target) ? t("运行中") : t("空闲"));
   renderProcesses(processItems);
   document.dispatchEvent(new CustomEvent("kz:conversation-selected"));
@@ -727,7 +727,7 @@ export function renderSubagentControl() {
   if (waiting) stateLabels.push(fillTemplate(t("{count} 等待批准"), { count: waiting }));
   const last = runs[runs.length - 1];
   const status = $("subagent-control-state");
-  const nextText = stateLabels.join(" · ") || (last
+  const nextText = stateLabels.join("  ") || (last
     ? fillTemplate(t("最近: {state}"), { state: subagentStateWord(last.state) }) : t("未派遣"));
   if (status.textContent !== nextText) status.textContent = nextText;
   status.title = nextText;

@@ -42,11 +42,11 @@ async function showConversationActions(message) {
   dialog.setAttribute("aria-label", t("回退或分叉"));
   const title = document.createElement("h3"); title.textContent = t("从这条消息重新开始");
   const detail = document.createElement("p");
-  detail.textContent = `${t("保留此前消息")}：${preview.keptMessages} · ${t("文件检查点")}：${preview.files.length}`;
+  detail.textContent = `${t("保留此前消息")}：${preview.keptMessages}  ${t("文件检查点")}：${preview.files.length}`;
   const files = document.createElement("ul");
   for (const file of preview.files) {
     const row = document.createElement("li");
-    row.textContent = `${file.path} · ${!file.restorable ? t("无法还原") : file.external_change ? t("外部修改，默认跳过") : file.pre_exists ? t("还原原内容") : t("删除本轮新建文件")}`;
+    row.textContent = `${file.path}  ${!file.restorable ? t("无法还原") : file.external_change ? t("外部修改，默认跳过") : file.pre_exists ? t("还原原内容") : t("删除本轮新建文件")}`;
     files.appendChild(row);
   }
   const warning = document.createElement("p"); warning.textContent = preview.unhandled.join("；");

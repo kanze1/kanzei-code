@@ -38,7 +38,7 @@ function displayEditor(skill = null, generation = false) {
   $("skill-description").value = skill?.description || "";
   $("skill-instructions").value = skill?.instructions || "";
   $("skill-manual-only").checked = !!skill?.manualOnly;
-  $("skills-editor-source").textContent = skill ? `${t(sourceLabels[skill.source] || "外部")} · $${skill.id}` : t("保存后在所有对话中可用");
+  $("skills-editor-source").textContent = skill ? `${t(sourceLabels[skill.source] || "外部")}  $${skill.id}` : t("保存后在所有对话中可用");
   original = signature(); syncEditor(); renderList();
   $("skills-scroll").scrollTop = 0;
   (generation ? $("skills-generation-prompt") : skill ? $("skill-instructions") : $("skill-name")).focus({ preventScroll: true });
@@ -140,7 +140,7 @@ async function importSkill() {
 async function deleteSkill() {
   if (busy || !selected?.editable) return;
   const skill = selected;
-  if (!await confirmDialog({ title: t("删除 Skill？"), message: `$${skill.name} · ${t("删除后将从所有对话的技能列表中移除。")}`, okText: t("删除"), danger: true })) return;
+  if (!await confirmDialog({ title: t("删除 Skill？"), message: `$${skill.name}  ${t("删除后将从所有对话的技能列表中移除。")}`, okText: t("删除"), danger: true })) return;
   busy = true; loading += 1; syncEditor(); error();
   try {
     entries = await invoke("skills_delete", { name: skill.id, expectedHash: skill.revision });

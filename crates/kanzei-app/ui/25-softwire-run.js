@@ -42,7 +42,7 @@ export function createRunControl({ resolve, changed }) {
     const config = lineAutoConfig(line?.id), research = line?.profile === "research";
     const phase = line?.session_id ? sessionState(line.session_id).phase : "idle";
     const running = line?.running || ["starting", "running", "stopping"].includes(phase);
-    mode.textContent = research ? t("研究") : !line?.id ? t("沿用设置") + " ▾" : t("无监管模式") + " · " + (lineAgent(line).agent === "dev-auto" ? t("开启") : t("关闭")) + " ▾";
+    mode.textContent = research ? t("研究") : !line?.id ? t("沿用设置") + " ▾" : t("无监管模式") + "  " + (lineAgent(line).agent === "dev-auto" ? t("开启") : t("关闭")) + " ▾";
     const pausing = config.enabled && !config.paused;
     toggle.textContent = busy ? t("处理中…") : pausing ? "Ⅱ " + t("暂停自动推进") : config.paused ? "▶ " + t("恢复自动推进") : "▶ " + t("启动自动推进");
     toggle.dataset.active = String(pausing);
@@ -50,9 +50,9 @@ export function createRunControl({ resolve, changed }) {
     for (const control of [mode, toggle, tune, off]) control.disabled = busy || !line?.project || research;
     off.hidden = !config.enabled;
     const waiting = awaitingUserSessions.has(line?.session_id);
-    status.textContent = failure || (research ? t("研究模式不使用自动推进") : config.paused ? running ? t("已暂停 · 本轮继续") : t("已暂停")
+    status.textContent = failure || (research ? t("研究模式不使用自动推进") : config.paused ? running ? t("已暂停  本轮继续") : t("已暂停")
       : waiting ? t("等待你的回复") : config.stopAfterRound ? t("本轮后停")
-        : autoContinueTimers.has(line?.session_id) ? t("即将开始下一轮") : config.enabled ? fillTemplate(t("{n} 轮 · {state}"), { n: currentAutoRounds(line?.session_id), state: running ? t("推进中") : t("等待运行状态") }) : "");
+        : autoContinueTimers.has(line?.session_id) ? t("即将开始下一轮") : config.enabled ? fillTemplate(t("{n} 轮  {state}"), { n: currentAutoRounds(line?.session_id), state: running ? t("推进中") : t("等待运行状态") }) : "");
     status.dataset.error = String(Boolean(failure));
   }
   async function perform(action) {

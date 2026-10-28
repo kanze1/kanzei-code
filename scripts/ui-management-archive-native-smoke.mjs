@@ -51,7 +51,7 @@ try {
     check(await page.locator(`.management-row[data-work-id="${id}"]`).count() === 0, `${id}: archived work is absent from active rows`);
     const archived = await app.invoke("docs_archive_entries", { projectDir: app.project, kind });
     check(archived.some(entry => entry.id === id && entry.status === status), `${id}: the actual archive contains the selected terminal state`);
-    await page.locator(".management-body").getByRole("button", { name: /^已归档 ·/ }).click();
+    await page.locator(".management-body").getByRole("button", { name: /^已归档\s+/ }).click();
     const history = page.locator(".management-archive-row").filter({ hasText: id });
     await history.waitFor(); await history.click();
     await page.locator(".management-detail-nav").waitFor();
@@ -71,7 +71,7 @@ try {
   await refresh();
   check(await page.locator(".management-detail-nav").count() === 0 && await page.locator(".management-body .editing").count() === 0,
     "Background archival retires the obsolete editor as well as its selected detail");
-  await page.locator(".management-body").getByRole("button", { name: /^已归档 ·/ }).click();
+  await page.locator(".management-body").getByRole("button", { name: /^已归档\s+/ }).click();
   await page.locator(".management-archive-row").filter({ hasText: "R-004" }).waitFor();
   check(true, "Previously loaded archives refresh to include newly archived work");
   check((await readFile(path.join(root, "requirements-archive.md"), "utf8")).includes("R-004"), "Archival is persisted on disk");

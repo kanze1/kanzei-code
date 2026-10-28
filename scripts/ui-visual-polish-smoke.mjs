@@ -85,7 +85,7 @@ try {
           return { bg:color("body", "backgroundColor"), sidebar:color("#sidebar", "backgroundColor"), composer:color("#composer", "backgroundColor"), code:color(".md-code-block", "backgroundColor"), text:color("body", "color"), strong:color("#prompt", "color"), accent:color("#send", "backgroundColor") };
         });
         for (const [key, value] of Object.entries(actual)) check(value === rgb(colors[key]), `${theme}: published ${key} color remains unchanged`);
-        check(await page.locator("#sidebar").evaluate(el => window.getComputedStyle(el).backgroundImage !== "none"), `${theme}: sidebar retains its existing texture`);
+        check(await page.locator("#sidebar").evaluate(el => window.getComputedStyle(el).backgroundImage === "none"), `${theme}: sidebar uses the shared quiet surface`);
         const width = await page.locator("#composer").evaluate(el => el.clientWidth);
         await page.locator("#prompt").focus();
         check(await page.locator("#composer").evaluate(el => el.clientWidth) === width, `${theme}: composer focus preserves geometry`);

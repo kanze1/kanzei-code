@@ -123,7 +123,7 @@ export async function verifyDecisionStability(browser, origin) {
     await page.waitForFunction(() => window.__decisionStability.deliveryToggleObserved);
     assert.equal(await delivery.evaluate((el) => el === window.__decisionStability.delivery && el.open && window.__decisionStability.deliveryRetainedBeforeToggle), true);
     await delivery.getByText("冻结版本: example-source-fingerprint", { exact: true }).waitFor();
-    await delivery.getByText("验证通过 · Preview only", { exact: true }).waitFor();
+    await delivery.getByText("验证通过  Preview only", { exact: true }).waitFor();
     console.log("D-771 browser verification passed: keyed rows, duplicate IDs, caret/IME, drafts, scroll/text selection, revision conflict and expanded delivery preservation.");
   } finally { await page.close(); }
 }

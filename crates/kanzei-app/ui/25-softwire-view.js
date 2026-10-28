@@ -146,8 +146,8 @@ function updateUsage(graph, state, actions) {
   // 展开时右列改为自然高度(由 .sw-surface 滚动),不再被固定行高裁住或压到下面的最近回复。
   const layout = graph.closest(".sw-overview-layout");
   if (layout) layout.dataset.usageOpen = String(open);
-  const text = usage.error ? t("读取失败 · 点开重试") : !usage.loaded ? t("读取中…") : !series.length ? t("暂无运行记录")
-    : fillTemplate(t("近 {n} 轮 · 均 {steps} 步 · {tokens} token · {calls} 次调用"), { n: series.length, steps: Math.round(summary.steps * 10) / 10, tokens: formatCount(summary.tokens), calls: Math.round(summary.calls * 10) / 10 });
+  const text = usage.error ? t("读取失败  点开重试") : !usage.loaded ? t("读取中…") : !series.length ? t("暂无运行记录")
+    : fillTemplate(t("近 {n} 轮  均 {steps} 步  {tokens} token  {calls} 次调用"), { n: series.length, steps: Math.round(summary.steps * 10) / 10, tokens: formatCount(summary.tokens), calls: Math.round(summary.calls * 10) / 10 });
   main.dataset.state = running ? "running" : "idle";
   main.setAttribute("aria-expanded", String(open));
   main.setAttribute("aria-label", laneLabel("usage") + comma() + text);
@@ -185,7 +185,7 @@ function renderUsageDetail(detail, series, summary, error, actions) {
   const charts = node("div", null, "sw-usage-charts");
   for (const [key, label, mean] of [["steps", t("步数"), summary.steps], ["tokens", "token", summary.tokens], ["calls", en("工具调用", "Tool calls"), summary.calls]]) {
     const figure = node("figure", null, "sw-usage-chart"), values = series.map(row => row[key]);
-    figure.append(node("figcaption", fillTemplate(t("{label} · 均 {mean} · 最高 {max}"), { label, mean: key === "tokens" ? formatCount(mean) : Math.round(mean * 10) / 10, max: key === "tokens" ? formatCount(Math.max(...values)) : Math.max(...values) })));
+    figure.append(node("figcaption", fillTemplate(t("{label}  均 {mean}  最高 {max}"), { label, mean: key === "tokens" ? formatCount(mean) : Math.round(mean * 10) / 10, max: key === "tokens" ? formatCount(Math.max(...values)) : Math.max(...values) })));
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 160 40"); svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", fillTemplate(t("{label}：最近 {n} 轮"), { label, n: series.length }));
@@ -198,7 +198,7 @@ function renderUsageDetail(detail, series, summary, error, actions) {
       const hit = document.createElementNS("http://www.w3.org/2000/svg", "rect"), tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
       for (const [name, number] of [["x", index * step], ["y", 0], ["width", step], ["height", 40]]) hit.setAttribute(name, String(number));
       hit.setAttribute("class", "sw-usage-hit");
-      tip.textContent = `${new Date(series[index].at).toLocaleString()} · ${label} ${key === "tokens" ? formatCount(value) : value}`;
+      tip.textContent = `${new Date(series[index].at).toLocaleString()}  ${label} ${key === "tokens" ? formatCount(value) : value}`;
       hit.append(tip); svg.append(hit);
     }
     figure.append(svg); charts.append(figure);
@@ -237,11 +237,11 @@ function updateGraph(root, state, actions) {
   // 每行:[一行状态, 基线状态]。基线状态沿用旧词表:running/working/reading/writing/starting 画橙色起伏,
   // waiting/stopping 虚线,attention/blocked 琥珀,failed 红,其余(idle/result/stopped/unknown)中性直线。
   const statuses = {
-    work: [state.item ? state.item.id + " · " + (state.item.title || "") : t("尚未领取需求"), running && state.item ? "running" : "idle"],
+    work: [state.item ? state.item.id + "  " + (state.item.title || "") : t("尚未领取需求"), running && state.item ? "running" : "idle"],
     memory: [memoryTool ? writingMemory ? t("写入中") : t("读取中") : t("检索与管理"), memoryTool ? writingMemory ? "writing" : "reading" : "idle"],
     history: [running && state.compacting ? t("压缩中") : state.compaction ? t("已有压缩记录") : t("查看运行记录"), running && state.compacting ? "working" : "idle"],
-    tools: [tool ? tool.name + " · " + (activeTool ? waitingTasks ? t("等待子任务") : pending.length > 1 ? fillTemplate(t("{n} 项调用中"), { n: pending.length }) : t("调用中") : suspended ? activity === "attention" ? t("待你回复") : t("停止中") : missingResult ? t("结果未确认") : tool.ok === false ? t("最近调用失败 · 查看记录") : t("最近调用完成")) : emptyToolRecord(state), toolState],
-    tasks: [childState ? fillTemplate(t(({ running: "{n} 项执行中", starting: "{n} 项启动中", stopping: "{n} 项停止中", waiting: "{n} 项待批准" })[childState]), { n: children.filter(task => task.state === childState).length }) : state.tasks.length ? fillTemplate(t("{n} 个任务 · 查看记录"), { n: state.tasks.length }) : t("尚无子任务"), childState === "waiting" ? "attention" : childState || "idle"],
+    tools: [tool ? tool.name + "  " + (activeTool ? waitingTasks ? t("等待子任务") : pending.length > 1 ? fillTemplate(t("{n} 项调用中"), { n: pending.length }) : t("调用中") : suspended ? activity === "attention" ? t("待你回复") : t("停止中") : missingResult ? t("结果未确认") : tool.ok === false ? t("最近调用失败  查看记录") : t("最近调用完成")) : emptyToolRecord(state), toolState],
+    tasks: [childState ? fillTemplate(t(({ running: "{n} 项执行中", starting: "{n} 项启动中", stopping: "{n} 项停止中", waiting: "{n} 项待批准" })[childState]), { n: children.filter(task => task.state === childState).length }) : state.tasks.length ? fillTemplate(t("{n} 个任务  查看记录"), { n: state.tasks.length }) : t("尚无子任务"), childState === "waiting" ? "attention" : childState || "idle"],
     batch: [state.batchEvidenceCount ? fillTemplate(t("{n} 条批次记录"), { n: state.batchEvidenceCount }) : state.deliveryCount ? fillTemplate(t("{n} 个交付文件"), { n: state.deliveryCount }) : unitStatus === "done" ? t("机器已完成") : unitStatus === "verifying" ? t("验证阶段") : unitStatus === "blocked" ? t("批次受阻") : t("查看当前批次"),
       unitStatus === "blocked" ? "blocked" : unitStatus === "verifying" && running ? "working" : unitStatus === "done" || state.deliveryCount || state.batchEvidenceCount ? "result" : "idle"],
   };
@@ -293,12 +293,12 @@ function updateGraph(root, state, actions) {
     history.replaceChildren(); recent._key = recentKey;
     const heading = node("header"); heading.append(node("span", t("最近回复")), button(t("完整对话") + " ↗", actions.conversation)); history.append(heading);
     if (state.replyError) {
-      const retry = button(t("回复读取失败 · 重试"), actions.retryReplies, "sw-link sw-recent-retry"); retry.title = state.replyError; history.append(retry);
+      const retry = button(t("回复读取失败  重试"), actions.retryReplies, "sw-link sw-recent-retry"); retry.title = state.replyError; history.append(retry);
     } else if (!replies.length) history.append(node("p", t("模型回复会出现在这里"), "sw-recent-empty"));
     for (const [index, reply] of replies.entries()) {
       const row = button("", () => actions.reply(reply), "sw-recent-reply");
       row.dataset.messageId = reply.id;
-      row.append(node("span", index === 0 ? en("最新", "Latest") : "·", "sw-recent-mark"), node("span", plainText(reply.text).replace(/\s+/g, " "), "sw-recent-text"));
+      row.append(node("span", index === 0 ? en("最新", "Latest") : "  ", "sw-recent-mark"), node("span", plainText(reply.text).replace(/\s+/g, " "), "sw-recent-text"));
       row.title = t("打开完整对话"); history.append(row);
     }
   }
@@ -366,7 +366,7 @@ export function renderWorkFocus(parent, state, actions) {
       if (item.blocked) meta.append(node("span", t("阻塞"), "sw-work-blocked"));
       meta.append(node("span", item.priority || "", "sw-work-priority"));
       entry.append(meta, node("strong", item.title));
-      entry.append(node("span", [t(item.id.startsWith("D-") ? "缺陷" : "需求"), ...entryTags(item).map(tag => t(tag))].join(" · "), "sw-work-type"));
+      entry.append(node("span", [t(item.id.startsWith("D-") ? "缺陷" : "需求"), ...entryTags(item).map(tag => t(tag))].join("  "), "sw-work-type"));
       if (item.batches?.total) {
         const progress = node("span", null, "sw-work-progress"), blocks = node("span", null, "sw-batch-blocks");
         const { done, total } = item.batches;
@@ -420,7 +420,7 @@ export function renderWorkFocus(parent, state, actions) {
   const idle = lines.filter(line => !items.some(item => item.id === line.current_item_id || item.owner_lines?.some(owner => owner.id === line.id)));
   if (idle.length) {
     const picker = node("details", null, "sw-idle-lines");
-    picker.append(node("summary", fillTemplate(t("未绑定需求的对话 · {n}"), { n: idle.length })));
+    picker.append(node("summary", fillTemplate(t("未绑定需求的对话  {n}"), { n: idle.length })));
     for (const line of idle) picker.append(button(lineLabel(line.label) || line.id, () => actions.line(line), "sw-line-select"));
     section.append(picker);
   }
@@ -509,7 +509,7 @@ export function renderInteraction(root, message, actions) {
   const kind = interactionKind(message);
   detailHeading(root, t(({ question: "回复提问", decision: "复核决定", delivery: "试用反馈" })[kind]), actions.back);
   root.append(node("p", message.project, "sw-evidence-meta"), node("h3", message.body, "sw-question"));
-  if (message.source?.agentId) root.querySelector(".sw-evidence-meta").textContent += ` · ${message.source.source || message.source.agentId}`;
+  if (message.source?.agentId) root.querySelector(".sw-evidence-meta").textContent += `  ${message.source.source || message.source.agentId}`;
   if (message.answer) root.append(node("p", message.answer, "sw-answer"));
   if (message.source?.resolution?.rationale) {
     const detail = node("details", null, "sw-reason"); detail.append(node("summary", t("查看依据")), node("p", message.source.resolution.rationale)); root.append(detail);

@@ -55,7 +55,7 @@ export function renderDiffSummary() {
   const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
   label.classList.toggle("hidden", files.length === 0);
   label.innerHTML = files.length
-    ? `· ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
+    ? `  ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
     : "";
   const expanded = files.length > 0 && layoutPref("activity_diff", activeSessionId || "default") === true;
   panel.classList.toggle("hidden", !expanded);
@@ -520,7 +520,7 @@ export function renderDiff(display, { compact = false } = {}) {
   const header = document.createElement("div");
   header.className = "diff-file-header";
   const label = document.createElement("span");
-  label.textContent = `${display.path || t("文件")}  +${display.additions || 0} −${display.deletions || 0} · ${display.language || "text"}`;
+  label.textContent = `${display.path || t("文件")}  +${display.additions || 0} −${display.deletions || 0}  ${display.language || "text"}`;
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "ghost mini";
@@ -712,7 +712,7 @@ export function renderQuotaNotice(info) {
   const reason = label ? `${label} (${code})` : code;
   const bits = [`${t("已用")} ${quotaBytesText(info.storage_used_bytes)} / ${t("配额")} ${quotaBytesText(info.quota_bytes)}`];
   if (reason) bits.push(`${t("原因")}: ${reason}`);
-  usage.textContent = bits.join(" · ");
+  usage.textContent = bits.join("  ");
   box.append(head, usage);
   const hintText = quotaNoticeHint(code);
   if (hintText) {
@@ -741,7 +741,7 @@ export function renderFileCard(display, { projectDir = display.project_dir || cu
   name.prepend(resourceIcon(display.path || display.name || ""));
   const revealFirst = /\.(?:apk|exe|msi|bat|cmd|ps1|sh|com)$/i.test(display.path || "");
   const open = mode => invoke("open_delivered_path", { projectDir, path: display.path, mode }).catch(error => toast(`${t("打开失败")}:${error}`));
-  name.title = `${revealFirst ? t("在资源管理器中显示") : t("打开")} · ${display.path}`;
+  name.title = `${revealFirst ? t("在资源管理器中显示") : t("打开")}  ${display.path}`;
   name.disabled = display.status === "unavailable";
   name.addEventListener("click", () => void open(revealFirst ? "reveal" : "open"));
   const size = document.createElement("span");
@@ -901,7 +901,7 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
           : timedOut
             ? `⏱ ${t("超时")}`
             : `✕ ${t("失败")}`;
-  entry.meta.textContent = [statusText, elapsed].join(" · ");
+  entry.meta.textContent = [statusText, elapsed].join("  ");
   // 结构化详情进侧栏内展开区(diff/终端/新建/todo)。
   const d = display;
   // 增减行数只能追加到 .bg-target 里:对整个 title 按钮做 textContent += 等于把
@@ -989,7 +989,7 @@ export function renderRecoveredTraces(payloads) {
         const seconds = Number(event.durationMs);
         entry.meta.textContent =
           Number.isFinite(seconds) && seconds >= 1000
-            ? `${t("回放")} · ${Math.round(seconds / 1000)}s`
+            ? `${t("回放")}  ${Math.round(seconds / 1000)}s`
             : t("回放");
         bgPlace(entry);
         bgRenderActions(event.id, entry);
@@ -1018,7 +1018,7 @@ export function renderRecoveredTraces(payloads) {
     entry.el.classList.add("err");
     entry.el.dataset.bgStatus = "err";
     entry.prog.textContent = t("历史轨迹");
-    entry.meta.textContent = `${t("回放")} · ${t("无结果(轮次中断)")}`;
+    entry.meta.textContent = `${t("回放")}  ${t("无结果(轮次中断)")}`;
     bgPlace(entry);
     bgRenderActions(id, entry);
   }
@@ -1199,7 +1199,7 @@ export function agentAuditTaskStart(sessionId, payload) {
   audit.tasks.set(String(payload.id), {
     id: String(payload.id),
     // 失败清单显示身份与描述,不显示 call_… 调用 id(UI-0926 #8)。
-    label: [typeof input.role === "string" ? input.role : "", subagentDescription(input, payload.summary)].filter(Boolean).join(" · "),
+    label: [typeof input.role === "string" ? input.role : "", subagentDescription(input, payload.summary)].filter(Boolean).join("  "),
     model,
     usage: existing?.usage || null,
     status: "running",
@@ -1284,7 +1284,7 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
   $("agent-audit-state").textContent = stateLabel;
   const facts = $("agent-audit-facts");
   facts.replaceChildren(
-    auditFact(t("本对话调用"), `${audit.primaryCalls} · ${formatAuditTokens(audit.primaryTokens)} ${t("token")}`),
+    auditFact(t("本对话调用"), `${audit.primaryCalls}  ${formatAuditTokens(audit.primaryTokens)} ${t("token")}`),
     auditFact(t("子代理派发"), String(taskList.length)),
     auditFact(t("权限询问"), String(audit.permissionPrompts)),
     auditFact(t("权限拒绝"), String(audit.permissionDenials)),
@@ -1307,7 +1307,7 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
   for (const [model, stats] of models) {
     const row = document.createElement("div");
     row.className = "agent-audit-model";
-    row.textContent = `${model} · ${stats.calls} ${t("调用次数")} · ${formatAuditTokens(stats.tokens)} ${t("token")}`;
+    row.textContent = `${model}  ${stats.calls} ${t("调用次数")}  ${formatAuditTokens(stats.tokens)} ${t("token")}`;
     modelRows.appendChild(row);
   }
   const failureBox = $("agent-audit-failures");
@@ -1321,7 +1321,7 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
     for (const task of failures) {
       const row = document.createElement("div");
       row.className = `agent-audit-failure ${task.status}`;
-      row.textContent = `${task.label || task.id} · ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? ` · ${task.preview}` : ""}`;
+      row.textContent = `${task.label || task.id}  ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? `  ${task.preview}` : ""}`;
       failureBox.appendChild(row);
     }
   } else {

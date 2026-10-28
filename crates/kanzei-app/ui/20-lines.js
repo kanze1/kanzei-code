@@ -148,7 +148,7 @@ export function buildLineModelSelect(item) {
     select.appendChild(new Option(label, value));
   };
   // UI-0926 #3:空选项写明「跟随默认」解析到哪个模型(与输入框芯片同源:model_effective)。
-  add("", `${t("跟随默认")} · ${projectDefaultModel ?? ""}`.replace(/ · $/, ""));
+  add("", `${t("跟随默认")}  ${projectDefaultModel ?? ""}`.replace(/ · $/, ""));
   // 角色项(primary/fast/compact)不再列出:它们的去向由项目/全局配置决定,「跟随默认」已经说清;
   // 只有这条线当前存的就是某个角色(旧版遗留)时才列出,方便看见并清掉。
   for (const model of linesModelCatalog ?? []) {
@@ -423,11 +423,11 @@ export function renderLines(lines) {
     collaborationConversations.flatMap((line) => changedPaths(line).map(normalizedChangedFile)),
   ).size;
   // 运行数量按对话统计；文件变化按工作树内容汇总。
-  let summary = fillTemplate(t("{running} 个运行中 · 共 {total} 个对话 · {files} 个改动文件"), {
+  let summary = fillTemplate(t("{running} 个运行中  共 {total} 个对话  {files} 个改动文件"), {
     running: runningCount, total: collaborationConversations.length, files: collaborationConversations.some(line => line.uncommitted_error || line.unmerged_error) ? t("未知") : changedCount,
   });
   const overlapPairs = lineConflictPairs(collaborationConversations).length;
-  if (overlapPairs) summary += ` · ⚠ ${fillTemplate(t("{n} 组对话涉及相同路径"), { n: overlapPairs })}`;
+  if (overlapPairs) summary += `  ⚠ ${fillTemplate(t("{n} 组对话涉及相同路径"), { n: overlapPairs })}`;
   const summaryNode = $("lines-summary");
   if (summaryNode.textContent !== summary) summaryNode.textContent = summary;
 
@@ -530,7 +530,7 @@ export function renderLines(lines) {
     const claimedIds = line.tracker_entries ?? [];
     const claimText = id => {
       const entry = entries.find(entry => entry.id === id);
-      return entry ? `${id} · ${entry.title}` : id;
+      return entry ? `${id}  ${entry.title}` : id;
     };
     // 当前文档索引中存在的登记条目提供跳转，其余只显示编号。
     const claimNode = id => {
@@ -587,7 +587,7 @@ export function renderLines(lines) {
     changed.className = "line-changed-files";
     const changedSummary = document.createElement("summary");
     const files = changedPaths(line);
-    changedSummary.textContent = `${t("未提交")} ${line.uncommitted_error ? "?" : (line.uncommitted_files ?? []).length} · ${t("分支差异")} ${line.unmerged_error ? "?" : (line.unmerged_files ?? []).length}`;
+    changedSummary.textContent = `${t("未提交")} ${line.uncommitted_error ? "?" : (line.uncommitted_files ?? []).length}  ${t("分支差异")} ${line.unmerged_error ? "?" : (line.unmerged_files ?? []).length}`;
     // 文件交集徽标(B27):与其它线改了同一批文件时亮在改动文件那一行,点开清单里重叠的文件标琥珀。
     const overlap = overlaps.get(line.process_id) ?? [];
     const sharedFiles = new Set(overlap.flatMap((entry) => entry.files.map(normalizedChangedFile)));
@@ -715,7 +715,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   let trackerClaim = "";
   const title = document.createElement("h4");
   title.className = "line-harvest-title";
-  title.textContent = `${t("合并收尾")} · ${line.label}${line.branch ? ` (${line.branch})` : ""}`;
+  title.textContent = `${t("合并收尾")}  ${line.label}${line.branch ? ` (${line.branch})` : ""}`;
   panel.appendChild(title);
 
   // 格1 读报告:线的事实区已经展示,这里把「要合什么」摆成一段可读清单。
@@ -726,7 +726,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
   reportHead.innerHTML = `<span class="harvest-step-no">1</span><strong>${t("读报告")}</strong><span class="harvest-step-state ok">${t("已展示")}</span>`;
   const reportBody = document.createElement("div");
   reportBody.className = "harvest-step-body";
-  reportBody.textContent = `${((line.tracker_entries ?? []).join(", ") || t("未绑定条目"))} · ${localizedStage(line.phase || "空闲")} · ${(changedPaths(line)).length} ${t("个文件")}`;
+  reportBody.textContent = `${((line.tracker_entries ?? []).join(", ") || t("未绑定条目"))}  ${localizedStage(line.phase || "空闲")}  ${(changedPaths(line)).length} ${t("个文件")}`;
   const trackerPicker = document.createElement("label");
   trackerPicker.className = "harvest-tracker-picker";
   const trackerPickerText = document.createElement("span");
@@ -1102,7 +1102,7 @@ export function buildHarvestPanel(line, projectDir, agentCode) {
     if (trackerClaim) {
       writebackButton.disabled = false;
       writebackButton.textContent = t("更新需求记录");
-      writebackHint.textContent = `${trackerClaim} · ${t("由")} ${lineName(line)} ${t("交付")}`;
+      writebackHint.textContent = `${trackerClaim}  ${t("由")} ${lineName(line)} ${t("交付")}`;
       writebackHint.classList.remove("warn-text");
     } else {
       writebackButton.disabled = true;

@@ -18,7 +18,7 @@ const check = (value, label) => { assert(value, label); checks.push(label); };
 const settle = () => page.evaluate(() => window.__kzPreview.settle());
 const calls = () => page.evaluate(() => window.__kzPreview.calls.filter(c => c.cmd === "softwire_answer_question").map(c => c.args));
 const elapsed = async () => {
-  const text = (await page.locator("#status-elapsed").textContent()).replace(/^· /, "");
+  const text = (await page.locator("#status-elapsed").textContent()).replace(/^\s+/, "");
   return text.endsWith("s") ? Number.parseInt(text) : text.split(":").reduce((n, part) => n * 60 + Number(part), 0);
 };
 let identity;
@@ -160,7 +160,7 @@ try {
     s.setActiveSessionId(before); s.setRunning(false);
     return { other, restored: document.querySelector("#status-elapsed").textContent };
   });
-  check(scoped.other === "· 9s" && scoped.restored === "", "Switching sessions never carries the other session's timer");
+  check(scoped.other === "  9s" && scoped.restored === "", "Switching sessions never carries the other session's timer");
   check(errors.length === 0, "No browser errors: " + errors.join("; "));
   await writeFile(path.join(output, "acceptance.json"), JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
   console.log("Reply/timer browser PASS: " + checks.length + " checks");

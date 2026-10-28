@@ -5,9 +5,9 @@ body.has-window-chrome { --window-chrome-height: 44px; display: grid; grid-templ
 .window-app-mark { display: flex; align-items: center; justify-content: center; flex: 0 0 44px; }
 .window-app-mark img { width: 22px; height: 22px; pointer-events: none; }
 #window-chrome > .workspace-header { flex: 1; min-width: 0; min-height: 0; height: 100%; border: 0; background: transparent; padding: 0 var(--sp-5) 0 10px; gap: 18px; }
-#window-chrome .workspace-project-name { flex: 0 1 auto; max-width: 210px; min-width: 48px; font-size: 12px; }
+#window-chrome .workspace-project-name { flex: 0 1 auto; max-width: 210px; min-width: 48px; font-size: var(--fs-12); }
 #window-chrome .project-work-switch { flex: 0 1 auto; gap: var(--sp-2); }
-#window-chrome .project-work-switch [data-work-surface] { height: 44px; padding: 0 var(--sp-5); font-size: 12px; white-space: nowrap; }
+#window-chrome .project-work-switch [data-work-surface] { height: 44px; padding: 0 var(--sp-5); font-size: var(--fs-12); white-space: nowrap; }
 #window-chrome .project-work-switch [aria-pressed="true"]::after { bottom: 0; }
 #window-chrome .project-overview-signal { margin-left: 10px; }
 #window-chrome #composer-context { margin-left: auto; min-width: 0; }
@@ -21,7 +21,7 @@ body.has-window-chrome { --window-chrome-height: 44px; display: grid; grid-templ
 #window-controls #window-close:hover:not(:disabled) { background: var(--danger); color: white; }
 #window-controls .window-control:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -3px; }
 #window-controls .window-control:disabled { opacity: .45; }
-#window-chrome-status { align-self: center; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--danger); font-size: 11px; }
+#window-chrome-status { align-self: center; max-width: 220px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--danger); font-size: var(--fs-12); }
 /* The old 60px workspace row is gone from main, not left as an empty track. */
 .has-window-chrome.familiar-workspace #main { grid-template-rows: minmax(0, 1fr) auto auto; }
 .has-window-chrome.familiar-workspace #main > .view { grid-row: 1; }

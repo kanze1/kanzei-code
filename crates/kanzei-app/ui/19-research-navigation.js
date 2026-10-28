@@ -161,7 +161,7 @@ export function render_research_overview() {
     return;
   }
   const rows = [
-    ["文献与发现", `${(topic.sources ?? []).length} ${t("来源")} · ${(topic.findings ?? []).length} ${t("发现")}`, "literature"],
+    ["文献与发现", `${(topic.sources ?? []).length} ${t("来源")}  ${(topic.findings ?? []).length} ${t("发现")}`, "literature"],
     ["实验", `${(topic.runs ?? []).length} ${t("次运行")}`, "experiments"],
     ["成果", topic.report ? t("研究报告已生成") : t("尚未生成报告"), "report"],
   ];

@@ -59,7 +59,7 @@ function renderWorkContext(state, { current, candidate, busy, pending, chosen, w
   const label = t(state.error ? "读取失败" : busy ? "本轮工作" : chosen ? "当前选取" : "当前工作");
   if (current) {
     currentWork.append(node("span", label, "composer-work-label"), node("span", current.id, "work-focus-id"), node("span", current.title, "work-focus-title"));
-    currentWork.title = `${label} · ${current.id} · ${current.title}`;
+    currentWork.title = `${label}  ${current.id}  ${current.title}`;
   } else {
     const text = t(state.error ? "需求读取失败" : workflow ? "选择工作" : "当前工作");
     currentWork.append(node("span", text, "work-focus-title"));
@@ -75,7 +75,7 @@ function renderWorkContext(state, { current, candidate, busy, pending, chosen, w
   if (candidate) {
     const nextLabel = t(pending ? "下轮已选" : "下一项");
     nextWork.append(node("span", nextLabel), node("span", candidate.id, "work-focus-id"));
-    nextWork.title = `${t(pending ? "已选工作 · 下一轮生效" : "下一个候选")} · ${candidate.id} · ${candidate.title}`;
+    nextWork.title = `${t(pending ? "已选工作  下一轮生效" : "下一个候选")}  ${candidate.id}  ${candidate.title}`;
     nextWork.onclick = () => toggleWorkDetails(nextWork);
     nextWork.setAttribute("aria-haspopup", "dialog");
     nextWork.setAttribute("aria-controls", rail.id);
@@ -294,14 +294,14 @@ function paint() {
   nextWork.hidden = false;
   renderWorkContext(state, { current: displayedCurrent, candidate, busy, pending: Boolean(nextEntry && busy), chosen: chosenEntry, workflow });
   for (const [position, label, entry] of [["current", t(busy ? "正在进行" : chosenEntry ? "当前选取" : "当前工作"), displayedCurrent],
-    ["next", t(nextEntry && busy ? "已选工作 · 下一轮生效" : "下一个候选"), candidate]]) {
+    ["next", t(nextEntry && busy ? "已选工作  下一轮生效" : "下一个候选"), candidate]]) {
     const slot = node("section", null, "work-focus-slot"); slot.append(node("small", label));
     slot.dataset.position = position;
     slot.dataset.hasWork = String(Boolean(entry));
     slot.dataset.pending = String(position === "next" && Boolean(nextEntry && busy));
     if (entry) {
       const link = button("", () => void openWorkbenchItem(currentProject, entry), "work-focus-entry");
-      link.title = `${entry.id} · ${entry.title}`;
+      link.title = `${entry.id}  ${entry.title}`;
       link.setAttribute("aria-label", link.title);
       link.append(node("span", entry.id, "work-focus-id"), node("span", entry.title, "work-focus-title"));
       slot.append(link);
@@ -312,7 +312,7 @@ function paint() {
   if (workflow) actions.append(button(t("选择工作"), () => openWorkPicker(state), "ghost work-focus-choose"));
   actions.append(button(t("全部工作") + " ↗", () => void openProjectSpace(currentProject, "project"), "ghost work-focus-all"));
   rail.append(actions);
-  if (state.error) rail.append(button(t("读取失败 · 重试"), () => void refreshConversationWork(), "ghost"));
+  if (state.error) rail.append(button(t("读取失败  重试"), () => void refreshConversationWork(), "ghost"));
 }
 
 function openWorkPicker(state) {
@@ -326,10 +326,10 @@ function openWorkPicker(state) {
   const list = node("div", null, "work-picker-list");
   const choose = id => { if (project === currentProject && process === activeProcessId) selectWork(project, process, id); closeSurface(dialog); rendered = ""; paint(); };
   const draw = () => {
-    list.replaceChildren(button(t("自动选择 · 由任务队列决定"), () => choose(null), "ghost"));
+    list.replaceChildren(button(t("自动选择  由任务队列决定"), () => choose(null), "ghost"));
     for (const entry of workChoices(entries(state), state.snapshot?.lines || [], process)) {
       if (!`${entry.id} ${entry.title}`.toLowerCase().includes(search.value.toLowerCase())) continue;
-      const row = button(`${entry.id} · ${entry.title}`, () => choose(entry.id), "ghost");
+      const row = button(`${entry.id}  ${entry.title}`, () => choose(entry.id), "ghost");
       row.disabled = !entry.selectable;
       row.append(node("small", entry.owner ? t("由其他对话负责") : entry.blocked ? t("已阻塞") : localizedDocStatus(entry.status)));
       row.setAttribute("aria-pressed", String(selectedWork(project, process) === entry.id)); list.append(row);
@@ -371,7 +371,7 @@ export function openHandoffForm({ target = null } = {}) {
   const none = node("option", t("不指定需求")); none.value = ""; requirement.append(none);
   // 关联需求是本项目的条目;交给别的项目时没有对应清单,不提供。
   if (!target) for (const entry of entries(facts(project)).filter(e => !e.closed)) {
-    const option = node("option", `${entry.id} · ${entry.title}`); option.value = entry.id; requirement.append(option);
+    const option = node("option", `${entry.id}  ${entry.title}`); option.value = entry.id; requirement.append(option);
   }
   const error = node("p", "", "project-form-error"); error.setAttribute("role", "status");
   const submit = button(target ? t("发送") : t("发送给对话"), () => {}, "primary"); submit.type = "submit";

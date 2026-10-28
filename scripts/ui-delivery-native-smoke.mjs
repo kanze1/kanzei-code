@@ -24,7 +24,7 @@ const model=task.server(http.createServer(async(req,res)=>{
   const data=JSON.parse(body);requests.push(data);
   const completed=data.messages?.some(m=>m.role==="tool");
   const delta=completed?{content:"已交付 `android-r1-current-debug.apk`。请打开 [安装包](build/android-r1-current-debug.apk) 验收。"}
-    :{tool_calls:[{index:0,id:"native-delivery",type:"function",function:{name:"deliver",arguments:JSON.stringify({path:"build/android-r1-current-debug.apk",caption:"Android 验收文件 · 尚未真机验收"})}}]};
+    :{tool_calls:[{index:0,id:"native-delivery",type:"function",function:{name:"deliver",arguments:JSON.stringify({path:"build/android-r1-current-debug.apk",caption:"Android 验收文件  尚未真机验收"})}}]};
   res.writeHead(200,{"Content-Type":"text/event-stream"});
   res.write(`data: ${JSON.stringify({id:"local-test",object:"chat.completion.chunk",choices:[{index:0,delta,finish_reason:null}]})}\n\n`);
   res.write(`data: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:completed?"stop":"tool_calls"}],usage:{prompt_tokens:100,completion_tokens:20}})}\n\n`);

@@ -97,7 +97,7 @@ try {
   await page.keyboard.press("Control+Shift+C"); await settle();
   const stopped = await last("stop_run");
   check(stopped.projectDir === identity.a && stopped.processId === identity.process, "Stop shortcut addresses the visible receiver");
-  await module("tools"); await page.getByRole("button", {name:/read · docs\/plan.md/}).click();
+  await module("tools"); await page.getByRole("button", {name:/read\s+docs\/plan.md/}).click();
   check((await page.locator(".sw-evidence").textContent()).includes("工具证据"), "Tool details contain the actual result");
   await page.screenshot({path:path.join(output,"tool-evidence.png")});
   await module("main");
@@ -334,7 +334,7 @@ try {
   await page.getByRole("button",{name:"返回工作",exact:true}).click();
   // Live child details reuse the existing renderer, without a hidden main-agent reroute.
   await page.evaluate(session=>window.__kzPreview.emit("kz:tool-start",{sessionId:session,id:"sw-child",name:"task",summary:"核对交付",input:{description:"核对交付",prompt:"核对这批代码的证据"}}),identity.session);
-  await module("tasks"); await page.getByRole("button",{name:/核对交付 ·/}).click();
+  await module("tasks"); await page.getByRole("button",{name:/核对交付\s+/}).click();
   check((await page.locator("#sw-surface").textContent()).includes("核对这批代码的证据"), "Child task opens its actual instruction and result view");
   check(await page.locator("#prompt").isDisabled(), "Unsupported child resume cannot silently send to main");
   await module("main"); await page.locator("#prompt").fill("刷新后恢复草稿");

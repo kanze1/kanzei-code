@@ -84,7 +84,7 @@ const code = (value) => ({ k: "code", v: String(value) });
 
 const add = (value) => ({ k: "add", v: `+${formatCount(value)}` });
 const del = (value) => ({ k: "del", v: `−${formatCount(value)}` });
-const SEPARATOR = " · ";
+const SEPARATOR = "  ";
 
 function normalizeGroup(group) {
   if (group === null || group === undefined || group === "") return [];
@@ -313,7 +313,7 @@ function summarizeFiles(s) {
     && !/^files by line count/.test(line)
     && !/^\S.*\/ {2}\(\d+ files, /.test(line)).length;
   return {
-    groups: [top ? filesCount(items) : fillTemplate(t("文件地图 · {n} 项"), { n: formatCount(items) })],
+    groups: [top ? filesCount(items) : fillTemplate(t("文件地图  {n} 项"), { n: formatCount(items) })],
     key: "files",
   };
 }
@@ -984,7 +984,7 @@ export function toolResultSummary(name, ctx = {}) {
   if (storage?.kind === "externalized" || display?.kind === "artifact") {
     const size = Number(display?.bytes ?? storage?.bytes);
     return finish({
-      groups: [fillTemplate(t("输出较大 · {size} · 已外置"), { size: Number.isFinite(size) ? formatByteSize(size) : "?" })],
+      groups: [fillTemplate(t("输出较大  {size}  已外置"), { size: Number.isFinite(size) ? formatByteSize(size) : "?" })],
       key: "artifact",
     }, "summary", { rest: fullRest });
   }
@@ -1094,7 +1094,7 @@ export const TOOL_ARG_SUMMARIZERS = {
   read: pathArg, write: pathArg, edit: pathArg, insert: pathArg, multiedit: pathArg, apply_patch: pathArg,
   files(input, roots) {
     const path = pathArg(input, roots);
-    if (input.top) return { text: `top ${input.top}${path ? ` · ${path.text}` : ""}`, code: true };
+    if (input.top) return { text: `top ${input.top}${path ? `  ${path.text}` : ""}`, code: true };
     return path;
   },
   conventions: (input, roots) => pathArg(input, roots) ?? { text: pickString(input, "action") },
@@ -1105,19 +1105,19 @@ export const TOOL_ARG_SUMMARIZERS = {
     if (input.crate) return { text: `crate ${input.crate}${input.module ? `::${input.module}` : ""}`, code: true };
     const path = pickString(input, "path");
     const shown = path ? displayPath(path, roots) : "";
-    const text = [shown, input.filter ? String(input.filter) : ""].filter(Boolean).join(" · ");
+    const text = [shown, input.filter ? String(input.filter) : ""].filter(Boolean).join("  ");
     return text ? { text, code: true } : null;
   },
   grep(input, roots) {
     const pattern = pickString(input, "pattern");
     if (!pattern) return null;
     const scope = input.glob ? String(input.glob) : input.path ? displayPath(String(input.path), roots) : "";
-    return { text: `${smartPattern(pattern)}${scope ? ` · ${scope}` : ""}`, title: `${pattern}${scope ? ` · ${scope}` : ""}`, code: true };
+    return { text: `${smartPattern(pattern)}${scope ? `  ${scope}` : ""}`, title: `${pattern}${scope ? `  ${scope}` : ""}`, code: true };
   },
   glob(input, roots) {
     const pattern = pickString(input, "pattern");
     const path = input.path ? displayPath(String(input.path), roots) : "";
-    const text = [pattern, path].filter(Boolean).join(" · ");
+    const text = [pattern, path].filter(Boolean).join("  ");
     return text ? { text, code: true } : null;
   },
   bash(input, roots) {
@@ -1132,13 +1132,13 @@ export const TOOL_ARG_SUMMARIZERS = {
   },
   websearch(input) {
     const queries = Array.isArray(input.queries) ? input.queries.map((item) => pickString(item, "q")).filter(Boolean) : [];
-    const query = pickString(input, "query", "q") || queries.join(" · ");
+    const query = pickString(input, "query", "q") || queries.join("  ");
     return query ? { text: `“${clipText(query, 60)}”`, title: query } : null;
   },
   web_search(input) {
     const action = input.action && typeof input.action === "object" ? input.action : input;
     const queries = Array.isArray(action.queries) ? action.queries.map((item) => pickString(item, "q")).filter(Boolean) : [];
-    const query = pickString(action, "query", "q") || queries.join(" · ");
+    const query = pickString(action, "query", "q") || queries.join("  ");
     return query ? { text: `“${clipText(query, 60)}”`, title: query } : { text: t("搜索结果"), title: t("搜索结果") };
   },
   task(input) {
@@ -1158,7 +1158,7 @@ export const TOOL_ARG_SUMMARIZERS = {
     const label = TRACKER_ACTION_LABELS[action]?.() ?? action;
     if (action === "add") {
       const title = pickString(input, "title");
-      return { text: title ? `${label} · ${clipText(title, 32)}` : label, title: title || label };
+      return { text: title ? `${label}  ${clipText(title, 32)}` : label, title: title || label };
     }
     if (action === "list") return { text: label };
     return { text: [label, pickString(input, "id")].filter(Boolean).join(" ") };
@@ -1180,7 +1180,7 @@ export const TOOL_ARG_SUMMARIZERS = {
     const action = pickString(input, "action");
     if (action === "commit" || action === "finalize") {
       const message = pickString(input, "message").split(/\r?\n/)[0] ?? "";
-      return { text: message ? `${t("提交")} · ${clipText(message, 40)}` : t("提交"), title: pickString(input, "message") };
+      return { text: message ? `${t("提交")}  ${clipText(message, 40)}` : t("提交"), title: pickString(input, "message") };
     }
     if (action === "stage") {
       const files = Array.isArray(input.files) ? input.files.length : 0;

@@ -47,16 +47,16 @@ function assembly(view) {
   }
   for(const group of contextGroups(manifest)) {
     const detail=node("details","context-assembly-group"), summary=node("summary");
-    summary.append(node("span","",t(group.label)),node("span","dim",`${number(group.chars)} ${t("字符")} · ${group.blocks.length}`));detail.append(summary);
+    summary.append(node("span","",t(group.label)),node("span","dim",`${number(group.chars)} ${t("字符")}  ${group.blocks.length}`));detail.append(summary);
     for(const block of group.blocks) detail.append(blockDetails(view,block));box.append(detail);
   }
   const order=node("details","context-assembly-group");order.append(node("summary","",t("实际装配顺序")));
-  const list=node("ol","context-order");for(const block of manifest.blocks)list.append(node("li","",`${block.position+1} · ${block.role} · ${block.kind==="system"?contextBillLabel(block.label):block.label}`));order.append(list);box.append(order);
+  const list=node("ol","context-order");for(const block of manifest.blocks)list.append(node("li","",`${block.position+1}  ${block.role}  ${block.kind==="system"?contextBillLabel(block.label):block.label}`));order.append(list);box.append(order);
   if(manifest.source_reads?.length) {
     const reads=node("details","context-assembly-group");reads.append(node("summary","",t("来源装载结果")));
     for(const source of manifest.source_reads) {
       const status={loaded:"已装入",empty:"内容为空",failed:"读取失败"}[source.status]||source.status;
-      reads.append(row(contextBillLabel(source.key),`${t(status)} · ${source.refresh_each_step?t("每步刷新"):t("运行快照")}`));
+      reads.append(row(contextBillLabel(source.key),`${t(status)}  ${source.refresh_each_step?t("每步刷新"):t("运行快照")}`));
       if(source.error)reads.append(node("p","context-note",source.error));
     }
     box.append(reads);
@@ -78,8 +78,8 @@ function sources(view) {
   if(!rows.length)box.append(node("p","dim",t("该请求没有已记录的资料结果。")));
   for(const source of rows) {
     const detail=node("details","context-source"), summary=node("summary");summary.append(node("span","context-source-title",source.label));
-    const status=source.included?(source.tool==="attachment"?t("附件已携带"):source.failed?t("错误结果已携带"):t("结果片段已携带")):t("已获取原文 · 纳入状态未记录");
-    summary.append(node("span","dim context-source-meta",`${source.tool} · ${status}`));detail.append(summary);
+    const status=source.included?(source.tool==="attachment"?t("附件已携带"):source.failed?t("错误结果已携带"):t("结果片段已携带")):t("已获取原文  纳入状态未记录");
+    summary.append(node("span","dim context-source-meta",`${source.tool}  ${status}`));detail.append(summary);
     for(const acquisition of source.acquisitions || []) {
       detail.append(row(t("获取时间"),acquisition.fetched_at_utc),row(t("原文指纹"),acquisition.artifact?.sha256||""),row(t("原文快照"),acquisition.artifact?.path||""));
     }
@@ -99,7 +99,7 @@ function sources(view) {
       if(result.status==="rejected"){mentioned.append(node("p","dim",`${t("消息链接未能完整读取")}: ${result.reason}`));continue;}
       for(const link of resourceLinks(result.value)) {
         if(!/^https?:\/\//i.test(link.url)||seen.has(link.url))continue;seen.add(link.url);
-        const item=node("div","context-source");item.append(button(link.url,()=>structuredNav.openUrl(link.url)),node("p","dim context-note",t("消息中的链接 · 尚无对应正文读取记录")));mentioned.append(item);
+        const item=node("div","context-source");item.append(button(link.url,()=>structuredNav.openUrl(link.url)),node("p","dim context-note",t("消息中的链接  尚无对应正文读取记录")));mentioned.append(item);
       }
     }
   });
@@ -111,9 +111,9 @@ function paint(view) {
   const data=view.data, host=view.host;host.replaceChildren();
   if(!data.selected){host.append(node("p","dim context-note",t("这段对话尚未记录请求装配清单。后续请求会在这里保留来源、顺序和内容版本。")));return;}
   const selector=node("select","context-request-select");selector.setAttribute("aria-label",t("选择请求记录"));
-  for(const request of data.requests){const option=node("option","",`${request.sequence===data.requests[0].sequence?t("最近请求"):t("历史请求")} · #${request.sequence} · ${t("第")}${request.step}${t("步")} · ${request.model}`);option.value=String(request.sequence);option.selected=request.sequence===data.selected.sequence;selector.append(option);}
+  for(const request of data.requests){const option=node("option","",`${request.sequence===data.requests[0].sequence?t("最近请求"):t("历史请求")}  #${request.sequence}  ${t("第")}${request.step}${t("步")}  ${request.model}`);option.value=String(request.sequence);option.selected=request.sequence===data.selected.sequence;selector.append(option);}
   selector.addEventListener("change",()=>{view.sequence=Number(selector.value);void load(view);});host.append(selector);
-  host.append(node("p","dim context-note",`${t("已发起请求")} · ${data.selected.turnId} · ${new Date(data.selected.at).toLocaleString()}`));
+  host.append(node("p","dim context-note",`${t("已发起请求")}  ${data.selected.turnId}  ${new Date(data.selected.at).toLocaleString()}`));
   const tabs=node("div","context-tabs"), body=node("div","context-view-body");tabs.setAttribute("role","tablist");tabs.setAttribute("aria-label",t("上下文查看方式"));
   for(const [id,label,render] of [["assembly","装配详情",assembly],["sources","来源资料",sources]]) {
     const tab=button(t(label),()=>{view.tab=id;paint(view);host.querySelector(`[data-context-tab="${id}"]`).focus();});tab.dataset.contextTab=id;tab.setAttribute("role","tab");tab.setAttribute("aria-selected",String(view.tab===id));tab.id=`context-tab-${id}`;tab.setAttribute("aria-controls","context-tab-body");tabs.append(tab);
@@ -142,5 +142,5 @@ export function notifyContextRequest(sessionId) {
   // Keep the inspected request fixed while a run continues. A new request is
   // an explicit navigation action, so text selection and open evidence survive.
   if(view.host.querySelector(".context-new-request"))return;
-  const latest=button(t("有新请求 · 查看最新装配"),()=>{view.sequence=null;void load(view);});latest.classList.add("context-new-request");view.host.prepend(latest);
+  const latest=button(t("有新请求  查看最新装配"),()=>{view.sequence=null;void load(view);});latest.classList.add("context-new-request");view.host.prepend(latest);
 }

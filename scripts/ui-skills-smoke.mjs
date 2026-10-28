@@ -18,7 +18,7 @@ page.on("pageerror", error => errors.push(error.message));
 try {
   await page.goto(`${server.origin}/?scene=chat&theme=light`);
   await page.waitForFunction(() => window.__kzPreview?.ready); await settle();
-  check(await page.locator("#rail-sidebar-toggle").evaluate(el => el.nextElementSibling.id === "skills-nav"), "Skills sits directly below the sidebar toggle");
+  check(await page.locator("#workspace-sidebar-footer #skills-nav").isVisible(), "Skills belongs to the persistent global navigation");
   check(!await page.locator("#skills-picker, #skills-menu").count(), "The conversation has no Skills picker or management menu");
   await page.locator("#skills-nav").click(); await settle();
   await page.waitForFunction(() => document.querySelectorAll(".skill-library-row").length === 9);

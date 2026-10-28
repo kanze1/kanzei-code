@@ -130,10 +130,10 @@ export function renderProjectActivity() {
     const dot = button.querySelector(".workbench-project-approval");
     if (dot) dot.hidden = !approvals;
     if (approvals) button.dataset.approval = "true"; else delete button.dataset.approval;
-    const label = t(activityLabels[state]) + (count ? ` · ${count} ${t("待我处理")}` : "")
-      + (approvals ? ` · ${approvals} ${t("条对话等你批准")}` : "") + (loading ? ` · ${t("正在打开")}` : "");
+    const label = t(activityLabels[state]) + (count ? `  ${count} ${t("待我处理")}` : "")
+      + (approvals ? `  ${approvals} ${t("条对话等你批准")}` : "") + (loading ? `  ${t("正在打开")}` : "");
     button.title = `${path}\n${label}`;
-    button.setAttribute("aria-label", `${projectDisplayName(path)} · ${label}`);
+    button.setAttribute("aria-label", `${projectDisplayName(path)}  ${label}`);
   }
   syncSessionActivity();
 }
@@ -198,7 +198,7 @@ export function renderCurrentItems(project) {
     const button = action("", () => void openWorkbenchItem(project.path, item), "workbench-item");
     button.dataset.key = JSON.stringify([project.path, item.kind, item.id]);
     button.append(node("span", "workbench-item-id", item.id), node("span", "workbench-item-title", item.title));
-    const state = node("span", `workbench-item-state${item.running ? " running" : ""}`, `${localizedDocStatus(item.status || "")} · ${item.running ? t("推进中") : t("待继续")}`);
+    const state = node("span", `workbench-item-state${item.running ? " running" : ""}`, `${localizedDocStatus(item.status || "")}  ${item.running ? t("推进中") : t("待继续")}`);
     button.append(state);
     if (item.priority) button.append(node("span", "workbench-item-priority", item.priority));
     if (item.batches?.total > 0) {

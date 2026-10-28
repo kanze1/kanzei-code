@@ -625,7 +625,7 @@ export function permissionResourceText(action, resource, max = 72) {
   } else {
     body = parsed.kind === "path" ? parsed.path : parsed.raw.replace(/\s+/g, " ").trim();
   }
-  return [parsed.action, clipText(body, max)].filter(Boolean).join(" · ");
+  return [parsed.action, clipText(body, max)].filter(Boolean).join("  ");
 }
 
 /// 相对路径按所在文档目录解析成项目相对路径(`../../docs/x.md` + `.kanzei/project/architecture/`

@@ -55,6 +55,16 @@ async function replayRunningTurn(ctx) {
 }
 
 const SCENES = {
+  async skills(ctx) { await openView(ctx, "skills"); },
+  async metrics(ctx) { await openView(ctx, "metrics"); },
+  async management(ctx) {
+    await openView(ctx, "chat");
+    document.querySelector('[data-work-surface="project"]').click();
+    await waitFor(() => document.querySelector(".management-page"));
+    const tab = ctx.params.get("tab");
+    if (tab) document.querySelector(`[data-management-tab="${tab}"]`)?.click();
+    await ctx.settle();
+  },
   // Observe production startup without changing its selected view or runtime.
   async startup(ctx) { await ctx.settle(); },
   async chat(ctx) {

@@ -57,14 +57,14 @@ defer(() => {
         const changes = document.createElement("details");
         changes.className = "memory-chat-changes";
         const summary = document.createElement("summary");
-        summary.textContent = `${t("修改记录")} · ${turn.changes.length}`;
+        summary.textContent = `${t("修改记录")}  ${turn.changes.length}`;
         changes.appendChild(summary);
         for (const change of turn.changes) {
           const item = document.createElement("p");
           item.className = change.ok ? "memory-change-ok" : "memory-change-failed";
           // 后端只给 preview(首行 + 行数):与主对话同一个摘要器,记忆工具的回执说成人话。
           const said = toolResultSummary(change.tool, { ok: change.ok, preview: change.summary }).text;
-          item.textContent = `${change.ok ? "✓" : "!"} ${change.tool} · ${said}`;
+          item.textContent = `${change.ok ? "✓" : "!"} ${change.tool}  ${said}`;
           changes.appendChild(item);
         }
         row.appendChild(changes);
@@ -79,7 +79,7 @@ defer(() => {
     context.replaceChildren();
     if (chat.target) {
       const label = document.createElement("span");
-      label.textContent = `${t(chat.target.scope === "global" ? "全局记忆" : "项目记忆")} ${chat.target.id} · ${chat.target.title || ""}`;
+      label.textContent = `${t(chat.target.scope === "global" ? "全局记忆" : "项目记忆")} ${chat.target.id}  ${chat.target.title || ""}`;
       const clear = document.createElement("button");
       clear.type = "button"; clear.className = "ghost mini"; clear.textContent = t("取消选择");
       clear.addEventListener("click", () => { chat.target = null; render(); });

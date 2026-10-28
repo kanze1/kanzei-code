@@ -177,9 +177,9 @@ function syncTreeSelect(force = false) {
     select.append(node);
   };
   option("", t("主项目"));
-  for (const line of lines) option(line.path, `${t("独立任务")} · ${line.label}`);
+  for (const line of lines) option(line.path, `${t("独立任务")}  ${line.label}`);
   // 选着的那条线已经关掉(不在清单里了):选项保留着,别让下拉悄悄跳回主项目。
-  if (current && !lines.some((line) => samePath(line.path, current))) option(current, `${t("独立任务")} · ${baseName(current)}`);
+  if (current && !lines.some((line) => samePath(line.path, current))) option(current, `${t("独立任务")}  ${baseName(current)}`);
   select.value = current ?? "";
 }
 /// 换树。有未保存修改先问(保存 / 不保存 / 取消);取消则下拉还原。新树里也有当前打开的那个文件时接着打开它。
@@ -331,13 +331,13 @@ export function renderFilesTree() {
   // 已有用途说明的量/全量(D-213 用户点名):分母只数可标注的(代码/md),不含二进制。工作树里没有用途说明,不显示。
   const annotatedPart =
     snapshot.annotatable > 0 && !filesTreeRoot()
-      ? ` · ${t("用途说明")} ${snapshot.annotated}/${snapshot.annotatable}`
+      ? `  ${t("用途说明")} ${snapshot.annotated}/${snapshot.annotatable}`
       : "";
   const match = filesMatcher(filesFilter);
   const shown = match ? snapshot.files.filter((file) => match(file.path)) : snapshot.files;
   $("files-summary").textContent = match
     ? `${shown.length} ${t("个匹配")} / ${total.files} ${t("个文件")}`
-    : `${total.files} ${t("个文件")} · ${humanSize(total.size)} · ${total.lines} ${t("行")}${annotatedPart}`;
+    : `${total.files} ${t("个文件")}  ${humanSize(total.size)}  ${total.lines} ${t("行")}${annotatedPart}`;
   if (!shown.length) {
     tree.append(match
       ? filesStateBlock("empty", t("没有匹配的文件"), filesFilter.trim())
@@ -397,7 +397,7 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
     name.textContent = `${dir.name}/`;
     const measure = document.createElement("span");
     measure.className = "files-measure";
-    measure.textContent = `${stat.files} · ${humanSize(stat.size)} · ${stat.lines} ${t("行")}`;
+    measure.textContent = `${stat.files}  ${humanSize(stat.size)}  ${stat.lines} ${t("行")}`;
     row.append(arrow, name, measure);
     const dirNote = snapshot.dirNotes?.[dir.path];
     if (dirNote) {
@@ -447,9 +447,9 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
     measure.textContent = file.oversized
       ? `${humanSize(file.size)} ${t("过大未计")}`
       : file.lines != null
-        ? `${humanSize(file.size)} · ${file.lines} ${t("行")}`
+        ? `${humanSize(file.size)}  ${file.lines} ${t("行")}`
         : file.chars != null
-          ? `${humanSize(file.size)} · ${file.chars} ${t("字")}`
+          ? `${humanSize(file.size)}  ${file.chars} ${t("字")}`
           : humanSize(file.size);
     row.append(name, measure);
     if (file.note) {
@@ -459,7 +459,7 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
       note.title = file.note;
       row.appendChild(note);
     }
-    if (dirty) row.setAttribute("aria-label", `${row.textContent} · ${t("未保存")}`);
+    if (dirty) row.setAttribute("aria-label", `${row.textContent}  ${t("未保存")}`);
     const openFile = () => openFilePreview(file);
     row.addEventListener("click", openFile);
     row.addEventListener("keydown", (e) => {
@@ -534,9 +534,9 @@ async function onAnnotateClick() {
     const failures = result.failed + result.directoryFailed;
     if (failures && result.firstError) {
       // 失败原因必须可见:全 failed 只报数字没有原因,排查无从下手(D-213)。
-      toastError(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts} · ${failures} ${t("失败")} · ${result.firstError}`);
+      toastError(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}  ${failures} ${t("失败")}  ${result.firstError}`);
     } else {
-      toast(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}${result.failed ? ` · ${result.failed} ${t("失败")}` : ""}`);
+      toast(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}${result.failed ? `  ${result.failed} ${t("失败")}` : ""}`);
     }
     if (root === currentProject && !filesTreeRoot()) await refreshFiles();
   } catch (err) {

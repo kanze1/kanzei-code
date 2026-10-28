@@ -270,7 +270,7 @@ export function syncRowActivity(wrap) {
     const when = relativeTime(row.updatedAt);
     if (when && wrap._time.textContent !== when) wrap._time.textContent = when;
   }
-  const description = `${t("对话")}${activity.state !== "idle" ? ` · ${localizedStage(activity.label)}` : ""}${approval ? ` · ${t("等你批准")}` : ""}`;
+  const description = `${t("对话")}${activity.state !== "idle" ? `  ${localizedStage(activity.label)}` : ""}${approval ? `  ${t("等你批准")}` : ""}`;
   if (button.getAttribute("aria-description") !== description) button.setAttribute("aria-description", description);
 }
 
@@ -348,7 +348,7 @@ export function renderSidebarSessions() {
     group._row.dataset.pinned = String(projectPinned(path));
     group._link.setAttribute("aria-expanded", String(open));
     list.hidden = !open;
-    list.setAttribute("aria-label", `${name} · ${t("对话")}`);
+    list.setAttribute("aria-label", `${name}  ${t("对话")}`);
     if (!open) {
       if (list.firstChild) list.replaceChildren();
       signatures.delete(path);
@@ -632,7 +632,7 @@ function buildSegmentRow({ owner, item }) {
   button.append(name, tag);
   const created = Number(item.created_at);
   const when = created > 0 ? relativeTime(created) : String(item.updated_at ?? "");
-  button.title = [segmentTitle(item.title), `${t("历史")} · ${owner.name}`, when].filter(Boolean).join("\n");
+  button.title = [segmentTitle(item.title), `${t("历史")}  ${owner.name}`, when].filter(Boolean).join("\n");
   button.setAttribute("aria-haspopup", "menu");
   wrap.append(button);
   return wrap;
@@ -678,14 +678,14 @@ function paintHistory() {
     }
     for (const { owner, resource } of group.histories) {
       if (!resource.hasMore && !resource.error) continue;
-      const more = el("button", "ghost session-history-more", `${owner.label || owner.id} · ${t(resource.error ? "重试" : "加载更早记录")}`);
+      const more = el("button", "ghost session-history-more", `${owner.label || owner.id}  ${t(resource.error ? "重试" : "加载更早记录")}`);
       more.type = "button"; more.disabled = Boolean(resource.request); more.dataset.historyOwner = owner.id;
       more.addEventListener("click", () => void loadEarlierConversations(owner.id, group.path));
       if (resource.error) children.push(noteRow(`${t("对话列表读取失败")}: ${resource.error}`));
       children.push(more);
     }
     if (project && !query.trim()) children.push(...closedGroup(group.path, { history: true }));
-    if (remote.get(group.path)?.error || closedCache.get(group.path)?.error) children.push(noteRow(`${group.name} · ${t("对话列表读取失败")}`));
+    if (remote.get(group.path)?.error || closedCache.get(group.path)?.error) children.push(noteRow(`${group.name}  ${t("对话列表读取失败")}`));
   }
   if (!children.length) {
     const loading = projects.some(path => remote.get(path)?.loading || closedCache.get(path)?.loading);
@@ -734,7 +734,7 @@ export function sessionPaletteEntries(project = currentProject) {
     const activity = rowActivity(row);
     return {
       label: row.name,
-      detail: `${kindWord(row.kind)}${activity.state !== "idle" ? ` · ${localizedStage(activity.label)}` : ""}`,
+      detail: `${kindWord(row.kind)}${activity.state !== "idle" ? `  ${localizedStage(activity.label)}` : ""}`,
       run: () => { closeSessionHistory(); void openSession(project, row.id); },
     };
   });

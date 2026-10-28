@@ -69,7 +69,7 @@ function idleChip(label) {
 export function modelChipText(view, { pending: isPending = false, error = null, optimistic = null, noProject = false } = {}) {
   if (noProject) return idleChip(t("模型"));
   if (optimistic && typeof optimistic.model === "string" && optimistic.model) {
-    const text = `${t("下一轮将使用")} ${optimistic.model} · ${t("来源")} ${sourceLabel("line")}`;
+    const text = `${t("下一轮将使用")} ${optimistic.model}  ${t("来源")} ${sourceLabel("line")}`;
     return chip({ label: optimistic.model, source: "line", pendingState: true, title: text });
   }
   if (!view) {
@@ -84,11 +84,11 @@ export function modelChipText(view, { pending: isPending = false, error = null, 
   if (!model.resolved) {
     return chip({ label: t("模型解析失败"), source: model.source, error: true, title: model.error ?? "" });
   }
-  const follows = model.followsPrimary ? ` · ${t("跟随 primary")}` : "";
-  const title = `${t("下一轮将使用")} ${model.resolved} · ${t("来源")} ${sourceLabel(model.source)}${follows}\n${sourceHint(model.source)}`;
+  const follows = model.followsPrimary ? `  ${t("跟随 primary")}` : "";
+  const title = `${t("下一轮将使用")} ${model.resolved}  ${t("来源")} ${sourceLabel(model.source)}${follows}\n${sourceHint(model.source)}`;
   const fastMode = view.codexFastMode;
   const fast = fastMode?.active
-    ? { title: `Codex Fast mode ${t("已开启")} · ${sourceLabel(fastMode.source)}` }
+    ? { title: `Codex Fast mode ${t("已开启")}  ${sourceLabel(fastMode.source)}` }
     : null;
   return chip({
     label: model.resolved,
@@ -112,7 +112,7 @@ export function reasoningChipText(view, { pending: isPending = false, optimistic
   }
   const { value, source } = view.reasoning;
   const label = `${prefix} ${reasoningLabel(value)}`;
-  const title = `${t("下一轮将使用")} ${label} · ${t("来源")} ${sourceLabel(source)}\n${sourceHint(source)}\n${t("思考强度(仅推理模型有效;越高越慢越贵)")}`;
+  const title = `${t("下一轮将使用")} ${label}  ${t("来源")} ${sourceLabel(source)}\n${sourceHint(source)}\n${t("思考强度(仅推理模型有效;越高越慢越贵)")}`;
   return chip({ label, source, title, aria: `${label},${t("来源")} ${sourceLabel(source)}` });
 }
 
@@ -155,8 +155,8 @@ export function renderModelPicker() {
 function fastModeHeading(view) {
   const fast = view?.codexFastMode;
   if (!fast) return "⚡ Codex Fast mode";
-  if (!fast.applies) return `⚡ Codex Fast mode · ${t("不适用(当前模型不是 Codex)")}`;
-  return `⚡ Codex Fast mode · ${fast.enabled ? t("开") : t("关")} · ${sourceLabel(fast.source)}`;
+  if (!fast.applies) return `⚡ Codex Fast mode  ${t("不适用(当前模型不是 Codex)")}`;
+  return `⚡ Codex Fast mode  ${fast.enabled ? t("开") : t("关")}  ${sourceLabel(fast.source)}`;
 }
 
 // 模型菜单的项(纯函数,冒烟直接调)。选择项带 value(""=跟随默认),动作项带 action。
@@ -168,8 +168,8 @@ export function buildModelPickerItems(view, catalog = [], manual = [], showAll =
   const line = onLine ? String(lineModel || model?.ref || "") : "";
   const items = [];
   const defaultDesc = fallback?.resolved
-    ? `${fallback.resolved} · ${sourceLabel(fallback.source)}${fallback.followsPrimary ? ` · ${t("跟随 primary")}` : ""}`
-    : `${t("模型解析失败")}${fallback?.error ? ` · ${fallback.error}` : ""}`;
+    ? `${fallback.resolved}  ${sourceLabel(fallback.source)}${fallback.followsPrimary ? `  ${t("跟随 primary")}` : ""}`
+    : `${t("模型解析失败")}${fallback?.error ? `  ${fallback.error}` : ""}`;
   items.push({ label: t("跟随默认"), desc: defaultDesc, checked: !onLine, value: "" });
   items.push("separator");
   items.push({ heading: t("指定模型(仅当前对话)") });
@@ -210,7 +210,7 @@ export function buildReasoningPickerItems(view) {
   const items = [];
   items.push({
     label: t("跟随默认"),
-    desc: fallback ? `${reasoningLabel(fallback.value)} · ${sourceLabel(fallback.source)}` : "",
+    desc: fallback ? `${reasoningLabel(fallback.value)}  ${sourceLabel(fallback.source)}` : "",
     checked: !onLine,
     value: "",
   });

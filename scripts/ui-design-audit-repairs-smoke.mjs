@@ -206,7 +206,7 @@ try {
     document.dispatchEvent(new CustomEvent("kz:management-snapshot", { detail: { project: shell.currentProject, snapshot: { ...docs, archived: { req: 1, defect: 0 } } } }));
     window.__kzPreview.setCommand("docs_archive_entries", () => new Promise(resolve => { window.auditArchive = resolve; }));
   });
-  await chat.getByRole("button", { name: "已归档 · 1", exact: true }).click(); await chat.waitForFunction(() => window.auditArchive);
+  await chat.getByRole("button", { name: "已归档  1", exact: true }).click(); await chat.waitForFunction(() => window.auditArchive);
   await chat.locator('[data-management-tab="defect"]').click();
   await chat.evaluate(() => window.auditArchive([{ id: "R-AUDIT", title: "late archive", closed: true }])); await settle(chat);
   check("UI-04: requirements archive never appears in defects", await chat.locator(".management-archive").count() === 0);

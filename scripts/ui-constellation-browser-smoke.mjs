@@ -466,7 +466,7 @@ export async function runConstellationBrowserSmoke({ channel = "msedge", outDir 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { failures, notes, mutation } = await runConstellationBrowserSmoke();
-  for (const note of notes) console.log(`  · ${note}`);
+  for (const note of notes) console.log(`  ${note}`);
   if (mutation) {
     if (failures.length) {
       console.error(`[KZ_SMOKE_MUTATE=${mutation}] 变异按预期被抓住:\n${failures.join("\n")}`);

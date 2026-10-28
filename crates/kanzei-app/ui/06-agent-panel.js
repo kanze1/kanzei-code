@@ -272,7 +272,7 @@ function syncBadge(badge, active) {
     if (badge?.tone === "run") bits.push(`${badge.count} ${t("运行中")}`);
     // 待处理任务包括达到步数上限、未启动和真实失败,不能统一称作失败。
     else if (badge?.tone === "err") bits.push(badge.count === 1 ? t("1 个任务待查看") : `${badge.count} ${t("个任务待查看")}`);
-    const label = bits.join(" · ");
+    const label = bits.join("  ");
     if (toggle.getAttribute("aria-label") !== label) toggle.setAttribute("aria-label", label);
   }
   const node = $("tasks-badge");
@@ -403,7 +403,7 @@ function batchTitle(runs) {
   if (runs.length === 1) return runs[0].description || t("子代理");
   const preamble = preambleOf(runs[0]);
   if (preamble) return firstSentence(preamble) || t("并行委派");
-  return runs[0].phase ? `${orchPhaseLabel(runs[0].phase)} · ${subagentCountLabel(runs.length)}` : t("并行委派");
+  return runs[0].phase ? `${orchPhaseLabel(runs[0].phase)}  ${subagentCountLabel(runs.length)}` : t("并行委派");
 }
 function batchElapsed(runs, now) {
   if (runs.some((run) => run.replay)) {
@@ -450,7 +450,7 @@ function buildCard(key, sessionId, batch) {
   const sub = el("div", "tp-card-sub");
   const kind = el("span", "tp-card-kind", agentWord());
   const elapsed = el("span", "tp-card-elapsed");
-  sub.append(kind, el("span", "tp-sep", " · "), elapsed);
+  sub.append(kind, el("span", "tp-sep", "  "), elapsed);
   const stats = el("div", "tp-card-sub tp-card-stats");
   const desc = el("p", "tp-card-desc hidden");
   const phase = el("div", "tp-phase");
@@ -538,7 +538,7 @@ function updateRow(row, run, now) {
   if (ui.state.textContent !== stateText) ui.state.textContent = stateText;
   const latestText = stripInline(run.managed?.latest || run.progressText || "");
   if (ui.latest.textContent !== latestText) ui.latest.textContent = latestText;
-  const who = [subagentAgentName(run), run.description].filter(Boolean).join(" · ") || t("子代理");
+  const who = [subagentAgentName(run), run.description].filter(Boolean).join("  ") || t("子代理");
   if (ui.label.textContent !== who) ui.label.textContent = who;
   const modelFull = run.model || run.tier || "";
   const modelText = modelShort(modelFull) || "—";
@@ -547,7 +547,7 @@ function updateRow(row, run, now) {
     ui.model.title = modelFull;
   }
   // 窄侧栏(容器查询)隐去模型列时,模型还在子代理列的 title 里。
-  const title = [who, modelFull].filter(Boolean).join(" · ");
+  const title = [who, modelFull].filter(Boolean).join("  ");
   if (ui.title !== title) {
     ui.title = title;
     ui.label.title = title;
@@ -577,7 +577,7 @@ function updateCard(record, now) {
   const title = batchTitle(runs);
   if (ui.title.textContent !== title) {
     ui.title.textContent = title;
-    ui.title.title = `${title} · ${t("定位到对话")}`;
+    ui.title.title = `${title}  ${t("定位到对话")}`;
   }
   ui.stop.classList.toggle("is-off", running === 0);
   ui.stop.disabled = running === 0;
@@ -589,7 +589,7 @@ function updateCard(record, now) {
   if (tokens > 0) stats.push(`${formatTokenCount(tokens)} ${t("token")}`);
   if (failed) stats.push(`${failed} ${t("失败")}`);
   if (limited) stats.push(`${limited} ${t("达到步数上限")}`);
-  const statsText = stats.join(" · ");
+  const statsText = stats.join("  ");
   if (ui.stats.textContent !== statsText) ui.stats.textContent = statsText;
   const preamble = n > 1 ? preambleOf(runs[0]) : "";
   const descText = preamble && firstSentence(preamble) !== clip(preamble, 60) ? clip(preamble, 240) : "";
@@ -684,7 +684,7 @@ function renderChrome() {
     const shown = bg.running + bg.attention + bg.done;
     const filtered = shown !== bg.total;
     filter.classList.toggle("active", filtered);
-    const title = filtered ? `${t("筛选与清理")} · ${shown}/${bg.total}` : t("筛选与清理");
+    const title = filtered ? `${t("筛选与清理")}  ${shown}/${bg.total}` : t("筛选与清理");
     if (filter.title !== title) filter.title = title;
   }
 }
@@ -801,7 +801,7 @@ function buildDetail(run) {
 function renderDetailMeta(run) {
   if (!detailUi) return;
   const modelText = run.model || run.tier;
-  const text = [modelText, subagentMetaText(run)].filter(Boolean).join(" · ");
+  const text = [modelText, subagentMetaText(run)].filter(Boolean).join("  ");
   if (detailUi.meta.textContent !== text) detailUi.meta.textContent = text;
 }
 function renderDetail(run) {

@@ -233,7 +233,7 @@ export function renderAutoRun() {
   // 否则切语言时 applyDataI18nKeys 会把它冲回静态键。
   // 只在名字变了时写:title 可能正被悬停提示层接管(挪进 data-kz-tip),每次重绘都写回会冒出原生提示。
   const trigger = $("autorun-more");
-  const label = armed ? `${t("自动推进设置")} · ${t("推进轮次")} ${autoRounds} · ${t(AUTO_PHASE_LABEL[phase])}` : t("自动推进设置");
+  const label = armed ? `${t("自动推进设置")}  ${t("推进轮次")} ${autoRounds}  ${t(AUTO_PHASE_LABEL[phase])}` : t("自动推进设置");
   if (trigger && trigger.dataset.kzLabel !== label) {
     trigger.dataset.kzLabel = label;
     delete trigger.dataset.i18nTitle;

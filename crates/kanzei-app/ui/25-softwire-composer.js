@@ -81,7 +81,7 @@ export function createComposer(actions) {
     add.disabled = Boolean(target.busy || target.readOnly || target.completed);
     send.disabled = Boolean(target.busy || target.readOnly || target.completed);
     send.setAttribute("aria-label", fillTemplate(t("发给 {name}"), { name: target.label }));
-    send.title = fillTemplate(t("发给 {name}"), { name: target.label }) + " · Enter";
+    send.title = fillTemplate(t("发给 {name}"), { name: target.label }) + "  Enter";
     input.disabled = Boolean(target.readOnly || target.completed);
     input.placeholder = target.placeholder || (target.interactionId ? t("回复这条事项…") : t("补充要求，或安排下一步…"));
     dock.dataset.swCompleted = String(Boolean(target.completed));

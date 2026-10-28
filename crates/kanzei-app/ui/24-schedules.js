@@ -48,8 +48,8 @@ export async function showSchedules() {
       const def = item.definition; const row = element("section", "", "schedule-row");
       const last = item.history?.find(event => event.type === "schedule.run_finished")?.data;
       const heading = element("h3", def.name);
-      const detail = element("p", `${def.enabled ? t("已启用") : t("已停用")} · ${def.when} · ${def.host} · ${t("下次运行")} ${new Date(item.next_ms).toLocaleString()}`);
-      const result = element("p", last ? `${last.ok ? "✓" : "✗"} ${last.summary} · ${Math.round(last.duration_ms / 1000)}s` : t("尚未运行"));
+      const detail = element("p", `${def.enabled ? t("已启用") : t("已停用")}  ${def.when}  ${def.host}  ${t("下次运行")} ${new Date(item.next_ms).toLocaleString()}`);
+      const result = element("p", last ? `${last.ok ? "✓" : "✗"} ${last.summary}  ${Math.round(last.duration_ms / 1000)}s` : t("尚未运行"));
       const actions = element("div", "", "schedule-actions");
       actions.append(control(def.enabled ? "停用" : "启用", async () => { await call("toggle", { name: def.name, expectedHash: item.revision, enabled: !def.enabled }, target); if (isCurrent(view, target)) await reload(); }), control("立即运行", async () => { await call("run", { name: def.name }, target); toast(t("任务已排队，结果见运行历史")); }), control("编辑", () => { if (isCurrent(view, target)) edit(item); }), control("运行历史", async () => { if (isCurrent(view, target)) await history(def.name, target); }), control("删除", async () => { await call("delete", { name: def.name, expectedHash: item.revision }, target); if (isCurrent(view, target)) await reload(); }));
       row.append(heading, detail, result, actions); content.appendChild(row);
@@ -62,7 +62,7 @@ export async function showSchedules() {
     if (!isCurrent(view, target)) return;
     content.replaceChildren(control("返回", reload), element("h3", name));
     for (const event of events || []) {
-      const row = element("details"); row.appendChild(element("summary", `${event.type} · ${event.data.summary || event.data.reason || event.data.run_id || ""}`));
+      const row = element("details"); row.appendChild(element("summary", `${event.type}  ${event.data.summary || event.data.reason || event.data.run_id || ""}`));
       row.appendChild(element("pre", JSON.stringify(event.data, null, 2)));
       if (event.type === "schedule.run_finished" && event.data.run_id) row.appendChild(control("查看完整对话", async () => {
         const response = await invoke("conversation_display_get", { projectDir: target, processId: event.data.run_id, sequence: null });

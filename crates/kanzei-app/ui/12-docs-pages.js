@@ -99,7 +99,7 @@ export function renderWorkspace(snapshot) {
     const status = document.createElement("span");
     status.className = `workspace-status ${project.running_lines ? "running" : project.status}`;
     status.textContent = project.error ? t("项目读取失败") : project.running_lines
-      ? `${t("运行中")} · ${project.running_lines} ${t("个对话")}` : t("空闲");
+      ? `${t("运行中")}  ${project.running_lines} ${t("个对话")}` : t("空闲");
     const more = document.createElement("button");
     more.type = "button";
     more.className = "icon-btn workspace-card-more";
@@ -120,8 +120,8 @@ export function renderWorkspace(snapshot) {
     const counts = project.counts ?? {};
     const meta = document.createElement("div");
     meta.className = "workspace-meta dim";
-    meta.textContent = `${t("待你试用")} ${counts.ready_to_try ?? 0} · ${t("待复核决策")} ${counts.decisions ?? 0}`;
-    if (project.freshness === "stale") meta.textContent += ` · ${t("数据可能已过期")}`;
+    meta.textContent = `${t("待你试用")} ${counts.ready_to_try ?? 0}  ${t("待复核决策")} ${counts.decisions ?? 0}`;
+    if (project.freshness === "stale") meta.textContent += `  ${t("数据可能已过期")}`;
     card.append(head, path, renderCurrentItems(project), activity, meta);
   }
   for (const [path, card] of existing) if (!keep.has(path)) card.remove();
@@ -524,7 +524,7 @@ export function renderDependencyView(snapshot) {
       if (meta.length) {
         const m = document.createElement("span");
         m.className = "dim dep-meta";
-        m.textContent = meta.join(" · ");
+        m.textContent = meta.join("  ");
         row.append(st, title, m);
       } else {
         row.append(st, title);

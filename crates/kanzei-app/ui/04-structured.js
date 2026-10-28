@@ -644,7 +644,7 @@ function engineNode(engine) {
     parts.push(part);
   }
   parts.forEach((part, index) => {
-    if (index) body.append(document.createTextNode(" · "));
+    if (index) body.append(document.createTextNode("  "));
     body.append(part);
   });
   details.append(body);

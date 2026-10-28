@@ -183,7 +183,7 @@ defer(() => {
       const layoutWidth = $("files-layout")?.getBoundingClientRect?.().width || 0;
       return layoutWidth > 0 ? Math.max(200, Math.round(layoutWidth - 360)) : Math.round(window.innerWidth * 0.5);
     },
-    title: t("拖动调整文件树宽度 · 双击复位"), titleKey: "拖动调整文件树宽度 · 双击复位",
+    title: t("拖动调整文件树宽度  双击复位"), titleKey: "拖动调整文件树宽度  双击复位",
     ariaLabel: t("调整文件树宽度"), ariaKey: "调整文件树宽度",
   });
   installSplit(document.querySelector("#view-memory .memory-list-pane"), {

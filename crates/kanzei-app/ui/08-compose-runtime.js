@@ -10,7 +10,7 @@ import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCtxTokens, setRunTokens } from "./03-shell.js";
 import { $ } from "./00-dom.js";
 import { activePane, promptBox } from "./01-chat-panes.js";
-import { isImeComposing, readJson, writeJson } from "./00-ui-primitives.js";
+import { createImeSubmitGuard, readJson, writeJson } from "./00-ui-primitives.js";
 import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
 import { setSessionDetails } from "./00-session-state.js";
@@ -176,7 +176,7 @@ export async function sendAutoToSession(prompt, sessionId) {
   const research = item.profile === "research";
   autoContinueInFlight.add(sessionId);
   if (sessionId === activeSessionId) {
-    addMessage("notice", `${t("自动推进已触发")} · ${sessionState(sessionId).auto_rounds || 0}`);
+    addMessage("notice", `${t("自动推进已触发")}  ${sessionState(sessionId).auto_rounds || 0}`);
     setRunning(true, t("准备中"));
   }
   try {
@@ -280,7 +280,7 @@ export function handleBackgroundAutoFail(payload) {
   const label = item?.label ?? t("对话");
   if (action.type === "RetryAfterFailure") {
     const delayMs = action.delayMs ?? 15000;
-    const retryLabel = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${Math.round(delayMs / 1000)}s`;
+    const retryLabel = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3}  ${Math.round(delayMs / 1000)}s`;
     transitionSession(sessionId, "auto_pending", {
       auto_rounds: action.rounds ?? sessionState(sessionId).auto_rounds ?? 0,
     });
@@ -594,10 +594,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   setOutputChars(0);
   renderTokens();
   const attachmentStatus = promptAttachments.length > 0
-    ? `${auto ? `${t("自动推进")} ${autoRounds} · ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")} · ${t("准备中")}`
-    : auto ? `${t("自动推进")} ${autoRounds} · ${t("准备中")}` : t("准备中");
+    ? `${auto ? `${t("自动推进")} ${autoRounds}  ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")}  ${t("准备中")}`
+    : auto ? `${t("自动推进")} ${autoRounds}  ${t("准备中")}` : t("准备中");
   if (auto) {
-    addMessage("notice", `${t("自动推进已触发")} · ${autoRounds}`);
+    addMessage("notice", `${t("自动推进已触发")}  ${autoRounds}`);
   }
   const requestSessionId = activeSessionId;
   const requestProcessId = activeProcessId;
@@ -1451,8 +1451,9 @@ defer(() => {
 });
 defer(() => {
   // 补全列表开着时的 Esc 由弹层栈接走(renderFileSuggestions 注册的 onEscape),这里不再单独处理。
+  const guardImeSubmit = createImeSubmitGuard(promptBox);
   promptBox.addEventListener("keydown", (e) => {
-    if (isImeComposing(e)) return;
+    if (guardImeSubmit(e)) return;
     if ((e.key === "Tab" || e.key === "Enter") && fileSuggestions.length > 0 && !e.ctrlKey && !e.metaKey) {
       e.preventDefault();
       chooseFileSuggestion();

@@ -1491,5 +1491,21 @@
       "crates/kanzei-app/ui/16-settings.js",
       "crates/kanzei-app/ui/24-schedules.js"
     ]
+  },
+  {
+    "key": "desktop_workbench",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-desktop-workbench-smoke.mjs"
+    ],
+    "paths": [
+      "crates/kanzei-app/ui/**",
+      "scripts/ui-desktop-workbench-smoke.mjs",
+      "scripts/ui-preview/**"
+    ],
+    "resources": [
+      "browser"
+    ]
   }
 ]

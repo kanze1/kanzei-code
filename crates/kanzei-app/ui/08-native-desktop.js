@@ -28,7 +28,7 @@ async function sync() {
   try {
     const current=await invoke("native_desktop_get",{processId:owner});
     if(version!==generation || owner!==activeProcessId)return;
-    button.textContent=current ? `${t("原生窗口")} · ${current.title}` : t("选择原生窗口");
+    button.textContent=current ? `${t("原生窗口")}  ${current.title}` : t("选择原生窗口");
     button.title=development ? t("选择本对话可操作的原生窗口") : t("当前模式不操作原生窗口");
   }catch(error){if(version===generation){button.textContent=t("原生窗口状态读取失败");button.title=String(error);}}
 }
@@ -56,7 +56,7 @@ async function choose() {
     status.textContent=result.windows.length ? t("选择要交给当前对话的窗口") : t("没有可选择的原生窗口");
     for(const window of result.windows){
       const button=document.createElement("button");button.type="button";button.className="kz-ctl";
-      button.textContent=`${window.title} · ${window.application}`;button.dataset.windowCandidate=window.id;
+      button.textContent=`${window.title}  ${window.application}`;button.dataset.windowCandidate=window.id;
       button.addEventListener("click",()=>void select(window.id));list.append(button);
     }
   }catch(error){status.textContent=String(error);}

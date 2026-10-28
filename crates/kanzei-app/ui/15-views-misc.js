@@ -203,7 +203,7 @@ export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 
 defer(() => {
   $("viewer-close").addEventListener("click", () => closeSurface($("viewer-overlay")));
   setDiagramHost({
-    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")} · ${path || title}`, source, { line, startLine }),
+    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")}  ${path || title}`, source, { line, startLine }),
     openLarge: ({ title, source, path, sourceLine }) => openRuntimeDiagram(title, source, { path, sourceLine }),
     toast: (text, kind) => toast(text, { kind }),
   });
@@ -543,7 +543,7 @@ export function renderEarlierHint() {
     if (existing) existing.remove();
     return;
   }
-  const label = `${t("载入更早的消息")} · ${t("还有")} ${remaining} ${t("条")}`;
+  const label = `${t("载入更早的消息")}  ${t("还有")} ${remaining} ${t("条")}`;
   if (existing) {
     existing.textContent = label;
     // 补齐一窗是前插:已有的提示条会被新内容压到中间。挪回顶部(它是入口,必须在最上面)。
@@ -680,7 +680,7 @@ export function renderMessageParts(items) {
           const queries = Array.isArray(action.queries)
             ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
             : [];
-          const query = String(action.query ?? queries.map((item) => item.q).join(" · ") ?? "");
+          const query = String(action.query ?? queries.map((item) => item.q).join("  ") ?? "");
           const input = queries.length ? { queries } : { query: query || t("搜索结果") };
           const block = buildToolBlock("web_search", input);
           if (raw.id) block.wrap.dataset.toolCallId = String(raw.id);
@@ -880,7 +880,7 @@ export async function openConversationForProcess(processId, sequence, { project 
     return;
   }
   if (!isCurrent()) return;
-  openRuntimeMarkdown(`${title || t("历史对话")} · ${t("只读")}`, historyTranscript(history));
+  openRuntimeMarkdown(`${title || t("历史对话")}  ${t("只读")}`, historyTranscript(history));
 }
 /// 已关闭(注销)线路的对话:只读查看(UX-035)。会话 id 是进程 id 的纯函数,注销后 conversation_list / conversation_get 照样取得到。
 /// 一条线可能有好几段(开过新对话):最近的几段由新到旧拼成一份文字稿,每段一个小标题。
@@ -907,7 +907,7 @@ export async function openClosedConversation(project, entry, title = "") {
     return;
   }
   if (!isCurrent()) return;
-  openRuntimeMarkdown(`${name} · ${t("已关闭")} · ${t("只读")}`, blocks.join("\n\n---\n\n"));
+  openRuntimeMarkdown(`${name}  ${t("已关闭")}  ${t("只读")}`, blocks.join("\n\n---\n\n"));
 }
 
 /// 删除落地后按线路收拾主区。被删的段可能正显示在某个 pane 里(当前段,或用户打开过的
@@ -982,7 +982,7 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
   const outcome = typeof result === "number" ? { segments: sequences.length } : (result ?? {});
   const clearedCurrent = Boolean(outcome.cleared_current);
   if (local) await settleDeletedConversationView(processId, target, clearedCurrent);
-  toast(`${t("已删除")} ${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? ` · ${t("当前对话已删除")}` : ""}`, { kind: "ok" });
+  toast(`${t("已删除")} ${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? `  ${t("当前对话已删除")}` : ""}`, { kind: "ok" });
   conversationChecked.delete(processId);
   invalidateConversationHistory(project, processId);
   if (local) await refreshConversationLists();
@@ -1075,7 +1075,7 @@ export function renderLineConversationHistory(processId) {
     row.className = "parallel-history-row";
     row.tabIndex = 0;
     row.setAttribute("role", "button");
-    row.title = t("点击只读查看 · 右键可删除这段历史");
+    row.title = t("点击只读查看  右键可删除这段历史");
     row.dataset.ctx = "segment";
     row.dataset.project = currentProject;
     row.dataset.processId = processId;

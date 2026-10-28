@@ -88,7 +88,7 @@ export function renderResearchLatexTemplates() {
   for (const item of researchLatexTemplates) {
     const option = document.createElement("option");
     option.value = item.id;
-    option.textContent = item.description ? `${item.name} · ${item.description}` : item.name;
+    option.textContent = item.description ? `${item.name}  ${item.description}` : item.name;
     select.appendChild(option);
   }
   if (researchLatexTemplates.some((item) => item.id === current)) select.value = current;
@@ -179,7 +179,7 @@ export function renderResearchLatexHistory(entries = []) {
     const row = document.createElement("div");
     row.className = "research-latex-history-row";
     const label = document.createElement("span");
-    label.textContent = `${entry.document_name || "main.tex"} · ${entry.success ? t("编译成功") : t("编译失败")} · ${entry.run_id || ""}`;
+    label.textContent = `${entry.document_name || "main.tex"}  ${entry.success ? t("编译成功") : t("编译失败")}  ${entry.run_id || ""}`;
     row.appendChild(label);
     if (entry.pdf_path) {
       const button = document.createElement("button");
@@ -439,7 +439,7 @@ export function renderResearchTopicPicker() {
     const option = document.createElement("option");
     option.value = topic.id || researchTopicKey(topic);
     const duplicate = all.filter((entry) => researchTopicLabel(entry) === researchTopicLabel(topic)).length > 1;
-    option.textContent = `${researchTopicLabel(topic)}${duplicate ? ` · ${topic.id}` : ""}${topic.available === false ? ` · ${t("目录不可用")}` : ""}`;
+    option.textContent = `${researchTopicLabel(topic)}${duplicate ? `  ${topic.id}` : ""}${topic.available === false ? `  ${t("目录不可用")}` : ""}`;
     parent.appendChild(option);
   };
   if (groups.length > 1) {
@@ -523,7 +523,7 @@ export function renderResearchPlan(plan) {
   const appendNode = (node, parent) => {
     const item = document.createElement("li");
     item.className = `research-plan-node plan-${node.status || "pending"}`;
-    item.textContent = `${node.title} · ${research_status_label(node.status || "pending")}`;
+    item.textContent = `${node.title}  ${research_status_label(node.status || "pending")}`;
     if (node.objective) item.title = node.objective;
     parent.appendChild(item);
     if ((node.children ?? []).length) {
@@ -635,7 +635,7 @@ export function researchCard(entry, kind) {
 
   const meta = [researchField(entry, "作者", "author"), researchField(entry, "年份", "year")]
     .filter(Boolean)
-    .join(" · ");
+    .join("  ");
   if (meta) {
     const line = document.createElement("div");
     line.className = "research-card-meta";
@@ -956,7 +956,7 @@ export function renderResearchRoadmap() {
     group.appendChild(rect);
     appendRoadmapText(group, "research-roadmap-node-id", node.id, node.x + 9, node.y + 17);
     appendRoadmapText(group, "research-roadmap-node-title", node.title, node.x + 9, node.y + 34);
-    appendRoadmapText(group, "research-roadmap-node-meta", `${node.runCount} ${t("次运行")} · ${research_status_label(node.recentStatus)}`, node.x + 9, node.y + 49);
+    appendRoadmapText(group, "research-roadmap-node-meta", `${node.runCount} ${t("次运行")}  ${research_status_label(node.recentStatus)}`, node.x + 9, node.y + 49);
     const open = () => selectResearchExploration(node.id);
     group.addEventListener("click", open);
     group.addEventListener("keydown", (event) => {
@@ -974,7 +974,7 @@ export function renderResearchRoadmap() {
   for (const diagnostic of projection.diagnostics) {
     const item = document.createElement("div");
     item.className = "research-roadmap-diagnostic";
-    item.textContent = `${diagnostic.path}:${diagnostic.line} · ${diagnostic.message}`;
+    item.textContent = `${diagnostic.path}:${diagnostic.line}  ${diagnostic.message}`;
     diagnosticsHost.appendChild(item);
   }
 }
@@ -1042,7 +1042,7 @@ export function renderResearchExplorationDetail() {
   const frontmatter = exploration.frontmatter ?? {};
   const title = document.createElement("h2");
   title.className = "research-detail-title";
-  title.textContent = `${frontmatter.id || ""} · ${frontmatter.title || frontmatter.id || t("未命名探索")}`;
+  title.textContent = `${frontmatter.id || ""}  ${frontmatter.title || frontmatter.id || t("未命名探索")}`;
   body.appendChild(title);
   const status = document.createElement("span");
   status.className = `research-badge st-${frontmatter.status || ""}`;
@@ -1315,7 +1315,7 @@ function renderResearchRunMetricChart(card, events) {
     label.textContent = `${name}: ${Number(values.at(-1)).toPrecision(5)}`;
     const range = document.createElement("span");
     range.className = "research-run-chart-range dim";
-    range.textContent = `${t("最低")} ${Number(min).toPrecision(4)} · ${t("最高")} ${Number(max).toPrecision(4)} · ${points.length} ${t("个点")}`;
+    range.textContent = `${t("最低")} ${Number(min).toPrecision(4)}  ${t("最高")} ${Number(max).toPrecision(4)}  ${points.length} ${t("个点")}`;
     chart.append(label, range);
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", "0 0 480 120");
@@ -1341,7 +1341,7 @@ function renderResearchRunMetricChart(card, events) {
       hit.setAttribute("width", band.toFixed(1));
       hit.setAttribute("height", "120");
       const tip = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      tip.textContent = `${point.step == null ? `#${index + 1}` : `${t("步")} ${point.step}`} · ${name} ${Number(point.value).toPrecision(5)}`;
+      tip.textContent = `${point.step == null ? `#${index + 1}` : `${t("步")} ${point.step}`}  ${name} ${Number(point.value).toPrecision(5)}`;
       hit.appendChild(tip);
       svg.appendChild(hit);
     }
@@ -1461,7 +1461,7 @@ export function renderResearchRuns() {
     costLine.className = "research-run-cost";
     const recorded = cost.amount != null || cost.gpu_seconds != null;
     costLine.textContent = recorded
-      ? `${t("成本")}: ${cost.gpu_seconds == null ? "—" : Number(cost.gpu_seconds).toFixed(1)} GPU s · ${cost.amount == null ? "—" : Number(cost.amount).toFixed(4)} ${cost.currency || ""}`
+      ? `${t("成本")}: ${cost.gpu_seconds == null ? "—" : Number(cost.gpu_seconds).toFixed(1)} GPU s  ${cost.amount == null ? "—" : Number(cost.amount).toFixed(4)} ${cost.currency || ""}`
       : t("成本未记录");
     card.appendChild(costLine);
     renderResearchRunMetricChart(card, events);

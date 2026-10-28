@@ -29,7 +29,7 @@ export default async function run({ browser, server, check, output }) {
   check("Legacy batch progress is not fabricated into child nodes", await tree.locator('[data-work-node-id="R-901"] [role="treeitem"]').count(), 0);
   check("Only recorded children appear below their tracker root", await tree.locator('[data-work-node-id="R-902"] [role="treeitem"]').count(), 2);
   check("The actual child keeps its research type", await row("R-902/W2").locator(".work-tree-kind").innerText(), "调研节点");
-  check("Long existing titles keep decision cards compact", await tree.locator(".work-tree-row").evaluateAll(rows => rows.every(row => row.getBoundingClientRect().height <= 120)), true);
+  check("Long existing titles stay within two readable lines", await tree.locator(".work-tree-title").evaluateAll(titles => titles.every(title => title.clientHeight <= 2 * parseFloat(getComputedStyle(title).lineHeight) + 1)), true);
   await row("R-901").click();
   check("An unplanned requirement explains the missing tree", (await tree.locator(".work-tree-inspector").innerText()).includes("尚未拆分为工作节点"), true);
   check("Legacy roots have no invalid Work Unit mutation buttons", await tree.locator(".work-node-split, .work-node-revise, .work-node-start").count(), 0);
@@ -45,7 +45,7 @@ export default async function run({ browser, server, check, output }) {
   const search = page.locator('.management-tools input[type="search"]');
   await search.fill("调研偏好");
   check("Searching child content retains the entire ancestor path", await tree.locator('[role="treeitem"]:visible').count(), 3);
-  check("Search updates the visible tracker count", await page.locator(".management-list-count").innerText(), "显示条目 · 1 / 2");
+  check("Search updates the visible tracker count", await page.locator(".management-list-count").innerText(), "显示条目 1 / 2");
   await search.fill("没有这样的节点");
   check("No matches show an explicit empty result", await tree.locator(".work-tree-empty").isVisible(), true);
   check("No matches do not leave an unrelated inspector visible", await tree.locator(".work-tree-inspector").isVisible(), false);
@@ -54,7 +54,7 @@ export default async function run({ browser, server, check, output }) {
   await tree.getByRole("button", { name: "聚焦此分支", exact: true }).click();
   check("Focused project branches retain their management identity", await tree.getAttribute("data-tracker-kind"), "req");
   await search.fill("没有这样的节点");
-  check("Scoped search keeps the visible count connected", await page.locator(".management-list-count").innerText(), "显示条目 · 0 / 2");
+  check("Scoped search keeps the visible count connected", await page.locator(".management-list-count").innerText(), "显示条目 0 / 2");
   await search.fill("");
   await tree.getByRole("button", { name: "全部目标", exact: true }).click();
   await row("R-902/W2").click();

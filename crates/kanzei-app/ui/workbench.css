@@ -1,9 +1,9 @@
 /* The workbench owns global navigation. Existing tools keep their contracts and
    state, but appear within a project rather than competing at the top level. */
-#workbench-navigation { padding: 26px var(--sp-5) var(--sp-6); }
+#workbench-navigation { padding: 26px 14px var(--sp-6); min-height: 0; display: flex; flex-direction: column; flex: 1; }
 .workbench-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: 0 0 24px 10px; }
-.workbench-brand { min-width: 0; color: var(--fg-strong); font-size: 22px; font-weight: 650; letter-spacing: -.65px; }
-.workbench-nav-link, .workbench-project-link { display: block; width: 100%; margin: var(--sp-1) 0; border: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 9px 11px; font-size: 13px; border-radius: 7px; }
+.workbench-brand { min-width: 0; color: var(--fg-strong); font-size: var(--fs-24); font-weight: 600; letter-spacing: -.65px; }
+.workbench-nav-link, .workbench-project-link { display: block; width: 100%; margin: var(--sp-1) 0; border: 0; background: transparent; color: var(--fg); text-align: left; cursor: pointer; font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 9px 11px; font-size: var(--fs-14); border-radius: 7px; }
 .workbench-nav-link.active, .workbench-project-link.active { background: var(--surface-selected); color: var(--fg-strong); }
 .workbench-nav-link:hover, .workbench-project-link:hover { background: var(--surface-hover); }
 /* 「待我处理」页开着(D12):高亮落在「待我处理」本身,所在项目行与会话行退成普通态,不再充当当前位置。 */
@@ -11,13 +11,13 @@ body[data-attention-open="true"] .workbench-project-link.active,
 body[data-attention-open="true"] .workbench-session-link[aria-current="true"] { background: transparent; color: var(--fg); }
 body[data-attention-open="true"] .workbench-project-link.active:hover,
 body[data-attention-open="true"] .workbench-session-link[aria-current="true"]:hover { background: var(--surface-hover); }
-.workbench-nav-label { display: flex; align-items: center; justify-content: space-between; margin: 24px var(--sp-5) var(--sp-4); font-size: 11px; color: var(--dim); }
+.workbench-nav-label { display: flex; align-items: center; justify-content: space-between; margin: 24px var(--sp-5) var(--sp-4); font-size: var(--fs-12); color: var(--dim); }
 /* 「项目」标题右侧的「＋」:零项目时侧栏唯一的添加入口(UX-152),有项目时也随手可点。 */
 #workbench-add-project { flex: none; margin-right: -6px; }
 #workbench-conversation-actions { display: none; flex-direction: column; align-items: stretch; gap: var(--sp-1); margin: 0 0 15px; }
 body[data-space="dev-auto"] #workbench-conversation-actions,
 body[data-space="research"][data-view="chat"] #workbench-conversation-actions { display: flex; }
-#workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; font-size: 13px; padding: 10px 11px; color: var(--fg-strong); background: var(--surface-selected); border-radius: 7px; }
+#workbench-conversation-actions .new-chat-btn { flex: 1; min-width: 0; width: auto; font-size: var(--fs-14); padding: 10px 11px; color: var(--fg-strong); background: var(--surface-selected); border-radius: 7px; }
 #workbench-chat-history { display: flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; margin: 0; }
 #workbench-chat-history svg { width: 18px; height: 18px; }
 #workbench-project-list { min-height: 0; }
@@ -34,7 +34,7 @@ body[data-space="dev-auto"] #sidebar > .sidebar-section, body[data-space="dev-au
 .view[tabindex="-1"]:focus { outline: none; }
 .workbench-project-link { display: flex; align-items: center; gap: var(--sp-5); }
 .workbench-project-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.workbench-project-activity { width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid transparent; border-radius: 50%; box-sizing: border-box; color: var(--dim); font-size: 12px; font-weight: 600; line-height: 10px; text-align: center; transition: background .25s, border-color .25s, box-shadow .25s; }
+.workbench-project-activity { width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid transparent; border-radius: 50%; box-sizing: border-box; color: var(--dim); font-size: var(--fs-12); font-weight: 600; line-height: 10px; text-align: center; transition: background .25s, border-color .25s, box-shadow .25s; }
 /* Navigation keeps aria-busy for assistive technology, but must not create a
    second spinner or impersonate an agent start. */
 .workbench-project-link[aria-busy="true"]::after { content: none; animation: none; }
@@ -42,9 +42,9 @@ body[data-space="dev-auto"] #sidebar > .sidebar-section, body[data-space="dev-au
 .workbench-project-link[data-activity="starting"] .workbench-project-activity { border-color: color-mix(in srgb, var(--accent) 22%, transparent); border-top-color: var(--accent); animation: workbench-spin .8s linear infinite; }
 .workbench-project-link[data-activity="running"] .workbench-project-activity { background: var(--accent); border: 3px solid var(--panel); box-shadow: 0 0 0 1px var(--accent); }
 .workbench-project-link:is([data-activity="waiting"], [data-activity="stopping"]) .workbench-project-activity { color: var(--accent-text); }
-.workbench-project-link:is([data-activity="attention"], [data-activity="failed"]) .workbench-project-activity { color: var(--accent-text); border: 1px solid currentColor; line-height: 12px; }
+.workbench-project-link:is([data-activity="attention"], [data-activity="failed"]) .workbench-project-activity { color: var(--accent-text); border: var(--hairline) solid currentColor; line-height: 12px; }
 .workbench-project-link[data-activity="failed"] .workbench-project-activity { border-radius: 3px; }
-.workbench-project-attention { min-width: 14px; text-align: center; color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 1px 5px; font-size: 10px; }
+.workbench-project-attention { min-width: 14px; text-align: center; color: var(--accent-text); background: var(--accent-soft); border-radius: 4px; padding: 1px 5px; font-size: var(--fs-12); }
 @keyframes workbench-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .workbench-project-activity { animation: none !important; transition: none !important; } }
 /* ---------- 侧栏会话树:点击项目名称展开,对话使用统一文字行 ---------- */
@@ -58,20 +58,20 @@ body[data-space="dev-auto"] #sidebar > .sidebar-section, body[data-space="dev-au
 .workbench-session:has([aria-current="true"]) { position: relative; background: var(--surface-selected); }
 .workbench-session:hover { background: var(--surface-hover); }
 .workbench-session > .workbench-session-link { flex: 1; min-width: 0; background: transparent; font-weight: 450; }
-.workbench-session-link { display: flex; align-items: center; gap: var(--sp-4); width: 100%; margin: 1px 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; overflow: hidden; font-size: 12px; min-height: 33px; padding: 7px 10px; }
+.workbench-session-link { display: flex; align-items: center; gap: var(--sp-4); width: 100%; margin: 1px 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; overflow: hidden; font-size: var(--fs-12); min-height: 33px; padding: 7px 10px; }
 .workbench-session-link:hover { background: var(--surface-hover); }
 .workbench-session-link[aria-current="true"] { background: transparent; color: var(--fg-strong); font-weight: 550; }
 .workbench-session-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .workbench-session-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.workbench-session-tag, .workbench-session-time { flex: 0 0 auto; color: var(--dim); font-size: 10.5px; }
+.workbench-session-tag, .workbench-session-time { flex: 0 0 auto; color: var(--dim); font-size: var(--fs-12); }
 /* 悬停 + 选中叠在弹层(--surface-overlay)上是全应用第二亮的底,--dim 只剩 4.06(暗色):标签与时间随行提到正文色(UX-125)。 */
 .workbench-session-link:is(:hover, [aria-current="true"]) :is(.workbench-session-tag, .workbench-session-time) { color: var(--fg); }
-.workbench-session-more { display: block; width: 100%; margin: 1px 0; padding: var(--sp-2) var(--sp-4); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
+.workbench-session-more { display: block; width: 100%; margin: 1px 0; padding: var(--sp-2) var(--sp-4); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-12); text-align: left; cursor: pointer; }
 .workbench-session-more:hover { background: var(--surface-hover); color: var(--fg); }
 .workbench-session-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.workbench-session-note { padding: var(--sp-2) var(--sp-4) var(--sp-3); color: var(--dim); font-size: 11.5px; }
+.workbench-session-note { padding: var(--sp-2) var(--sp-4) var(--sp-3); color: var(--dim); font-size: var(--fs-12); }
 /* 已关闭的对话(UX-035):折叠分组,点开是只读文字稿。名字压成灰字,不占运行态点的位置(没有运行态)。 */
-.workbench-closed-toggle { display: flex; align-items: center; gap: var(--sp-3); width: 100%; margin: var(--sp-2) 0 1px; padding: var(--sp-2) var(--sp-4); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: 11.5px; text-align: left; cursor: pointer; }
+.workbench-closed-toggle { display: flex; align-items: center; gap: var(--sp-3); width: 100%; margin: var(--sp-2) 0 1px; padding: var(--sp-2) var(--sp-4); border: 0; border-radius: var(--r-sm); background: transparent; color: var(--dim); font: inherit; font-size: var(--fs-12); text-align: left; cursor: pointer; }
 .workbench-closed-toggle:hover { background: var(--surface-hover); color: var(--fg); }
 .workbench-closed-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .workbench-closed-caret { flex: 0 0 10px; width: 10px; height: 10px; background: currentColor; rotate: -90deg; transition: rotate .15s; -webkit-mask: var(--icon-chevron) center / 10px 10px no-repeat; mask: var(--icon-chevron) center / 10px 10px no-repeat; }
@@ -97,20 +97,20 @@ body[data-space="dev-auto"] #sidebar > .sidebar-section, body[data-space="dev-au
 .drop-after { box-shadow: 0 2px 0 0 var(--focus-ring); }
 html[data-kz-row-drag] * { user-select: none; cursor: grabbing; }
 .kz-ctx-anchor { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-#project-space-nav { display: flex; align-items: center; gap: 20px; padding: var(--sp-5) 28px 0; border-bottom: 1px solid var(--border-soft); flex: 0 0 auto; }
-#project-space-name { display: block; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 25%; }
+#project-space-nav { display: flex; align-items: center; gap: 20px; padding: var(--sp-5) 28px 0; border-bottom: var(--hairline) solid var(--border-soft); flex: 0 0 auto; }
+#project-space-name { display: block; font-size: var(--fs-14); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 25%; }
 .project-space-tabs { display: flex; gap: var(--sp-6); margin: 0 auto 0 0; }
 /* 「对话与历史」弹层:外观与定位全部来自 .k-surface.k-popover(surface.css),这里只定宽度与内部排版。 */
 .project-session-menu { width: min(560px, calc(100vw - 24px)); }
-.session-history-search { display: block; width: 100%; box-sizing: border-box; margin: var(--sp-4) 0; padding: 10px var(--sp-5); border: 1px solid var(--border-soft); border-radius: var(--r-sm); background: var(--panel); color: var(--fg); font: inherit; }
+.session-history-search { display: block; width: 100%; box-sizing: border-box; margin: var(--sp-4) 0; padding: 10px var(--sp-5); border: var(--hairline) solid var(--border-soft); border-radius: var(--r-sm); background: var(--panel); color: var(--fg); font: inherit; }
 .session-history-search:focus { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .session-history-body { max-height: min(480px, 55vh); overflow-y: auto; overscroll-behavior: contain; }
-.session-history-head { position: sticky; top: -10px; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--sp-4); margin: -10px -12px var(--sp-3); padding: 10px var(--sp-5) var(--sp-4); background: var(--surface-bg); border-bottom: 1px solid var(--surface-divider); }
-.session-history-title { font-size: 13px; }
-.session-history-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.session-history-head { position: sticky; top: -10px; z-index: var(--z-sticky); display: flex; align-items: center; gap: var(--sp-4); margin: -10px -12px var(--sp-3); padding: 10px var(--sp-5) var(--sp-4); background: var(--surface-bg); border-bottom: var(--hairline) solid var(--surface-divider); }
+.session-history-title { font-size: var(--fs-14); }
+.session-history-project { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-12); }
 .session-history-spacer { flex: 1 1 auto; }
 .session-history-head .mini { flex: 0 0 auto; white-space: nowrap; }
-.session-history-heading { margin: var(--sp-5) var(--sp-4) var(--sp-2); color: var(--surface-muted); font-size: 10.5px; }
+.session-history-heading { margin: var(--sp-5) var(--sp-4) var(--sp-2); color: var(--surface-muted); font-size: var(--fs-12); }
 .project-session-menu .workbench-session-link { min-height: 32px; }
 .project-space-tabs button { flex: 1; padding: var(--sp-4) 3px; border: 0; background: transparent; color: var(--dim); font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
 .project-space-tabs button.active { color: var(--fg-strong); border-bottom-color: var(--accent); }
@@ -139,36 +139,36 @@ body:not([data-view="chat"]) #activitybar #preview-toggle { display: none; }
 #workspace-scroll, #project-overview-content { padding: clamp(24px, 4vw, 64px); }
 #workspace-scroll { scroll-behavior: auto; }
 .workspace-head { margin-bottom: 36px; max-width: none; }
-.workspace-head h1 { margin: 0 0 10px; font-size: clamp(26px, 3vw, 36px); font-weight: 550; letter-spacing: -1px; }
+.workspace-head h1 { margin: 0 0 10px; font-size: var(--fs-24); font-weight: 550; letter-spacing: -1px; }
 .workspace-projects { display: block; max-width: none; }
-.workspace-card { background: transparent; border: 0; border-radius: 0; border-bottom: 1px solid var(--border-soft); padding: 26px 0; box-shadow: none; }
+.workspace-card { background: transparent; border: 0; border-radius: 0; border-bottom: var(--hairline) solid var(--border-soft); padding: 26px 0; box-shadow: none; }
 .workspace-card.current::before, .workspace-card-open::after { display: none; }
-.workspace-card-open { font-size: 17px; }
-.workspace-path { font-size: 11px; overflow-wrap: anywhere; margin: var(--sp-3) 0 var(--sp-6); } /* UX-125:不叠 opacity(.dim 灰字叠 .75 后只剩 3.4:1) */
-.workspace-meta, .workspace-activity { font-size: 12px; line-height: 1.8; }
+.workspace-card-open { font-size: var(--fs-16); }
+.workspace-path { font-size: var(--fs-12); overflow-wrap: anywhere; margin: var(--sp-3) 0 var(--sp-6); } /* UX-125:不叠 opacity(.dim 灰字叠 .75 后只剩 3.4:1) */
+.workspace-meta, .workspace-activity { font-size: var(--fs-12); line-height: 1.8; }
 .workbench-current-items { margin: var(--sp-6) 0; }
-.workbench-item { display: flex; align-items: center; flex-wrap: wrap; width: 100%; gap: var(--sp-4) 14px; padding: var(--sp-5) 14px; border: 1px solid var(--border-soft); border-radius: var(--r-md); background: var(--panel); color: var(--fg); text-align: left; font: inherit; cursor: pointer; margin: var(--sp-3) 0; }
+.workbench-item { display: flex; align-items: center; flex-wrap: wrap; width: 100%; gap: var(--sp-4) 14px; padding: var(--sp-5) 14px; border: var(--hairline) solid var(--border-soft); border-radius: var(--r-md); background: var(--panel); color: var(--fg); text-align: left; font: inherit; cursor: pointer; margin: var(--sp-3) 0; }
 .workbench-item:hover { border-color: var(--border-strong); background: var(--surface-hover); }
-.workbench-item-id { font-family: var(--mono); color: var(--dim); font-size: 12px; }
+.workbench-item-id { font-family: var(--mono); color: var(--dim); font-size: var(--fs-12); }
 .workbench-item-title { flex: 1; min-width: 130px; }
-.workbench-item-state, .workbench-batch { font-size: 11px; color: var(--dim); white-space: nowrap; }
+.workbench-item-state, .workbench-batch { font-size: var(--fs-12); color: var(--dim); white-space: nowrap; }
 .workbench-item-state.running { color: var(--accent-text); }
-.workbench-item-priority { font-size: 11px; color: var(--dim); background: var(--panel2); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-3); }
-.workbench-item-owner { font-size: 11px; color: var(--dim); max-width: 200px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.workbench-batch { border-left: 1px solid var(--border-soft); padding-left: 14px; }
+.workbench-item-priority { font-size: var(--fs-12); color: var(--dim); background: var(--panel2); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-3); }
+.workbench-item-owner { font-size: var(--fs-12); color: var(--dim); max-width: 200px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.workbench-batch { border-left: var(--hairline) solid var(--border-soft); padding-left: 14px; }
 #project-overview-content { flex: 1; min-height: 0; overflow-y: auto; }
 .project-overview-head { margin: 0 0 48px; }
-.project-overview-head h1 { font-size: clamp(26px, 3vw, 36px); margin: var(--sp-5) 0; font-weight: 550; letter-spacing: -.8px; }
+.project-overview-head h1 { font-size: var(--fs-24); margin: var(--sp-5) 0; font-weight: 550; letter-spacing: -.8px; }
 .project-overview-head p { overflow-wrap: anywhere; }
-.workbench-eyebrow { font-size: 12px; color: var(--dim); }
-.project-overview-section { padding: 24px 0; border-top: 1px solid var(--border-soft); }
-.project-overview-section h2 { font-size: 14px; font-weight: 550; margin: 0 0 20px; }
+.workbench-eyebrow { font-size: var(--fs-12); color: var(--dim); }
+.project-overview-section { padding: 24px 0; border-top: var(--hairline) solid var(--border-soft); }
+.project-overview-section h2 { font-size: var(--fs-14); font-weight: 550; margin: 0 0 20px; }
 .workbench-attention-link { display: inline-block; margin: 0 18px var(--sp-4) 0; padding: var(--sp-4) 0; border: 0; background: transparent; color: var(--accent-text); font: inherit; cursor: pointer; }
-.project-execution summary { cursor: pointer; font-size: 13px; }
-.project-execution p { margin: 14px 0; font-size: 12px; }
-.workbench-goal-form { max-width: 720px; padding: 24px; margin: 0 0 28px; background: var(--panel); border: 1px solid var(--border-soft); border-radius: var(--r-md); }
+.project-execution summary { cursor: pointer; font-size: var(--fs-14); }
+.project-execution p { margin: 14px 0; font-size: var(--fs-12); }
+.workbench-goal-form { max-width: 720px; padding: 24px; margin: 0 0 28px; background: var(--panel); border: var(--hairline) solid var(--border-soft); border-radius: var(--r-md); }
 .workbench-goal-form label { display: flex; flex-direction: column; gap: 7px; margin-bottom: var(--sp-6); }
-.workbench-goal-form input, .workbench-goal-form select, .workbench-goal-form textarea { width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px; font: inherit; box-sizing: border-box; }
+.workbench-goal-form input, .workbench-goal-form select, .workbench-goal-form textarea { width: 100%; color: var(--fg); background: var(--bg); border: var(--hairline) solid var(--border); border-radius: var(--r-sm); padding: 9px; font: inherit; box-sizing: border-box; }
 .workbench-goal-form textarea { resize: vertical; }
 .workbench-goal-form button { margin-right: var(--sp-4); }
 #view-documents[aria-busy="true"] #documents-list,

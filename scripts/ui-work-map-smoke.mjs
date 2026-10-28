@@ -133,7 +133,7 @@ test("Production management goal map: relationships, navigation, refresh and res
     check("A retained completed result becomes current again", await card("R-910/W2").getAttribute("data-result-current"), "true");
     await card("R-910/W4").click();
     check("A blocked leaf exposes the backend reason", (await map.locator(".goal-map-inspector").innerText()).includes("等待独立验证环境"));
-    await map.locator(".goal-map-inspector").getByRole("button", { name: "R-911/W1 · 准备验证环境", exact: true }).click();
+    await map.locator(".goal-map-inspector").getByRole("button", { name: "R-911/W1  准备验证环境", exact: true }).click();
     check("A cross-Outcome dependency navigates to one shared result", await card("R-911/W1").getAttribute("aria-pressed"), "true");
     await card("R-800/W1").click();
     check("Unavailable references do not pretend to be completed", (await map.locator(".goal-map-inspector").innerText()).includes("不据此推断它已完成或被阻塞"));

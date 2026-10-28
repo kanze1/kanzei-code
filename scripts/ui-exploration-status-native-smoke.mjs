@@ -42,7 +42,7 @@ try {
       pane.append(group);
       chat.syncToolGroup(group);
       check('Collapsed group keeps the failed call inside details', bad.wrap.getClientRects().length > 0, false);
-      check('Header describes a call exception, not task failure', group._kzGroup.fail.textContent, '· 1 次调用异常');
+      check('Header describes a call exception, not task failure', group._kzGroup.fail.textContent, '  1 次调用异常');
       check('Exception count uses the neutral header color', getComputedStyle(group._kzGroup.fail).color, getComputedStyle(group._kzGroup.head).color);
       group._kzGroup.head.click();
       check('Expanding keeps the failed call and its original position', [bad.wrap.getClientRects().length > 0, [...group._kzGroup.body.children].indexOf(bad.wrap)], [true, 1]);
@@ -75,7 +75,7 @@ try {
       i18n.setLanguagePreference('en', { persist: true, rerender: true });
       chat.syncToolGroup(group);
       sa.renderSubagentCard(limited);
-      check('English call exception uses singular wording', group._kzGroup.fail.textContent, '· 1 tool call error');
+      check('English call exception uses singular wording', group._kzGroup.fail.textContent, '  1 tool call error');
       check('English step ceiling has the same explicit status', limited.cardEl.querySelector('.sa-meta').textContent.includes('Step limit reached'), true);
       i18n.setLanguagePreference('zh', { persist: true, rerender: true });
       group.scrollIntoView({ block: 'center' });

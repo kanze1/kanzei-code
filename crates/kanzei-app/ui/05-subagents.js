@@ -236,7 +236,7 @@ export function subagentMetaText(run, now = Date.now()) {
   if (tokens > 0) bits.push(`${formatTokenCount(tokens)} ${t("token")}`);
   const elapsed = subagentElapsed(run, now);
   if (elapsed !== null) bits.push(formatElapsed(elapsed));
-  return bits.join(" · ");
+  return bits.join("  ");
 }
 function resultBody(run) {
   const result = run.result;
@@ -808,7 +808,7 @@ function syncGroup(group) {
   if (failed) bits.push(`${failed} ${t("失败")}`);
   if (limited) bits.push(`${limited} ${t("达到步数上限")}`);
   if (stopped) bits.push(`${stopped} ${t("已停止")}`);
-  const label = `${phase ? `${orchPhaseLabel(phase)} · ` : ""}${bits.join(" · ")}`;
+  const label = `${phase ? `${orchPhaseLabel(phase)}  ` : ""}${bits.join("  ")}`;
   if (group._sa.label.textContent !== label) group._sa.label.textContent = label;
 }
 
@@ -1188,7 +1188,7 @@ export function subagentCopyText(el) {
   for (const card of cards) {
     const run = card._saRun;
     if (!run) continue;
-    const who = [subagentAgentName(run), run.description].filter(Boolean).join(" · ");
+    const who = [subagentAgentName(run), run.description].filter(Boolean).join("  ");
     const lines = [`> ${t("子代理")}:${who}`, `> ${subagentMetaText(run)}`];
     const result = resultBody(run).trim();
     if (result) lines.push(`> ${t("结果")}:${result.slice(0, 400).split("\n").join("\n> ")}`);

@@ -177,7 +177,7 @@ export function addUserMessage(text, promptAttachments = [], origin = "human") {
     const kind = resourceType(attachment.file_name, attachment.media_type).label;
     const name = document.createElement("span");
     name.className = "message-attachment-name";
-    name.textContent = `${attachment.file_name} · ${kind}`;
+    name.textContent = `${attachment.file_name}  ${kind}`;
     name.title = attachment.file_name;
     item.append(attachmentPreview(attachment), name);
     attachments.appendChild(item);
@@ -773,7 +773,7 @@ export function buildReasoningBlock(raw) {
   head.className = "reasoning-head";
   head.setAttribute("aria-label", t("展开或收起思考过程"));
   head.setAttribute("aria-expanded", "false");
-  head.textContent = `· ${t("思考中…")}`;
+  head.textContent = `  ${t("思考中…")}`;
   const body = document.createElement("div");
   body.className = "reasoning-body md hidden";
   body.dataset.raw = raw;
@@ -820,7 +820,7 @@ export function renderReasoningBlock(body) {
   const expandable = lines.length > 1;
   const wrap = body.parentElement;
   if (wrap) wrap.hidden = !expandable;
-  head.textContent = `· ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
+  head.textContent = `  ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
   head.classList.toggle("expandable", expandable);
   if (!expandable) head.setAttribute("aria-expanded", "false");
 }
@@ -1019,19 +1019,19 @@ export function toolGroupSummary(entries) {
       ? `${current.name}${current.argText ? ` ${current.argText}` : ""}`
       : fillTemplate(t("{n} 个工具运行中"), { n: running.length });
     const done = list.length - running.length;
-    if (done > 0) label += ` · ${fillTemplate(t("已完成 {n}"), { n: done })}`;
+    if (done > 0) label += `  ${fillTemplate(t("已完成 {n}"), { n: done })}`;
   } else {
     const words = [...families.entries()].map(([family, bucket]) => {
       const perFile = family === "read" || family === "write";
       const n = perFile && bucket.args.size ? bucket.args.size : bucket.calls;
       return TOOL_GROUP_WORDS[family](n);
     });
-    label = words.slice(0, 3).join(" · ");
-    if (words.length > 3) label += ` · ${fillTemplate(t("等 {n} 次调用"), { n: list.length })}`;
-    if (interrupted) label += ` · ${fillTemplate(t("{n} 中断"), { n: interrupted })}`;
+    label = words.slice(0, 3).join("  ");
+    if (words.length > 3) label += `  ${fillTemplate(t("等 {n} 次调用"), { n: list.length })}`;
+    if (interrupted) label += `  ${fillTemplate(t("{n} 中断"), { n: interrupted })}`;
   }
-  const failText = fail ? `· ${fail === 1 ? t("1 次调用异常") : fillTemplate(t("{n} 次调用异常"), { n: fail })}` : "";
-  const warnText = warn ? `· ${fillTemplate(t("{n} 待修正"), { n: warn })}` : "";
+  const failText = fail ? `  ${fail === 1 ? t("1 次调用异常") : fillTemplate(t("{n} 次调用异常"), { n: fail })}` : "";
+  const warnText = warn ? `  ${fillTemplate(t("{n} 待修正"), { n: warn })}` : "";
   const text = [label, failText, warnText].filter(Boolean).join(" ");
   return { label, fail, warn, interrupted, running: running.length, failText, warnText, text };
 }

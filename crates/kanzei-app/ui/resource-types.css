@@ -9,11 +9,11 @@
 .message-attachment { display:inline-flex; align-items:center; gap:7px; }
 .file-card-name .resource-mark { margin-right:7px; vertical-align:middle; }
 .composer-links { display:flex; flex-wrap:wrap; gap:var(--sp-3); max-height:74px; overflow:auto; padding:var(--sp-2) 0 var(--sp-4); }
-.composer-link { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:5px var(--sp-4); border-radius:6px; background:var(--surface-hover); color:var(--fg); text-decoration:none; font-size:12px; }
+.composer-link { display:inline-flex; align-items:center; gap:7px; max-width:100%; padding:5px var(--sp-4); border-radius:6px; background:var(--surface-hover); color:var(--fg); text-decoration:none; font-size: var(--fs-12); }
 .composer-link > span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .composer-link:hover { color:var(--accent-text); background:var(--surface-selected); }
 .composer-link:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
 .message-file-content { margin-top:var(--sp-4); }
-.message-source { color:var(--fg-muted); font-size:12px; margin-bottom:var(--sp-4); }
+.message-source { color:var(--fg-muted); font-size: var(--fs-12); margin-bottom:var(--sp-4); }
 .message-file-content summary { cursor:pointer; display:flex; align-items:center; gap:7px; }
-.message-file-content pre { max-height:320px; overflow:auto; white-space:pre-wrap; font-size:12px; }
+.message-file-content pre { max-height:320px; overflow:auto; white-space:pre-wrap; font-size: var(--fs-12); }

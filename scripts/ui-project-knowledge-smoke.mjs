@@ -31,7 +31,7 @@ try {
     await page.evaluate(async () => { const ui = await import("/02-i18n.js"); ui.setLanguagePreference("zh", { persist: true }); });
     await page.screenshot({ path: `dist/ui-project-knowledge/architecture-${theme}.png`, fullPage: true });
     const memoryButton = page.locator('#arch-knowledge [data-area="kanzei-tools/edit"] .knowledge-memory').first();
-    const id = (await memoryButton.innerText()).split(" · ")[0];
+    const id = (await memoryButton.innerText()).split(/\s+/)[0];
     await memoryButton.click();
     await page.waitForFunction(id => document.querySelector("#memory-detail")?.dataset.memoryId === id, id);
     check(await page.locator("#view-memory.active").count() === 1, `${theme}: architecture memory opens original detail`);
@@ -56,7 +56,7 @@ try {
     .every(call => Boolean(call.args.knowledgeProjectDir))), "file explorer passes the project asset root separately");
   await page.screenshot({ path: "dist/ui-project-knowledge/files-light.png", fullPage: true });
   const fileMemory = page.locator("#files-knowledge .knowledge-memory").first();
-  const fileMemoryId = (await fileMemory.innerText()).split(" · ")[0];
+  const fileMemoryId = (await fileMemory.innerText()).split(/\s+/)[0];
   await fileMemory.click();
   await page.waitForFunction(id => document.querySelector("#memory-detail")?.dataset.memoryId === id, fileMemoryId);
   check(await page.locator("#view-memory.active").count() === 1, "file explorer opens the original project memory");

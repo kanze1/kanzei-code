@@ -57,8 +57,8 @@ function displayValue(key, value) {
 
 function inheritLabel(key, field) {
   const value = displayValue(key, field?.inherited);
-  if (field?.inheritedFollowsPrimary) return `${t("跟随 primary")} · ${value}`;
-  return field?.inheritedSource === "global" ? `${t("继承全局")} · ${value}` : `${t("继承内置默认")} · ${value}`;
+  if (field?.inheritedFollowsPrimary) return `${t("跟随 primary")}  ${value}`;
+  return field?.inheritedSource === "global" ? `${t("继承全局")}  ${value}` : `${t("继承内置默认")}  ${value}`;
 }
 
 function option(value, label) {

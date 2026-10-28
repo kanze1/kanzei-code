@@ -101,7 +101,7 @@ function refreshControls(run) {
   const view = controls.get(run); if (!view) return;
   const job = run.managed;
   const changed = (job.files || []).length;
-  view.facts.textContent = [job.worktree ? t("独立工作树") : ["general", "implement", "verify"].includes(job.role) ? t("准备工作树") : t("只读"), changed ? `${changed} ${t("个文件")}` : "", job.outcome === "adopted" ? t("已采纳 · 待主对话验证") : job.outcome === "candidate" ? t("待检查与整合") : "", job.depends_on?.length ? `${job.depends_on.length} ${t("个依赖")}` : ""].filter(Boolean).join(" · ");
+  view.facts.textContent = [job.worktree ? t("独立工作树") : ["general", "implement", "verify"].includes(job.role) ? t("准备工作树") : t("只读"), changed ? `${changed} ${t("个文件")}` : "", job.outcome === "adopted" ? t("已采纳  待主对话验证") : job.outcome === "candidate" ? t("待检查与整合") : "", job.depends_on?.length ? `${job.depends_on.length} ${t("个依赖")}` : ""].filter(Boolean).join("  ");
   view.diff.hidden = !job.head; view.diff.disabled = view.busy;
   view.adopt.hidden = !job.head || !changed || job.outcome === "adopted";
   view.adopt.disabled = view.busy || view.seenHead !== job.head || job.state !== "done";

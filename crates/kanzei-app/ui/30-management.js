@@ -175,7 +175,7 @@ function renderDetail(state) {
     state.details.set(entry.id, detail); state.body.append(detail);
   }
   else {
-    state.body.append(el("h1", `${entry.id} · ${entry.title}`), state.tab === "req" ? renderRequirementDocument(entry) : renderTrackerFields(entry.fields || []));
+    state.body.append(el("h1", `${entry.id}  ${entry.title}`), state.tab === "req" ? renderRequirementDocument(entry) : renderTrackerFields(entry.fields || []));
     state.body.append(action(t("编辑"), () => void openManagementItem(state.project, entry, { activate: true })));
   }
 }
@@ -184,7 +184,7 @@ export function progressCells(entry) {
   const cells = batchCells(entry), group = el("span", null, "management-progress");
   group.setAttribute("role", "img");
   group.setAttribute("aria-label", cells.length ? `${t("批次进度")} ${cells.filter(cell => ["done", "superseded"].includes(cell.state)).length}/${cells.length}` : t("尚未拆分批次"));
-  group.title = cells.length ? cells.map(cell => `${cell.id}: ${cell.state}`).join(" · ") : t("尚未拆分批次");
+  group.title = cells.length ? cells.map(cell => `${cell.id}: ${cell.state}`).join("  ") : t("尚未拆分批次");
   for (const cell of cells) { const square = el("i"); square.dataset.state = cell.state; group.append(square); }
   if (!cells.length) group.append(el("i", null, "unplanned"));
   return group;
@@ -208,7 +208,7 @@ function renderList(state) {
     const entries = (state.tab === "req" ? docs?.requirements : docs?.defects) || [];
     const query = state.query.toLocaleLowerCase();
     const rows = entries.filter(entry => (state.workView === "tree" || [entry.id, entry.title, ...(entry.work_units || []).flatMap(unit => [unit.unit_id, unit.objective])].join(" ").toLocaleLowerCase().includes(query)) && (state.filter === "all" || state.filter === "open" ? state.filter === "all" || !entry.closed : state.filter === "blocked" ? entry.blocked : state.filter === "doing" ? ["doing", "fixing"].includes(entry.status) : entry.status === state.filter));
-    count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
+    count.replaceChildren(document.createTextNode(`${t("显示条目")}  `), el("strong", state.docs ? `${numberText(rows.length)} / ${numberText(entries.length)}` : "—"));
     if (rows.length && state.workView === "tree") {
       const withProject = run => async (...args) => {
         try {
@@ -224,7 +224,7 @@ function renderList(state) {
         onFilter: result => {
           state.query = result.query;
           const visibleRoots = new Set(result.visibleIds.map(id => owners.get(id)));
-          count.replaceChildren(document.createTextNode(`${t("显示条目")} · `), el("strong", `${numberText(visibleRoots.size)} / ${numberText(entries.length)}`));
+          count.replaceChildren(document.createTextNode(`${t("显示条目")}  `), el("strong", `${numberText(visibleRoots.size)} / ${numberText(entries.length)}`));
         },
         onOpen: entry => void openManagementItem(state.project, entry),
         onPlan: withProject(async entry => (await import("./26-project-conversations.js")).planRequirementTree(entry, state.project)),
@@ -241,7 +241,7 @@ function renderList(state) {
     for (const entry of state.workView === "list" ? rows : []) {
       const row = action("", () => void openManagementItem(state.project, entry), "management-row"); row.dataset.workId = entry.id;
       const identity = el("div", null, "management-identity"), meta = el("small", null, "dim");
-      meta.append(el("span", entry.id, "management-id"), document.createTextNode(` · ${localizedDocStatus(entry.status)}`));
+      meta.append(el("span", entry.id, "management-id"), document.createTextNode(`  ${localizedDocStatus(entry.status)}`));
       identity.append(meta, el("strong", entry.title));
       row.append(identity, progressCells(entry), el("span", entry.priority || "—", "management-priority"));
       list.append(row);
@@ -281,11 +281,11 @@ function renderArchives(state, host) {
       state.archives.set(kind, resource);
     }
     const resource = state.archives.get(kind);
-    const button = action(`${t("已归档")} · ${archived}`, () => { void resource.load().catch(error => toastError(String(error))); });
+    const button = action(`${t("已归档")}  ${archived}`, () => { void resource.load().catch(error => toastError(String(error))); });
     button.disabled = resource.status === "loading"; host.append(button);
     if (resource.status === "ready") {
       const archive = el("section", null, "management-archive"); archive.append(el("h2", t("已归档")));
-      for (const entry of resource.data) archive.append(action(`${entry.id} · ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
+      for (const entry of resource.data) archive.append(action(`${entry.id}  ${entry.title}`, () => void openManagementItem(state.project, { ...entry, closed: true }), "management-archive-row"));
       host.append(archive);
     }
   }
@@ -373,7 +373,7 @@ function drawGraph(host, state) {
   const members = state.arch.crates?.members || [], edges = state.arch.crates?.edges || [];
   if (!members.length) { host.append(el("p", state.arch.error ? `${t("依赖读取失败")}: ${state.arch.error}` : t("此项目尚无可读取的模块依赖清单"), "management-empty")); return; }
   const tools = el("div", null, "management-map-tools");
-  tools.append(el("span", t(state.mapFocus ? "直接关系 · 左侧调用者，右侧依赖" : "依赖主干 · 点击模块查看全部直接关系"), "dim"));
+  tools.append(el("span", t(state.mapFocus ? "直接关系  左侧调用者，右侧依赖" : "依赖主干  点击模块查看全部直接关系"), "dim"));
   if (state.mapFocus) tools.append(action(t("返回主干"), () => { state.mapFocus = null; host.replaceChildren(); drawGraph(host, state); }));
   host.append(tools);
   const { layers, edges: reduced, cyclic } = dependencyLayers(members, edges);
@@ -435,7 +435,7 @@ function renderRuntime(host, state) {
   }
   host.append(metrics, el("p", `${summary.rounds} ${t("轮符合筛选；从最近最多 200 轮已完成记录和 200 次记忆观测中统计。未记录显示 —。")}`, "dim"));
   const outcomes = el("div", null, "runtime-outcomes");
-  for (const [name, count] of summary.outcomes) outcomes.append(el("span", `${name} · ${count}`));
+  for (const [name, count] of summary.outcomes) outcomes.append(el("span", `${name}  ${count}`));
   host.append(outcomes);
   if (summary.toolNames.length) {
     const tools = el("details", null, "runtime-tools"); tools.append(el("summary", t("工具使用分布")));

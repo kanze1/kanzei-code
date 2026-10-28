@@ -79,7 +79,7 @@ export function inboxFromProjects(projects, questions = []) {
   return rows;
 }
 export function receiptLabel(status) {
-  return ({ sending: "发送中", queued: "已排队 · 本轮后执行", resumed: "已恢复原对话", delivered: "已送达", reviewed: "已复核",
+  return ({ sending: "发送中", queued: "已排队  本轮后执行", resumed: "已恢复原对话", delivered: "已送达", reviewed: "已复核",
     failed: "发送失败", expired: "已失效", completed: "已处理" })[status] || status || "";
 }
 

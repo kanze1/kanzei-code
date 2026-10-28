@@ -142,7 +142,7 @@ export function themeVariablesFromTokens(tokens, theme) {
     titleColor: hex(tokens.muted),
     edgeLabelBackground: hex(tokens.canvas),
     fontFamily: tokens.font || undefined,
-    fontSize: "13px",
+    fontSize: "14px",
     // 扁平卡片:不要 neo 外观默认的投影与渐变描边(暗色下是一圈发灰的光晕)。
     dropShadow: "none",
     useGradient: false,
@@ -438,7 +438,7 @@ export function bindDiagram(svg, clicks = [], { root = null } = {}) {
     g.classList.add("is-link");
     g.setAttribute("tabindex", "0");
     g.setAttribute("role", "link");
-    g.setAttribute("aria-label", `${label} · ${hint}`);
+    g.setAttribute("aria-label", `${label}  ${hint}`);
     g.setAttribute("title", hint);
     const activate = () => {
       if (click.ref) host.openRef(click.ref);
@@ -577,7 +577,7 @@ export function mountDiagram(container, source, options = {}) {
   const stage = el("div", "kz-diagram-stage");
   canvas.append(stage);
   const status = el("p", "kz-diagram-status", t("正在绘图…"));
-  const hint = el("p", "kz-diagram-hint hidden", t("拖动查看全部 · Ctrl+滚轮缩放"));
+  const hint = el("p", "kz-diagram-hint hidden", t("拖动查看全部  Ctrl+滚轮缩放"));
   const errorBox = el("div", "kz-diagram-error hidden");
   errorBox.setAttribute("role", "alert");
   figure.append(canvas, status, hint, errorBox);

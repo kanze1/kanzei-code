@@ -155,7 +155,7 @@ import { restoreAgent } from "./27-agent-team.js";
 export function handoffSummaryTail(handoff) {
   const summary = typeof handoff?.summary === "string" ? handoff.summary.replace(/\s+/g, " ").trim() : "";
   if (!summary) return "";
-  return ` · ${summary.length > 80 ? `${summary.slice(0, 80)}…` : summary}`;
+  return `  ${summary.length > 80 ? `${summary.slice(0, 80)}…` : summary}`;
 }
 
 // ---------- 事件订阅 ----------
@@ -165,7 +165,7 @@ defer(() => {
     log(`[${p.stage}] ${p.detail}`);
     // 状态事件按 sessionId 先进入会话状态机,后台线路也要能在侧栏逐条显示阶段。
     if (p.sessionId) renderParallelTaskStatus(processItems);
-    if (running && !/权限|permission/i.test(p.stage || "")) setStatus(`${localizedStage(p.stage)} · ${p.detail}`, true);
+    if (running && !/权限|permission/i.test(p.stage || "")) setStatus(`${localizedStage(p.stage)}  ${p.detail}`, true);
   });
 });
 defer(() => {
@@ -185,7 +185,7 @@ defer(() => {
         void refreshEffectiveModel();
       }
     }
-    log(`${t("模型")} ${p.model} · agent ${p.agent} · profile ${p.profile}${p.contextLimit ? ` · ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
+    log(`${t("模型")} ${p.model}  agent ${p.agent}  profile ${p.profile}${p.contextLimit ? `  ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
   });
 });
 defer(() => {
@@ -208,7 +208,7 @@ defer(() => {
     setTurnPhase("waiting");
     const roundLabel = languageIsEnglish() ? `Round ${p.step}${p.maxSteps > 0 ? `/${p.maxSteps}` : ""}` : p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
     liveTurn(roundLabel);
-    if (running) setStatus(`${roundLabel} · ${t("等待模型")}`, true);
+    if (running) setStatus(`${roundLabel}  ${t("等待模型")}`, true);
   });
 });
 defer(() => {
@@ -220,7 +220,7 @@ defer(() => {
     setTurnPhase("generating");
     setCurrentReasoning(null);
     setCurrentReasoningHead(null);
-    if (running) setStatus("生成中" + ` · ${(outputChars / 1000).toFixed(1)}k`, true);
+    if (running) setStatus("生成中" + `  ${(outputChars / 1000).toFixed(1)}k`, true);
     appendAssistant(e.payload.text);
   });
 });
@@ -245,7 +245,7 @@ export function addCompactionEntry(summary) {
   title.className = "bg-title";
   title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
   title.setAttribute("aria-expanded", "true");
-  title.textContent = t("上下文压缩 · 点击查看纪要");
+  title.textContent = t("上下文压缩  点击查看纪要");
   // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
@@ -358,7 +358,7 @@ on("kz:tool-start", (e) => {
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
-  setStatus(`${t("工具执行中")} · ${e.payload.name}`, true);
+  setStatus(`${t("工具执行中")}  ${e.payload.name}`, true);
 });
 defer(() => {
   on("kz:hosted-tool", (e) => {
@@ -371,7 +371,7 @@ defer(() => {
     const queries = Array.isArray(action.queries)
       ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
       : [];
-    const query = String(action.query ?? queries.map((item) => item.q).join(" · ") ?? "");
+    const query = String(action.query ?? queries.map((item) => item.q).join("  ") ?? "");
     const input = queries.length ? { queries } : { query: query || t("搜索结果") };
     if (p.status === "running") {
       markFirstSignal();
@@ -383,13 +383,13 @@ defer(() => {
       chatToolStart(p.id, "web_search", summary, input);
       bgAdd(p.id, "web_search", summary, input, p.sessionId);
       liveSet("live-action", `⚙ web_search ${summary.slice(0, 60)}`);
-      setStatus(`${t("工具执行中")} · web_search`, true);
+      setStatus(`${t("工具执行中")}  web_search`, true);
       return;
     }
     if (p.status === "completed" && p.kind === "web_search_call") {
       const content = JSON.stringify({
         backend: "model_native",
-        query: query || input.queries?.map((item) => item.q).join(" · ") || t("搜索结果"),
+        query: query || input.queries?.map((item) => item.q).join("  ") || t("搜索结果"),
         results: [],
       });
       chatToolEnd(p.id, true, t("搜索结果"), null, "success", { content, input });
@@ -518,7 +518,7 @@ defer(() => {
     // 本轮 prompt 体积 ≈ 当前上下文占用。
     setCtxTokens(p.input + p.cacheRead + (p.cacheWrite || 0));
     renderTokens();
-    log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead}) · out ${p.output} · ctx ${(ctxTokens / 1000).toFixed(1)}k`);
+    log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead})  out ${p.output}  ctx ${(ctxTokens / 1000).toFixed(1)}k`);
   });
 });
 defer(() => {
@@ -637,7 +637,7 @@ defer(() => {
     setTurnPhase("waiting");
     addMessage("notice", `⟳ ${localizeDynamic("连接中断,正在重新请求本轮")}(${p.attempt}/${p.max})`);
     log(`${localizeDynamic("连接中断,重放本轮")} ${p.attempt}/${p.max},${localizeDynamic("等待")} ${p.delayMs}ms`, "warn");
-    setStatus(`${t("连接中断")} · ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
+    setStatus(`${t("连接中断")}  ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
   });
   on("kz:response-interrupted", () => {
     discardStreamResponse();
@@ -711,8 +711,8 @@ defer(() => {
     if (action.type === "RetryAfterFailure") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId));
       const secs = Math.round((action.delayMs ?? 15000) / 1000);
-      const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3} · ${secs}s`;
-      addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")} · ${label}`);
+      const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3}  ${secs}s`;
+      addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")}  ${label}`);
       log(`${t("鞭挞")}:${label}`);
       renderAutoStatus(label);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
@@ -758,12 +758,12 @@ defer(() => {
     // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
     addMessage(
       "notice turn-end",
-      `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")} · ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? ` · ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? ` · ${endReason}` : ""}`
+      `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}  ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? `  ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? `  ${endReason}` : ""}`
     );
     const receipt = renderTurnReceipt(p, activePane, appendToPane);
     if (receipt) activePane?.append(receipt);
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
-    const duration = elapsedSeconds === null ? "" : ` · ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
+    const duration = elapsedSeconds === null ? "" : `  ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
     log(`${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}: ${p.steps} ${t("轮")}${duration}`);
     stopElapsed();
     notifyRunState(endState, endReason || `${t("本轮结束")} ${p.steps} ${t("轮")}`);
@@ -774,7 +774,7 @@ defer(() => {
     // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
     refreshConversationList();
     // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
-    liveIdle(`${t("空闲")} · ${t("上轮")} ${p.steps} ${t("轮")} · ${endReason || t("本轮结束")}`);
+    liveIdle(`${t("空闲")}  ${t("上轮")} ${p.steps} ${t("轮")}  ${endReason || t("本轮结束")}`);
     refreshDocs();
     refreshGit();
     refreshPendingInputs();
@@ -795,8 +795,8 @@ defer(() => {
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("长期维护与开发")} ${autoRounds} · 2 ${t("秒后继续")}…`);
-      renderAutoStatus(`${t("长期维护与开发")} ${autoRounds} · ${t("等待下一轮")}`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("长期维护与开发")} ${autoRounds}  2 ${t("秒后继续")}…`);
+      renderAutoStatus(`${t("长期维护与开发")} ${autoRounds}  ${t("等待下一轮")}`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
       // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
@@ -804,10 +804,10 @@ defer(() => {
     } else if (action.type === "Nudge") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
-      log(`${t("鞭挞")}:${t("无动作 · 追加推进指令")}`);
-      renderAutoStatus(`${t("无动作 · 追加推进指令")} · ${autoRounds}`);
+      log(`${t("鞭挞")}:${t("无动作  追加推进指令")}`);
+      renderAutoStatus(`${t("无动作  追加推进指令")}  ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作 · 追加推进指令")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作  追加推进指令")} ${autoRounds}  2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
       // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
@@ -820,7 +820,7 @@ defer(() => {
       log(`${t("目标推进")}:${t("条件未达成,继续")}`);
       renderAutoStatus(`${t("目标推进")} ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds} · 2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds}  2 ${t("秒后继续")}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
@@ -1054,18 +1054,18 @@ export function updateAskQueueStatus() {
   const preview = $("ask-queue-preview");
   // 只有排着队才写「当前请求 1/N」;单条请求时这一行整个收起(原先常驻一句「当前无其他待处理请求」)。
   status.textContent = total > 1
-    ? `${t("当前请求")} 1/${total} · ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
+    ? `${t("当前请求")} 1/${total}  ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
     : "";
   status.classList.toggle("hidden", total <= 1);
   const lines = queue.slice(0, 4).map((item, index) => {
     const text = permissionResourceText(item.action, item.resource);
-    return `${index + 2}. ${item.agentId ? `${item.source || item.agentId} · ` : ""}${text}`;
+    return `${index + 2}. ${item.agentId ? `${item.source || item.agentId}  ` : ""}${text}`;
   });
   preview.textContent = lines.join("\n");
   preview.classList.toggle("hidden", lines.length === 0);
   // 收起后的小芯片带上待处理数量,别让人以为只有一条。
   const reopen = $("ask-reopen");
-  if (reopen) reopen.textContent = total > 1 ? `${t("重新打开询问")} · ${total}` : t("重新打开询问");
+  if (reopen) reopen.textContent = total > 1 ? `${t("重新打开询问")}  ${total}` : t("重新打开询问");
   // 侧栏项目行 / 会话行的「等你批准」圆点读 askQueues(12-workbench.js 监听):队列一变就通知,不等 3 秒轮询(UX-146)。
   document.dispatchEvent(new CustomEvent("kz:asks-changed"));
 }
@@ -1091,7 +1091,7 @@ export function pumpAsk() {
   $("ask-title").textContent = t("权限请求");
   const source = $("ask-source");
   source.classList.toggle("hidden", !askActive.agentId);
-  source.textContent = askActive.agentId ? `${t("子代理")} · ${askActive.source || askActive.agentId} ↗` : "";
+  source.textContent = askActive.agentId ? `${t("子代理")}  ${askActive.source || askActive.agentId} ↗` : "";
   source.onclick = async () => {
     if (!askActive?.agentId) return;
     const request = askActive;
@@ -1109,7 +1109,7 @@ export function pumpAsk() {
   $("ask-resource").replaceChildren(renderPermissionResource(askActive.action, askActive.resource));
   const remember = askActive.remember ?? askActive.resource;
   if (remember === askActive.resource) {
-    $("ask-remember").textContent = `${askActive.action} · ${t("同上")}`;
+    $("ask-remember").textContent = `${askActive.action}  ${t("同上")}`;
   } else {
     $("ask-remember").replaceChildren(document.createTextNode(`${askActive.action} `), renderPermissionResource(askActive.action, remember));
   }

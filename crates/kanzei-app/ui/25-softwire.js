@@ -93,7 +93,7 @@ function target(state = current) {
   const { line } = work(state);
   const bound = developmentState(state).lines.find(l => l.id === selected.processId);
   return { project: state.project, ...selected, module,
-    label: projectDisplayName(state.project) + " / " + (module === "tasks" && selected.child ? t("子任务") + " " + selected.child.description : lineLabel(bound?.label || "主对话") + (module !== "main" ? " · " + moduleLabel(module) : "")),
+    label: projectDisplayName(state.project) + " / " + (module === "tasks" && selected.child ? t("子任务") + " " + selected.child.description : lineLabel(bound?.label || "主对话") + (module !== "main" ? "  " + moduleLabel(module) : "")),
     running: Boolean(bound?.running || (!selected.processId && line?.running)),
     readOnly: selected.child ? t("这个子任务暂不支持直接续聊，可返回子任务管理后交给主对话处理。") : !state.summary && !state.detail ? t("正在读取对话…") : "",
     busy: sending.has(targetKey({ project: state.project, ...selected, module })),
@@ -144,7 +144,7 @@ function paint(force = false) {
   hideManagement();
   const state = current, selected = work(state), { item, unit, line } = selected;
   $("sw-title").textContent = projectDisplayName(state.project);
-  $("sw-requirement").textContent = item ? item.id + " · " + localizedStatusWord(item.status) : t("项目概览");
+  $("sw-requirement").textContent = item ? item.id + "  " + localizedStatusWord(item.status) : t("项目概览");
   const batches = item?.batches;
   $("sw-batch").textContent = unit ? unit.unit_id + "  ›" : batches?.total ? fillTemplate(t("批次 {done} / {total}"), { done: batches.done, total: batches.total }) + "  ›" : t("当前批次") + "  ›";
   const deliveries = deliveryState(state.project);
@@ -300,7 +300,7 @@ function renderModule() {
     const trace = traceFor(state);
     if (trace.error) host.append(node("p", t("工具记录读取失败：") + trace.error, "sw-error"), button(t("重试读取工具记录"), () => void loadTrace(state, true)));
     if (!toolsFor(state).length && !trace.error) host.append(node("p", trace.loaded ? t("记录中未见调用") : t("记录未加载，正在读取…"), "sw-empty"));
-    for (const tool of toolsFor(state).slice(-30).reverse()) host.append(button((tool.pending ? "◌ " : tool.ok === false ? "! " : "✓ ") + tool.name + " · " + (tool.summary || tool.id), () => {
+    for (const tool of toolsFor(state).slice(-30).reverse()) host.append(button((tool.pending ? "◌ " : tool.ok === false ? "! " : "✓ ") + tool.name + "  " + (tool.summary || tool.id), () => {
       showEvidence(tool.name, JSON.stringify({ input: tool.input ?? tool.summary ?? t("历史未保存完整参数"), result: tool.content ?? tool.preview ?? t("尚无结果"), code: tool.code, duration_ms: tool.durationMs }, null, 2), t("调用") + " " + tool.id);
     }, "sw-evidence-link"));
   } else if (module === "tasks") {
@@ -308,7 +308,7 @@ function renderModule() {
     if (!tasks.length) host.append(node("p", t("这个对话还没有子任务"), "sw-empty"));
     // 子任务状态是后端枚举(running/starting…),列表里不再中英混排(UX-159)。
     const taskStates = { running: "执行中", starting: "启动中", stopping: "停止中", waiting: "待批准", completed: "完成", done: "完成", failed: "失败", cancelled: "已取消", stopped: "已停止" };
-    for (const task of tasks) host.append(button(task.description + " · " + t(taskStates[task.state] || task.state), () => {
+    for (const task of tasks) host.append(button(task.description + "  " + t(taskStates[task.state] || task.state), () => {
       bindSelection(state, "tasks", { child: task, objectId: task.id }); composer.mount($("sw-dock-slot"), target(state));
       detailHeading(host, task.description, () => { state.selection.child = null; paint(true); });
       if (task.historical) host.append(node("pre", JSON.stringify(task.historical, null, 2), "sw-evidence"));
@@ -328,7 +328,7 @@ function renderDeliveries(host, state) {
   const data = deliveryState(state.project), section = node("section", null, "sw-deliveries");
   section.setAttribute("aria-label", t("交付文件"));
   const heading = node("div", null, "sw-deliveries-heading");
-  heading.append(node("h3", t("交付文件") + (data.rows.length ? " · " + data.rows.length : "")),
+  heading.append(node("h3", t("交付文件") + (data.rows.length ? "  " + data.rows.length : "")),
     button("↻", () => void loadDeliveredFiles(state.project, { force: true }), "sw-deliveries-refresh"));
   heading.lastElementChild.setAttribute("aria-label", t("刷新交付文件"));
   section.append(heading);
@@ -338,7 +338,7 @@ function renderDeliveries(host, state) {
   for (const row of data.rows) {
     const card = renderFileCard(row, { projectDir: state.project });
     const line = developmentState(state).lines.find(line => line.session_id === row.session_id);
-    const origin = node("span", [line?.label, row.created_at ? new Date(row.created_at).toLocaleString() : ""].filter(Boolean).join(" · "), "file-card-origin");
+    const origin = node("span", [line?.label, row.created_at ? new Date(row.created_at).toLocaleString() : ""].filter(Boolean).join("  "), "file-card-origin");
     card.append(origin); grid.append(card);
   }
   section.append(grid); host.append(section);
@@ -351,8 +351,8 @@ function renderBatchEvidence(host, state) {
   if (!data.rows.length && !data.error) section.append(node("p", data.loaded ? t("尚无已登记批次记录") : t("正在读取批次记录…"), "sw-evidence-meta"));
   for (const row of data.rows) {
     const label = row.kind === "git_checkpoint" ? t("Git 提交已记录") : t("交付记录已登记");
-    section.append(button([label, row.entry_id, row.commit?.slice(0, 12), row.summary || row.target].filter(Boolean).join(" · "),
-      () => showEvidence(label, readableText(row, "", languageIsEnglish()), [row.created_at ? new Date(row.created_at).toLocaleString() : "", row.run_id].filter(Boolean).join(" · "), row.id), "sw-evidence-link"));
+    section.append(button([label, row.entry_id, row.commit?.slice(0, 12), row.summary || row.target].filter(Boolean).join("  "),
+      () => showEvidence(label, readableText(row, "", languageIsEnglish()), [row.created_at ? new Date(row.created_at).toLocaleString() : "", row.run_id].filter(Boolean).join("  "), row.id), "sw-evidence-link"));
   }
   host.append(section);
 }

@@ -45,7 +45,7 @@ export function openWorkPlan({ project, unit, units }) {
   const dialog = el("dialog", "", "k-surface k-dialog work-plan-dialog");
   dialog.setAttribute("aria-label", t("裂变需求"));
   const form = el("form", "", "work-plan-form");
-  const parentInfo = el("p", `${unit.unit_id} · ${unit.objective}`, "dim");
+  const parentInfo = el("p", `${unit.unit_id}  ${unit.objective}`, "dim");
   form.append(el("h3", t("裂变需求")), parentInfo);
   const field = (parent, title, tag = "input", required = true) => {
     const label = el("label", t(title)), input = document.createElement(tag);
@@ -138,7 +138,7 @@ export function openWorkPlan({ project, unit, units }) {
       const current = snapshot.work_units.find(node => node.unit_id === unit.unit_id);
       if (!current) throw new Error(t("父节点已不在活动工作图中"));
       unit = current; units = snapshot.work_units;
-      parentInfo.textContent = `${unit.unit_id} · ${unit.objective}`;
+      parentInfo.textContent = `${unit.unit_id}  ${unit.objective}`;
       for (const row of rows) row.covers = renderCoverage(row.coverage, new Set(row.covers.filter(cover => cover.input.checked).map(cover => cover.criterion)));
       refreshDependencies();
       error.textContent = t("父节点已更新，请核对覆盖关系后再提交");

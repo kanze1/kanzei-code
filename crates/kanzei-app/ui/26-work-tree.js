@@ -73,7 +73,7 @@ function workUnitCard(unit, readiness, nodes, expanded) {
     for (const criterion of acceptance) {
       const refs = [...new Set(evidence.filter(proof => proof.criterion === criterion).flatMap(proof => proof.evidence_refs || []))];
       meta(outcome, refs.length ? "已记录证据" : "待验证", criterion);
-      if (refs.length) meta(outcome, "证据引用", refs.join(" · "));
+      if (refs.length) meta(outcome, "证据引用", refs.join("  "));
     }
     for (const criterion of readiness?.uncovered || []) meta(outcome, "尚未覆盖", criterion);
     meta(outcome, "验证方法", (unit.verification || []).join("；"));
@@ -81,8 +81,8 @@ function workUnitCard(unit, readiness, nodes, expanded) {
   if (node.source_refs?.length || checkpoint.decisions?.length || checkpoint.retrieval_refs?.length) {
     const basis = section("basis", "研究与依据");
     meta(basis, "决策记录", (checkpoint.decisions || []).join("；"));
-    meta(basis, "来源", (node.source_refs || []).join(" · "));
-    meta(basis, "记忆来源", (checkpoint.retrieval_refs || []).join(" · "));
+    meta(basis, "来源", (node.source_refs || []).join("  "));
+    meta(basis, "记忆来源", (checkpoint.retrieval_refs || []).join("  "));
   }
   const record = section("record", "节点记录");
   meta(record, "节点编号", unit.unit_id);
@@ -127,12 +127,12 @@ export function workTreeItems(units, readiness = {}, options = {}) {
     inspector.append(workUnitCard(unit, readiness[unit.unit_id], nodes, detailOpen));
     for (const dependency of unit.dependencies || []) {
       if (!nodes.has(dependency)) continue;
-      const link = text("button", "ghost work-node-reference", `${t("查看依赖")} · ${nodes.get(dependency).objective}`);
+      const link = text("button", "ghost work-node-reference", `${t("查看依赖")}  ${nodes.get(dependency).objective}`);
       link.type = "button"; link.onclick = () => reveal(dependency); inspector.append(link);
     }
     for (const successor of unit.review?.resolution?.decision?.replacements || []) {
       if (!nodes.has(successor)) continue;
-      const link = text("button", "ghost work-node-reference", `${t("后继工作")} · ${nodes.get(successor).objective}`);
+      const link = text("button", "ghost work-node-reference", `${t("后继工作")}  ${nodes.get(successor).objective}`);
       link.type = "button"; link.onclick = () => reveal(successor); inspector.append(link);
     }
     },

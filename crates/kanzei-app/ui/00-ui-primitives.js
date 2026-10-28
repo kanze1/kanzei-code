@@ -45,6 +45,22 @@ export function motionCount(el, text) {
 export function isImeComposing(event) {
   return Boolean(event) && (event.isComposing === true || event.keyCode === 229);
 }
+// Some WebView2/IME combinations deliver a non-composing Enter immediately
+// after compositionend. Consume that companion once, then allow the next key.
+export function createImeSubmitGuard(input) {
+  const companionWindowMs = 500;
+  let composing = false, endedAt = -Infinity;
+  input.addEventListener("compositionstart", () => { composing = true; endedAt = -Infinity; });
+  input.addEventListener("compositionend", () => { composing = false; endedAt = performance.now(); });
+  return event => {
+    if (composing || isImeComposing(event)) return true;
+    if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return false;
+    if (performance.now() - endedAt >= companionWindowMs) return false;
+    endedAt = -Infinity;
+    event.preventDefault();
+    return true;
+  };
+}
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // localStorage 里的 JSON 可能被手改坏;读不出来就当没有,绝不让偏好读取抛异常
 // 把整个初始化带崩。

@@ -11,7 +11,7 @@
     <aside id="activitybar">
       <!-- 侧栏开合常驻在 rail 上:窄视口下侧栏是悬浮层会盖住顶栏里的开关,
            rail 永远在悬浮层左侧、永远可点,这里才是可靠的开关位置。 -->
-      <button type="button" id="rail-sidebar-toggle" class="activity-item rail-toggle" title="打开/收起侧栏" data-i18n-title="打开/收起侧栏" aria-label="打开或收起侧栏" data-i18n-aria-label="打开或收起侧栏" aria-expanded="true">
+      <button type="button" id="rail-sidebar-toggle" aria-controls="sidebar" class="activity-item rail-toggle" title="打开/收起侧栏" data-i18n-title="打开/收起侧栏" aria-label="打开或收起侧栏" data-i18n-aria-label="打开或收起侧栏" aria-expanded="true">
         <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
       </button>
       <button type="button" id="skills-nav" class="activity-item" data-view="skills" title="Skills" aria-label="Skills" aria-controls="view-skills">
@@ -235,7 +235,7 @@
           </div>
           <div id="change-bar-files" class="change-bar-files hidden"></div>
           <div id="attachments" class="attachments hidden"></div>
-          <textarea id="prompt" rows="2" placeholder="想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 · Shift+Enter 换行）" data-i18n-placeholder="想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 · Shift+Enter 换行）"></textarea>
+          <textarea id="prompt" rows="2" placeholder="想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 Shift+Enter 换行）" data-i18n-placeholder="想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 Shift+Enter 换行）"></textarea>
           <div id="composer-links" class="composer-links hidden" aria-label="已识别链接" data-i18n-aria-label="已识别链接"></div>
           <div id="continue-panel" class="hidden">
             <label for="continue-prompt" data-i18n-key="推进指令">推进指令</label>
@@ -254,7 +254,7 @@
             <button type="button" id="voice-settings-toggle" class="ghost mini voice-settings" data-kz-menu="voice-settings-panel" data-i18n-key="语音设置">语音设置</button><div id="voice-settings-panel" class="k-surface k-popover voice-settings-panel hidden" popover="manual" data-placement="top-start" role="group" aria-label="语音设置" data-i18n-aria-label="语音设置"><div class="voice-settings-fields"><label><span data-i18n-key="本机服务端口">本机服务端口</span><input id="voice-port" type="number" min="1024" max="65535" value="7388" /></label><label><span data-i18n-key="识别语言">识别语言</span><select id="voice-language"><option value="auto" data-i18n-key="自动识别">自动识别</option><option value="zh">简体中文</option><option value="en">English</option><option value="ja" data-i18n-key="日语">日语</option></select></label><button id="voice-check" type="button" class="ghost mini" data-i18n-key="保存并启动">保存并启动</button></div><p id="voice-check-result" class="voice-check-result" role="status" aria-live="polite"></p></div>
           </section>
           <!-- UI2-0926 #11 工具行(单行,窄时右段整体换到第二行靠右):控件全是 .kz-ctl(28px 静默胶囊),发送 32 圆键。
-               左:附件 · 模式 · 鞭挞组 · 自动放行;右:模型 · 思考 · 更多 · 继续(仅空闲)|排队(仅运行)· 语音 · 停止 · 发送(自动放行在左段、子代理在上方上下文带里)。
+               左:附件  模式  鞭挞组  自动放行;右:模型  思考  更多  继续(仅空闲)|排队(仅运行)  语音  停止  发送(自动放行在左段、子代理在上方上下文带里)。
                自动推进控制常驻只放**状态**(开关 / 轮次与阶段 = 设置入口 / 停机原因),设置全收进弹出菜单。 -->
           <div id="composer-bar">
             <div id="composer-left" class="composer-left">
@@ -925,7 +925,7 @@
               <summary data-i18n-key="模块职责与经验">模块职责与经验</summary>
               <div id="files-knowledge"></div>
             </details>
-            <!-- UI2-0926 #6 文件编辑:头部 = 未保存标记 · 路径 · 编码/换行 · 同步提示 · [放弃修改][保存];
+            <!-- UI2-0926 #6 文件编辑:头部 = 未保存标记  路径  编码/换行  同步提示  [放弃修改][保存];
                  下面依次是只读原因条、冲突横幅(比较 / 用磁盘版本 / 覆盖磁盘版本)、比较视图的说明条。 -->
             <div id="files-preview-head" class="hidden">
               <span id="files-dirty" class="files-dirty hidden" role="status"><span class="files-dirty-dot" aria-hidden="true"></span><span data-i18n-key="未保存">未保存</span></span>
@@ -960,7 +960,7 @@
             <!-- UX-151:焦点在可编辑的编辑器里时提示 Tab 的出口。浮在编辑器右下角,不参与布局流、不接鼠标:
                  它随焦点出现/消失,放在头部会让头部换行、按钮上移,第一次点「保存」/「放弃修改」就落空。 -->
             <span id="files-tab-hint" class="files-tab-hint hidden" role="note" data-i18n-key="编辑中 Tab 是缩进;Ctrl+M 切换为用 Tab 离开编辑器">编辑中 Tab 是缩进;Ctrl+M 切换为用 Tab 离开编辑器</span>
-            <div id="files-placeholder" class="dim" data-i18n-key="选择左侧文件查看内容 · 目录行显示聚合度量 · 「用途说明」用 fast 模型生成一句话说明">选择左侧文件查看内容 · 目录行显示聚合度量 · 「用途说明」用 fast 模型生成一句话说明</div>
+            <div id="files-placeholder" class="dim" data-i18n-key="选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明">选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明</div>
           </div>
         </div>
       </div>
@@ -1536,7 +1536,7 @@
             <span id="runtime-context"></span>
           </div>
           <div class="runtime-meta">
-            <span id="status-git" title="git 分支 · 未提交改动" data-i18n-title="git 分支 · 未提交改动"></span>
+            <span id="status-git" title="git 分支 未提交改动" data-i18n-title="git 分支 未提交改动"></span>
             <span id="status-version"></span>
           </div>
         </div>
@@ -1703,7 +1703,7 @@
     <div class="palette-box">
       <input id="palette-input" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="跳转到视图、项目、对话，或执行动作" data-i18n-placeholder="跳转到视图、项目、对话，或执行动作" aria-label="命令面板检索" data-i18n-aria-label="命令面板检索" />
       <div id="palette-list" class="palette-list" tabindex="-1" role="listbox" aria-label="命令面板候选" data-i18n-aria-label="命令面板候选"></div>
-      <div class="palette-foot"><span data-i18n-key="↑↓ 选择 · Enter 执行 · Esc 关闭">↑↓ 选择 · Enter 执行 · Esc 关闭</span></div>
+      <div class="palette-foot"><span data-i18n-key="↑↓ 选择 Enter 执行 Esc 关闭">↑↓ 选择 Enter 执行 Esc 关闭</span></div>
     </div>
   </dialog>
 

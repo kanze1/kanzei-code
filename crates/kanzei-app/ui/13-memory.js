@@ -574,9 +574,9 @@ export function renderContextBill(data) {
   const note = document.createElement("span");
   note.className = "dim";
   const at = Number(data?.episodes?.[0]?.at);
-  note.textContent = fillTemplate(t("主对话最近一轮 · 共 {n} 字符{time}"), {
+  note.textContent = fillTemplate(t("主对话最近一轮  共 {n} 字符{time}"), {
     n: metricsCount(total),
-    time: Number.isFinite(at) && at > 0 ? ` · ${metricsTime(at)}` : "",
+    time: Number.isFinite(at) && at > 0 ? `  ${metricsTime(at)}` : "",
   });
   head.append(title, note);
   box.appendChild(head);
@@ -593,7 +593,7 @@ export function renderContextBill(data) {
     text.textContent = label;
     const size = document.createElement("span");
     size.className = "metrics-bill-size dim";
-    size.textContent = `${metricsCount(chars)} · ${percent}%`;
+    size.textContent = `${metricsCount(chars)}  ${percent}%`;
     const bar = document.createElement("span");
     bar.className = "metrics-bill-bar";
     bar.setAttribute("aria-hidden", "true");
@@ -608,7 +608,7 @@ export function renderContextBill(data) {
     const more = document.createElement("details");
     more.className = "metrics-bill-more";
     const summary = document.createElement("summary");
-    summary.textContent = fillTemplate(t("其余 {n} 项 · {chars} 字符"), { n: rest.length, chars: metricsCount(rest.reduce((sum, [, chars]) => sum + chars, 0)) });
+    summary.textContent = fillTemplate(t("其余 {n} 项  {chars} 字符"), { n: rest.length, chars: metricsCount(rest.reduce((sum, [, chars]) => sum + chars, 0)) });
     more.appendChild(summary);
     for (const [name, chars] of rest) addRow(more, name, chars);
     box.appendChild(more);
@@ -649,7 +649,7 @@ function metricsBars(tile, chronological) {
     if (value == null) bar.classList.add("is-empty");
     else if (value === 0 || max === 0) bar.classList.add("is-zero");
     else bar.style.setProperty("height", `${Math.max(10, Math.round((value / max) * 100))}%`);
-    bar.title = `${metricsTime(round.at)} · ${value == null ? t("该轮早于度量落地,无画像") : tile.show(value)}`;
+    bar.title = `${metricsTime(round.at)}  ${value == null ? t("该轮早于度量落地,无画像") : tile.show(value)}`;
     host.appendChild(bar);
   });
   return host;
@@ -723,8 +723,8 @@ function metricsRoundRow(round) {
   totals.textContent = [
     outcome,
     fillTemplate(t("{n} 步"), { n: round.steps }),
-    fillTemplate(t("输入 {input} · 输出 {output} token"), { input: metricsCount(metricsNum(round.inputTokens)), output: metricsCount(metricsNum(round.outputTokens)) }),
-  ].join(" · ");
+    fillTemplate(t("输入 {input}  输出 {output} token"), { input: metricsCount(metricsNum(round.inputTokens)), output: metricsCount(metricsNum(round.outputTokens)) }),
+  ].join("  ");
   head.append(when, line, totals);
   const prompt = document.createElement("div");
   prompt.className = "metrics-round-prompt dim";
@@ -740,7 +740,7 @@ function metricsRoundRow(round) {
       fillTemplate(t("子代理 {n} 次"), { n: m.subagent_calls ?? 0 }),
       fillTemplate(t("失败 {failed}/{total} 次"), { failed: m.failed_calls ?? 0, total: m.total_calls ?? 0 }),
       fillTemplate(t("上下文 {n} 字"), { n: contextTotal }),
-    ].filter(Boolean).join(" · ")
+    ].filter(Boolean).join("  ")
     : t("该轮早于度量落地,无画像");
   const tools = document.createElement("div");
   tools.className = "metrics-round-tools dim";
@@ -837,11 +837,11 @@ export function renderIncidentMetrics(data, targetId) {
   const overall = data?.overall ?? {};
   const summary = document.createElement("div");
   summary.className = "dim";
-  summary.textContent = `${t("总事件")} ${Number(data?.total_occurrences ?? 0)} · ${t("总体逃逸率")} ${(Number(overall.escaped_rate ?? 0) * 100).toFixed(0)}% · ${t("晋升事件")} ${Number(data?.promotion_events ?? 0)}`;
+  summary.textContent = `${t("总事件")} ${Number(data?.total_occurrences ?? 0)}  ${t("总体逃逸率")} ${(Number(overall.escaped_rate ?? 0) * 100).toFixed(0)}%  ${t("晋升事件")} ${Number(data?.promotion_events ?? 0)}`;
   const replay = data?.historical_replay ?? {};
   const replayNote = document.createElement("div");
   replayNote.className = "dim";
-  replayNote.textContent = `${t("历史样本回放")} ${Number(replay.consistent_count ?? 0)}/${Number(replay.sample_count ?? 0)} ${replay.consistent ? t("一致") : t("不一致")} · ${t("瞬时失手排除")} ${Number(replay.execution_incidents_excluded ?? 0)}`;
+  replayNote.textContent = `${t("历史样本回放")} ${Number(replay.consistent_count ?? 0)}/${Number(replay.sample_count ?? 0)} ${replay.consistent ? t("一致") : t("不一致")}  ${t("瞬时失手排除")} ${Number(replay.execution_incidents_excluded ?? 0)}`;
   box.append(heading, table, summary, replayNote);
 }
 
@@ -959,7 +959,7 @@ export function renderMemoryCandidates(list) {
   if (!box) return;
   box.innerHTML = "";
   const items = Array.isArray(list) ? list : [];
-  if (count) count.textContent = items.length ? `· ${items.length}` : "";
+  if (count) count.textContent = items.length ? `  ${items.length}` : "";
   if (!items.length) {
     box.innerHTML = `<p class="dim">${t("暂无待整理条目")}</p>`;
     return;
@@ -1048,7 +1048,7 @@ export function renderMemoryValueFlags(data) {
   const recur = Array.isArray(data?.frequent) ? data.frequent : [];
   const staleArchived = Number(data?.stale_archived) || 0;
   const total = zero.length + recur.length;
-  count.textContent = total ? `· ${total}` : "";
+  count.textContent = total ? `  ${total}` : "";
   if (staleArchived > 0) {
     const p = document.createElement("p");
     p.className = "memory-flags-head stale-archived";
@@ -1074,7 +1074,7 @@ export function renderMemoryValueFlags(data) {
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(displayMemoryTitle(item.title))}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled} · ${t("注入")} ${item.injected} · ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
+        `<span class="dim">${t("召回")} ${item.recalled}  ${t("注入")} ${item.injected}  ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -1091,7 +1091,7 @@ export function renderMemoryValueFlags(data) {
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(displayMemoryTitle(item.title))}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled} · ${t("注入")} ${item.injected} · ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
+        `<span class="dim">${t("召回")} ${item.recalled}  ${t("注入")} ${item.injected}  ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -1150,7 +1150,7 @@ export function renderMemoryRecalls(data) {
   if (!box) return;
   box.innerHTML = "";
   const rounds = data?.rounds ?? [];
-  rate.textContent = rounds.length ? `· ${t("最近")} ${rounds.length} ${t("次检索")}` : "";
+  rate.textContent = rounds.length ? `  ${t("最近")} ${rounds.length} ${t("次检索")}` : "";
   if (!rounds.length) {
     box.innerHTML = `<p class="dim">${t("暂无检索记录。下一次运行或搜索后可在这里查看。")}</p>`;
     return;
@@ -1163,13 +1163,13 @@ export function renderMemoryRecalls(data) {
     const head = document.createElement("summary");
     head.className = "memory-recall-head";
     const hits = round.hits ?? [];
-    head.textContent = `${new Date(round.at).toLocaleString()} · ${triggers[round.trigger_type] || round.trigger_type} · ${hits.length} ${t("条命中")}`;
+    head.textContent = `${new Date(round.at).toLocaleString()}  ${triggers[round.trigger_type] || round.trigger_type}  ${hits.length} ${t("条命中")}`;
     const prompt = document.createElement("div");
     prompt.className = "memory-recall-prompt dim";
-    prompt.textContent = `${round.prompt_head || round.query || t("未知")} · ${t("运行")} ${round.run_id || t("未知")} · ${t("轮次")} ${round.episode_id ?? t("未关联")}`;
+    prompt.textContent = `${round.prompt_head || round.query || t("未知")}  ${t("运行")} ${round.run_id || t("未知")}  ${t("轮次")} ${round.episode_id ?? t("未关联")}`;
     const query = document.createElement("p");
     query.className = "dim";
-    query.textContent = `${t("检索词")}: ${round.query || t("未知")} · ${round.policy_action} · ${round.total_ms} ms`;
+    query.textContent = `${t("检索词")}: ${round.query || t("未知")}  ${round.policy_action}  ${round.total_ms} ms`;
     item.append(head, prompt, query);
     if (!hits.length) {
       const empty = document.createElement("p");
@@ -1180,7 +1180,7 @@ export function renderMemoryRecalls(data) {
     for (const hit of hits) {
       const row = document.createElement("div");
       row.className = `memory-recall-hit${hit.read === true ? " read" : ""}`;
-      const state = !hit.injected ? t("未注入") : hit.read === true ? t("已读取正文") : hit.read === false ? t("已注入 · 尚未记录正文读取") : t("已注入 · 历史读取未知");
+      const state = !hit.injected ? t("未注入") : hit.read === true ? t("已读取正文") : hit.read === false ? t("已注入  尚未记录正文读取") : t("已注入  历史读取未知");
       row.innerHTML =
         `<span class="memory-recall-id">${escapeHtml(hit.id)}</span>` +
         `<span class="memory-recall-title">${escapeHtml(displayMemoryTitle(hit.title))}</span>` +
@@ -1284,7 +1284,7 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
   const scrollTop = keepScroll ? container.scrollTop : 0;
   container.innerHTML = "";
   count.textContent = `${entries.length} ${t("条")}`;
-  state.textContent = search ? `${t("搜索")}「${memorySearchQuery}」` : archivedView ? t("已归档 · 只读，可恢复") : "";
+  state.textContent = search ? `${t("搜索")}「${memorySearchQuery}」` : archivedView ? t("已归档  只读，可恢复") : "";
   if (!entries.length) {
     container.innerHTML = `<p class="dim">${t(search ? "没有命中的记忆" : archivedView ? "没有已归档的记忆" : "该筛选暂无记忆")}</p>`;
     return;
@@ -1301,13 +1301,13 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
     row.title = displayMemoryTitle(entry.title) || entry.id;
     row.classList.toggle("selected", entry.id === memoryCurrentEntryId && row.dataset.scope === memorySelection.scope);
     const lastHit = entry.last_hit_at ? `${t("最近命中")} ${new Date(entry.last_hit_at).toLocaleDateString()}` : t("从未命中");
-    const recallMeta = (entry.recalled ?? 0) > 0 ? `${t("召回")} ${entry.recalled} · ${t("注入")} ${entry.injected ?? 0} · ${t("正文读取")} ${entry.read_observed ? entry.read : t("未知")}` : "";
+    const recallMeta = (entry.recalled ?? 0) > 0 ? `${t("召回")} ${entry.recalled}  ${t("注入")} ${entry.injected ?? 0}  ${t("正文读取")} ${entry.read_observed ? entry.read : t("未知")}` : "";
     const snippet = stripMemoryFingerprint(search ? entry.snippet : entry.description);
     // 「启用」是常态,不给它画徽标;候选/试运行/已归档才值得在行上标出来。
     const badge = entry.status && entry.status !== "active" ? `<span class="memory-status-badge ${escapeHtml(entry.status)}">${escapeHtml(memoryWord(entry.status))}</span>` : "";
-    const flags = `${dormant ? `<em class="memory-dormant-flag">${t("长期未用，已降级")}</em> · ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em> · ` : ""}`;
+    const flags = `${dormant ? `<em class="memory-dormant-flag">${t("长期未用，已降级")}</em>  ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em>  ` : ""}`;
     const scopeWord = t(MEMORY_SCOPE_WORDS[entry.scope || memoryManagerFilters.scope] ?? "项目记忆");
-    const metaText = [`${scopeWord}/${memoryWord(entry.category)}`, `${t("命中")} ${entry.hits ?? 0}`, recallMeta, lastHit, entry.updated || ""].filter(Boolean).join(" · ");
+    const metaText = [`${scopeWord}/${memoryWord(entry.category)}`, `${t("命中")} ${entry.hits ?? 0}`, recallMeta, lastHit, entry.updated || ""].filter(Boolean).join("  ");
     row.innerHTML =
       `<span class="memory-row-top"><span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(displayMemoryTitle(entry.title) || entry.id)}</span>${badge}</span>` +
       `<span class="dim memory-row-description">${escapeHtml(snippet)}</span>` +
@@ -1406,20 +1406,20 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   // 来源与引用里的条目编号/路径做成可点 chip(R-/D- 跳条目,路径开文件)。
   const scopeWord = (entry.scope || scope) === "global" ? t("全局记忆") : t("项目记忆");
   meta.replaceChildren(
-    document.createTextNode(`${entry.id} · ${scopeWord} / ${memoryWord(entry.category)} · ${memoryWord(entry.status)} · ${t("来源")} `),
+    document.createTextNode(`${entry.id}  ${scopeWord} / ${memoryWord(entry.category)}  ${memoryWord(entry.status)}  ${t("来源")} `),
     richText(memorySourceText(entry.source) || t("未知")),
   );
-  if (entry.refs && entry.refs.length) meta.append(document.createTextNode(` · ${t("引用来源")} `), richText(entry.refs.join(" ")));
+  if (entry.refs && entry.refs.length) meta.append(document.createTextNode(`  ${t("引用来源")} `), richText(entry.refs.join(" ")));
   if (readOnly) {
     const badge = document.createElement("span");
     badge.className = "memory-readonly-badge";
     badge.textContent = t("已归档(只读)");
-    meta.append(document.createTextNode(" · "), badge);
+    meta.append(document.createTextNode("  "), badge);
   }
   const profile = document.createElement("p");
   profile.className = "dim memory-profile";
   const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : t("从未命中");
-  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0} · ${t("最近命中")} ${lastHit} · ${t("更新")} ${entry.updated || t("未知")}`;
+  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0}  ${t("最近命中")} ${lastHit}  ${t("更新")} ${entry.updated || t("未知")}`;
   const field = (labelText, control, tag = "label") => {
     const wrapper = document.createElement(tag);
     wrapper.className = "memory-detail-field";
@@ -1565,7 +1565,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const feedbackLabels = { adopted: t("已采用"), corrected: t("不准确"), cleared: t("撤销评价") };
   const renderFeedback = (usage = {}) => {
     const current = usage.feedback_revision === entry.revision ? feedbackLabels[usage.last_feedback] : "";
-    feedbackStatus.textContent = `${t("被检索考虑")} ${usage.opportunities ?? 0} · ${t("采用反馈")} ${usage.adopted ?? 0} · ${t("纠正反馈")} ${usage.corrected ?? 0}${current ? ` · ${current}` : ""}`;
+    feedbackStatus.textContent = `${t("被检索考虑")} ${usage.opportunities ?? 0}  ${t("采用反馈")} ${usage.adopted ?? 0}  ${t("纠正反馈")} ${usage.corrected ?? 0}${current ? `  ${current}` : ""}`;
   };
   renderFeedback(entry.usage);
   for (const [kind, label] of Object.entries(feedbackLabels)) {

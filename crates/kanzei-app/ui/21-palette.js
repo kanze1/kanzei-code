@@ -103,7 +103,7 @@ export function collectPaletteEntries() {
   if (document.body.dataset.space !== "research" && currentProject) {
     const conventions = $("documents-conventions-open");
     const conventionsState = conventions?.dataset.state;
-    push(t("动作"), t("项目规范…"), conventionsState === "proposal" ? t("有新建议稿 · 点击审阅") : conventionsState === "missing" ? t("未创建 · 可让 Agent 生成") : "", () => conventions?.click());
+    push(t("动作"), t("项目规范…"), conventionsState === "proposal" ? t("有新建议稿  点击审阅") : conventionsState === "missing" ? t("未创建  可让 Agent 生成") : "", () => conventions?.click());
   }
   push(t("动作"), t("聚焦输入"), "Ctrl/Cmd+K", () => promptBox.focus());
   return entries;

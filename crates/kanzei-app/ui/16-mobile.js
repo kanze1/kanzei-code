@@ -33,7 +33,7 @@ export async function refreshMobileDevices() {
     for (const device of devices) {
       const row = document.createElement("span");
       row.className = "mobile-device-row";
-      row.textContent = `${device.device_id} · ${device.name} · `;
+      row.textContent = `${device.device_id}  ${device.name}  `;
       const revoke = document.createElement("button");
       revoke.className = "ghost danger-text";
       revoke.textContent = t("撤销");
@@ -62,7 +62,7 @@ defer(() => {
     try {
       const info = await invoke("mobile_service_start", { projectDir: currentProject, port: null, lan, notifications: !!$("mobile-notifications")?.checked });
       const lanLabel = lan ? "LAN" : t("回环");
-      $("mobile-service-status").textContent = `${lanLabel} · ${info.address} · token ${info.token}`;
+      $("mobile-service-status").textContent = `${lanLabel}  ${info.address}  token ${info.token}`;
       $("mobile-service-start").classList.add("hidden");
       $("mobile-service-stop").classList.remove("hidden");
       $("mobile-pair-regenerate").disabled = false;
@@ -77,7 +77,7 @@ defer(() => {
   $("mobile-pair-regenerate").addEventListener("click", async () => {
     try {
       const newCode = await invoke("mobile_pair_code_regenerate");
-      $("mobile-service-status").textContent = `${$("mobile-service-status").textContent.split(" · token ")[0]} · token ${newCode}`;
+      $("mobile-service-status").textContent = `${$("mobile-service-status").textContent.split("  token ")[0]}  token ${newCode}`;
       toast(`${t("新配对码")}: ${newCode}`);
     } catch (error) {
       toastError(`${t("重新生成配对码失败")}:${error}`);

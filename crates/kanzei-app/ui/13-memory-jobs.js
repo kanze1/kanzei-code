@@ -25,8 +25,8 @@ function render() {
   const labels = { running: t("整理中…"), cancelling: t("正在停止整理"), completed: t("整理已完成"),
     cancelled: t("整理已停止，可继续"), incomplete: t("整理未完成，可继续"), failed: t("整理失败"), interrupted: t("上次整理中断，可继续") };
   const model = job.model ? `${job.provider}:${job.model}` : ["running", "cancelling"].includes(job.status) ? t("正在准备模型") : t("未调用模型");
-  const usage = job.usage_reported ? `${job.input_tokens} in · ${job.output_tokens} out tokens` : job.steps ? t("用量未报告") : "";
-  progress.textContent = [labels[job.status] || job.status, model, `${job.steps} ${t("步")}`, usage, job.error].filter(Boolean).join(" · ");
+  const usage = job.usage_reported ? `${job.input_tokens} in  ${job.output_tokens} out tokens` : job.steps ? t("用量未报告") : "";
+  progress.textContent = [labels[job.status] || job.status, model, `${job.steps} ${t("步")}`, usage, job.error].filter(Boolean).join("  ");
 }
 
 export async function refreshMemoryJobStatus() {

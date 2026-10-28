@@ -92,13 +92,13 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
     button.type = "button";
     button.className = "ghost knowledge-memory";
     const link = memory.links?.find(item => item.area === currentArea);
-    const inferred = link?.strength === "weak" ? ` · ${t("推断关联")}` : "";
-    button.textContent = `${memory.id} · ${t(KINDS[memory.kind] ?? "事实")} · ${memory.title}${inferred}`;
+    const inferred = link?.strength === "weak" ? `  ${t("推断关联")}` : "";
+    button.textContent = `${memory.id}  ${t(KINDS[memory.kind] ?? "事实")}  ${memory.title}${inferred}`;
     button.title = `${memory.description}\n${memory.path}\n${memory.source}`;
     button.addEventListener("click", () => onMemory(memory));
     parent.append(button);
     if (memory.status !== "active" || memory.missing_areas?.length) {
-      line(parent, `${t("待复核")} · ${memory.status}${memory.missing_areas?.length ? ` · ${memory.missing_areas.join(", ")}` : ""}`);
+      line(parent, `${t("待复核")}  ${memory.status}${memory.missing_areas?.length ? `  ${memory.missing_areas.join(", ")}` : ""}`);
     }
   };
   const branch = (parent, item, open = false, seen = new Set()) => {
@@ -108,7 +108,7 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
     box.className = "knowledge-area";
     box.dataset.area = item.id;
     const summary = document.createElement("summary");
-    summary.textContent = `${item.label} · ${countMemories(item).size} ${t("条记忆")}`;
+    summary.textContent = `${item.label}  ${countMemories(item).size} ${t("条记忆")}`;
     summary.title = item.id;
     box.append(summary);
     let built = false;
@@ -119,7 +119,7 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
       for (const [label, links] of [["依赖", item.dependencies], ["被依赖", item.dependents]]) {
         if (links?.length) line(box, `${t(label)}: ${links.join(", ")}`);
       }
-      for (const purpose of item.purposes ?? []) line(box, `${purpose.path} · ${purpose.text} · ${t("AI 用途摘要")}`);
+      for (const purpose of item.purposes ?? []) line(box, `${purpose.path}  ${purpose.text}  ${t("AI 用途摘要")}`);
       for (const id of item.memory_ids ?? []) memoryRow(box, memories.get(id), item.id);
       for (const child of children.get(item.id) ?? []) branch(box, child, false, nextSeen);
       if (!item.memory_ids?.length && !item.purposes?.length && !children.get(item.id)?.length) line(box, t("尚无该模块的经验记录"));
@@ -136,7 +136,7 @@ export function renderProjectKnowledge(host, knowledge, { area = null, onMemory 
     const box = document.createElement("details");
     box.className = "knowledge-area";
     const summary = document.createElement("summary");
-    summary.textContent = `${t("项目级与未归类")} · ${knowledge.unassigned.length}`;
+    summary.textContent = `${t("项目级与未归类")}  ${knowledge.unassigned.length}`;
     box.append(summary);
     for (const id of knowledge.unassigned) memoryRow(box, memories.get(id));
     host.append(box);

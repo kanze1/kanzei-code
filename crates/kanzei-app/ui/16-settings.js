@@ -608,8 +608,8 @@ export function applyModelOptions(desired, ids) {
     const none = document.createElement("option");
     none.value = "";
     none.textContent = role === "fast" || role === "compact"
-      ? t("(未设 · 跟随主模型)")
-      : t("(未设 · 用内置默认)");
+      ? t("(未设  跟随主模型)")
+      : t("(未设  用内置默认)");
     select.appendChild(none);
     for (const id of knownModelIds) {
       const opt = document.createElement("option");
@@ -1239,7 +1239,7 @@ async function loadUpdateReceipt() {
     host.hidden = !receipt;
     if (!receipt) return;
     const labels = { prepared: "更新准备中", installing: "更新准备中", awaiting_restart: "等待重启", completed: "更新已完成", failed: "更新失败" };
-    host.textContent = `${t(labels[receipt.phase] || "更新准备中")} · ${receipt.expected_build}${receipt.message ? ` · ${receipt.message}` : ""}`;
+    host.textContent = `${t(labels[receipt.phase] || "更新准备中")}  ${receipt.expected_build}${receipt.message ? `  ${receipt.message}` : ""}`;
     host.dataset.state = receipt.phase;
   } catch (error) { host.hidden = false; host.textContent = `${t("读取失败")}: ${error}`; }
 }

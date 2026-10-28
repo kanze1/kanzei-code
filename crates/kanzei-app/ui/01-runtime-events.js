@@ -454,7 +454,7 @@ export function handleMobileMessage(payload) {
   const { line, where } = mobileMessageTarget(sessionId);
   log(`${t("手机消息")} → ${where || sessionId}: ${text}`, "info");
   const preview = text.length > 60 ? `${text.slice(0, 60)}…` : text;
-  toast(`${t("手机消息")}${where ? ` · ${where}` : ""}:${preview}`, {
+  toast(`${t("手机消息")}${where ? `  ${where}` : ""}:${preview}`, {
     action: line ? {
       label: t("打开"),
       onClick: () => {

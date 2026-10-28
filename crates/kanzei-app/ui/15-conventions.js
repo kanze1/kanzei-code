@@ -22,9 +22,9 @@ export function conventionsPrompt(exists) {
 /// 每次文档快照渲染时调用,命令面板读同一个 data-state。
 export function syncConventionsEntry(conv) {
   const state = !conv?.exists ? "missing" : conv.has_proposal ? "proposal" : "ready";
-  const note = state === "proposal" ? t("有新建议稿 · 点击审阅")
-    : state === "ready" ? `${conv.headings?.length ?? 0}${t("个章节")} · ${t("查看和编辑")}`
-      : t("未创建 · 可让 Agent 生成");
+  const note = state === "proposal" ? t("有新建议稿  点击审阅")
+    : state === "ready" ? `${conv.headings?.length ?? 0}${t("个章节")}  ${t("查看和编辑")}`
+      : t("未创建  可让 Agent 生成");
   const item = $("documents-conventions-open");
   if (item) item.dataset.state = state;
   const text = $("documents-conventions-note");

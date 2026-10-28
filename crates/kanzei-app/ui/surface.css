@@ -10,7 +10,7 @@
 .k-surface {
   background: var(--surface-bg);
   color: var(--surface-fg);
-  border: 1px solid var(--surface-border);
+  border: var(--hairline) solid var(--surface-border);
   border-radius: var(--surface-radius-md);
   box-shadow: var(--surface-shadow-2);
 }
@@ -28,7 +28,7 @@ dialog.k-surface:not([open]), .k-surface[popover]:not(:popover-open) { display: 
   width: min(480px, 86vw); height: fit-content; max-height: min(86vh, 720px);
   padding: 18px 20px;
   border-radius: var(--surface-radius-lg); box-shadow: var(--surface-shadow-3);
-  font-size: var(--fs-13); overscroll-behavior: contain;
+  font-size: var(--fs-14); overscroll-behavior: contain;
 }
 .k-surface.k-dialog[data-size="lg"] { width: min(860px, 88vw); height: min(680px, 86vh); max-height: none; padding: 0; overflow: hidden; }
 .k-surface.k-dialog[data-size="schedule"] { width: min(920px, 92vw); max-height: 85vh; padding: 24px; overflow: auto; }
@@ -36,6 +36,10 @@ dialog.k-surface:not([open]), .k-surface[popover]:not(:popover-open) { display: 
 .k-surface.k-dialog.work-plan-dialog { width: min(740px, 94vw); max-height: 88vh; overflow: auto; }
 .k-surface.k-dialog[data-size="palette"] { width: min(620px, calc(100vw - 32px)); margin: 12vh auto auto; padding: 0; overflow: hidden; }
 dialog.k-dialog::backdrop { background: var(--surface-backdrop); }
+/* A compact window gutter has room for the compact elevation. */
+@media (max-width: 600px) {
+  .k-surface.k-dialog, .k-surface.k-card { box-shadow: var(--surface-shadow-1); }
+}
 /* 命令面板是跳转器不是确认框:背后的界面要能看见,压一层就够。 */
 dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backdrop-soft); backdrop-filter: blur(2px); }
 
@@ -46,7 +50,7 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
   position-try-fallbacks: flip-block, flip-inline;
   max-width: min(420px, calc(100vw - 16px)); max-height: min(65vh, 480px); overflow: auto;
 }
-.k-menu { padding: var(--sp-2); min-width: 200px; font-size: var(--fs-13); }
+.k-menu { padding: var(--sp-2); min-width: 200px; font-size: var(--fs-14); }
 .k-popover { padding: 10px var(--sp-5); }
 .k-popover.context-detail { width:min(640px,calc(100vw - 24px)); max-width:calc(100vw - 24px); max-height:min(760px,calc(100dvh - 72px)); }
 /* 补全列表(#file-suggestions)宽度跟输入框走(style.css 的 width: anchor-size(width)):
@@ -83,12 +87,12 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
 .k-menu-item[aria-disabled="true"] :is(.k-menu-item-label, .k-menu-item-kbd) { opacity: .5; }
 .k-menu-item[aria-disabled="true"]:not(:has(.k-menu-item-desc)) { opacity: .5; }
 .k-menu-item-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
-.k-menu-item-desc { color: var(--surface-muted); font-size: var(--fs-11); line-height: 1.35; }
-.k-menu-item-kbd { flex: 0 0 auto; color: var(--surface-muted); font-family: var(--mono); font-size: var(--fs-10-5); }
+.k-menu-item-desc { color: var(--surface-muted); font-size: var(--fs-12); line-height: 1.35; }
+.k-menu-item-kbd { flex: 0 0 auto; color: var(--surface-muted); font-family: var(--mono); font-size: var(--fs-12); }
 /* 悬停/聚焦/选中行的底色比菜单底更亮一档,--surface-muted 在上面会跌破 4.5(暗色 4.06):说明与快捷键随行提亮到正文色。 */
 .k-menu-item:is(:hover, :focus-visible, [aria-checked="true"]) :is(.k-menu-item-desc, .k-menu-item-kbd) { color: var(--surface-fg); }
 .k-menu-sep { height: 1px; margin: var(--sp-2) 0; background: var(--surface-divider); }
-.k-menu-heading { padding: var(--sp-2) var(--sp-4) var(--sp-1); color: var(--surface-muted); font-size: var(--fs-10-5); }
+.k-menu-heading { padding: var(--sp-2) var(--sp-4) var(--sp-1); color: var(--surface-muted); font-size: var(--fs-12); }
 /* 既有的行式菜单(.menu-row)沿用,只统一悬停色。 */
 .k-menu .menu-row:hover { background: var(--surface-item-hover); }
 
@@ -97,7 +101,7 @@ dialog.k-dialog[data-size="palette"]::backdrop { background: var(--surface-backd
   position: fixed; inset: auto calc(22px + max(var(--kz-dock-right, 0px), var(--surface-safe-right, 0px))) 18px auto; margin: 0;
   min-width: min(380px, calc(100vw - 44px)); max-width: min(560px, calc(100vw - 44px));
   max-height: 60vh; overflow: auto; padding: var(--sp-6) 18px;
-  box-shadow: var(--surface-shadow-3); font-size: var(--fs-13);
+  box-shadow: var(--surface-shadow-3); font-size: var(--fs-14);
 }
 .k-card[data-tone="attention"], .k-chip-float { border-color: var(--surface-attention); }
 /* 权限卡(UI2-0926 #4):对话视图里默认停在输入区正上方、与输入区同宽(输入区宽 = 对话列宽),
@@ -124,7 +128,7 @@ body:is(:not([data-view]), [data-view="chat"], [data-view="project"]) .k-card[da
 .k-chip-float {
   position: fixed; inset: auto calc(22px + max(var(--kz-dock-right, 0px), var(--surface-safe-right, 0px))) 18px auto; margin: 0;
   border-radius: var(--r-pill); padding: 7px var(--sp-5);
-  color: var(--surface-fg-strong); font-size: var(--fs-12-5); cursor: pointer;
+  color: var(--surface-fg-strong); font-size: var(--fs-12); cursor: pointer;
 }
 /* 悬停只叠一层半透明,底色保持不透明(芯片浮在内容上,底色透了就看不清)。 */
 .k-chip-float:hover { background-image: linear-gradient(var(--surface-item-hover), var(--surface-item-hover)); }
@@ -155,13 +159,13 @@ body:is(:not([data-view]), [data-view="chat"], [data-view="project"]):has(#ask-o
    (background-image),toast 浮在内容上,底色本身不能透。info 保持中性。 */
 .k-toast {
   padding: var(--sp-4) var(--sp-6); max-width: 100%; overflow-wrap: anywhere; pointer-events: auto;
-  color: var(--surface-fg-strong); font-size: var(--fs-12-5);
+  color: var(--surface-fg-strong); font-size: var(--fs-12);
   background-image: linear-gradient(var(--toast-tint, transparent), var(--toast-tint, transparent));
 }
 /* toast 末尾的操作按钮(「重新开启」「撤销」…):朴素描边小按钮,点它立刻收掉这条 toast。 */
 .k-toast-action {
   margin-inline-start: var(--sp-5); padding: var(--sp-1) 10px; background: transparent; color: inherit;
-  border: 1px solid var(--surface-border); border-radius: var(--surface-radius-sm);
+  border: var(--hairline) solid var(--surface-border); border-radius: var(--surface-radius-sm);
   font: inherit; font-size: var(--fs-12); font-weight: 500; cursor: pointer;
 }
 .k-toast-action:hover { background: var(--surface-item-hover); }
@@ -189,7 +193,7 @@ body:is(:not([data-view]), [data-view="chat"], [data-view="project"]):has(#ask-o
 select, ::picker(select) { appearance: base-select; }
 ::picker(select) {
   background: var(--surface-bg); color: var(--surface-fg);
-  border: 1px solid var(--surface-border); border-radius: var(--surface-radius-md);
+  border: var(--hairline) solid var(--surface-border); border-radius: var(--surface-radius-md);
   box-shadow: var(--surface-shadow-2); padding: var(--sp-2); margin-block: var(--sp-2);
   min-width: anchor-size(width); max-width: min(420px, calc(100vw - 16px)); max-height: min(60vh, 420px);
   position-try-fallbacks: flip-block;
@@ -282,4 +286,4 @@ html[data-kz-frame-drag="col"] * { cursor: col-resize; }
 html[data-kz-frame-drag="row"] * { cursor: row-resize; }
 
 /* 新建项目对话框在小窗口(800x500)里会滚动:创建 / 取消钉在底部,出错后也点得到(UX-131)。组件层 token 只准在本文件使用。 */
-#new-project-dialog .confirm-buttons { position: sticky; bottom: -18px; margin: var(--sp-4) -20px -18px; padding: var(--sp-5) 20px 14px; background: var(--surface-bg); border-top: 1px solid var(--surface-divider); }
+#new-project-dialog .confirm-buttons { position: sticky; bottom: -18px; margin: var(--sp-4) -20px -18px; padding: var(--sp-5) 20px 14px; background: var(--surface-bg); border-top: var(--hairline) solid var(--surface-divider); }

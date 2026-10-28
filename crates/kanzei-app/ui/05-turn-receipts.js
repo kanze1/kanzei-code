@@ -21,10 +21,10 @@ export function renderTurnReceipt(payload, container, append) {
   const outcome = payload.outcome === "halted" ? "已停止"
     : ["failed", "incomplete"].includes(payload.outcome) ? "本轮未完成" : "本轮结束";
   const seconds = (payload.elapsedMs / 1000).toFixed(1);
-  receipt.textContent = `${t(outcome)} · ${t("耗时")} ${seconds}s`;
+  receipt.textContent = `${t(outcome)}  ${t("耗时")} ${seconds}s`;
   receipt.title = languageIsEnglish()
-    ? `Whole round, including tools and waits · ${payload.runId}`
-    : `本轮实际用时，含工具与等待 · ${payload.runId}`;
+    ? `Whole round, including tools and waits  ${payload.runId}`
+    : `本轮实际用时，含工具与等待  ${payload.runId}`;
   append(receipt);
   return receipt;
 }
@@ -39,7 +39,7 @@ export function renderRecoveredTurnReceipts(traces, pane, append) {
     group.open = true;
     group.dataset.sessionId = pane.dataset.sessionId || "";
     const summary = document.createElement("summary");
-    summary.textContent = `${t("历史消息")} · ${t("耗时")}`;
+    summary.textContent = `${t("历史消息")}  ${t("耗时")}`;
     group.append(summary);
     append(group);
   }

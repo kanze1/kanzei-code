@@ -115,7 +115,7 @@ function statusLine(text) {
 /** 没有悬停时状态栏该显示的话:图形渲染不可用时带上原因。 */
 function restingStatus() {
   const unavailable = graphState.graphFailed && !graphState.textView;
-  return unavailable ? `${t("图形渲染不可用,已显示文本视图")} · ${summaryText()}` : summaryText();
+  return unavailable ? `${t("图形渲染不可用,已显示文本视图")}  ${summaryText()}` : summaryText();
 }
 
 function currentFilters() {
@@ -307,8 +307,8 @@ async function ensureGraphView() {
 function summaryText() {
   const { nodes, links } = graphState.shown;
   const memories = nodes.filter((n) => n.kind === "memory").length;
-  const base = `${nodes.length} ${t("个节点")} · ${links.length} ${t("条关系")} · ${memories} ${t("条记忆")}`;
-  return graphState.settleMs == null ? base : `${base} · ${t("布局")} ${graphState.settleMs} ms`;
+  const base = `${nodes.length} ${t("个节点")}  ${links.length} ${t("条关系")}  ${memories} ${t("条记忆")}`;
+  return graphState.settleMs == null ? base : `${base}  ${t("布局")} ${graphState.settleMs} ms`;
 }
 
 function cloneForRender(subgraph) {
@@ -383,7 +383,7 @@ async function render() {
   });
   view.select(graphState.selectedId);
   view.highlight(graphState.hits.filter((id) => subgraph.nodes.some((n) => n.id === id)));
-  statusLine(`${summaryText()} · ${t("布局中…")}`);
+  statusLine(`${summaryText()}  ${t("布局中…")}`);
 }
 
 function syncCanvasLabel(subgraph) {
@@ -446,7 +446,7 @@ function describeHover(node) {
   } else {
     parts.push(t(KIND_KEYS[node.kind] ?? "记忆"));
   }
-  const text = parts.join(" · ");
+  const text = parts.join("  ");
   statusLine(text);
   showHoverTip(node, text);
 }
@@ -581,7 +581,7 @@ export function renderGraphNodeDetail(node) {
   if (node.kind !== "crate" && node.kind !== "module") metaParts.unshift(node.id);
   if (node.status) metaParts.push(localizedDocStatus(node.status));
   if (node.archived) metaParts.push(t("已归档"));
-  meta.textContent = metaParts.join(" · ");
+  meta.textContent = metaParts.join("  ");
   const actions = document.createElement("div");
   actions.className = "memory-graph-node-actions";
   const groups = relationGroups(node);
@@ -705,7 +705,7 @@ function renderLegend({ rebuild = false } = {}) {
   }
   const note = document.createElement("span");
   note.className = "memory-graph-legend-note";
-  note.textContent = t("实心=启用 · 空心=候选 · 半透明=归档 · 虚线=推断/提及 · 双击进入邻域");
+  note.textContent = t("实心=启用  空心=候选  半透明=归档  虚线=推断/提及  双击进入邻域");
   legend.append(note);
 }
 
@@ -722,7 +722,7 @@ function renderTextView(subgraph) {
     item.dataset.memoryId = node.id;
     item.dataset.nodeId = node.id;
     item.className = `memory-graph-tree-memory${node.id === graphState.selectedId ? " selected" : ""}${graphState.hits.includes(node.id) ? " hit" : ""}`;
-    item.textContent = `${node.id} · ${node.title ?? ""} · ${[localizedDocStatus(node.category), node.archived ? t("已归档") : localizedDocStatus(node.status)].filter(Boolean).join("/")}`;
+    item.textContent = `${node.id}  ${node.title ?? ""}  ${[localizedDocStatus(node.category), node.archived ? t("已归档") : localizedDocStatus(node.status)].filter(Boolean).join("/")}`;
     item.addEventListener("click", () => void clickNode(node.id));
     return item;
   };

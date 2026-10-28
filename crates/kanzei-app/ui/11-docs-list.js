@@ -101,14 +101,14 @@ export async function applyBatch() {
   const fields = tag ? { "标签": tag } : {};
   let reason;
   if (status === "awaiting_external") {
-    const external = await inputDialog({ title: t("待外部验收"), message: targets.map(([id]) => id).join(" · "),
+    const external = await inputDialog({ title: t("待外部验收"), message: targets.map(([id]) => id).join("  "),
       placeholder: t("写明真实 SSH 或设备上还需验收的事项"), okText: t("确认标记") });
     if (external === null) return;
     if (!external.trim()) { toastError(t("请填写待验收事项")); return; }
     fields["外部验收"] = external.trim();
   }
   if (status === "dropped" || status === "wontfix") {
-    reason = await inputDialog({ title: t("关闭原因"), message: targets.map(([id]) => id).join(" · "),
+    reason = await inputDialog({ title: t("关闭原因"), message: targets.map(([id]) => id).join("  "),
       placeholder: t("写明过期、取消、重复或不修复的原因"), okText: t("确认归档") });
     if (reason === null) return;
     reason = reason.trim();
@@ -440,7 +440,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
   const retiring = next === "dropped" || next === "wontfix";
   let reason;
   if (next === "awaiting_external") {
-    reason = await inputDialog({ title: t("待外部验收"), message: `${entry.id} · ${entry.title}`,
+    reason = await inputDialog({ title: t("待外部验收"), message: `${entry.id}  ${entry.title}`,
       placeholder: t("写明真实 SSH 或设备上还需验收的事项"), okText: t("确认标记") });
     if (reason === null) return false;
     reason = reason.trim();
@@ -448,7 +448,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
   } else if (retiring) {
     reason = await inputDialog({
       title: t("关闭原因"),
-      message: `${entry.id} · ${entry.title}\n${t("条目和未完成验收会保留在归档，不记为已完成。")}`,
+      message: `${entry.id}  ${entry.title}\n${t("条目和未完成验收会保留在归档，不记为已完成。")}`,
       placeholder: t("写明过期、取消、重复或不修复的原因"),
       okText: t("确认归档"),
     });
@@ -459,7 +459,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
     const word = localizedDocStatus(next);
     const ok = await confirmDialog({
       title: t("标记为「{status}」").replace("{status}", word),
-      message: `${entry.id} · ${entry.title}`,
+      message: `${entry.id}  ${entry.title}`,
       list: [
         t("本次记录为用户手动验收，保留原验收内容和已有证据。"),
         t("条目会移出当前列表,归档为只读记录;之后在列表底部的「已归档」里查看。"),
@@ -477,7 +477,7 @@ export async function transitionEntryStatus(entry, kind, next, { project = curre
       ...(next === "awaiting_external" ? { fields: { "外部验收": reason } } : reason ? { reason } : {}) });
     if (terminal) projectDocumentClosed(project, entry.id);
     log(msg);
-    toast(`${entry.id} → ${localizedDocStatus(next)}${terminal ? ` · ${t("已归档")}` : ""}`);
+    toast(`${entry.id} → ${localizedDocStatus(next)}${terminal ? `  ${t("已归档")}` : ""}`);
     refreshDocs();
     return true;
   } catch (err) {
@@ -614,7 +614,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
   fullId.textContent = entry.id;
   const fullSep = document.createElement("span");
   fullSep.className = "doc-detail-sep";
-  fullSep.textContent = " · ";
+  fullSep.textContent = "  ";
   const fullText = document.createElement("span");
   fullText.className = "doc-detail-text";
   fullText.textContent = entry.title;
@@ -680,7 +680,7 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
         reply.className = "ghost mini";
         reply.textContent = t("回复此事项");
         reply.addEventListener("click", () => {
-          const context = `${entry.id} · ${entry.title}\n${blockedReasons.join("；")}\n${t("我的补充")}: `;
+          const context = `${entry.id}  ${entry.title}\n${blockedReasons.join("；")}\n${t("我的补充")}: `;
           promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
           navigate_view("chat");
           promptBox.dispatchEvent(new Event("input", { bubbles: true }));
@@ -870,8 +870,8 @@ function buildDocDetail(entry, kind, { surface, blocked, externalBlocked, blocke
     units.className = "work-unit-details";
     units.open = prior ? prior.unitsOpen : true;
     const summary = document.createElement("summary");
-    summary.textContent = `${t("目标树")} · ${terminal} ${t("已验证节点")}${superseded ? ` · ${superseded} ${t("已替代节点")}` : ""}${current ? ` · ${current.objective} · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-    if (pending) summary.textContent += ` · ${pending} ${t("待复核节点")}`;
+    summary.textContent = `${t("目标树")}  ${terminal} ${t("已验证节点")}${superseded ? `  ${superseded} ${t("已替代节点")}` : ""}${current ? `  ${current.objective}  ${localizedStatusWord(current.status, "unit")}` : ""}`;
+    if (pending) summary.textContent += `  ${pending} ${t("待复核节点")}`;
     const section = renderWorkTree(workUnits, entry.work_readiness, prior?.workTree, {
       planningBlockers: entry.work_planning_blockers,
       onRevise: async unit => {
@@ -971,7 +971,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     for (const tag of [...DOC_TAG_ORDER, "其他"]) {
       const bucket = buckets.get(tag);
       if (!bucket || !bucket.length) continue;
-      groupHeaders.set(ordered.length, `${tag} · ${bucket.length}`);
+      groupHeaders.set(ordered.length, `${tag}  ${bucket.length}`);
       ordered.push(...bucket);
     }
     entries = ordered;
@@ -994,7 +994,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
   if (entries.length === 0 && totalBeforeFilter > 0) {
     const hint = document.createElement("div");
     hint.className = "doc-empty doc-filtered-empty";
-    hint.append(`${totalBeforeFilter} ${t("条被当前筛选隐藏")} · `);
+    hint.append(`${totalBeforeFilter} ${t("条被当前筛选隐藏")}  `);
     const clear = document.createElement("button");
     clear.type = "button";
     clear.className = "ghost mini";
@@ -1063,7 +1063,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       const dragHint = document.createElement("div");
       dragHint.className = "drag-hint";
       const text = document.createElement("span");
-      text.textContent = `${t("拖动排序暂不可用")}: ${locks.join(" · ")}`;
+      text.textContent = `${t("拖动排序暂不可用")}: ${locks.join("  ")}`;
       text.title = text.textContent;
       const unlock = document.createElement("button");
       unlock.type = "button";
@@ -1105,7 +1105,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     if (groupHeaders.has(position)) {
       const head = document.createElement("div");
       head.className = "doc-group-head";
-      const [groupTag, groupCount] = groupHeaders.get(position).split(" · ");
+      const [groupTag, groupCount] = groupHeaders.get(position).split("  ");
       // UI2-0926 #5:组名与计数分开排版(组名暗色半粗,计数再暗一档、等宽数字),不再用「 · 」粘成一串。
       const groupLabel = document.createElement("span");
       groupLabel.className = "doc-group-label";
@@ -1189,7 +1189,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
     const st = document.createElement("span");
     st.className = `st st-${entry.status || "todo"}`;
     st.textContent = localizedDocStatus(entry.status || "todo");
-    st.title = entry.severity ? `${localizedDocStatus(entry.status || "todo")} · ${t("严重度")}: ${entry.severity}` : st.textContent;
+    st.title = entry.severity ? `${localizedDocStatus(entry.status || "todo")}  ${t("严重度")}: ${entry.severity}` : st.textContent;
     if (docsRow) row.appendChild(st);
     // D-413 续:研究来源要**一键直达正文**,不该先展开再在字段里找链接。
     // (展开后若开着编辑器,只读视图——连同其中可点的 URL/路径 chip——是隐藏的。)
@@ -1222,7 +1222,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       const claimBadge = document.createElement("span");
       claimBadge.className = "doc-claim-fact";
       claimBadge.textContent = `● ${claimed.code} ${t("已登记")}`;
-      claimBadge.title = `${entry.id} · ${t("工作树")}: ${claimed.path}`;
+      claimBadge.title = `${entry.id}  ${t("工作树")}: ${claimed.path}`;
       placeFlag(claimBadge);
     }
     const workUnits = kind === "req" && Array.isArray(entry.work_units) ? entry.work_units : [];
@@ -1232,15 +1232,15 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       const current = workUnits.find((unit) => ["active", "blocked", "verifying"].includes(unit.status));
       const unitBadge = document.createElement("span");
       unitBadge.className = `work-unit-badge${current ? ` ${current.status}` : ""}`;
-      unitBadge.textContent = `${terminal} ${t("已验证节点")}${current ? ` · ${localizedStatusWord(current.status, "unit")}` : ""}`;
-      if (pending) unitBadge.textContent += ` · ${pending} ${t("待复核节点")}`;
+      unitBadge.textContent = `${terminal} ${t("已验证节点")}${current ? `  ${localizedStatusWord(current.status, "unit")}` : ""}`;
+      if (pending) unitBadge.textContent += `  ${pending} ${t("待复核节点")}`;
       unitBadge.title = current ? current.objective : t("目标树");
       placeFlag(unitBadge);
     }
     // 复杂度(R-051):行 tooltip 文字 + 单页右端一列;体量不画成色带(cx-* 钩子类随色带一起删了)。
     const cx = (entry.complexity || "").trim();
     if (["小", "中", "大"].includes(cx)) {
-      row.title = `${row.title} · ${t("复杂度")}:${t(cx)}`;
+      row.title = `${row.title}  ${t("复杂度")}:${t(cx)}`;
     }
     // 批次进度格(R-160):格数 = 该条目的批次总数(复杂度给默认,条目可显式声明),
     // 已填 = 做完的批次。此前这里画的是"复杂度等级"——一个从头到尾不会变的静态值,
@@ -1261,7 +1261,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
         // 轨道等分成几格由这里决定,CSS 只管固定总长(见 style.css 的 --cells)。
         meter.style.setProperty("--cells", String(cells));
         meter.setAttribute("role", "img");
-        const label = `${t("批次")} ${done}/${total}${cx ? ` · ${t("复杂度")}:${t(cx)}` : ""}`;
+        const label = `${t("批次")} ${done}/${total}${cx ? `  ${t("复杂度")}:${t(cx)}` : ""}`;
         meter.setAttribute("aria-label", label);
         meter.title = label;
         for (let i = 1; i <= cells; i += 1) {
@@ -1340,7 +1340,7 @@ export function renderDocList(el, entries, kind, archivedCount = 0, reqFilterSta
       // UI2-0926 #5:未设写「—」(与复杂度列未评估同一写法),字面「未设」进读屏名称。
       badge.textContent = priSet ? pri : "—";
       badge.title = t("点击选择优先级(仅参考,不影响开工顺序)");
-      badge.setAttribute("aria-label", `${t("优先级")}: ${priSet ? pri : t("未设")} · ${badge.title}`);
+      badge.setAttribute("aria-label", `${t("优先级")}: ${priSet ? pri : t("未设")}  ${badge.title}`);
       badge.setAttribute("aria-haspopup", "menu");
       badge.addEventListener("click", (event) => {
         event.stopPropagation();

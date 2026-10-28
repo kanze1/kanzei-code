@@ -51,7 +51,7 @@ if (SMOKE_MUTATE) {
     // D-356:运行中切回会话的缓存恢复分支。删了它,切回运行中的线路会重新拉取滞后
     // 的 legacy snapshot,运行中已发生的事实被旧快照吞掉(上下文回滚)。
     d356CacheRestore: {
-      pattern: /if \(cachedDom && cachedDom\.html && sessionLiveNow\(activeSessionId\)\) \{\r?\n\s*messages\.innerHTML = cachedDom\.html;\r?\n\s*currentAssistant = null;\r?\n\s*currentReasoning = null;\r?\n\s*currentReasoningHead = null;\r?\n\s*scrollBottom\(true\);\r?\n\s*addMessage\("notice", t\("运行中 · 快照截至上次切走时,本轮完成后自动补齐"\)\);\r?\n\s*return;\r?\n\s*\}\r?\n/,
+      pattern: /if \(cachedDom && cachedDom\.html && sessionLiveNow\(activeSessionId\)\) \{\r?\n\s*messages\.innerHTML = cachedDom\.html;\r?\n\s*currentAssistant = null;\r?\n\s*currentReasoning = null;\r?\n\s*currentReasoningHead = null;\r?\n\s*scrollBottom\(true\);\r?\n\s*addMessage\("notice", t\("运行中\s+快照截至上次切走时,本轮完成后自动补齐"\)\);\r?\n\s*return;\r?\n\s*\}\r?\n/,
       replace: "",
     },
     // D-356:kz:done 轮末原子回灌。删了它,活动会话的完整 snapshot 永远不被重载,
@@ -145,7 +145,7 @@ if (SMOKE_MUTATE) {
       replace: "void queueProcessUpdate(processId, { model: value });",
     },
     // UI-0926 #3:切线那一刻芯片就跟到目标线。删了它,对话还在装载的这几秒里思考芯片仍显示上一条线的
-    // 「超高 · 临时」,而同项目内切线已不再重拉目录,之后也没有别的回显路径把它纠正过来。
+    // 「超高\s+临时」,而同项目内切线已不再重拉目录,之后也没有别的回显路径把它纠正过来。
     reasoningFollowsLine: {
       pattern: /[ \t]*syncModelSelectToActiveLine\(\);\r?\n(?=[ \t]*\/\/ 状态栏模型\/上下文上限回放)/,
       replace: "",
@@ -155,7 +155,7 @@ if (SMOKE_MUTATE) {
       pattern: /check\.textContent = button\.getAttribute\("aria-checked"\) === "true" \? "✓" : "";/,
       replace: 'check.textContent = "";',
     },
-    // UI-0926 #3 复核:切线时作废在途的乐观值。删了它,A 线刚选、还没写完的「X · 临时」会挂到 B 线芯片上。
+    // UI-0926 #3 复核:切线时作废在途的乐观值。删了它,A 线刚选、还没写完的「X\s+临时」会挂到 B 线芯片上。
     optimisticDropsOnSwitch: {
       pattern: /[ \t]*optimisticPatch = null;\r?\n(?=[ \t]*renderModelPicker\(\);\r?\n[ \t]*\}\);\r?\n[ \t]*document\.addEventListener\("kz-effective-model-optimistic")/,
       replace: "",
@@ -466,8 +466,8 @@ if (SMOKE_MUTATE) {
     },
     // 超过 3 族不再收成「等 N 次调用」:组头把每一族都列出来,一行放不下。
     groupSummaryEtc: {
-      pattern: /label = words\.slice\(0, 3\)\.join\(" · "\);/,
-      replace: 'label = words.join(" · ");',
+      pattern: /label = words\.slice\(0, 3\)\.join\("\s+"\);/,
+      replace: 'label = words.join("  ");',
     },
     // 窗口边界合并不看上限:合并后一组超过 30 行。
     mergeCap: {
@@ -626,7 +626,7 @@ if (SMOKE_MUTATE) {
       pattern: /item\.setAttribute\("role", "listitem"\);(\r?\n[ \t]*const row = el\("button", "tp-agent-row"\);)/,
       replace: '$1 row.setAttribute("role", "listitem");',
     },
-    // 子代理行的可访问名只拼一次状态词。拼两次就是「完成 — 完成 · 2 次工具 · …」。
+    // 子代理行的可访问名只拼一次状态词。拼两次就是「完成 — 完成\s+2 次工具\s+…」。
     sideRowAriaOnce: {
       pattern: /const state = SA_ACTIVE\.has\(run\.state\) \? subagentStateWord\(run\.state\) \|\| t\("运行中"\) : subagentMetaText\(run, now\);/,
       replace: 'const state = [subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : subagentMetaText(run, now)].filter(Boolean).join(" — ");',
@@ -2061,8 +2061,8 @@ const payloads = {
     crates: {
       members: [], edges: [], hidden_transitive: 1,
       mermaid: {
-        reduced: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
-        full: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_app -.-> kanzei_core\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app · Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools · 内置工具"',
+        reduced: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app  Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools  内置工具"',
+        full: 'flowchart LR\n  subgraph grp_1["入口"]\n    kanzei_app["kanzei-app<br/>Tauri 桌面端"]:::entry\n  end\n  kanzei_tools["kanzei-tools<br/>内置工具"]\n  kanzei_core["kanzei-core<br/>主循环"]\n  kanzei_app --> kanzei_tools\n  kanzei_app -.-> kanzei_core\n  kanzei_tools --> kanzei_core\n  click kanzei_app "crates/kanzei-app/src/main.rs" "kanzei-app  Tauri 桌面端"\n  click kanzei_tools "crates/kanzei-tools/src/lib.rs" "kanzei-tools  内置工具"',
       },
     },
     // R-188 兼容字段(新前端不再读,后端保留一个版本)。
@@ -2619,7 +2619,7 @@ assert(
 );
 const listText = (id) => byId.get(id)?.textContent ?? "";
 // 开发空间的会话行在侧栏项目树里(12-session-tree.js;原先的 #parallel-task-status 列表在开发档里永远不可见却每次轮询重建,已不再渲染,UX-069 / B5)。
-// 线路运行态的观察点 = 树里那一行:行内按钮带 data-activity(运行态)、aria-current(当前对话)、aria-description(类型 · 状态),title 写名字/分支/状态。
+// 线路运行态的观察点 = 树里那一行:行内按钮带 data-activity(运行态)、aria-current(当前对话)、aria-description(类型\s+状态),title 写名字/分支/状态。
 const sessionRowOf = (processId) => document.querySelectorAll("#workbench-project-list .workbench-session").find((node) => node.dataset.processId === processId);
 const sessionLinkOf = (processId) => sessionRowOf(processId)?.firstChild;
 const activeSessionLink = () => document.querySelectorAll("#workbench-project-list .workbench-session-link").find((node) => node.getAttribute("aria-current") === "true");
@@ -3279,7 +3279,7 @@ assert(initialAutoState && !Object.hasOwn(initialAutoState.args, "maxRounds"), "
 assert(listText("documents-req-list").includes("冒烟需求"), `需求列表未渲染出桩数据: "${listText("documents-req-list").slice(0, 60)}"`);
 assert(listText("documents-defect-list").includes("冒烟缺陷"), "缺陷列表未渲染出桩数据");
 assert(
-  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-badge')?.textContent.includes("0 已验证节点 · 开发中"),
+  document.querySelector('#documents-req-list .doc-item[data-doc-id="R-001"] .work-unit-badge')?.textContent.includes("0 已验证节点  开发中"),
   "work_units_v1 需求未渲染验证节点计数与执行状态",
 );
 assert(
@@ -5076,9 +5076,9 @@ assert(listText("memory-flags-count").includes("2"), "复查清单计数错误")
   assert(h2Rest.textContent.endsWith("…(已截断)"), `超长输出未截断:结尾为 "${h2Rest.textContent.slice(-20)}"`);
   assert(h2Rest.textContent.length < 8100, `截断上界失效,实得 ${h2Rest.textContent.length} 字`);
 
-  // ③ UI-0926 #6:bash 成功行是「退出码 · 亮点行」的人话摘要,而不是原文首行;
+  // ③ UI-0926 #6:bash 成功行是「退出码\s+亮点行」的人话摘要,而不是原文首行;
   // 摘要不再是原文的一段,展开区给完整原文(exit code 行不能丢)。
-  assert(resultOf(h3) === "⎿ 退出码 0 · 真正的输出行", `bash 成功摘要漂移:"${resultOf(h3)}"`);
+  assert(resultOf(h3) === "⎿ 退出码 0  真正的输出行", `bash 成功摘要漂移:"${resultOf(h3)}"`);
   assert(restOf(h3)?.textContent === "exit code: 0\n真正的输出行", `展开区不是完整原文(exit code 行被丢掉了?):"${restOf(h3)?.textContent}"`);
 
   // ④ 全篇只有 "exit code: 0" 时仍给出退出码,不塌成「完成」(原实现 `|| lines[0]` 兜底的等价保留)。
@@ -5197,8 +5197,8 @@ statusFilter._listeners.change?.forEach((fn) => fn({ target: statusFilter }));
 
 // ---------- R-173 → UI2-0926 #14 编排派发的勘察/复核子代理:实时进度落在后台任务侧栏的委派卡上 ----------
 // 编排对象按角色表派发的这批子代理不经模型 tool call;UI-0926 #8 起它们是主对话里的子代理卡片,
-// UI2-0926 #14 起侧栏里是一张委派卡(不再重复一份终端条目):阶段行「勘察 · done/N」+ 每个子代理一个进度点、
-// 每个角色一行(角色名 · 模型 · Token · 用时)、超时与失败分开标记,同名角色跨轮重派是新的一批、新的一张卡。
+// UI2-0926 #14 起侧栏里是一张委派卡(不再重复一份终端条目):阶段行「勘察\s+done/N」+ 每个子代理一个进度点、
+// 每个角色一行(角色名\s+模型\s+Token\s+用时)、超时与失败分开标记,同名角色跨轮重派是新的一批、新的一张卡。
 const tasksNs = esmModuleCache.get("06-agent-panel.js")?.namespace;
 assert(tasksNs && typeof tasksNs.openTasksPanel === "function", "06-agent-panel.js 未导出 openTasksPanel");
 tasksNs.openTasksPanel();
@@ -5208,7 +5208,7 @@ const agentRow = (role, root = document) => root.querySelector(`.tp-agent-row[da
 const cardWithRole = (role) => delegationCards().find((c) => agentRow(role, c));
 // ① 契约时序:N 条 start 先全发完。派发瞬间就该全部可见,不能等各自跑完才冒出来。
 for (const role of scoutRoles) {
-  toolStart({ payload: { id: role, name: "task", summary: `${role} · 勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: role, name: "task", summary: `${role}  勘察`, input: { prompt: `派给 ${role} 的完整指令`, phase: "scouting", role }, sessionId: "sess-smoke" } });
 }
 // 同一批里混一条模型自己派的 task(不带 phase):它是另一张卡,不串进编排批次。
 toolStart({ payload: { id: "MODEL_TASK", name: "task", summary: "模型自己派的子代理", input: { prompt: "review" }, sessionId: "sess-smoke" } });
@@ -5230,7 +5230,7 @@ assert(/3 个子代理|3 subagents/.test(scoutCard?.querySelector(".tp-card-stat
 // ③ 单行信息量:角色名是身份;meta trace 给实际模型;usage 是累计值(替换不累加)。
 const scoutRow = agentRow("architecture_scout");
 assert(scoutRow?.querySelector(".tp-agent-label")?.textContent.includes("architecture_scout"), `委派卡的行未以角色名标识,实得 "${scoutRow?.querySelector(".tp-agent-label")?.textContent}"`);
-taskProgress({ payload: { id: "architecture_scout", text: "explore · qwen3:8b", trace: { child_id: "architecture_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+taskProgress({ payload: { id: "architecture_scout", text: "explore  qwen3:8b", trace: { child_id: "architecture_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
 taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1000, output: 200 } }, sessionId: "sess-smoke" } });
 taskProgress({ payload: { id: "architecture_scout", text: "统计", trace: { child_id: "c1", phase: "usage", usage: { input: 1200, output: 300 } }, sessionId: "sess-smoke" } });
 await flush();
@@ -5251,13 +5251,13 @@ assert(endedCard?.parentElement?.id === "tasks-attention", `有失败的一批�
 assert(/2 (个)?失败|2 fail/i.test(endedCard?.querySelector(".tp-card-stats")?.textContent ?? ""), `委派卡副行应写明 2 失败,实得 "${endedCard?.querySelector(".tp-card-stats")?.textContent}"`);
 // ⑤ 复核阶段单独一张卡。
 for (const role of ["spec_reviewer", "risk_reviewer"]) {
-  toolStart({ payload: { id: role, name: "task", summary: `${role} · 复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role }, sessionId: "sess-smoke" } });
+  toolStart({ payload: { id: role, name: "task", summary: `${role}  复核`, input: { prompt: `派给 ${role} 的完整指令`, phase: "review", role }, sessionId: "sess-smoke" } });
 }
 await flush();
 const reviewCard = cardWithRole("spec_reviewer");
 assert(reviewCard && reviewCard !== endedCard && reviewCard.querySelector(".tp-phase-label")?.textContent === "复核" && reviewCard.querySelectorAll(".tp-agent-row").length === 2, "复核子代理未单独成一张委派卡");
 // ⑥ 同名角色跨轮重派:新的一批、新的一张卡;上一批那张卡还在(上一轮结果不被覆写,D-725)。
-toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout · 勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" }, sessionId: "sess-smoke" } });
+toolStart({ payload: { id: "architecture_scout", name: "task", summary: "architecture_scout  勘察", input: { prompt: "第二轮指令", phase: "scouting", role: "architecture_scout" }, sessionId: "sess-smoke" } });
 await flush();
 const scoutDelegations = delegationCards().filter((card) => agentRow("architecture_scout", card));
 assert(scoutDelegations.length === 2 && scoutDelegations[0] !== endedCard && scoutDelegations[0].parentElement?.id === "tasks-running", `同名角色第二轮应是新的一张在跑的委派卡(新批次在上),实得 ${scoutDelegations.length} 张`);
@@ -7047,7 +7047,7 @@ assert(byId.get("auto-continue").checked, "Continue 不应关掉自动推进");
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Nudge", prompt: "上一轮没有产生任何实质动作。", rounds: 2, max: 10 }, sessionId: "sess-smoke" } });
 await flush();
 assert(kzTest.rounds() === 2, `Nudge 应镜像推进计数,实得 ${kzTest.rounds()}`);
-assert(byId.get("auto-status").textContent.includes("无动作 · 追加推进指令"), `#auto-status 未提示追加推进指令: ${byId.get("auto-status")?.textContent}`);
+assert(byId.get("auto-status").textContent.includes("无动作  追加推进指令"), `#auto-status 未提示追加推进指令: ${byId.get("auto-status")?.textContent}`);
 assert(byId.get("auto-continue").checked, "Nudge 第一次不应立即刹车");
 // ③ Stop(NoAction):连续两轮无动作,停止并显示原因。
 handlers.get("kz:done")?.({ payload: { steps: 2, halted: false, tools: { memory_note: 1 }, autoAction: { type: "Stop", reason: "NoAction", rounds: 3 }, sessionId: "sess-smoke" } });
@@ -7075,10 +7075,10 @@ await flush();
 assert(byId.get("auto-continue").checked && kzTest.rounds() === 3, "局部交付不应关闭自动推进或清空轮次");
 // UX-037:通知不再打印 handoff_target/criterion 这类内部字段(目标常是输入 id),只在模型给了人话摘要时跟在后面。
 assert(byId.get("messages").textContent.includes("交付记录已登记，鞭挞继续"), "局部交付应显示继续推进");
-assert(!byId.get("messages").textContent.includes("交付记录已登记，鞭挞继续 · R-379"), "局部交付通知不得打印 handoff_target(UX-037)");
+assert(!byId.get("messages").textContent.includes("交付记录已登记，鞭挞继续  R-379"), "局部交付通知不得打印 handoff_target(UX-037)");
 handlers.get("kz:done")?.({ payload: { steps: 2, autoAction: { type: "Continue", rounds: 3, handoff: { handoff_scope: "work_item", handoff_target: "R-380", criterion: "内部判据", summary: "文档批次已完成" } }, sessionId: "sess-smoke" } });
 await flush();
-assert(byId.get("messages").textContent.includes("交付记录已登记，鞭挞继续 · 文档批次已完成"), "模型给了人话摘要时通知应带上它");
+assert(byId.get("messages").textContent.includes("交付记录已登记，鞭挞继续  文档批次已完成"), "模型给了人话摘要时通知应带上它");
 assert(!byId.get("messages").textContent.includes("R-380") && !byId.get("messages").textContent.includes("内部判据"), "通知不得露出 handoff_target/criterion(UX-037)");
 handlers.get("kz:done")?.({ payload: { steps: 2, autoAction: { type: "Stop", reason: "ModelDeclaredDone", rounds: 4, handoff: { handoff_scope: "request", handoff_target: "input-current", criterion: "已发布并安装" } }, sessionId: "sess-smoke" } });
 await flush();
@@ -7096,7 +7096,7 @@ assert(byId.get("auto-status").textContent.includes("1/3"), `失败重试应显�
 // kz:auto-fail(排上退避重试)、紧接着 run_task 的 Err 分支发 kz:error(terminal)。
 // 这里按真机顺序连发两条且**中间不排空定时器**(flush 会把 15s 那一枪直接跑掉,
 // 掩盖问题)。旧实现在 kz:error 终态分支无条件 cancelAutoContinueTimer,刚排的重试
-// 当场被自己人掐掉:界面停在「失败重试 1/3 · 15s」,那一轮永不到来——用户
+// 当场被自己人掐掉:界面停在「失败重试 1/3\s+15s」,那一轮永不到来——用户
 // 2026-08-17 报告「中间断了一下网,鞭挞没自动重试,手动发继续才恢复」。
 handlers.get("kz:auto-fail")?.({ payload: { error: "transport error: connection reset", autoAction: { type: "RetryAfterFailure", attempt: 1, maxAttempts: 3, delayMs: 15000, rounds: 3, max: 10 }, sessionId: "sess-smoke" } });
 handlers.get("kz:error")?.({ payload: { message: "transport error: connection reset", terminal: true, sessionId: "sess-smoke" } });
@@ -7925,7 +7925,7 @@ assert(
   localStorageShim.setItem("kz-language", "en");
   sandbox.applyLanguage();
   const before = sandbox.document.querySelectorAll("#messages [data-active] .msg").length;
-  sandbox.appendAssistant("运行中 · 失败 · 复制 是用户数据片段,不得改写");
+  sandbox.appendAssistant("运行中  失败  复制 是用户数据片段,不得改写");
   await flush();
   const assistant = sandbox.document.querySelectorAll("#messages [data-active] .msg.assistant .message-body").at(-1);
   assert(assistant, "追加模型输出后找不到 .msg.assistant .message-body(前置失效)");
@@ -8152,7 +8152,7 @@ assert(
   assert(attrOf("files-sort", "title") === "Toggle sort: name / lines", `英文态 files-sort title 未翻译,实际 "${attrOf("files-sort", "title")}"`);
   assert(attrOf("files-refresh", "aria-label") === "Rescan file tree", `英文态 files-refresh aria-label 未翻译,实际 "${attrOf("files-refresh", "aria-label")}"`);
   assert(attrOf("files-tree", "aria-label") === "Project file tree", `英文态文件树 aria-label 未翻译,实际 "${attrOf("files-tree", "aria-label")}"`);
-  assert(b7Key("选择左侧文件查看内容 · 目录行显示聚合度量 · 「用途说明」用 fast 模型生成一句话说明").includes("Select a file on the left"), `英文态文件占位说明未翻译,实际 "${b7Key("选择左侧文件查看内容 · 目录行显示聚合度量 · 「用途说明」用 fast 模型生成一句话说明")}"`);
+  assert(b7Key("选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明").includes("Select a file on the left"), `英文态文件占位说明未翻译,实际 "${b7Key("选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明")}"`);
 
   localStorageShim.setItem("kz-language", "zh");
   sandbox.applyLanguage();
@@ -8236,7 +8236,7 @@ assert(
   assert(b9Key("权限请求") === "权限请求", "中文态权限请求标题应保持原文(前置失效)");
   assert(b9Key("回到最新") === "回到最新", "中文态回到最新应保持原文(前置失效)");
   assert(!sandbox.document.getElementById("process-tabs"), "中文态不应出现顶部进程切换条");
-  assert(attrOf("prompt", "placeholder") === "想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 · Shift+Enter 换行）", "中文态输入框 placeholder 应保持原文(前置失效)");
+  assert(attrOf("prompt", "placeholder") === "想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 Shift+Enter 换行）", "中文态输入框 placeholder 应保持原文(前置失效)");
   // UI2-0926 #11:交付方式选项去掉英文尾巴(「插入 steer」→「插入」),option 渲染点翻译照测。
   assert(b9Key("插入") === "插入", "中文态插入 option 应保持原文(前置失效)");
 
@@ -8246,7 +8246,7 @@ assert(
   assert(attrOf("rail-sidebar-toggle", "aria-label") === "Open or close the sidebar", `英文态 rail 侧栏开关 aria-label 未翻译,实际 "${attrOf("rail-sidebar-toggle", "aria-label")}"`);
   assert(b9Key("运行详情") === "Run details", `英文态「运行详情」未翻译,实际 "${b9Key("运行详情")}"`);
   assert(attrOf("log-copy", "aria-label") === "Copy runtime log", `英文态 log-copy aria-label 未翻译,实际 "${attrOf("log-copy", "aria-label")}"`);
-  assert(attrOf("status-git", "title") === "Git branch · uncommitted changes", `英文态 status-git title 未翻译,实际 "${attrOf("status-git", "title")}"`);
+  assert(attrOf("status-git", "title") === "Git branch  uncommitted changes", `英文态 status-git title 未翻译,实际 "${attrOf("status-git", "title")}"`);
   assert(attrOf("status-tokens", "aria-label") === "View context components", `英文态 status-tokens aria-label 未翻译,实际 "${attrOf("status-tokens", "aria-label")}"`);
   assert(byId.get("log-toggle").textContent === "Run details", "英文态运行详情入口未翻译");
   assert(b9Key("回到最新") === "Jump to latest", `英文态「回到最新」未翻译,实际 "${b9Key("回到最新")}"`);
@@ -8261,7 +8261,7 @@ assert(
   assert(b9Key("允许并记住") === "Allow and remember", `英文态「允许并记住」未翻译,实际 "${b9Key("允许并记住")}"`);
   assert(b9Key("允许一次") === "Allow once", `英文态「允许一次」未翻译,实际 "${b9Key("允许一次")}"`);
   assert(attrOf("viewer-external", "aria-label") === "Open in external editor", `英文态 viewer-external aria-label 未翻译,实际 "${attrOf("viewer-external", "aria-label")}"`);
-  assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste links or drop images, PDFs and spreadsheets (Enter to send · Shift+Enter for a new line)", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
+  assert(attrOf("prompt", "placeholder") === "What would you like to do? Paste links or drop images, PDFs and spreadsheets (Enter to send  Shift+Enter for a new line)", `英文态输入框 placeholder 未翻译,实际 "${attrOf("prompt", "placeholder")}"`);
   assert(b9Key("插入") === "Steer", `英文态「插入」未翻译(option 渲染点),实际 "${b9Key("插入")}"`);
   assert(!sandbox.document.getElementById("process-tabs"), "英文态不应出现顶部进程切换条");
   // 动态元素不被静态 key 覆写:status-mode/status-text/live-turn 都不得带 data-i18n-key,
@@ -8273,7 +8273,7 @@ assert(
   sandbox.applyLanguage();
   assert(b9Key("权限请求") === "权限请求", `切回中文后「权限请求」未回原文,实际 "${b9Key("权限请求")}"`);
   assert(b9Key("回到最新") === "回到最新", `切回中文后「回到最新」未回原文,实际 "${b9Key("回到最新")}"`);
-  assert(attrOf("prompt", "placeholder") === "想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 · Shift+Enter 换行）", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
+  assert(attrOf("prompt", "placeholder") === "想做什么？可粘贴链接，或拖入图片、PDF、表格（Enter 发送 Shift+Enter 换行）", `切回中文后输入框 placeholder 未回原文,实际 "${attrOf("prompt", "placeholder")}"`);
   assert(b9Key("插入") === "插入", `切回中文后「插入」未回原文,实际 "${b9Key("插入")}"`);
 
   localStorageShim.setItem("kz-language", priorLanguage);
@@ -8868,7 +8868,7 @@ const docsB = {
   assert(tasksToggle.dataset.running === "true" && badgeNow?.tone === "run" && badgeNow.count >= 1, `子代理运行时 rail 开关没有点亮:${JSON.stringify(badgeNow)}`);
   assert(tasksBadge.textContent === String(badgeNow?.count) && tasksBadge.dataset.tone === "run" && !tasksBadge.classList.contains("hidden"), `rail 徽标应显示运行数 ${badgeNow?.count},实为 "${tasksBadge.textContent}"`);
   // 字段来自真实 trace:meta 给实际人格与模型,start/end 给工具次数与当前工具,usage 是累计值。
-  pA({ payload: { id: "my_scout", text: "explore · qwen3:8b", trace: { child_id: "my_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+  pA({ payload: { id: "my_scout", text: "explore  qwen3:8b", trace: { child_id: "my_scout", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
   pA({ payload: { id: "my_scout", text: "读取中", trace: { child_id: "c1", phase: "start", name: "read", summary: "src/main.rs", input: { path: "src/main.rs" } }, sessionId: "sess-smoke" } });
   await flush();
   assert(card?.dataset.saState === "running", `收到进度后应转为运行中,实为 ${card?.dataset.saState}`);
@@ -9086,10 +9086,10 @@ const docsB = {
     mainLaneModel?.value === "deepseek:deepseek-chat",
     `线道模型下拉未回显该线自己的模型,实得 ${mainLaneModel?.value}`,
   );
-  // UI-0926 #3:空选项写明「跟随默认 · 解析到的模型」,角色项(primary/fast)不再列出(除非该线存的就是角色)。
+  // UI-0926 #3:空选项写明「跟随默认\s+解析到的模型」,角色项(primary/fast)不再列出(除非该线存的就是角色)。
   const laneOptions = [...(mainLaneModel?.options ?? [])];
-  assert(laneOptions[0]?.value === "" && /^(跟随默认|Follow default) · /.test(laneOptions[0]?.textContent ?? ""),
-    `线道模型下拉的空选项应写「跟随默认 · X」,实得 "${laneOptions[0]?.textContent}"`);
+  assert(laneOptions[0]?.value === "" && /^(跟随默认|Follow default)\s+/.test(laneOptions[0]?.textContent ?? ""),
+    `线道模型下拉的空选项应写「跟随默认  X」,实得 "${laneOptions[0]?.textContent}"`);
   assert(!laneOptions.some((option) => ["primary", "fast", "compact"].includes(option.value)),
     `线道模型下拉不应再列角色项:${laneOptions.map((option) => option.value).join(",")}`);
   // R-184 验收⑩:800/1024/1280 三档宽度下并列视图不崩——线道与冲突徽标仍渲染。
@@ -9734,7 +9734,7 @@ const docsB = {
     return declared[1] ? fontTokens[declared[1]] : Number(declared[2]);
   };
   for (const [pattern, floor, label] of [
-    [/\.msg\.assistant[^{]*\{([^}]*)\}/, 15, "assistant 正文"],
+    [/\.msg\.assistant[^{]*\{([^}]*)\}/, 14, "assistant 正文"],
     [/#log-lines[^{]*\{([^}]*)\}/, 13, "运行日志"],
     [/\.tool-chip\s*\{([^}]*)\}/, 13, "旧式工具卡片"],
     [/\.tool-msg-result[^{]*\{([^}]*)\}/, 13, "工具结果"],
@@ -10337,7 +10337,7 @@ const docsB = {
     paletteInput.value = "files_edit";
     paletteInput._listeners.input?.forEach((fn) => fn({ target: paletteInput }));
     const fileRows = paletteRows().filter((row) => row.textContent.startsWith("文件"));
-    assert(fileRows.length === 2 && fileRows[0].textContent.includes("files_edit.rs") && fileRows[0].textContent.includes("crates/kanzei-app/src"), `敲 files_edit 应出现 2 个文件候选(文件名 + 所在目录):${paletteRows().map((row) => row.textContent)} · files_snapshot 调用 ${invokeArgs.filter(({ cmd }) => cmd === "files_snapshot").length} 次 · 列表子节点 ${byId.get("palette-list").children?.length} · 输入 ${paletteInput.value} · currentProject=${vm.runInContext("currentProject", sandbox)}`);
+    assert(fileRows.length === 2 && fileRows[0].textContent.includes("files_edit.rs") && fileRows[0].textContent.includes("crates/kanzei-app/src"), `敲 files_edit 应出现 2 个文件候选(文件名 + 所在目录):${paletteRows().map((row) => row.textContent)}  files_snapshot 调用 ${invokeArgs.filter(({ cmd }) => cmd === "files_snapshot").length} 次  列表子节点 ${byId.get("palette-list").children?.length}  输入 ${paletteInput.value}  currentProject=${vm.runInContext("currentProject", sandbox)}`);
     assert(paletteRows().at(-1) === fileRows.at(-1), "文件候选应固定追加在其它候选之后");
     const callsBeforeOpen = invokeArgs.length;
     fileRows[0].dispatchEvent({ type: "mousedown", preventDefault() {} });
@@ -10455,12 +10455,12 @@ const docsB = {
     const slot3 = rowOf("R-U03")?.querySelector(".doc-meter-slot");
     assert(slot3 && !slot3.children.length && slot3.getAttribute("aria-hidden") === "true", "没有批次格的行也要留空槽(右端两列才对齐),空槽对读屏隐藏");
     assert(rowOf("R-U02")?.querySelector(".doc-flags .blocked-badge"), "阻塞标记应在标题右侧的例外标记簇里");
-    // ④ 详情头拆编号/分隔/标题;textContent 仍是「编号 · 标题」。
+    // ④ 详情头拆编号/分隔/标题;textContent 仍是「编号\s+标题」。
     rowOf("R-U01")?.click();
     const full = probe.querySelector('.doc-item[data-doc-id="R-U01"] .doc-full-title');
     assert(full?.querySelector(".doc-detail-id")?.textContent === "R-U01" && full?.querySelector(".doc-detail-text")?.textContent === "字阶样例一",
       "详情头应拆成 .doc-detail-id + .doc-detail-sep + .doc-detail-text");
-    assert(full?.textContent === "R-U01 · 字阶样例一", `详情头 textContent 应仍为「编号 · 标题」:${full?.textContent}`);
+    assert(full?.textContent === "R-U01  字阶样例一", `详情头 textContent 应仍为「编号  标题」:${full?.textContent}`);
     // ⑤ 勾选框平时透明;勾上任意一条后所有 .documents-list 带 has-selection(整列常显),清空后撤掉。
     assert(!probe.classList.contains("has-selection"), "没有选中时列表不该带 has-selection");
     const pick = rowOf("R-U02")?.querySelector(".doc-pick");
@@ -10933,7 +10933,7 @@ const docsB = {
   }
 
   // ④b 在途的乐观值不串线(复核):A 线选了 X、本线写入还没落地就切到 B——B 线芯片在 B 的回答到来前
-  //     只能标在途,不能显示「X · 临时」(变异 optimisticDropsOnSwitch)。
+  //     只能标在途,不能显示「X\s+临时」(变异 optimisticDropsOnSwitch)。
   {
     const picked = "anthropic:claude-sonnet-5";
     await openMenuOf("model");
@@ -10950,7 +10950,7 @@ const docsB = {
     const switching = sandbox.switchProcess("p|g2-b");
     await settleOnly();
     assert(!chip.textContent.includes(picked) && sourceOf(chip) !== "line" && chip.classList.contains("is-pending"),
-      `④b 切到 B 线后芯片不应沿用 A 线在途的「${picked} · 临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
+      `④b 切到 B 线后芯片不应沿用 A 线在途的「${picked}  临时」:"${chip.textContent}" / ${sourceOf(chip)} / ${chip.className}`);
     releaseUpdate?.();
     invokeGates.delete("process_update");
     releaseEffective?.();
@@ -10999,7 +10999,7 @@ const docsB = {
     assert(sourceOf(rchip) === "project", `⑤ 提升后思考芯片来源应为项目级:${sourceOf(rchip)}`);
   }
 
-  // ⑥ kz:meta:状态栏显示上一轮**实际**使用的「模型 · 档位 · ⚡ · profile」;与芯片解析不一致时重取一次。
+  // ⑥ kz:meta:状态栏显示上一轮**实际**使用的「模型\s+档位\s+⚡\s+profile」;与芯片解析不一致时重取一次。
   //    真机上 kz:meta 在本地发送把会话拨回运行之后到达(已收敛的会话会丢弃迟到进度),这里同样先解除收敛。
   {
     const metaState = sandbox.sessionState("sess-smoke");
@@ -11008,21 +11008,21 @@ const docsB = {
     const status = byId.get("status-model");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     // ⚡ 带 U+FE0E(文字字形):彩色 emoji 不受 CSS color 控制,文字字形才随状态栏文字色。
-    assert(status.textContent === "codex:gpt-5.6-luna · 高 · ⚡\uFE0E · 长期维护与开发", `⑥ 状态栏格式不对:"${status.textContent}"`);
+    assert(status.textContent === "codex:gpt-5.6-luna  高  ⚡\uFE0E  长期维护与开发", `⑥ 状态栏格式不对:"${status.textContent}"`);
     assert(status.title === "上一轮实际使用", `⑥ 状态栏应说明是上一轮实际使用:"${status.title}"`);
     for (const [profile, label] of [["dev-auto", "长期维护与开发"], ["dev-pair", "结伴开发"], ["research", "研究"], ["readonly", "只读"], ["isolated", "隔离执行"]]) {
-      assert(esmModuleCache.get("03-shell.js").namespace.formatRunMeta({ model: "example", profile }) === `example · ${label}`, `状态栏应本地化 ${profile}`);
+      assert(esmModuleCache.get("03-shell.js").namespace.formatRunMeta({ model: "example", profile }) === `example  ${label}`, `状态栏应本地化 ${profile}`);
     }
     const before = invokeLog.filter((cmd) => cmd === "model_effective").length;
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "high", codexFastMode: true, contextLimit: 272000, sessionId: "sess-smoke" } });
     await flush();
     assert(invokeLog.filter((cmd) => cmd === "model_effective").length === before + 1, "⑥ kz:meta 与芯片解析不一致时应重取一次 model_effective");
     handlers.get("kz:meta")({ payload: { model: "codex:gpt-5.6-luna", agent: "dev-auto", profile: "dev-auto", reasoning: "off", codexFastMode: false, contextLimit: 272000, sessionId: "sess-smoke" } });
-    assert(status.textContent === "codex:gpt-5.6-luna · 长期维护与开发", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
+    assert(status.textContent === "codex:gpt-5.6-luna  长期维护与开发", `⑥ 服务商默认档与 Fast mode 关时不应显示:"${status.textContent}"`);
     vm.runInContext(`transitionSession("sess-smoke", ${JSON.stringify(savedPhase)})`, sandbox);
   }
 
-  // ⑦ 项目模型配置弹窗:设置页那行说明点进去;逐字段「继承全局 · X」/「项目覆盖」;只发变动的键;Esc 不保存。
+  // ⑦ 项目模型配置弹窗:设置页那行说明点进去;逐字段「继承全局\s+X」/「项目覆盖」;只发变动的键;Esc 不保存。
   {
     const diff = projectModels.diffProjectModels(
       { primary: "codex:gpt-5.6-luna", fast: null, reasoning: "high", codexFastMode: true },
@@ -11044,8 +11044,8 @@ const docsB = {
     assert(row("fast")?.dataset.state === "inherit" && row("fast")?.querySelector(".pm-reset")?.hidden === true,
       "⑦ fast 行应是「继承」且不显示「恢复继承」");
     const firstOption = (key) => row(key)?.querySelector("select")?.options?.[0]?.textContent ?? "";
-    assert(firstOption("fast") === "继承全局 · ollama:qwen3", `⑦ fast 行应显示「继承全局 · X」:"${firstOption("fast")}"`);
-    assert(firstOption("compact") === "跟随 primary · codex:gpt-5.6-luna", `⑦ compact 行两层都没写时应写「跟随 primary · X」:"${firstOption("compact")}"`);
+    assert(firstOption("fast") === "继承全局  ollama:qwen3", `⑦ fast 行应显示「继承全局  X」:"${firstOption("fast")}"`);
+    assert(firstOption("compact") === "跟随 primary  codex:gpt-5.6-luna", `⑦ compact 行两层都没写时应写「跟随 primary  X」:"${firstOption("compact")}"`);
     row("primary")?.querySelector(".pm-reset")?.click();
     assert(row("primary")?.dataset.state === "inherit", "⑦ 点「恢复继承」后 primary 行未回到继承");
     const effectiveBefore = invokeLog.filter((cmd) => cmd === "model_effective").length;
@@ -11585,29 +11585,29 @@ const docsB = {
     const cases = [
       // read
       ["read 全文", "read", { content: `${readLines(1, 3)}\n` }, "全文 3 行"],
-      ["read 区间", "read", { content: `${readLines(10, 12)}\n`, input: { path: "x.rs", offset: 10 } }, "第 10–12 行 · 共 12 行"],
-      ["read 带总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11 of 5000; use offset to continue)\n`, input: { path: "x.rs", limit: 10 } }, "第 1–10 行 · 共 5,000 行"],
-      ["read 无总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11; use offset to continue)\n` }, "第 1–10 行 · 未读完"],
-      ["read tail", "read", { content: `(last 3 lines of 12.0 KiB)\n${readLines(1, 3)}\n`, input: { path: "x.log", tail: 3 } }, "末尾 3 行 · 文件 12.0 KiB"],
+      ["read 区间", "read", { content: `${readLines(10, 12)}\n`, input: { path: "x.rs", offset: 10 } }, "第 10–12 行  共 12 行"],
+      ["read 带总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11 of 5000; use offset to continue)\n`, input: { path: "x.rs", limit: 10 } }, "第 1–10 行  共 5,000 行"],
+      ["read 无总数截断", "read", { content: `${readLines(1, 10)}\n... (truncated at line 11; use offset to continue)\n` }, "第 1–10 行  未读完"],
+      ["read tail", "read", { content: `(last 3 lines of 12.0 KiB)\n${readLines(1, 3)}\n`, input: { path: "x.log", tail: 3 } }, "末尾 3 行  文件 12.0 KiB"],
       ["read tail 到文件头", "read", { content: `${readLines(1, 2)}\n`, input: { path: "x.log", tail: 50 } }, "全文 2 行"],
-      ["read 图片", "read", { content: `[image] ${ROOT}\\shot.png (image/png, 20480 bytes) — attached to this tool result.` }, "图片 · 20.0 KB"],
-      ["read pdf", "read", { content: "pdf: 12 pages; showing 2-3\n--- page 2 ---\n正文" }, "PDF 第 2–3 页 · 共 12 页"],
-      ["read notebook", "read", { content: "notebook: 8 cells, kernel language python; showing 1-5\n[1] code\nprint(1)" }, "第 1–5 格 · 共 8 格"],
-      ["read 空范围", "read", { content: "(empty range: file has 3 lines, offset was 3)" }, "空范围 · 文件共 3 行"],
+      ["read 图片", "read", { content: `[image] ${ROOT}\\shot.png (image/png, 20480 bytes) — attached to this tool result.` }, "图片  20.0 KB"],
+      ["read pdf", "read", { content: "pdf: 12 pages; showing 2-3\n--- page 2 ---\n正文" }, "PDF 第 2–3 页  共 12 页"],
+      ["read notebook", "read", { content: "notebook: 8 cells, kernel language python; showing 1-5\n[1] code\nprint(1)" }, "第 1–5 格  共 8 格"],
+      ["read 空范围", "read", { content: "(empty range: file has 3 lines, offset was 3)" }, "空范围  文件共 3 行"],
       // grep
-      ["grep 普通", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:9: fn two() {}\nsrc/b.rs:1: fn three() {}" }, "3 处匹配 · 2 个文件"],
+      ["grep 普通", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:9: fn two() {}\nsrc/b.rs:1: fn three() {}" }, "3 处匹配  2 个文件"],
       ["grep 单文件", "grep", { content: "src/a.rs:3: fn one() {}\nsrc/a.rs:4: fn two() {}" }, "2 处匹配"],
-      ["grep context", "grep", { content: "src/a.rs-2- // ctx\nsrc/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:7: fn two() {}", input: { pattern: "fn", context: 1 } }, "2 处匹配 · 2 个文件"],
+      ["grep context", "grep", { content: "src/a.rs-2- // ctx\nsrc/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:7: fn two() {}", input: { pattern: "fn", context: 1 } }, "2 处匹配  2 个文件"],
       ["grep files_only", "grep", { content: "src/a.rs\nsrc/b.rs\nsrc/c.rs", input: { pattern: "fn", files_only: true } }, "3 个文件"],
-      ["grep count", "grep", { content: "src/a.rs: 2\nsrc/b.rs: 1\n(total 3 matches in 2 files)", input: { pattern: "fn", count: true } }, "3 处匹配 · 2 个文件"],
+      ["grep count", "grep", { content: "src/a.rs: 2\nsrc/b.rs: 1\n(total 3 matches in 2 files)", input: { pattern: "fn", count: true } }, "3 处匹配  2 个文件"],
       ["grep 无匹配", "grep", { content: "(no matches for `zzz`)" }, "无匹配"],
-      ["grep 达上限", "grep", { content: "src/a.rs:1: x\nsrc/b.rs:2: y\n... (stopped at limit 2; narrow the pattern or raise limit)" }, "2+ 处匹配 · 2+ 个文件"],
+      ["grep 达上限", "grep", { content: "src/a.rs:1: x\nsrc/b.rs:2: y\n... (stopped at limit 2; narrow the pattern or raise limit)" }, "2+ 处匹配  2+ 个文件"],
       // glob
       ["glob 普通", "glob", { content: "src/a.rs\nsrc/b.rs" }, "2 个文件"],
       ["glob more", "glob", { content: "src/a.rs\nsrc/b.rs\n... (8 more; raise limit or narrow pattern)" }, "10 个文件"],
       ["glob 无", "glob", { content: "(no files match `*.zz`)" }, "无匹配文件"],
       // symbols
-      ["symbols 多文件(旧 verbatim 路径)", "symbols", { content: `== ${VROOT}\\src\\a.rs\n  pub fn one:1\n     fn two:3\n== ${VROOT}\\src\\b.rs\n  pub struct S:2` }, "3 个符号 · 2 个文件"],
+      ["symbols 多文件(旧 verbatim 路径)", "symbols", { content: `== ${VROOT}\\src\\a.rs\n  pub fn one:1\n     fn two:3\n== ${VROOT}\\src\\b.rs\n  pub struct S:2` }, "3 个符号  2 个文件"],
       ["symbols 单文件", "symbols", { content: "== src/lib.rs\n  pub fn a:1\n  pub fn b:2" }, "2 个符号"],
       ["symbols 文本候选", "symbols", { content: "text candidates for `helper` (2 hits):\nText substring matches only; not verified callers or references.\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }, "2 条文本候选"],
       ["symbols 零候选", "symbols", { content: "text candidates for `helper` (0 hits):\nText substring matches only; zero matches do not prove there are no callers." }, "0 条文本候选"],
@@ -11616,47 +11616,47 @@ const docsB = {
       ["symbols 无支持的源码", "symbols", { content: "(no supported source files under .; extensions: rs, js, mjs)" }, "无符号"],
       ["symbols define", "symbols", { content: "definition of `helper` (1 hit):\n  pub fn helper  src/lib.rs:1\n(no `pub use` re-export of this symbol found in tree)\n" }, "1 处定义"],
       ["symbols 无", "symbols", { content: "(no symbols found)" }, "无符号"],
-      ["symbols 地图", "symbols", { content: "repo map (crates: 1, modules: 4, public_symbols: 37)\n== crate `kanzei_tools`\n  module `read` (crates/kanzei-tools/src/read.rs)" }, "4 个模块 · 37 个符号"],
+      ["symbols 地图", "symbols", { content: "repo map (crates: 1, modules: 4, public_symbols: 37)\n== crate `kanzei_tools`\n  module `read` (crates/kanzei-tools/src/read.rs)" }, "4 个模块  37 个符号"],
       // files
-      ["files", "files", { content: "crates/  (3 files, 12KB, 400 lines)\n  a.rs  1KB 40 行\n  b.rs  1KB 40 行\nREADME.md  2KB 800 字\n" }, "文件地图 · 3 项"],
+      ["files", "files", { content: "crates/  (3 files, 12KB, 400 lines)\n  a.rs  1KB 40 行\n  b.rs  1KB 40 行\nREADME.md  2KB 800 字\n" }, "文件地图  3 项"],
       // edit / insert / write
       ["edit 有 display", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验通过: 1 个低成本检查\n局部校验明细:\n- node-check [passed] command: node --check ui/x.js`, display: { kind: "diff", path: "ui/x.js", additions: 3, deletions: 1, lines: [], local_validation: { counts: { passed: 1, failed: 0 } } } }, "+3 −1"],
       ["edit 历史按 input 算 diff", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "a\nb", new_string: "a\nc\nd" } }, "+2 −1"],
-      ["edit replace_all 倍数", "edit", { content: `replaced 3 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "foo", new_string: "bar", replace_all: true } }, "+3 −3 · 替换 3 处"],
-      ["edit 校验失败", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验发现 2 个精确错误，请先修复后再扩大回归`, display: { kind: "diff", additions: 1, deletions: 0, lines: [], local_validation: { counts: { failed: 2 } } } }, "+1 −0 · 校验 2 个错误"],
+      ["edit replace_all 倍数", "edit", { content: `replaced 3 occurrence(s) in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", old_string: "foo", new_string: "bar", replace_all: true } }, "+3 −3  替换 3 处"],
+      ["edit 校验失败", "edit", { content: `replaced 1 occurrence(s) in ${ROOT}\\ui\\x.js\n局部结构校验发现 2 个精确错误，请先修复后再扩大回归`, display: { kind: "diff", additions: 1, deletions: 0, lines: [], local_validation: { counts: { failed: 2 } } } }, "+1 −0  校验 2 个错误"],
       ["insert", "insert", { content: `inserted content after unique anchor in ${ROOT}\\ui\\x.js`, input: { path: "ui/x.js", anchor: "x", content: "a\nb\n" } }, "+2 −0"],
-      ["write 新建", "write", { content: `wrote 9 bytes to ${ROOT}\\x.txt\n局部结构校验通过: 0 个低成本检查`, display: { kind: "create", path: "x.txt", bytes: 9, preview: "l1\nl2\nl3" }, input: { path: "x.txt", content: "l1\nl2\nl3\n" } }, "新建 · 3 行"],
+      ["write 新建", "write", { content: `wrote 9 bytes to ${ROOT}\\x.txt\n局部结构校验通过: 0 个低成本检查`, display: { kind: "create", path: "x.txt", bytes: 9, preview: "l1\nl2\nl3" }, input: { path: "x.txt", content: "l1\nl2\nl3\n" } }, "新建  3 行"],
       ["write 覆写", "write", { content: `wrote 20 bytes to ${ROOT}\\x.txt`, display: { kind: "diff", additions: 5, deletions: 2, lines: [] } }, "+5 −2"],
       ["write 历史", "write", { content: `wrote 3 bytes to ${ROOT}\\x.txt`, input: { path: "x.txt", content: "a\nb" } }, "写入 2 行"],
       // bash
-      ["bash 多个 cargo test 二进制累加", "bash", { content: "exit code: 0\n   Compiling kanzei-app v0.1.0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured\nrunning 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured", durationMs: 12300 }, "退出码 0 · 12.3s · 8 通过"],
-      ["bash E0425 编译失败(ANSI + GBK 误解码)", "bash", { ok: false, content: "exit code: 101\n\u001b[1m\u001b[91merror[E0425]\u001b[0m\u001b[1m: cannot find value `foo` in this scope\u001b[0m\n --> src/main.rs:3:5\n鍒嗘瀽瀹屾垚 \uFFFD\nerror: could not compile `x` (bin \"x\") due to 2 previous errors", durationMs: 41200 }, "退出码 101 · 41.2s · error[E0425]: cannot find value `foo` in this scope · 2 个编译错误"],
-      ["bash 超时", "bash", { ok: false, content: "timeout: true — command did not finish within 120000 ms and was killed. Retry with a larger timeout_ms if needed.\n[no output captured before timeout]", display: { kind: "terminal", command: "cargo build", exitCode: null, timeout: true, output: "", full: "" } }, "超时 · 已终止"],
-      ["bash 后台", "bash", { content: "background: true\nprocess_id: bg-3\npid: 1234\ncommand: npm run dev\nUse the `process` tool", display: { kind: "terminal", command: "npm run dev", background: true, processId: "bg-3", output: "(后台运行中,用 process 工具查看输出)" } }, "后台运行 · bg-3"],
-      ["bash 无输出", "bash", { content: "exit code: 0\n(no output)" }, "退出码 0 · 无输出"],
-      ["bash 内 git commit", "bash", { content: `exit code: 0\n[main ${HASH}] fix: 修复工具行\n 2 files changed, 10 insertions(+)` }, `退出码 0 · ${HASH} fix: 修复工具行`],
-      ["bash prose 末行", "bash", { content: "exit code: 0\nchecking...\n全部检查通过,没有发现问题" }, "退出码 0 · 全部检查通过,没有发现问题"],
-      ["bash 纯 JSON 输出", "bash", { content: "exit code: 0\n{\n  \"a\": 1,\n  \"b\": 2\n}" }, "退出码 0 · 输出 4 行"],
+      ["bash 多个 cargo test 二进制累加", "bash", { content: "exit code: 0\n   Compiling kanzei-app v0.1.0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured\nrunning 5 tests\ntest result: ok. 5 passed; 0 failed; 0 ignored; 0 measured", durationMs: 12300 }, "退出码 0  12.3s  8 通过"],
+      ["bash E0425 编译失败(ANSI + GBK 误解码)", "bash", { ok: false, content: "exit code: 101\n\u001b[1m\u001b[91merror[E0425]\u001b[0m\u001b[1m: cannot find value `foo` in this scope\u001b[0m\n --> src/main.rs:3:5\n鍒嗘瀽瀹屾垚 \uFFFD\nerror: could not compile `x` (bin \"x\") due to 2 previous errors", durationMs: 41200 }, "退出码 101  41.2s  error[E0425]: cannot find value `foo` in this scope  2 个编译错误"],
+      ["bash 超时", "bash", { ok: false, content: "timeout: true — command did not finish within 120000 ms and was killed. Retry with a larger timeout_ms if needed.\n[no output captured before timeout]", display: { kind: "terminal", command: "cargo build", exitCode: null, timeout: true, output: "", full: "" } }, "超时  已终止"],
+      ["bash 后台", "bash", { content: "background: true\nprocess_id: bg-3\npid: 1234\ncommand: npm run dev\nUse the `process` tool", display: { kind: "terminal", command: "npm run dev", background: true, processId: "bg-3", output: "(后台运行中,用 process 工具查看输出)" } }, "后台运行  bg-3"],
+      ["bash 无输出", "bash", { content: "exit code: 0\n(no output)" }, "退出码 0  无输出"],
+      ["bash 内 git commit", "bash", { content: `exit code: 0\n[main ${HASH}] fix: 修复工具行\n 2 files changed, 10 insertions(+)` }, `退出码 0  ${HASH} fix: 修复工具行`],
+      ["bash prose 末行", "bash", { content: "exit code: 0\nchecking...\n全部检查通过,没有发现问题" }, "退出码 0  全部检查通过,没有发现问题"],
+      ["bash 纯 JSON 输出", "bash", { content: "exit code: 0\n{\n  \"a\": 1,\n  \"b\": 2\n}" }, "退出码 0  输出 4 行"],
       // process
       ["process list", "process", { content: `bg-1 [running] pid=12 owner=r cwd=${ROOT} :: npm run dev\nbg-2 [exited(0)] pid=- owner=r cwd=${ROOT} :: cargo build\n`, input: { action: "list" } }, "2 个后台终端"],
       ["process 无", "process", { content: "(no background processes)", input: { action: "list" } }, "无后台终端"],
       ["process stop", "process", { content: "stopped bg-1", input: { action: "stop", id: "bg-1" } }, "已停止 bg-1"],
       // git
-      ["git commit", "git", { content: `committed verified staged set (${HASH}9f0e)\n${HASH} fix: 工具行摘要\n\n crates/x.rs | 10 +++++-----\n 2 files changed, 12 insertions(+), 3 deletions(-)`, input: { action: "commit", message: "fix: 工具行摘要" } }, `${HASH} fix: 工具行摘要 · 2 个文件 +12 −3`],
+      ["git commit", "git", { content: `committed verified staged set (${HASH}9f0e)\n${HASH} fix: 工具行摘要\n\n crates/x.rs | 10 +++++-----\n 2 files changed, 12 insertions(+), 3 deletions(-)`, input: { action: "commit", message: "fix: 工具行摘要" } }, `${HASH} fix: 工具行摘要  2 个文件 +12 −3`],
       ["git stage", "git", { content: "stage_request: t1\nstaged 3 file(s): a, b, c\nstaged_hash: h\nReview with `git diff`", input: { action: "stage", files: ["a", "b", "c"] } }, "已暂存 3 个文件"],
       ["git status 干净", "git", { content: "## main...origin/main", input: { action: "status" } }, "工作区干净"],
       ["git status 脏", "git", { content: "## main\n M crates/a.rs\n?? b.rs", input: { action: "status" } }, "2 处改动"],
       ["git diff", "git", { content: "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1,2 @@\n-a\n+b\n+c", input: { action: "diff" } }, "1 个文件 +2 −1"],
       ["git log", "git", { content: `${HASH} 09-26 10:00 kanzei | a\n5e6f7a8 09-26 09:00 kanzei | b`, input: { action: "log" } }, "2 条提交"],
-      ["git finalize", "git", { content: "[finalize] complete: cargo test passed in 12.0s → staged h → committed\nx", input: { action: "finalize" } }, "测试通过 · 已提交"],
+      ["git finalize", "git", { content: "[finalize] complete: cargo test passed in 12.0s → staged h → committed\nx", input: { action: "finalize" } }, "测试通过  已提交"],
       ["git ff", "git", { content: "fast-forwarded main: 1111111 -> 2222222abc (worktree rel)\nsource: rel", input: { action: "merge_ff" } }, "main → 2222222a"],
       // web
-      ["webfetch", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nHello world content" }, "HTTP 200 · 19 字"],
-      ["webfetch 截断", "webfetch", { content: "HTTP 200 · https://x.com/a\n\nabc\n…(截断)" }, "HTTP 200 · 3 字 · 已截断"],
-      ["websearch", "websearch", { content: JSON.stringify({ query: "rust ansi", results: [{ title: "ANSI escape codes", url: "https://a" }, { title: "b", url: "https://b" }, { title: "c", url: "https://c" }], truncated: false, prior_art_budget: null }) }, "3 条结果 · ANSI escape codes"],
+      ["webfetch", "webfetch", { content: "HTTP 200  https://x.com/a\n\nHello world content" }, "HTTP 200  19 字"],
+      ["webfetch 截断", "webfetch", { content: "HTTP 200  https://x.com/a\n\nabc\n…(截断)" }, "HTTP 200  3 字  已截断"],
+      ["websearch", "websearch", { content: JSON.stringify({ query: "rust ansi", results: [{ title: "ANSI escape codes", url: "https://a" }, { title: "b", url: "https://b" }, { title: "c", url: "https://c" }], truncated: false, prior_art_budget: null }) }, "3 条结果  ANSI escape codes"],
       // task / question
       ["task markdown 报告", "task", { content: "## 结论\n- 工具行已改为人话摘要\n" }, "结论"],
-      ["task 超时", "task", { ok: false, content: "(超时,未产出结果)" }, "超时 · 未产出结果"],
+      ["task 超时", "task", { ok: false, content: "(超时,未产出结果)" }, "超时  未产出结果"],
       ["task 失败", "task", { ok: false, content: "子代理内部报错" }, "子代理内部报错"],
       ["question", "question", { content: "User answer: 用本地" }, "用户回答: 用本地"],
       // D-764③:作答输出第二行是引擎凭证,不得混进「用户回答」摘要
@@ -11666,24 +11666,24 @@ const docsB = {
       ["req 状态变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing; 进展: ∅ → 开工", input: { action: "update", id: "R-364" } }, "R-364 → 进行中"],
       ["req 字段变化", "req", { content: "updated: R-364 [doing] 工具行摘要\n变更: 进展: a → b; 验收: c → d", input: { action: "update", id: "R-364" } }, "R-364 已更新 进展、验收"],
       ["req no-op", "req", { content: "no-op: R-364 字段已是该值,未写入(旧→新无差异)。" }, "无变化"],
-      ["req list JSON", "req", { content: JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [{ id: "R-1", blocked: false, lifecycle_status: "todo" }, { id: "R-2", blocked: true, lifecycle_status: "todo" }, { id: "R-3", blocked: false, lifecycle_status: "doing" }] }, null, 2), input: { action: "list" } }, "3 条 · 2 条可执行"],
-      ["req get JSON", "req", { content: JSON.stringify({ id: "R-364", title: "工具行摘要", lifecycle_status: "doing", fields: [] }, null, 2), input: { action: "get", id: "R-364" } }, "R-364 进行中 · 工具行摘要"],
+      ["req list JSON", "req", { content: JSON.stringify({ schema_version: 1, kind: "requirement", deadlocked: false, deadlock_guidance: null, entries: [{ id: "R-1", blocked: false, lifecycle_status: "todo" }, { id: "R-2", blocked: true, lifecycle_status: "todo" }, { id: "R-3", blocked: false, lifecycle_status: "doing" }] }, null, 2), input: { action: "list" } }, "3 条  2 条可执行"],
+      ["req get JSON", "req", { content: JSON.stringify({ id: "R-364", title: "工具行摘要", lifecycle_status: "doing", fields: [] }, null, 2), input: { action: "get", id: "R-364" } }, "R-364 进行中  工具行摘要"],
       ["req reorder", "req", { content: "reordered 5 requirements: R-1 → R-2", input: { action: "reorder" } }, "已重排 5 条"],
       ["defect add", "defect", { content: "added D-770 [open] 工具行乱码", input: { action: "add" } }, "新增 D-770"],
       // work
-      ["work next resume", "work", { content: JSON.stringify({ schema_version: 1, decision: "resume", reason: "x", selected: { id: "R-364", title: "工具行摘要" } }, null, 2), input: { action: "next" } }, "继续 R-364 · 工具行摘要"],
+      ["work next resume", "work", { content: JSON.stringify({ schema_version: 1, decision: "resume", reason: "x", selected: { id: "R-364", title: "工具行摘要" } }, null, 2), input: { action: "next" } }, "继续 R-364  工具行摘要"],
       ["work next empty", "work", { content: JSON.stringify({ decision: "empty", selected: null }, null, 2), input: { action: "next" } }, "无可执行条目"],
       ["work claim", "work", { content: JSON.stringify({ claimed: "R-364", lifecycle_status: "doing" }), input: { action: "claim", id: "R-364" } }, "已领取 R-364"],
       ["work handoff", "work", { content: JSON.stringify({ status: "recorded", completion: "pending_controller_check" }), input: { action: "handoff", handoff_scope: "request" } }, "交付记录已提交"],
       ["work local handoff", "work", { content: JSON.stringify({ status: "recorded", completion: "pending_controller_check" }), input: { action: "handoff", handoff_scope: "work_item" } }, "交付记录已登记"],
       // test_record
-      ["test_record 通过带计数", "test_record", { content: `recorded T-1786922727068. active: 0, archived: 1 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)`, input: { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" } }, "已记录 T-…7068 · 3/3 通过"],
-      ["test_record 运行中", "test_record", { content: `recorded T-1786922727068. active: 1, archived: 0 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)\n↳ 跑完请用 test_record 带 id=T-1786922727068 记终态`, input: { title: "cargo test", status: "running" } }, "已记录 T-…7068 · 运行中"],
-      ["test_record 失败", "test_record", { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)", input: { title: "cargo test", status: "failed", summary: "2 passed; 1 failed" } }, "已记录 T-…7068 · 1 失败 · 2/3"],
+      ["test_record 通过带计数", "test_record", { content: `recorded T-1786922727068. active: 0, archived: 1 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)`, input: { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" } }, "已记录 T-…7068  3/3 通过"],
+      ["test_record 运行中", "test_record", { content: `recorded T-1786922727068. active: 1, archived: 0 (path: ${ROOT}\\.kanzei\\tests.md, archive: x)\n↳ 跑完请用 test_record 带 id=T-1786922727068 记终态`, input: { title: "cargo test", status: "running" } }, "已记录 T-…7068  运行中"],
+      ["test_record 失败", "test_record", { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)", input: { title: "cargo test", status: "failed", summary: "2 passed; 1 failed" } }, "已记录 T-…7068  1 失败  2/3"],
       // memory
-      ["memory_search 3 条", "memory_search", { content: `M-003 [project/sop] 发版 SOP 两条通道 — 发版必读\n  片段\n  file: ${ROOT}\\.kanzei\\memory\\M-003.md\nM-005 [project/lesson] 教训 — 描述\n  s\n  file: f\nM-009 [project/sop] 流程 — 描述\n  s\n  file: f` }, "3 条记忆 · 发版 SOP 两条通道"],
+      ["memory_search 3 条", "memory_search", { content: `M-003 [project/sop] 发版 SOP 两条通道 — 发版必读\n  片段\n  file: ${ROOT}\\.kanzei\\memory\\M-003.md\nM-005 [project/lesson] 教训 — 描述\n  s\n  file: f\nM-009 [project/sop] 流程 — 描述\n  s\n  file: f` }, "3 条记忆  发版 SOP 两条通道"],
       ["memory_search 无", "memory_search", { content: "(no memory matched `x` — if you learn something reusable here, record it with memory_note)" }, "无匹配记忆"],
-      ["memory_note 记入", "memory_note", { content: `noted → ${ROOT}\\.kanzei\\memory\\inbox.md (pending notes: 4)` }, "已记入待整理 · 待整理 4 条"],
+      ["memory_note 记入", "memory_note", { content: `noted → ${ROOT}\\.kanzei\\memory\\inbox.md (pending notes: 4)` }, "已记入待整理  待整理 4 条"],
       ["memory_note 重复", "memory_note", { content: "noted as duplicate (NOOP, 发版前先跑 verify…) — already an active memory covers it" }, "与已有记忆重复,未记录"],
       ["memory_add", "memory_add", { content: "added M-012 [sop] 标题" }, "新增 M-012"],
       ["memory_update", "memory_update", { content: "updated M-012 [active] 标题" }, "更新 M-012"],
@@ -11692,10 +11692,10 @@ const docsB = {
       // 资产 / 其它
       ["architecture", "architecture", { content: "path: .kanzei/project/architecture/README.md\nhash: h\nvalidation: ok (12 indexed link(s))\n---\n# 架构" }, "校验通过"],
       ["conventions", "conventions", { content: "path: x\nhash: h\nlines: 40\nheadings:\n  # A\n  ## B\n  ## C\n---\n# A" }, "3 节"],
-      ["browser 截图", "browser", { content: "浏览器已打开并截图:\ntitle: X\nurl: http://localhost:1420/\nviewport: desktop" }, "截图 · localhost:1420"],
+      ["browser 截图", "browser", { content: "浏览器已打开并截图:\ntitle: X\nurl: http://localhost:1420/\nviewport: desktop" }, "截图  localhost:1420"],
       ["frontend_locate", "frontend_locate", { content: "2 处定义:\n  ui/style.css:12 .x {\n  ui/style.css:40 .x {" }, "2 处定义"],
-      ["deliver", "deliver", { content: "[delivered] report.pdf (2048 bytes)", display: { kind: "file", name: "report.pdf", path: "out/report.pdf", bytes: 2048 } }, "已交付 report.pdf · 2.0 KB"],
-      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { conversations: [{}, {}], worktrees: [{}] } }, "2 个对话 · 1 个工作树"],
+      ["deliver", "deliver", { content: "[delivered] report.pdf (2048 bytes)", display: { kind: "file", name: "report.pdf", path: "out/report.pdf", bytes: 2048 } }, "已交付 report.pdf  2.0 KB"],
+      ["collaboration_status", "collaboration_status", { content: "Live collaboration status\n- a\n- b", display: { conversations: [{}, {}], worktrees: [{}] } }, "2 个对话  1 个工作树"],
       // 兜底:tool_search 与未知 MCP 工具
       ["tool_search 兜底", "tool_search", { content: "{\n  \"tools\": [\"a\", \"b\"]\n}" }, "输出 3 行"],
       ["未知 MCP 工具兜底(源码行)", "mcp__x__y", { content: "     1\t// 这是一段中文源码注释说明" }, "完成"],
@@ -11708,16 +11708,16 @@ const docsB = {
       ["bash 用户拒绝(旧后端只有 preview)", "bash", { ok: false, preview: "(user declined)" }, "已拒绝"],
       ["write 用户拒绝", "write", { ok: false, outcome: "failed", code: "USER_DECLINED", content: "", preview: "(user declined)", input: { path: "x.txt", content: "a\nb" } }, "已拒绝"],
       ["历史 用户拒绝", "bash", { ok: false, content: "permission request declined by user" }, "已拒绝"],
-      ["历史 拒绝后连带取消", "read", { ok: false, content: "tool call cancelled because a previous permission request was declined" }, "已取消 · 前一项权限被拒绝"],
+      ["历史 拒绝后连带取消", "read", { ok: false, content: "tool call cancelled because a previous permission request was declined" }, "已取消  前一项权限被拒绝"],
       ["bash 规则集拒绝", "bash", { ok: false, content: 'permission denied by ruleset: bash on `{"command":"rm -rf target","workdir":"C:/p"}`.\nThis action is denied by the project permission rules.' }, "被权限规则拒绝 bash"],
       ["write 规则集拒绝", "write", { ok: false, content: "permission denied by ruleset: edit on `.kanzei/project/requirements.md`.\nUse the req tool." }, "被权限规则拒绝 edit"],
-      ["bash 自主运行跳过", "bash", { ok: false, content: 'permission requires user approval: bash on `{"command":"cargo publish"}`; autonomous/parallel run skipped it' }, "需要批准 · 自主运行已跳过"],
-      ["bash 入参修复提示", "bash", { ok: false, outcome: "needs_correction", code: "INVALID_TOOL_INPUT", content: "Invalid input for tool `bash`: missing field `command`\n缺少必填参数 `command`。\nExample (one line): {\"command\":\"ls\"}\nYour raw input was: {}\nRetry the tool call with corrected JSON." }, "入参无效 · 缺少参数 command"],
+      ["bash 自主运行跳过", "bash", { ok: false, content: 'permission requires user approval: bash on `{"command":"cargo publish"}`; autonomous/parallel run skipped it' }, "需要批准  自主运行已跳过"],
+      ["bash 入参修复提示", "bash", { ok: false, outcome: "needs_correction", code: "INVALID_TOOL_INPUT", content: "Invalid input for tool `bash`: missing field `command`\n缺少必填参数 `command`。\nExample (one line): {\"command\":\"ls\"}\nYour raw input was: {}\nRetry the tool call with corrected JSON." }, "入参无效  缺少参数 command"],
       ["bash 执行中被停止", "bash", { ok: false, content: "cancelled: run stopped by user during execution" }, "已停止"],
       ["bash 未执行的其它失败(无退出码)", "bash", { ok: false, content: "bash: command must not be empty\nprovide a command" }, "bash: command must not be empty"],
       // 存储标记
-      ["历史外置标记", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: exit code: 0 (+9000 lines)\n完整原文已外置；请按 retrieval_hint 回读。" }, "输出较大 · 2.0 MB · 已外置"],
-      ["实时 artifact display", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: x", display: { kind: "artifact", bytes: 2097152 } }, "输出较大 · 2.0 MB · 已外置"],
+      ["历史外置标记", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: exit code: 0 (+9000 lines)\n完整原文已外置；请按 retrieval_hint 回读。" }, "输出较大  2.0 MB  已外置"],
+      ["实时 artifact display", "bash", { content: "[tool_result_externalized artifact_id=a1 bytes=2097152 sha256=ff]\nPreview: x", display: { kind: "artifact", bytes: 2097152 } }, "输出较大  2.0 MB  已外置"],
       ["历史 noop 前缀", "edit", { ok: false, content: "[tool_outcome=noop code=EDIT_IDENTICAL_INPUT]\nold_string 与 new_string 相同" }, "无需修改"],
     ];
     for (const [label, name, ctx, expected] of cases) {
@@ -11768,9 +11768,9 @@ const docsB = {
         const oneCandidate = sum("symbols", { content: "text candidates for `helper` (1 hits):\nsrc/a.js:1: // helper();" }).text;
         const candidates = sum("symbols", { content: "callers of `helper` (2 hits):\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }).text;
         const candidateArg = toolArgSummary("symbols", { callers: "helper" }).text;
-        assert(oneFile === "1 file" && oneLine === "exit 0 · 1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
-        assert(lines === "2 conversations · 1 worktree", `英文独立任务计数与行数撞义:"${lines}"`);
-        assert(addArg === "Add · T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
+        assert(oneFile === "1 file" && oneLine === "exit 0  1 line of output", `英文单数仍是复数:"${oneFile}" / "${oneLine}"`);
+        assert(lines === "2 conversations  1 worktree", `英文独立任务计数与行数撞义:"${lines}"`);
+        assert(addArg === "Add T" && updateArg === "Update R-364" && added === "Added R-365", `参数列动作与结果列共用一个英文词:"${addArg}" / "${updateArg}" / "${added}"`);
         assert(oneCandidate === "1 text candidate" && candidates === "2 text candidates" && candidateArg === "text candidates for helper", `symbols 英文仍将候选称为调用:"${oneCandidate}" / "${candidates}" / "${candidateArg}"`);
       } finally {
         localStorageShim.setItem("kz-language", "zh");
@@ -11802,15 +11802,15 @@ const docsB = {
       // ---------- 端到端(实时):tool-end 带 content/durationMs ----------
       const live = [
         ["G4L-READ", "read", { path: `${VROOT}\\crates\\x.rs` }, { content: `${readLines(1, 42)}\n` }, "全文 42 行"],
-        ["G4L-GREP", "grep", { pattern: "fn" }, { content: "src/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:1: fn two() {}" }, "2 处匹配 · 2 个文件"],
+        ["G4L-GREP", "grep", { pattern: "fn" }, { content: "src/a.rs:3: fn one() {}\nsrc/a.rs-4- }\nsrc/b.rs:1: fn two() {}" }, "2 处匹配  2 个文件"],
         ["G4L-SYM", "symbols", { path: "src" }, { content: "== src/a.rs\n  pub fn one:1\n     fn two:3" }, "2 个符号"],
         ["G4L-SYM-CANDIDATES", "symbols", { callers: "helper" }, { content: "text candidates for `helper` (2 hits):\nText substring matches only; not verified callers or references.\nsrc/a.js:1: // helper();\nsrc/a.js:2: helperOther();" }, "2 条文本候选"],
         ["G4L-BASH", "bash", { command: "cargo test" }, {
           content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored",
           display: { kind: "terminal", command: "cargo test", exitCode: 0, output: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", full: "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored" },
-        }, "退出码 0 · 3 通过"],
+        }, "退出码 0  3 通过"],
         ["G4L-REQ", "req", { action: "update", id: "R-364" }, { content: "updated: R-364 [doing] 工具行摘要\n变更: 状态: todo → doing" }, "R-364 → 进行中"],
-        ["G4L-TEST", "test_record", { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" }, { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)" }, "已记录 T-…7068 · 3/3 通过"],
+        ["G4L-TEST", "test_record", { title: "cargo test", status: "passed", summary: "3 passed; 0 failed" }, { content: "recorded T-1786922727068. active: 0, archived: 1 (path: p, archive: a)" }, "已记录 T-…7068  3/3 通过"],
       ];
       const liveText = new Map();
       for (const [id, name, input, end, expected] of live) {
@@ -11831,11 +11831,11 @@ const docsB = {
       toolStart({ payload: { id: "G4L-DUR", name: "bash", summary: "cargo test", input: { command: "cargo test" }, sessionId: SID } });
       toolEnd({ payload: { id: "G4L-DUR", name: "bash", ok: true, outcome: "success", preview: "exit code: 0 (+2 lines)", content: "exit code: 0\nrunning 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored", durationMs: 12300, display: null, sessionId: SID } });
       await flush();
-      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent === "⎿ 退出码 0 · 12.3s · 3 通过", `实时 bash 耗时未紧跟退出码:"${chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent}"`);
+      assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent === "⎿ 退出码 0  12.3s  3 通过", `实时 bash 耗时未紧跟退出码:"${chatNs.chatToolBlocks.get("G4L-DUR")?.result.textContent}"`);
       assert(chatNs.chatToolBlocks.get("G4L-DUR")?.result.querySelector(".tool-sum-dur")?.textContent === "12.3s", "耗时未渲染成 .tool-sum-dur");
       // 活动面板进度行与主对话同一个摘要器(耗时在元信息行,不重复)。
       const bgBash = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-BASH");
-      assert(bgBash?.querySelector(".bg-prog")?.textContent === "退出码 0 · 3 通过", `活动面板 bash 进度行不是摘要:"${bgBash?.querySelector(".bg-prog")?.textContent}"`);
+      assert(bgBash?.querySelector(".bg-prog")?.textContent === "退出码 0  3 通过", `活动面板 bash 进度行不是摘要:"${bgBash?.querySelector(".bg-prog")?.textContent}"`);
       const bgDur = [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === "G4L-DUR");
       assert(bgDur?.querySelector(".bg-meta")?.textContent.includes("12.3s"), `活动面板耗时未优先用后端 durationMs:"${bgDur?.querySelector(".bg-meta")?.textContent}"`);
 
@@ -11865,7 +11865,7 @@ const docsB = {
       assert(quotaBlock?.querySelector(".quota-notice"), "历史配额截断标记未合成配额提示块");
       // 轨迹里的耗时回填到历史 bash 行。
       const applied = chatNs.applyRecoveredToolDurations([{ events: [{ id: "HG4L-BASH", kind: "tool.completed", ok: true, durationMs: 12300 }] }]);
-      assert(applied === 1 && historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent === "⎿ 退出码 0 · 12.3s · 3 通过",
+      assert(applied === 1 && historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent === "⎿ 退出码 0  12.3s  3 通过",
         `applyRecoveredToolDurations 未给历史 bash 行补上耗时:"${historyBlock("HG4L-BASH")?.querySelector(".tool-msg-result")?.textContent}"`);
       assert(/renderRecoveredTraces\((traces|toolTraces)\);\r?\n\s*applyRecoveredToolDurations\(\1\);/.test(source), "loadConversation 未在轨迹回放后回填工具行耗时");
 
@@ -11902,13 +11902,13 @@ const docsB = {
         { id: "G4T-READ", kind: "tool.completed", name: "read", ok: false, outcome: "failed", code: "READ_PATH_NOT_FOUND", preview: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)`, error: `path not found: ${ROOT}\\crates\\x.rs (+1 lines)` },
       ] }]);
       const traceProg = (id) => [...document.querySelectorAll("#bg-list .bg-entry")].find((n) => n.dataset.bgId === id)?.querySelector(".bg-prog")?.textContent;
-      assert(traceProg("G4T-FAIL") === "退出码 101 · 输出 42 行", `历史轨迹失败行仍贴 preview 原文:"${traceProg("G4T-FAIL")}"`);
+      assert(traceProg("G4T-FAIL") === "退出码 101  输出 42 行", `历史轨迹失败行仍贴 preview 原文:"${traceProg("G4T-FAIL")}"`);
       assert(traceProg("G4T-DECL") === "已拒绝", `历史轨迹里用户拒绝的 write 没说出原因:"${traceProg("G4T-DECL")}"`);
-      assert(traceProg("G4T-READ") === "路径不存在 · crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
+      assert(traceProg("G4T-READ") === "路径不存在  crates/x.rs", `历史轨迹的 read 失败行未从报错首行取出相对路径:"${traceProg("G4T-READ")}"`);
 
       // ---------- 子代理的子工具行:参数与结果都不贴 JSON 片段 ----------
       // UI2-0926 #14:编排子代理不再建终端条目,过程只在子代理卡片(尾迹与展开的「过程」)与委派卡详情里。
-      toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT · 勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
+      toolStart({ payload: { id: "G4_SCOUT", name: "task", summary: "G4_SCOUT  勘察", input: { prompt: "x", phase: "scouting", role: "G4_SCOUT" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "start", name: "bash", summary: '{"command":"cargo test -p kanzei-app --lib","workdir":"C:\\\\Users\\\\kanzei\\\\Documents\\\\kanzei cod' }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 1/3 轮", trace: { child_id: "g1", phase: "end", name: "bash", ok: true, preview: "exit code: 0 (+5 lines)" }, sessionId: SID } });
       taskProgress({ payload: { id: "G4_SCOUT", text: "第 2/3 轮", trace: { child_id: "g2", phase: "start", name: "read", summary: "{\"path\":\"crates/x.rs\"}" }, sessionId: SID } });
@@ -11922,7 +11922,7 @@ const docsB = {
       scoutCard?.querySelector(".sa-head")?.click();
       await flush();
       const childResults = [...(scoutCard?.querySelectorAll(".sa-steps .tool-msg-result") ?? [])].map((n) => n.textContent);
-      assert(childResults[0] === "⎿ 退出码 0 · 输出 5 行" && childResults[1] === "⎿ 全文 10 行", `子代理过程的子工具结果未走摘要器降级口径:${JSON.stringify(childResults)}`);
+      assert(childResults[0] === "⎿ 退出码 0  输出 5 行" && childResults[1] === "⎿ 全文 10 行", `子代理过程的子工具结果未走摘要器降级口径:${JSON.stringify(childResults)}`);
       scoutCard?.querySelector(".sa-head")?.click();
       toolEnd({ payload: { id: "G4_SCOUT", name: "task", ok: true, preview: "勘察完成", display: null, sessionId: SID } });
       await flush();
@@ -12166,7 +12166,7 @@ const docsB = {
         toolEnd({ payload: { id: "G4S-LIST", name: "req", ok: true, outcome: "success", preview: `{ (+${listJson.split("\n").length - 1} lines)`, content: listJson, contentBytes: listJson.length, contentTruncated: false, display: null, sessionId: SID } });
         await flush();
         const block = chatNs.chatToolBlocks.get("G4S-LIST");
-        assert(block?.result.textContent === "⎿ 3 条 · 2 条可执行", `tracker list 的 ⎿ 行不是摘要:"${block?.result.textContent}"`);
+        assert(block?.result.textContent === "⎿ 3 条  2 条可执行", `tracker list 的 ⎿ 行不是摘要:"${block?.result.textContent}"`);
         assert(block?.detail.querySelector(".sv-lazy") && !block.detail.querySelector(".sv-result"), "JSON 结果应延迟到首次展开才构建");
         block?.head.click();
         assert(block?.detail.querySelector(".sv-result") && !block.detail.classList.contains("hidden"), "展开后没有 JSON 结果的结构化视图");
@@ -12193,7 +12193,7 @@ const docsB = {
         }, sessionId: SID } });
         await flush();
         const block = chatNs.chatToolBlocks.get("G4S-LV");
-        assert(block?.result.textContent === "⎿ +1 −1 · 校验 1 个错误", `edit 校验失败的 ⎿ 行漂移:"${block?.result.textContent}"`);
+        assert(block?.result.textContent === "⎿ +1 −1  校验 1 个错误", `edit 校验失败的 ⎿ 行漂移:"${block?.result.textContent}"`);
         assert(block?.detail.querySelector(".sv-checks .sv-check.is-failed")?.textContent === "✗ node-check", "展开区缺少局部校验失败 chip");
         assert(block?.detail.querySelector(".sv-check-error .sv-path")?.textContent === "ui/x.js:3", "首个错误的路径未做成 chip");
         const rest = [...(block?.detail.querySelectorAll(".tool-msg-raw") ?? [])].find((node) => !node.classList.contains("args"));
@@ -12219,7 +12219,7 @@ const docsB = {
         await flush();
         const historyBlock = (id) => [...document.querySelectorAll("#messages [data-active] .tool-msg")].find((node) => node.dataset.toolCallId === id);
         const web = historyBlock("HG4S-WEB");
-        assert(web?.querySelector(".tool-msg-result")?.textContent === "⎿ 2 条结果 · ANSI escape code", `历史 websearch 的 ⎿ 行漂移:"${web?.querySelector(".tool-msg-result")?.textContent}"`);
+        assert(web?.querySelector(".tool-msg-result")?.textContent === "⎿ 2 条结果  ANSI escape code", `历史 websearch 的 ⎿ 行漂移:"${web?.querySelector(".tool-msg-result")?.textContent}"`);
         web?.querySelector(".tool-msg-head")?.click();
         assert(web?.querySelectorAll(".sv-search-result").length === 2, "历史 websearch 展开后未渲染成搜索结果列表");
         const title = web?.querySelector(".sv-search-title");
@@ -12250,13 +12250,13 @@ const docsB = {
         assert(byId.get("ask-resource")?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace", `权限卡资源未拆成命令代码块:"${listText("ask-resource")}"`);
         assert(byId.get("ask-resource")?.querySelector(".sv-perm-workdir .sv-path"), "权限卡缺少工作目录 chip");
         assert(listText("ask-action") === "bash", "权限卡的操作一栏被改写");
-        assert(listText("ask-remember") === "bash · 同上", `「记住为」与资源相同时应写「同上」:"${listText("ask-remember")}"`);
-        assert(!listText("ask-queue-preview").includes('{"command"') && listText("ask-queue-preview").includes("bash · cargo fmt --all"), `队列预览仍贴原始 JSON:"${listText("ask-queue-preview")}"`);
+        assert(listText("ask-remember") === "bash  同上", `「记住为」与资源相同时应写「同上」:"${listText("ask-remember")}"`);
+        assert(!listText("ask-queue-preview").includes('{"command"') && listText("ask-queue-preview").includes("bash  cargo fmt --all"), `队列预览仍贴原始 JSON:"${listText("ask-queue-preview")}"`);
         eventsNs.hideAsk();
         settingsNs.renderPermissionRules({ path: "C:/smoke/project/.kanzei/kanzei.toml", rules: [{ index: 0, action: "bash", resource: resourceA, effect: "allow" }] });
         const rulesBody = byId.get("permission-rules-table")?.querySelector("tbody");
         assert(rulesBody?.querySelector(".sv-cmd")?.textContent === "cargo test --workspace" && !rulesBody.textContent.includes('{"command"'), "设置页权限规则表仍显示原始 JSON 资源");
-        assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash · cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
+        assert(rulesBody?.querySelector(".icon-btn")?.getAttribute("aria-label") === "删除权限规则 bash  cargo test --workspace", "删除规则按钮的无障碍名称仍带原始 JSON");
         settingsNs.renderPermissionRules({ rules: [] });
         // 覆盖提示:标题 + 三列表(字段 | 本页 | 实际生效),不再是「；」拼成的一长行。
         // UI-0926 #3:模型五键不再进这张表(见项目模型配置),用代理演示「本页 vs 实际生效」。
@@ -12503,7 +12503,7 @@ const docsB = {
     const idleLink = bgLink();
     assert(idleLink?.dataset.activity === "idle", `#4 空闲线路的会话行应为 data-activity=idle:${idleLink?.dataset.activity}`);
     assert(idleLink?.title.includes("kanzei/thread-smoke"), `#4 会话行 tooltip 应带分支名:${idleLink?.title}`);
-    assert(!sessionLinkText(idleLink).includes("空闲 · 空闲"), "#4 会话行仍显示「空闲 · 空闲」");
+    assert(!sessionLinkText(idleLink).includes("空闲  空闲"), "#4 会话行仍显示「空闲  空闲」");
     // 运行中:只改 data-activity,不重建节点(焦点与呼吸动画不被轮询与逐事件投影打断)。
     vm.runInContext('transitionSession("sess-bg", "running")', sandbox);
     sandbox.refreshParallelTaskProjection("sess-bg");
@@ -12520,7 +12520,7 @@ const docsB = {
     // ⑪ 状态栏去重:两格同词时只留一格。
     sandbox.setStatus("空闲", false);
     assert(byId.get("status-text").classList.contains("hidden"), "#4 状态栏空闲时仍并排「空闲 空闲」");
-    sandbox.setStatus("第 1 轮 · 等待模型", true);
+    sandbox.setStatus("第 1 轮  等待模型", true);
     assert(!byId.get("status-text").classList.contains("hidden") && byId.get("status-text").textContent.includes("等待模型"), "#4 状态栏有具体状态时不该隐藏");
     sandbox.setStatus("运行中", true);
     assert(byId.get("status-text").classList.contains("hidden"), "#4 状态栏运行中时仍并排「运行中 运行中」");
@@ -12603,7 +12603,7 @@ const docsB = {
     await flush();
 
     // ① M5 列表行:状态列回来了且排在优先级之前(固定宽,D-362 三列对齐不破);行内仍不写 R- 编号(R-054);
-    //    复杂度一列一个字、说明进 tooltip;详情头统一「编号 · 标题」(缺陷原来不带编号)。
+    //    复杂度一列一个字、说明进 tooltip;详情头统一「编号\s+标题」(缺陷原来不带编号)。
     const docRows = document.querySelectorAll("#documents-req-list .doc-row, #documents-defect-list .doc-row");
     assert(docRows.length > 0 && docRows.every((row) => {
       const kids = [...row.children];
@@ -12616,14 +12616,14 @@ const docsB = {
     assert(!r001Row?.textContent.includes("R-001"), "#4 行内出现了 R- 编号(R-054:编号只在 tooltip 与详情头)");
     const cxBadge = r001Row?.querySelector(".complexity-badge");
     assert(cxBadge?.textContent === "中" && cxBadge.title.includes("复杂度"), `#4 复杂度列应只写一个字、说明进 tooltip:"${cxBadge?.textContent}" / "${cxBadge?.title}"`);
-    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".doc-full-title")?.textContent.startsWith("D-001 · "), "#4 缺陷详情头缺编号");
+    assert(itemOf("documents-defect-list", "D-001")?.querySelector(".doc-full-title")?.textContent.startsWith("D-001  "), "#4 缺陷详情头缺编号");
     assert(itemOf("documents-defect-list", "D-001")?.querySelector(".st")?.title.includes("medium"), "#4 缺陷严重度应进状态列 tooltip");
 
-    // ② M6 + #10 详情只读优先:头(编号 · 标题 + 状态流转 + 编辑)、字段按结构渲染、执行单元折叠、默认无输入框。
+    // ② M6 + #10 详情只读优先:头(编号\s+标题 + 状态流转 + 编辑)、字段按结构渲染、执行单元折叠、默认无输入框。
     let detail = openDetail("R-T01");
     assert(detail && !detail.classList.contains("hidden"), "#4 前置:R-T01 详情未展开");
     const headEl = detail?.querySelector(".doc-detail-head");
-    assert(headEl?.querySelector(".doc-full-title")?.textContent === "R-T01 · 单页详情样例", "#4 详情头应为「编号 · 标题」");
+    assert(headEl?.querySelector(".doc-full-title")?.textContent === "R-T01  单页详情样例", "#4 详情头应为「编号  标题」");
     const headButtons = headEl?.querySelectorAll(".doc-detail-actions button") ?? [];
     assert(headButtons.some((node) => node.textContent.includes("已完成")) && headButtons.some((node) => node.classList.contains("doc-edit-toggle")),
       "#4 状态流转与「编辑」开关应在详情头(不再沉到最底下)");
@@ -12647,7 +12647,7 @@ const docsB = {
       `#4 更早的进展应收进「更早进展 N」折叠区:${older?.querySelector("summary")?.textContent}`);
     assert(read?.querySelector(".tf-engine") && !fieldRow("observed_head") && !fieldRow("recorded_at"), "#4 引擎字段应收进「引擎记录」折叠区,不单独成行");
     const units = detail?.querySelector(".work-unit-details");
-    assert(units && units.open && units.querySelector("summary")?.textContent.startsWith("目标树 · 0 已验证节点") && units.querySelector(".work-unit-card"),
+    assert(units && units.open && units.querySelector("summary")?.textContent.startsWith("目标树  0 已验证节点") && units.querySelector(".work-unit-card"),
       "#4 目标树应默认展开,summary 一行说清已验证节点数量");
 
     // ③ 详情头的状态流转仍走 docs_update(硬门禁同一套 nextStatuses)。
@@ -12736,11 +12736,11 @@ const docsB = {
       const note = byId.get("documents-conventions-note");
       const moreToggle = byId.get("documents-more-toggle");
       conventionsNs.syncConventionsEntry({ exists: true, has_proposal: true, headings: ["开发规则", "测试要求"] });
-      assert(entry.dataset.state === "proposal" && note.textContent === "有新建议稿 · 点击审阅" && moreToggle.hasAttribute("data-pending"), `有建议稿时入口应写「有新建议稿」且「更多」亮点:${note.textContent}`);
+      assert(entry.dataset.state === "proposal" && note.textContent === "有新建议稿  点击审阅" && moreToggle.hasAttribute("data-pending"), `有建议稿时入口应写「有新建议稿」且「更多」亮点:${note.textContent}`);
       conventionsNs.syncConventionsEntry({ exists: true, has_proposal: false, headings: ["开发规则", "测试要求"] });
-      assert(entry.dataset.state === "ready" && note.textContent === "2个章节 · 查看和编辑" && !moreToggle.hasAttribute("data-pending"), `规范就绪时应写章节数且不亮点:${note.textContent}`);
+      assert(entry.dataset.state === "ready" && note.textContent === "2个章节  查看和编辑" && !moreToggle.hasAttribute("data-pending"), `规范就绪时应写章节数且不亮点:${note.textContent}`);
       conventionsNs.syncConventionsEntry({ exists: false, has_proposal: false, headings: [] });
-      assert(entry.dataset.state === "missing" && note.textContent === "未创建 · 可让 Agent 生成", `规范未创建时应写「未创建」:${note.textContent}`);
+      assert(entry.dataset.state === "missing" && note.textContent === "未创建  可让 Agent 生成", `规范未创建时应写「未创建」:${note.textContent}`);
       pagesNs.renderDocsSnapshot({ ...structuredClone(payloads.docs_snapshot), conventions: { exists: true, has_proposal: true, headings: ["a"] } });
       assert(entry.dataset.state === "proposal", "renderDocsSnapshot 应按快照里的 conventions 同步规范入口状态");
     }
@@ -12800,7 +12800,7 @@ const docsB = {
     // ⑦ M8 线路页:取得条目在快照里查得到就是直达展开详情的链接;查不到只写文字。
     sandbox.renderLines([{ process_id: "p|bg", label: "后台会话", branch: "kanzei/thread-smoke", worktree_path: "C:/smoke-wt", tracker_line: "kanzei/thread-smoke", tracker_entries: ["R-001"], status: "idle", phase: "实现", current_tool: null, running: false, steps: 0, input_tokens: 0, output_tokens: 0, unmerged_files: [], uncommitted_files: [] }]);
     const claimLink = document.querySelector("#lines-list .line-claim-link");
-    assert(claimLink?.textContent.startsWith("R-001 · ") && claimLink.title.includes("点击查看详情"), `#4 线路页取得条目应是可点链接:${document.querySelector("#lines-list .line-claim")?.textContent}`);
+    assert(claimLink?.textContent.startsWith("R-001  ") && claimLink.title.includes("点击查看详情"), `#4 线路页取得条目应是可点链接:${document.querySelector("#lines-list .line-claim")?.textContent}`);
     const r001 = itemOf("documents-req-list", "R-001");
     if (expandedDetail(r001)) r001.querySelector(".doc-row")?.click();
     await showView("chat");
@@ -12984,7 +12984,7 @@ const docsB = {
   assert(dot.dataset.flash === undefined, "#7 停止不该播轮末反馈");
 
   // ⑤ 等下一轮 / 停止中:活动行保留、警示色;回到空闲收起。
-  sandbox.setRunPending("鞭挞 · 等待下一轮");
+  sandbox.setRunPending("鞭挞  等待下一轮");
   assert(phase() === "pending" && html.dataset.kzActivity === "pending" && !row.classList.contains("hidden"), `#7 等下一轮时活动行应为 pending,实为 ${phase()} / ${html.dataset.kzActivity}`);
   assert(dot.dataset.state === "pending", `#7 等下一轮时状态点应为 pending,实为 ${dot.dataset.state}`);
   sandbox.setStopping("停止中…");
@@ -13007,14 +13007,14 @@ const docsB = {
   const g1 = bgLink();
   assert(g1?.dataset.activity === "running", `#7 运行中线路的会话行应为 running:${g1?.dataset.activity}`);
   assert(g1.querySelector(".workbench-session-activity") && !g1.querySelector(".workbench-session-tag"), "#7 会话行显示各自运行态圆点");
-  assert(/^(对话|Chat) · /.test(g1.getAttribute("aria-description") ?? ""), `#7 运行中会话行的读屏描述应带统一对话名称与状态:${g1.getAttribute("aria-description")}`);
+  assert(/^(对话|Chat)\s+/.test(g1.getAttribute("aria-description") ?? ""), `#7 运行中会话行的读屏描述应带统一对话名称与状态:${g1.getAttribute("aria-description")}`);
   sandbox.refreshParallelTaskProjection("sess-bg");
   sandbox.refreshParallelTaskProjection("sess-bg");
   assert(bgLink() === g1, "#7 逐事件投影重建了会话行节点(呼吸动画与焦点每个事件都被打断)");
   vm.runInContext('transitionSession("sess-bg", "idle")', sandbox);
   sandbox.refreshParallelTaskProjection("sess-bg");
   assert(bgLink() === g1 && g1.dataset.activity === "idle", `#7 转空闲后会话行未原地更新:${g1.dataset.activity}`);
-  assert(!/ · /.test(g1.getAttribute("aria-description") ?? ""), `#7 空闲线路的会话行读屏描述仍带运行状态:${g1.getAttribute("aria-description")}`);
+  assert(!/\s+/.test(g1.getAttribute("aria-description") ?? ""), `#7 空闲线路的会话行读屏描述仍带运行状态:${g1.getAttribute("aria-description")}`);
 
   // ⑦ 批次格给「正在推的那一格」:列表行同一逻辑(原先还断言侧栏焦点分组 is-live 与焦点卡批次格,随侧栏焦点区删除,UX-069)。
   const cellsOf = (host) => host.querySelectorAll(".complexity-cell");
@@ -13248,7 +13248,7 @@ const docsB = {
   // D-725:同一调用仍在跑时重复的 tool-start 不另开一张卡。
   toolStart({ payload: { id: "call_00_ab12cd", name: "task", summary: "", input: { prompt: "dup" }, sessionId: "sess-smoke" } });
   assert([...pane().querySelectorAll(".sa-card")].filter((c) => c.dataset.saKey === "sess-smoke|call_00_ab12cd").length === 1, "同一调用重复 tool-start 生成了第二张卡");
-  taskProgress({ payload: { id: "call_00_ab12cd", text: "explore · qwen3:8b", trace: { child_id: "call_00_ab12cd", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
+  taskProgress({ payload: { id: "call_00_ab12cd", text: "explore  qwen3:8b", trace: { child_id: "call_00_ab12cd", phase: "meta", agent: "explore", model: "qwen3:8b", summary: "fast" }, sessionId: "sess-smoke" } });
   await flush();
   assert(card?.querySelector(".sa-agent")?.textContent === "explore", `meta trace 后人格签应为 explore,实为 "${card?.querySelector(".sa-agent")?.textContent}"`);
   assert(card?.dataset.saState === "running", `首条进度后应转为运行中,实为 ${card?.dataset.saState}`);
@@ -13262,7 +13262,7 @@ const docsB = {
     run.state = "waiting";
     saNs.renderSubagentCard(run);
     const glyph = card.querySelector(".sa-glyph");
-    assert(glyph?.dataset.state === "attention" && glyph.textContent === "⏸", `等待批准的卡片字形应为 ⏸ · attention,实为 ${glyph?.textContent} · ${glyph?.dataset.state}`);
+    assert(glyph?.dataset.state === "attention" && glyph.textContent === "⏸", `等待批准的卡片字形应为 ⏸  attention,实为 ${glyph?.textContent}  ${glyph?.dataset.state}`);
     run.state = "running";
     saNs.renderSubagentCard(run);
     assert(card.querySelector(".sa-glyph")?.dataset.state === "running", "恢复运行态后字形没有回到 running");
@@ -13314,7 +13314,7 @@ const docsB = {
   assert(card?.querySelector(".sa-live")?.classList.contains("hidden") && liveLines(card).length === 0, "终态后尾迹没有收起(一行原则)");
   assert(card?.querySelector(".sa-error")?.classList.contains("hidden"), "成功的卡不该有错误行");
   const doneMeta = card?.querySelector(".sa-meta")?.textContent ?? "";
-  assert(/^完成 · 5 次工具 · 3\.0k token · 1m 3s$/.test(doneMeta), `终态计数行漂移:"${doneMeta}"`);
+  assert(/^完成\s+5 次工具\s+3\.0k token\s+1m 3s$/.test(doneMeta), `终态计数行漂移:"${doneMeta}"`);
   // 终态之后迟到的进度不复活卡片。
   taskProgress({ payload: { id: "call_00_ab12cd", text: "", trace: { child_id: "c9", phase: "start", name: "read", input: { path: "late.rs" } }, sessionId: "sess-smoke" } });
   await flush();
@@ -13391,7 +13391,7 @@ const docsB = {
   ] }]);
   activityNs.renderRecoveredTraces([{ run_id: "r-h1", events: [
     { kind: "tool.started", id: "H1", name: "task", summary: "History run" },
-    { id: "H1", text: "explore · qwen3:8b", trace: { child_id: "H1", phase: "meta", agent: "explore", model: "qwen3:8b" } },
+    { id: "H1", text: "explore  qwen3:8b", trace: { child_id: "H1", phase: "meta", agent: "explore", model: "qwen3:8b" } },
     { id: "H1", text: "read", trace: { child_id: "h1-1", phase: "start", name: "read", summary: "src/a.rs", input: "{\"path\":\"src/a.rs\"}" } },
     { id: "H1", text: "", trace: { child_id: "h1-1", phase: "end", name: "read", ok: true, preview: "12 lines" } },
     { id: "H1", text: "grep", trace: { child_id: "h1-2", phase: "start", name: "grep", summary: "{\"pattern\":\"tok", input: "{\"pattern\":\"tok" } },
@@ -13402,7 +13402,7 @@ const docsB = {
   await flush();
   const h1 = cardOf("H1");
   const h1Meta = h1?.querySelector(".sa-meta")?.textContent ?? "";
-  assert(h1?.dataset.saState === "done" && /^完成 · 2 次工具 · 1\.8k token · 1m 3s$/.test(h1Meta), `历史回放的卡与实时不同形:${h1?.dataset.saState} "${h1Meta}"`);
+  assert(h1?.dataset.saState === "done" && /^完成\s+2 次工具\s+1\.8k token\s+1m 3s$/.test(h1Meta), `历史回放的卡与实时不同形:${h1?.dataset.saState} "${h1Meta}"`);
   assert(h1?.querySelector(".sa-agent")?.textContent === "explore", "历史回放没有用落库 meta 的人格");
   h1?.querySelector(".sa-head")?.click();
   await flush();
@@ -13625,7 +13625,7 @@ const docsB = {
     assert(group?.querySelector(".tool-group-body .reasoning"), "夹在两次调用之间的思考块没有并入工具组");
     const label = labelOf(group);
     assert(["读取 1 个文件", "搜索 1 次", "运行 1 条命令"].every((word) => label.includes(word)), `工具组标签不对:${label}`);
-    assert(failOf(group)?.textContent === "· 1 次调用异常" && !failOf(group).classList.contains("hidden"), `工具组应明确计调用异常:${failOf(group)?.textContent}`);
+    assert(failOf(group)?.textContent === "  1 次调用异常" && !failOf(group).classList.contains("hidden"), `工具组应明确计调用异常:${failOf(group)?.textContent}`);
     assert(group?.querySelector(".tool-group-head")?.getAttribute("aria-expanded") === "false" && group.dataset.expanded !== "1", "工具组应默认折叠");
     assert(!group.dataset.running, "全部收尾后工具组仍标着运行中");
     group.querySelector(".tool-group-head").click();
@@ -13653,7 +13653,7 @@ const docsB = {
     // ⑤ 切语言:组标签在渲染点重算。
     sandbox.setLanguagePreference("en", { persist: true, rerender: true });
     await flush();
-    assert(labelOf(firstGroup) === "Read 1 file · Searched once · Ran 1 command" && failOf(firstGroup)?.textContent === "· 1 tool call error", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
+    assert(labelOf(firstGroup) === "Read 1 file  Searched once  Ran 1 command" && failOf(firstGroup)?.textContent === "  1 tool call error", `切到英文后工具组标签未重算:${labelOf(firstGroup)} ${failOf(firstGroup)?.textContent}`);
     sandbox.setLanguagePreference("zh", { persist: true, rerender: true });
     await flush();
   });
@@ -13679,9 +13679,9 @@ const docsB = {
     await live("bash", { command: "node scripts/x.mjs" }, null);
     const group = top(pane)[0];
     assert(group?.dataset.running === "1", "有调用在跑时工具组没有标运行中");
-    assert(labelOf(group) === "bash node scripts/x.mjs · 已完成 3", `运行中组头应显示当前调用与已完成数,实为「${labelOf(group)}」`);
+    assert(labelOf(group) === "bash node scripts/x.mjs  已完成 3", `运行中组头应显示当前调用与已完成数,实为「${labelOf(group)}」`);
     await live("bash", { command: "node scripts/y.mjs" }, null);
-    assert(labelOf(group) === "2 个工具运行中 · 已完成 3", `两个调用在跑时组头应计数,实为「${labelOf(group)}」`);
+    assert(labelOf(group) === "2 个工具运行中  已完成 3", `两个调用在跑时组头应计数,实为「${labelOf(group)}」`);
     for (let i = 0; i < 25; i += 1) await live(...READ);
     await live("bash", { command: "node scripts/z.mjs" }, null);
     const groups = top(pane);
@@ -13750,12 +13750,12 @@ const docsB = {
     handlers.get("kz:done")({ payload: { sessionId: SID, steps: 2, halted: false, history: 5, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
     await flush();
     const turnEnd = pane.querySelectorAll(".msg.notice").find((el) => el.classList.contains("turn-end"));
-    assert(turnEnd && turnEnd.textContent.includes("本轮结束 · 2 步 · 历史 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
+    assert(turnEnd && turnEnd.textContent.includes("本轮结束  2 步  历史 5 条"), `本轮结束 notice 缺 turn-end 类或模板文案:${turnEnd?.textContent ?? "(无)"}`);
   });
 
   // ⑫ 输入区结构(UI2-0926 #11,docs/design/ui_surface_stack.md「输入区控件几何」):上下文带 + 单行工具行,
-  //    左段 附件 · 模式 · 鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
-  //    「N 轮 · 阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
+  //    左段 附件\s+模式\s+鞭挞,右段 模型 … 发送;带与工具行里的控件全是 .kz-ctl(发送是 .kz-ctl--round,菜单内部除外);
+  //    「N 轮\s+阶段」在鞭挞设置触发器里。假 DOM 是按 id 拍平的桩,结构只能对源码配对标签扫描。
   {
     const footerStart = html.search(/<footer\b[^>]*\bid="composer"/);
     const footer = html.slice(footerStart, html.indexOf("</footer>", footerStart));
@@ -13781,8 +13781,8 @@ const docsB = {
     const leftAt = order(left, ["attach", "model-picker-group"]);
     const rightAt = order(right, ["composer-more", "delivery-select", "voice-toggle", "stop", "send"]);
     const ascending = (list) => list.every((value, index) => value >= 0 && (index === 0 || value > list[index - 1]));
-    assert(ascending(leftAt), `输入区工具行左段应依次为 附件 · 模型选项:${JSON.stringify(leftAt)}`);
-    assert(ascending(rightAt), `输入区工具行右段应依次为 更多 · 排队 · 语音 · 停止 · 发送:${JSON.stringify(rightAt)}`);
+    assert(ascending(leftAt), `输入区工具行左段应依次为 附件  模型选项:${JSON.stringify(leftAt)}`);
+    assert(ascending(rightAt), `输入区工具行右段应依次为 更多  排队  语音  停止  发送:${JSON.stringify(rightAt)}`);
     const band = flat.slice(flat.indexOf('id="composer-context"'), flat.indexOf('id="change-bar-files"'));
     const bar = flat.slice(flat.indexOf('id="composer-bar"'));
     const controls = `${band}\n${bar}`;
@@ -13805,7 +13805,7 @@ const docsB = {
     whip.checked = true;
     vm.runInContext("renderAutoRun()", sandbox);
     const armedLabel = byId.get("autorun-more").getAttribute("aria-label") ?? "";
-    assert(armedLabel.startsWith("自动推进设置 · 推进轮次 ") && /\d/.test(armedLabel) && /· (推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
+    assert(armedLabel.startsWith("自动推进设置  推进轮次 ") && /\d/.test(armedLabel) && /\s+(推进中|等待下一轮|已暂停|待命)$/.test(armedLabel), `鞭挞开着时触发器读屏名应带轮次与阶段,实为「${armedLabel}」`);
     whip.checked = false;
     vm.runInContext("renderAutoRun()", sandbox);
     assert(byId.get("autorun-more").getAttribute("aria-label") === "自动推进设置" && byId.get("autorun-more").title === "自动推进设置", `鞭挞关着时触发器读屏名应只剩「鞭挞设置」,实为「${byId.get("autorun-more").getAttribute("aria-label")}」`);
@@ -13879,8 +13879,8 @@ const docsB = {
     ];
     const four = chatNs.toolGroupSummary(entries).label;
     const three = chatNs.toolGroupSummary(entries.slice(0, 3)).label;
-    assert(four === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次 · 等 4 次调用", `4 族时组头应只列前三族并追加「等 4 次调用」,实为「${four}」`);
-    assert(three === "读取 1 个文件 · 运行 1 条命令 · 搜索 1 次", `3 族时组头不应追加「等 N 次调用」,实为「${three}」`);
+    assert(four === "读取 1 个文件  运行 1 条命令  搜索 1 次  等 4 次调用", `4 族时组头应只列前三族并追加「等 4 次调用」,实为「${four}」`);
+    assert(three === "读取 1 个文件  运行 1 条命令  搜索 1 次", `3 族时组头不应追加「等 N 次调用」,实为「${three}」`);
   }
   // ⑭d 窗口边界合并的上限:合计超过 30 行不合并,两组原样保留;不超过才合并。
   await withPane(async (pane) => {
@@ -14517,7 +14517,7 @@ const docsB = {
   await settleAll();
   assert(visible(), "复核⑬:下一条用户消息之后再派子代理应自动打开");
   // 模型列只显示型号(去掉 provider 前缀),完整 id 留在 title。
-  taskProgress({ payload: { id: "tp-c3", text: "explore · ollama:qwen3.5:4b", trace: { child_id: "tp-c3", phase: "meta", agent: "explore", model: "ollama:qwen3.5:4b", summary: "fast" }, sessionId: "sess-tp" } });
+  taskProgress({ payload: { id: "tp-c3", text: "explore  ollama:qwen3.5:4b", trace: { child_id: "tp-c3", phase: "meta", agent: "explore", model: "ollama:qwen3.5:4b", summary: "fast" }, sessionId: "sess-tp" } });
   await settleAll();
   const c3Model = agentRowOf("tp-c3")?.querySelector(".tp-agent-model");
   assert(c3Model?.textContent === "qwen3.5:4b" && c3Model?.title === "ollama:qwen3.5:4b", `模型列应只显示型号 qwen3.5:4b(完整 id 在 title),实为 "${c3Model?.textContent}" / "${c3Model?.title}"`);
@@ -14663,7 +14663,7 @@ const docsB = {
   fakeNow += 60_000;
   panelNs.reconcileTasksPanel();
   const enToggle = byId.get("tasks-toggle").getAttribute("aria-label") ?? "";
-  assert(/ · 1 task to review$/.test(enToggle), `单个待处理任务的英文读法应为单数「1 task to review」,实为 "${enToggle}"`);
+  assert(/\s+1 task to review$/.test(enToggle), `单个待处理任务的英文读法应为单数「1 task to review」,实为 "${enToggle}"`);
   sandbox.setLanguagePreference(priorTasksLanguage, { persist: true, rerender: true });
   panelNs.closeTasksPanel();
   await settleAll();
@@ -14977,15 +14977,15 @@ const docsB = {
   {
     const bash = (content) => summaryNs.toolResultSummary("bash", { ok: true, content, roots: [] }).text;
     const shot = bash("exit code: 0\n\nCommandType     Name       Version    Source\n-----------     ----       -------    ------\nApplication     git.exe    2.47.0.0   C:\\Program Files\\Git\\cmd\\git.exe\n\nC:\\Users\\kanzei\\Desktop\\MD文件保存\n.kanzei\nkanzei.toml\nstate.db\nstate.db-shm\nstate.db-wal");
-    assert(/^退出码 0 · 输出 \d+ 行$/.test(shot) && !shot.includes("state.db"), `截图同款 bash 输出的摘要应是「输出 N 行」,实为「${shot}」`);
+    assert(/^退出码 0\s+输出 \d+ 行$/.test(shot) && !shot.includes("state.db"), `截图同款 bash 输出的摘要应是「输出 N 行」,实为「${shot}」`);
     const names = bash("exit code: 0\n.kanzei\nlib\npubspec.yaml\nstate.db-wal");
-    assert(names === "退出码 0 · 输出 4 行", `名称列表的摘要应是「输出 4 行」,实为「${names}」`);
+    assert(names === "退出码 0  输出 4 行", `名称列表的摘要应是「输出 4 行」,实为「${names}」`);
     const formatList = bash("exit code: 0\nName    : web\nState   : Running on port 3000\nDetail  : waiting for new connections");
-    assert(formatList === "退出码 0 · 输出 3 行", `Format-List 键值输出的摘要应是「输出 3 行」,实为「${formatList}」`);
+    assert(formatList === "退出码 0  输出 3 行", `Format-List 键值输出的摘要应是「输出 3 行」,实为「${formatList}」`);
     const fileName = bash("exit code: 0\nsrc/main.rs");
-    assert(fileName === "退出码 0 · 输出 1 行", `单个文件名不是人话,摘要应是「输出 1 行」,实为「${fileName}」`);
+    assert(fileName === "退出码 0  输出 1 行", `单个文件名不是人话,摘要应是「输出 1 行」,实为「${fileName}」`);
     const sentence = bash("exit code: 0\nCollecting foo\nSuccessfully installed foo-1.2");
-    assert(sentence === "退出码 0 · Successfully installed foo-1.2", `真正的句子仍要显示,实为「${sentence}」`);
+    assert(sentence === "退出码 0  Successfully installed foo-1.2", `真正的句子仍要显示,实为「${sentence}」`);
   }
 
   // ② 模型在等你回答:鞭挞保持勾选、不挂续跑、提示;回复这一条不关鞭挞。
@@ -16436,7 +16436,7 @@ const docsB = {
     const appNode = nodeOf("kanzei_app");
     assert(appNode?.classList.contains("is-link") && appNode.getAttribute("role") === "link" && appNode.getAttribute("tabindex") === "0",
       "可点击的图节点缺 is-link / role=link / tabindex");
-    assert(appNode?.getAttribute("title") === "kanzei-app · Tauri 桌面端", `图节点提示应取 click 行的第三段:${appNode?.getAttribute("title")}`);
+    assert(appNode?.getAttribute("title") === "kanzei-app  Tauri 桌面端", `图节点提示应取 click 行的第三段:${appNode?.getAttribute("title")}`);
     click(appNode);
     assert(JSON.stringify(navCalls.at(-1)) === JSON.stringify(["path", "crates/kanzei-app/src/main.rs", null]),
       `crate 节点点击应经 structuredNav.openPath 打开入口文件:${JSON.stringify(navCalls.at(-1))}`);
@@ -16482,7 +16482,7 @@ const docsB = {
     byId.get("viewer-close")?.click();
     const hint = diagramNs.fixHint({ path: "docs/architecture/02_broken.md", fileLine: 15, message: "Expecting 'SQE', got 'PS'", lineText: "c[BROKEN(]" });
     assert(hint.includes("docs/architecture/02_broken.md 第 15 行") && hint.includes("c[BROKEN(]"), `修复提示应带文件、行号与该行原文:${hint}`);
-    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6 · 第 15 行"),
+    assert(!byId.get("arch-diagram-issues")?.classList.contains("hidden") && byId.get("arch-diagram-issues")?.textContent.includes("D6  第 15 行"),
       "lint 问题应列在图下(代码 + 文件行号)");
     assert(!byId.get("arch-diagram-foot")?.textContent.includes("点击节点打开实现或文档"), "图没画出来时脚注不该提示「点击节点」");
     click(tabs()[0]);
@@ -16637,7 +16637,7 @@ const docsB = {
       "kz:preview-state / kz:preview-console / kz:preview-pick 必须登记进 SESSIONLESS_EVENTS(面板不归哪条运行会话)");
     const summarize = (content, input) => summaryNs.toolResultSummary("browser", { ok: true, content, input }).text;
     const paneLine = summarize("backend: pane（用户可见）\n已截图\nurl: http://localhost:5173/", { action: "screenshot" });
-    assert(paneLine.includes("截图") && paneLine.includes("localhost:5173") && paneLine.includes("面板"), `browser 摘要应写明动作 · 主机 · 面板,实得 ${paneLine}`);
+    assert(paneLine.includes("截图") && paneLine.includes("localhost:5173") && paneLine.includes("面板"), `browser 摘要应写明动作  主机  面板,实得 ${paneLine}`);
     const headlessLine = summarize("backend: headless\n已按键 Enter", { action: "press", key: "Enter" });
     assert(headlessLine.includes("按键") && headlessLine.includes("无头"), `browser 摘要应认新动作 press 与无头后端,实得 ${headlessLine}`);
     assert(summaryNs.toolArgSummary("browser", { action: "eval", expression: "document.title" }).text.includes("document.title"), "browser 参数摘要应覆盖 expression");

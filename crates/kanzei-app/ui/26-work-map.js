@@ -79,11 +79,11 @@ export function renderWorkMap(entries, snapshot, ui = {}, onOpen = () => {}) {
     card.dataset.workMapNode = node.id; card.dataset.state = node.status; card.dataset.context = String(node.context);
     card.dataset.resultCurrent = String(node.unit ? workResultCurrent(node.unit) : node.status === "done");
     card.dataset.reviewState = node.unit && workReviewPending(node.unit) ? "pending" : node.unit && !workIsCurrent(node.unit) ? "historical" : "current";
-    card.setAttribute("aria-label", `${node.id} · ${node.title} · ${stateText(node)}`);
-    card.title = `${node.id} · ${node.title}`;
+    card.setAttribute("aria-label", `${node.id}  ${node.title}  ${stateText(node)}`);
+    card.title = `${node.id}  ${node.title}`;
     const step = !["done", "superseded"].includes(node.status) && !reviewStatus(node.unit || {}) ? node.readiness?.step : null;
-    const summary = ["plan", "wait", "integrate"].includes(step) ? `${stateText(node)} · ${t(steps[step])}` : stateText(node);
-    card.append(el("small", `${node.id} · ${node.unavailable ? words("关联引用", "Referenced result") : t(kinds[node.kind] || node.kind)}`, "goal-map-identity"), el("strong", node.title), el("span", summary, "work-unit-status"));
+    const summary = ["plan", "wait", "integrate"].includes(step) ? `${stateText(node)}  ${t(steps[step])}` : stateText(node);
+    card.append(el("small", `${node.id}  ${node.unavailable ? words("关联引用", "Referenced result") : t(kinds[node.kind] || node.kind)}`, "goal-map-identity"), el("strong", node.title), el("span", summary, "work-unit-status"));
     cards.set(node.id, card); canvas.append(card);
   }
   scroll.append(canvas); layout.append(scroll, inspector); root.append(layout);
@@ -108,7 +108,7 @@ function renderInspector(host, node, map, select, onOpen) {
   const relations = (label, ids) => {
     if (!ids.length) return;
     const section = el("div", null, "goal-map-field"); section.append(el("h3", t(label)));
-    for (const id of ids) section.append(button(`${id} · ${map.nodes.get(id)?.title || id}`, () => select(id, true), "ghost goal-map-reference"));
+    for (const id of ids) section.append(button(`${id}  ${map.nodes.get(id)?.title || id}`, () => select(id, true), "ghost goal-map-reference"));
     host.append(section);
   };
   if (node.context) field(words("关联上下文", "Related context"), [words("此节点是当前筛选之外的前提或归属，不代表新的待办。", "This node provides context outside the current filter; it is not a new task.")]);
@@ -135,7 +135,7 @@ function renderInspector(host, node, map, select, onOpen) {
   if (unit.review?.resolution) {
     const decision = unit.review.resolution.decision;
     field("方向复核记录", [reviewStatus(unit) || stateText(node), decision.reason]);
-    field("后继工作", (decision.replacements || []).map(id => `${id} · ${map.nodes.get(id)?.title || id}`));
+    field("后继工作", (decision.replacements || []).map(id => `${id}  ${map.nodes.get(id)?.title || id}`));
     relations(words("查看后继", "View successor"), (decision.replacements || []).filter(id => map.nodes.has(id)));
   }
   field("当前理解", unit.node?.explanation ? [unit.node.explanation] : []);

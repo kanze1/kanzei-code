@@ -49,8 +49,8 @@ function quickForm(kind, carriedText) {
   const hint = document.createElement("div");
   hint.className = "dim documents-quick-hint";
   hint.textContent = kind === "idea"
-    ? `${t("录入后可点「拆解成需求/缺陷」")} · Ctrl+Enter ${t("提交")} · Esc ${t("取消")}`
-    : `${t("独立子代理后台进行")},${t("不打断当前对话")} · Ctrl+Enter ${t("提交")} · Esc ${t("取消")}`;
+    ? `${t("录入后可点「拆解成需求/缺陷」")}  Ctrl+Enter ${t("提交")}  Esc ${t("取消")}`
+    : `${t("独立子代理后台进行")},${t("不打断当前对话")}  Ctrl+Enter ${t("提交")}  Esc ${t("取消")}`;
   const bar = document.createElement("div");
   bar.className = "documents-quick-bar";
   const cancelBtn = document.createElement("button");

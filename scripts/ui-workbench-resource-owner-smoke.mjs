@@ -39,7 +39,7 @@ try {
     return { a, b, current: shell.currentProject };
   }); await settle();
   check(identity.current === identity.a, "Browsing B's overview keeps A as the execution root");
-  await page.locator('#activitybar [data-view="settings"]').click();
+  await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();
   const ownerSurface = await page.locator("body").getAttribute("data-view");
   await page.locator("#sg-project-tools > summary").click();
   await page.locator('[data-resource="conventions"]').click();
@@ -62,7 +62,7 @@ try {
     });
     await (await import("/12-workbench.js")).openProjectSpace(t.a, "project");
   }); await settle();
-  await page.locator('#activitybar [data-view="settings"]').click();
+  await page.locator('#workspace-sidebar-footer [data-view="settings"]').click();
   await page.locator('[data-resource="conventions"]').click();
   await page.waitForFunction(() => Boolean(window.__resourceTest.releaseRules));
   await page.evaluate(async () => {

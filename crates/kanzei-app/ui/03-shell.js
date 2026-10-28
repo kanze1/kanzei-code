@@ -224,7 +224,7 @@ export function syncBackBars() {
   const back = bar.querySelector(".view-back");
   const label = target ? viewLabel(target.view) : "";
   bar.hidden = !target;
-  back.textContent = `← ${t("返回")}${label ? ` · ${label}` : ""}`;
+  back.textContent = `← ${t("返回")}${label ? `  ${label}` : ""}`;
   // 去向写进模板(英文是「Back to X」,不能把「返回」和页名硬拼成「Back Chat」)。
   const backName = label ? fillTemplate(t("返回 {page}"), { page: label }) : t("返回");
   back.title = `${backName} (Esc / Alt+←)`;
@@ -484,7 +484,7 @@ export function notifyRunState(kind, text) {
   toast(`${label}: ${text}`);
   playRunNotice(kind);
   if (!document.hasFocus() || document.hidden) {
-    document.title = `🔔 ${label} · ${baseTitle}`;
+    document.title = `🔔 ${label}  ${baseTitle}`;
     if ("Notification" in window && Notification.permission === "granted") {
       try {
         new Notification(label, { body: text, tag: "kanzei-run-state" });
@@ -569,12 +569,11 @@ export const sidebarOverlayQuery = typeof window.matchMedia === "function"
   ? window.matchMedia("(max-width: 900px)")
   : { matches: false };
 defer(() => {
-  // 点在 click 上收,不是 pointerdown:抽屉一开,主区被加了 padding-left 让位(style.css 900px 断点);按下时就收起来,
-  // 主区立刻缩回去、按钮在松手前挪了位置,这一下 click 就落空——「抽屉开着点主区按钮,首击被吞、要点两次」(UX-132)。
-  // click 在按钮自己的处理器跑完之后才到 document,此时再收,点击已经生效。
+  // Close after the target's click handler runs. The drawer and its controls
+  // share ownership regardless of where the toggle is placed in the shell.
   document.addEventListener("click", (event) => {
     if (sidebarCollapsed || !sidebarOverlayQuery.matches) return;
-    if (event.target.closest("#sidebar, #activitybar")) return;
+    if (event.target.closest('#sidebar, [aria-controls="sidebar"]')) return;
     applySidebarState(true, { remember: false });
   });
 });
@@ -764,7 +763,7 @@ export function renderTurnElapsed() {
     ? formatRunElapsed(clockElapsedMs(clock)) : "";
   if (el && el.textContent !== text) el.textContent = text;
   const status = $("status-elapsed");
-  if (status) status.textContent = text ? "· " + text : "";
+  if (status) status.textContent = text ? "  " + text : "";
 }
 // 轮末一次性反馈:完成弹一下出绿环,失败抖一下出红环。停止是用户自己按的,不播。
 export let statusDotFlashTimer = null;
@@ -955,7 +954,7 @@ export function formatRunMeta(meta) {
   if (meta.codexFastMode) parts.push("⚡\uFE0E"); // 文字字形,随状态栏文字色(彩色 emoji 不受主题控制)
   // ProfileKind 的各现役档位均显示本地化名称；未知新档位保留服务端名称。
   if (meta.profile) parts.push({ "dev-auto": t("长期维护与开发"), "dev-pair": t("结伴开发"), research: t("研究"), readonly: t("只读"), isolated: t("隔离执行") }[meta.profile] ?? meta.profile);
-  return parts.filter(Boolean).join(" · ");
+  return parts.filter(Boolean).join("  ");
 }
 export function showRunMeta(meta) {
   const status = $("status-model");
@@ -982,7 +981,7 @@ export function renderTokens() {
       tokens.cacheRead > 0 ? `${t("缓存读")} ${compactTokens(tokens.cacheRead)}` : "",
       tokens.cacheWrite > 0 ? `${t("缓存写")} ${compactTokens(tokens.cacheWrite)}` : "",
       `${t("本轮输出")} ${compactTokens(tokens.output)}`,
-    ].filter(Boolean).join(" · ");
+    ].filter(Boolean).join("  ");
   let head = "";
   const bar = $("ctx-bar");
   const pct = ctxTokens > 0 && ctxLimit ? Math.round((ctxTokens / ctxLimit) * 100) : null;
@@ -1009,10 +1008,10 @@ export function renderTokens() {
   }
   button.textContent = ctxTokens > 0 ? `${t("上下文")} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : t("上下文");
   button.classList.toggle("hidden", !activeSessionId);
-  button.title = [head, usage, t("点击查看上下文成分")].filter(Boolean).join(" · ");
+  button.title = [head, usage, t("点击查看上下文成分")].filter(Boolean).join("  ");
   const detail = $("runtime-context");
   detail.textContent = "";
-  for (const [cls, value, lead] of [["ctx-main", head, ""], ["ctx-usage", usage, head ? " · " : ""]]) {
+  for (const [cls, value, lead] of [["ctx-main", head, ""], ["ctx-usage", usage, head ? "  " : ""]]) {
     if (!value) continue;
     const span = document.createElement("span");
     span.className = cls;

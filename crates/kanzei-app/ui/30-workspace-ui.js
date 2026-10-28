@@ -14,14 +14,23 @@ defer(() => {
   const identity = node("strong", "workspace-project-name"); identity.id = "workspace-project-name";
   const actions = node("div", "workspace-header-actions");
   header.append(identity); installWindowChrome(header);
+  const sidebarToggle = $("rail-sidebar-toggle");
+  if (sidebarToggle) header.prepend(sidebarToggle);
   const switcher = $("project-work-switch"); if (switcher) header.append(switcher);
   const context = $("composer-context"); if (context) header.append(context);
   for (const id of ["tasks-toggle", "preview-toggle"]) if ($(id)) actions.append($(id));
   header.append(actions);
 
   const footer = node("div", "workspace-sidebar-footer"); footer.id = "workspace-sidebar-footer";
-  const memory = document.querySelector('.activity-item[data-view="memory"]');
-  if (memory) { memory.append(node("span", "", t("记忆管理"))); footer.append(memory); }
+  const globalNavigation = node("nav", "workspace-global-navigation");
+  globalNavigation.setAttribute("aria-label", t("全局导航"));
+  for (const [selector, label] of [['.activity-item[data-view="memory"]', "记忆"], ["#skills-nav", "Skills"], ['.activity-item[data-view="settings"]', "设置"]]) {
+    const button = document.querySelector(selector);
+    if (button) { const text = node("span", "", t(label)); text.dataset.i18nKey = label; button.append(text); globalNavigation.append(button); }
+  }
+  const utilities = node("div", "workspace-appearance");
+  const theme = $("theme-toggle"); if (theme) utilities.append(theme);
+  footer.append(globalNavigation, utilities);
   $("workbench-navigation").append(footer);
 
   const advancedMenu = $("composer-more-menu");

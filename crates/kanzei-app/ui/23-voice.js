@@ -51,7 +51,7 @@ defer(() => {
       $("voice-interrupt").disabled = !active;
       // UX-116:出错(或「保存并启动」后留着的)面板不再永久占着输入区上方——非进行中态给一个关闭键。
       dismiss?.classList.toggle("hidden", active);
-      status.textContent = `${t(labels[state] || labels.error)}${detail ? ` · ${t(friendly[detail] || detail)}` : ""}`;
+      status.textContent = `${t(labels[state] || labels.error)}${detail ? `  ${t(friendly[detail] || detail)}` : ""}`;
       if ($("voice-stage-status")) $("voice-stage-status").textContent = t(labels[state] || labels.error);
       refreshPresence();
       document.dispatchEvent(new CustomEvent("kz:voice-layout", { detail: { active } }));
@@ -106,7 +106,7 @@ defer(() => {
       if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error(t("端口须在 1024–65535 之间"));
       await invoke("voice_settings_set", {settings:{port, language:$("voice-language").value}});
       const health = await invoke("voice_start");
-      report(health?.ready ? t("语音服务已就绪，点击语音开始") : `${t("语音服务尚未就绪")} · ${health?.detail || ""}`);
+      report(health?.ready ? t("语音服务已就绪，点击语音开始") : `${t("语音服务尚未就绪")}  ${health?.detail || ""}`);
     } catch (error) { report(String(error)); }
     finally { check.disabled = false; }
   });
