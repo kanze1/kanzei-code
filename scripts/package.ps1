@@ -15,7 +15,7 @@ $script:stageLabel = $null
 $script:stageClock = [Diagnostics.Stopwatch]::StartNew()
 $root = Split-Path -Parent $PSScriptRoot
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
-if (-not $env:HTTPS_PROXY) { $env:HTTPS_PROXY = "http://127.0.0.1:12000" }
+# Network routing follows the caller's proxy environment and Git configuration.
 
 # 步进标注:发版全程非 Publish 8 步、Publish 10 步,每步一行 [N/M],配合活动面板的实时输出流,
 # 长静默段(tauri build 数分钟)之前先说清"现在在哪一步、一共几步"。
