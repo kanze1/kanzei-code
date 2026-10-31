@@ -95,7 +95,7 @@ fn save_history(root: &Path, history: &History, expected: &str) -> Result<String
 fn read_entry(root: &Path, target: &MemoryTarget) -> Result<Value, String> {
     let store = match target.scope.as_str() {
         "project" => MemoryStore::project(root),
-        "global" => MemoryStore::global().ok_or("全局记忆目录不可用")?,
+        "global" => MemoryStore::global_for_project(root).ok_or("当前记忆范围不能读取全局记忆")?,
         _ => return Err("记忆范围无效".into()),
     };
     let (_, entry) = store

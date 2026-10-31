@@ -103,6 +103,13 @@ pub enum MemoryScope {
 }
 
 impl MemoryScope {
+    /// Tool/UI selectors identify the current owner, independently of its stored namespace.
+    pub fn selector(self) -> &'static str {
+        match self {
+            Self::Global => "global",
+            _ => "project",
+        }
+    }
     pub fn prefix(self) -> &'static str {
         match self {
             MemoryScope::Global => "U",

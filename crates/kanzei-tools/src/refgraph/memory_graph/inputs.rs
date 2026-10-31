@@ -36,7 +36,7 @@ fn display_path(root: &Path, path: &Path) -> String {
 /// 项目库 + 全局库(桌面端与 CLI 的默认口径)。
 pub fn memory_stores(root: &Path) -> Vec<MemoryStore> {
     let mut stores = vec![MemoryStore::project(root)];
-    stores.extend(MemoryStore::global());
+    stores.extend(MemoryStore::global_for_project(root));
     stores
 }
 
@@ -50,14 +50,14 @@ pub fn collect_inputs_from(root: &Path, stores: &[MemoryStore]) -> GraphInputs {
     let registry = AreaRegistry::scan(root);
     let mut memories = Vec::new();
     for store in stores {
-        let scope = store.scope.label().to_string();
+        let scope = store.scope.selector().to_string();
         let hits = store.hit_profile();
         for (archived, list) in [(false, store.load_all()), (true, store.load_archived())] {
             for (path, entry) in list {
                 memories.push(MemoryInput {
                     hits: hits.get(&entry.id).map(|h| h.0).unwrap_or(0),
                     raw: std::fs::read_to_string(&path).ok(),
-                    path: display_path(root, &path),
+                    path: display_path(&kanzei_harness::memory_owner_root(root), &path),
                     scope: scope.clone(),
                     archived,
                     entry,

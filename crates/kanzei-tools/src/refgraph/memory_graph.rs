@@ -440,7 +440,7 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
                             builder.warn(format!("{id}: refs 悬空 {value}(活动与归档里都没有)"));
                         }
                     }
-                    "M" | "U" => {
+                    "M" | "U" | "P" | "Q" | "F" => {
                         structured.insert(value.to_string());
                         if memories.contains_key(value) {
                             if let Some(edge) = builder.edge(&id, value, rel, "strong") {
@@ -473,7 +473,10 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
         // supersedes / superseded_by 合成同一条 新→旧 边。
         let older = entry.supersedes().unwrap_or_default().to_string();
         for token in split_refs(&older).tokens {
-            if matches!(parse_id(&token.token), Some(("M" | "U", _))) {
+            if matches!(
+                parse_id(&token.token),
+                Some(("M" | "U" | "P" | "Q" | "F", _))
+            ) {
                 structured.insert(token.token.clone());
                 if memories.contains_key(token.token.as_str()) {
                     builder.edge(&id, &token.token, RefRel::Supersedes.as_str(), "strong");
@@ -482,7 +485,10 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
         }
         if let Some(newer) = entry.field("superseded_by") {
             for token in split_refs(newer).tokens {
-                if matches!(parse_id(&token.token), Some(("M" | "U", _))) {
+                if matches!(
+                    parse_id(&token.token),
+                    Some(("M" | "U" | "P" | "Q" | "F", _))
+                ) {
                     structured.insert(token.token.clone());
                     if memories.contains_key(token.token.as_str()) {
                         builder.edge(&token.token, &id, RefRel::Supersedes.as_str(), "strong");
@@ -493,11 +499,14 @@ pub fn build_graph(inputs: &GraphInputs) -> MemoryGraph {
 
         // ── 弱边:正文提及、设计文档文件名、[[标题]] ──
         let prose = format!("{}\n{}\n{}", entry.title, entry.description, entry.body);
-        for mention in ids_in(&prose, "RDAMU") {
+        for mention in ids_in(&prose, "RDAMUPQF") {
             if mention.id == id || structured.contains(&mention.id) {
                 continue;
             }
-            let is_memory = mention.id.starts_with("M-") || mention.id.starts_with("U-");
+            let is_memory = matches!(
+                parse_id(&mention.id),
+                Some(("M" | "U" | "P" | "Q" | "F", _))
+            );
             let exists = if is_memory {
                 memories.contains_key(mention.id.as_str())
             } else {

@@ -561,3 +561,39 @@ fn dump_repo_graph() {
     );
     std::fs::write(out, serde_json::to_string(&graph).unwrap()).unwrap();
 }
+
+#[test]
+fn personal_and_group_memory_references_keep_strong_and_supersession_edges() {
+    for prefix in ["P", "Q", "F"] {
+        let (root, registry) = registry();
+        let first = format!("{prefix}-001");
+        let second = format!("{prefix}-002");
+        let inputs = GraphInputs {
+            memories: vec![
+                memory(
+                    &first,
+                    "新版",
+                    "",
+                    &[("refs", &second), ("supersedes", &second)],
+                ),
+                memory(&second, "旧版", &first, &[]),
+            ],
+            tracker: vec![],
+            design_docs: vec![],
+            registry,
+            collection_warnings: vec![],
+        };
+        let graph = build_graph(&inputs);
+        assert!(edges(&graph, &first, "refs")
+            .iter()
+            .any(|e| e.target == second));
+        assert!(edges(&graph, &first, "supersedes")
+            .iter()
+            .any(|e| e.target == second));
+        assert!(edges(&graph, &second, "mentions")
+            .iter()
+            .any(|e| e.target == first));
+        assert!(graph.warnings.is_empty(), "{:?}", graph.warnings);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

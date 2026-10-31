@@ -1525,6 +1525,6 @@
     "paths": ["crates/kanzei-app/src/qq/**", "crates/kanzei-app/ui/33-qq.js", "crates/kanzei-app/ui/34-*.js", "crates/kanzei-harness/src/conversation_scope.rs", "crates/kanzei-memory/src/memory/qq_tests.rs", "crates/kanzei-app/ui/qq.css", "scripts/ui-qq-native-smoke.mjs"],
     "resources": ["browser"]
   },
-  {"key":"social_native","inputs":"frontend","depends_on":["qq_native_build"],"program":"node","args":["scripts/ui-social-native-smoke.mjs"],"paths":["crates/kanzei-app/src/bili/**","crates/kanzei-app/src/qq/setup.rs","crates/kanzei-app/src/login_qr.rs","crates/kanzei-app/ui/34-*.js","crates/kanzei-app/ui/35-bili.js","crates/kanzei-app/ui/bili.css","crates/kanzei-app/ui/03-general-scope.js","crates/kanzei-harness/src/conversation_scope.rs","crates/kanzei-memory/src/memory/qq_tests.rs","scripts/ui-social-native-smoke.mjs"],"resources":["browser"]}
+  {"key":"social_native","inputs":"frontend","depends_on":["qq_native_build"],"program":"node","args":["scripts/ui-social-native-smoke.mjs"],"paths":["crates/kanzei-app/src/bili/**","crates/kanzei-app/src/qq/setup.rs","crates/kanzei-app/src/login_qr.rs","crates/kanzei-app/ui/34-*.js","crates/kanzei-app/ui/35-bili.js","crates/kanzei-app/ui/bili.css","crates/kanzei-app/ui/03-general-scope.js","crates/kanzei-harness/src/conversation_scope.rs","crates/kanzei-memory/src/memory/**","crates/kanzei-tools/src/refgraph/**","crates/kanzei-app/src/memory.rs","crates/kanzei-app/src/memory_chat.rs","scripts/ui-social-native-smoke.mjs"],"resources":["browser"]}
 
 ]

@@ -6,8 +6,7 @@ use std::path::PathBuf;
 use serde_json::json;
 
 fn scope_matches(store: &kanzei_memory::memory::MemoryStore, scope: &str) -> bool {
-    store.scope.label() == scope
-        || scope == "project" && store.scope != kanzei_memory::memory::MemoryScope::Global
+    store.scope.selector() == scope || store.scope.label() == scope
 }
 
 fn memory_stores_for(project_dir: &str) -> Vec<kanzei_memory::memory::MemoryStore> {
@@ -103,7 +102,7 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
                 .unwrap_or_default();
             categories.insert(cat.to_string(), json!({"active": active, "candidate": candidate, "stale": of_cat.len() - active - candidate, "bytes": bytes, "last": last}));
         }
-        scopes.push(json!({"scope": store.scope.label(), "root": store.root.display().to_string(), "total": entries.len(), "hitsTotal": hits.values().sum::<u64>(), "categories": categories, "inboxPending": store.pending_notes(), "archived": store.archived_count(), "integrity": store.integrity_issues()}));
+        scopes.push(json!({"scope": store.scope.selector(), "root": store.root.display().to_string(), "total": entries.len(), "hitsTotal": hits.values().sum::<u64>(), "categories": categories, "inboxPending": store.pending_notes(), "archived": store.archived_count(), "integrity": store.integrity_issues()}));
     }
     let root = crate::normalized_project_root(std::path::Path::new(&project_dir));
     json!({"scopes": scopes, "knowledge": kanzei_tools::project_knowledge::snapshot(&root, &root)})
@@ -191,7 +190,7 @@ fn memory_entry_json(
     let (hits, last_hit_at) = profile.get(&entry.id).copied().unwrap_or((0, 0));
     let counts = usage.get(&entry.id).cloned().unwrap_or_default();
     let revision = kanzei_memory::memory::entry_revision(&entry);
-    json!({"id": entry.id, "scope": store.scope.label(), "category": entry.category,
+    json!({"id": entry.id, "scope": store.scope.selector(), "category": entry.category,
         "title": entry.title, "description": entry.description, "status": entry.status,
         "updated": entry.updated, "source": entry.source, "refs": entry.refs(), "areas": entry.areas(),
         "archived": archived,
@@ -370,7 +369,7 @@ pub(crate) fn memory_graph_with(
     let hits: std::collections::HashMap<(String, String), u64> = stores
         .iter()
         .flat_map(|store| {
-            let scope = store.scope.label().to_string();
+            let scope = store.scope.selector().to_string();
             store
                 .hit_profile()
                 .into_iter()
@@ -458,7 +457,7 @@ pub(crate) fn memory_note_candidates(project_dir: String) -> serde_json::Value {
                         .map(|j| summary[i..i + j + 1].to_string())
                 })
                 .unwrap_or_default();
-            out.push(json!({"id":id,"scope": store.scope.label(), "hint": hint, "summary": summary, "detail": detail, "fingerprint": fingerprint}));
+            out.push(json!({"id":id,"scope": store.scope.selector(), "hint": hint, "summary": summary, "detail": detail, "fingerprint": fingerprint}));
         }
     }
     json!(out)
@@ -542,7 +541,7 @@ pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
             let Some(counts) = usage.get(&entry.id) else {
                 continue;
             };
-            let item = json!({"scope": store.scope.label(), "id": entry.id, "title": entry.title,
+            let item = json!({"scope": store.scope.selector(), "id": entry.id, "title": entry.title,
                 "recalled": counts.recalled, "injected": counts.injected,
                 "read": counts.read, "read_observed": counts.read_observed});
             if counts.read_observed >= 3 && counts.read == 0 {
@@ -646,7 +645,7 @@ pub(crate) fn memory_search_page(
     let out: Vec<serde_json::Value> = all_hits
         .iter()
         .map(|h| {
-            json!({"id": h.entry.id, "scope": h.entry.scope, "category": h.entry.category, "title": h.entry.title, "description": h.entry.description, "status": h.entry.status, "snippet": h.snippet, "hits": h.hits})
+            json!({"id": h.entry.id, "scope": if h.entry.scope == "global" { "global" } else { "project" }, "category": h.entry.category, "title": h.entry.title, "description": h.entry.description, "status": h.entry.status, "snippet": h.snippet, "hits": h.hits})
         })
         .collect();
     {

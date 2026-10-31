@@ -13620,3 +13620,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/ui-social-native-smoke.mjs
 - 摘要: 真实 WebView2/Rust/SQLite/runtime 验收 38 项通过；NapCat/B站/模型为本地协议夹具，未登录真实账号或发送真实评论。覆盖 QQ 自动配置、B站二维码、视频/评论/楼中楼、草稿账号与版本绑定、成功回执及未知发送不重放、原生对话工具流、受限目录和深浅色/窄窗裁切。另以 Rust 子进程验收个人助手/QQ 好友/B站共享 memory、群隔离和旧好友迁移。证据：C:\Users\kanzei\Documents\kanzei code\output\evidence\ui-social-native-smoke\1793467887926-5ce6029b-e5d8-4523-86be-dc00a87a919c\receipt.json。公开热门、二维码生成、视频详情、评论 API 补查 code=0。
 - 收尾: 1793468232
+
+## T-1786922727213 个人记忆的管理、采纳与图谱作用域回归 [passed]
+- 命令: node scripts/ui-social-native-smoke.mjs; cargo test -p kanzei-tools refgraph; cargo test -p kanzei-app memory_chat
+- 摘要: 真实 WebView2/Rust/SQLite/runtime 原生验收 42 项通过，补证 B站真实 memory_note、共享个人收件箱的 project 选择器、QQ 私聊记忆在 B站上下文可管理、默认图谱显示个人记忆、群图谱不包含个人或全局记忆。refgraph 与 memory_chat 定向测试通过，新增 P/Q/F 引用、取代及正文提及边回归通过。来源：C:\Users\kanzei\Documents\kanzei code\output\evidence\ui-social-native-smoke\1793468667341-fee7af4b-8967-440d-82cc-10856c970cbf\receipt.json。接口及模型为本地夹具，未使用真实账号或发送评论。
+- 收尾: 1793468772

@@ -52,11 +52,13 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
   ws.on("connection",(socket,req)=>{sockets.add(socket);socket.on("close",()=>sockets.delete(socket));assert.equal(req.headers.authorization,`Bearer ${network.network.websocketServers.find(s=>s.name==="kanzei-code").token}`);socket.on("message",raw=>{const call=JSON.parse(String(raw));const data=call.action==="get_login_info"?{user_id:100,nickname:"QQ 测试"}:[];socket.send(JSON.stringify({status:"ok",retcode:0,echo:call.echo,data}));});});
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));const endpoint=`http://127.0.0.1:${server.address().port}`;
   const app=await nativeApp(path.resolve("target/debug/kzapp.exe"),task.evidence,"Social fixture",(body,res)=>{
+    if(!body.tools?.some(t=>t.function.name==="bili_feed")){textReply(res,"MEMORY_REVIEW_PENDING");return;}
     const used=body.messages.flatMap(m=>m.tool_calls||[]).map(c=>c.function.name);
     if(!used.includes("bili_feed"))toolReply(res,"bili_feed",{},"feed");
     else if(!used.includes("bili_video"))toolReply(res,"bili_video",{bvid:bv},"video");
     else if(!used.includes("bili_comments"))toolReply(res,"bili_comments",{bvid:bv},"comments");
     else if(!used.includes("bili_comment_draft"))toolReply(res,"bili_comment_draft",{bvid:bv,body:"助手草稿"},"draft");
+    else if(!used.includes("memory_note"))toolReply(res,"memory_note",{summary:"BILI_PENDING_NOTE",detail:"实际读取的讨论线索"},"note");
     else textReply(res,"BILI_DONE：读取了信息和评论，没有字幕，未分析画面。草稿已保存。");
   },"",{KANZEI_E2E_BILI_ENDPOINT:endpoint});
   const {page,invoke}=app;
@@ -92,6 +94,14 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     await invoke("bili_settings_save",{settings:status.settings});await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"浏览一轮",exact:true}).click();await page.locator("#bili-conversation").waitFor({state:"visible"});await until(async()=>(await page.locator("#messages").innerText()).includes("BILI_DONE"),"Bili agent round completes in native conversation");
     const request=app.requests.find(r=>r.tools?.some(t=>t.function.name==="bili_feed"));check(request&&!["bash","write","task","bili_publish"].some(name=>request.tools.some(t=>t.function.name===name)),"Bili browsing session has no terminal, delegation, or direct publication tool");
     check(app.requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("助手草稿"))),"Agent actually creates comment draft through tool stream");check(posts.length===2,"Agent browsing cannot publish comments");
+    const target=await invoke("bili_conversation_open");
+    const pending=await invoke("memory_note_candidates",{projectDir:target.root});check(pending.some(n=>n.summary==="BILI_PENDING_NOTE"&&n.scope==="project"),"Shared personal inbox keeps existing adoption selector");
+    await invoke("qq_memory_save",{identity:{account:"100",kind:"friend",peer:"200"},id:null,title:"PERSONAL_UI_MEMORY",description:"个人共享记忆",body:"QQ_PRIVATE_SHARED_WITH_BILI",expectedHash:null});
+    const entries=await invoke("memory_entries",{projectDir:target.root,scope:"project",category:null});check(entries.some(e=>e.title==="PERSONAL_UI_MEMORY"&&e.scope==="project"),"QQ personal memory is manageable from Bilibili through existing UI selector");
+    const entry=entries.find(e=>e.title==="PERSONAL_UI_MEMORY");
+    const graph=await invoke("memory_graph",{projectDir:target.root});check(graph.nodes.some(n=>n.id===entry.id&&n.scope==="project"),"Personal memory appears in default graph filter");
+    const global=path.join(app.appHome,"memory");await mkdir(global,{recursive:true});await writeFile(path.join(global,"U-900-private.md"),"---\nid: U-900\nscope: global\ncategory: fact\ntitle: GLOBAL_GRAPH_SENTINEL\ndescription: global private\nstatus: active\ncreated: 2026-11-01\nupdated: 2026-11-01\nsource: user\n---\nPrivate global graph fact.\n");
+    const group=path.join(app.appHome,"conversations/qq/100/group/300");await mkdir(group,{recursive:true});const groupGraph=await invoke("memory_graph",{projectDir:group});check(!groupGraph.nodes.some(n=>n.id===entry.id||n.id==="U-900"),"Group memory graph excludes both personal and global memory");
     await page.locator("#bili-manage").click();
     for(const theme of ["dark","light"]) {await page.evaluate(theme=>document.documentElement.setAttribute("data-theme",theme),theme);for(const tab of ["browse","drafts","records","login","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`${theme}/${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`${theme}-${tab}.png`)});}}
     await page.setViewportSize({width:420,height:800});for(const tab of ["browse","drafts","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`Narrow ${tab} no horizontal overflow`);check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`Narrow ${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});}
