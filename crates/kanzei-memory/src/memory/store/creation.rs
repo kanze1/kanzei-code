@@ -119,10 +119,14 @@ impl MemoryStore {
             // The fingerprint source set is needed only when the incoming
             // record contains fingerprints. Reuse the checked local generation
             // and read the global source once for provenance and deduplication.
-            let global_entries = MemoryStore::global()
-                .map(|global| global.index_source_entries())
-                .transpose()?
-                .unwrap_or_default();
+            let global_entries = if self.scope == super::super::MemoryScope::Project {
+                MemoryStore::global()
+                    .map(|global| global.index_source_entries())
+                    .transpose()?
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
             let existing_fps = entries
                 .iter()
                 .chain(&global_entries)

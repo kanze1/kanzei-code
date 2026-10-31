@@ -17,6 +17,10 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
     match scope {
         "project" => Ok(MemoryStore::project(&ctx.project_root)),
         "global" => {
+            anyhow::ensure!(
+                kanzei_harness::QqConversation::from_root(&ctx.project_root).is_none(),
+                "QQ memory cannot access the global namespace"
+            );
             MemoryStore::global().ok_or_else(|| anyhow::anyhow!("no home dir for global scope"))
         }
         other => anyhow::bail!("invalid scope `{other}`; valid: global | project"),

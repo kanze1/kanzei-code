@@ -60,6 +60,7 @@ mod preview;
 mod processes;
 mod projection_gate;
 mod projects;
+mod qq;
 mod research_latex;
 mod research_library;
 mod research_topics;
@@ -156,6 +157,7 @@ fn main() {
         .init();
     tauri::Builder::default()
         .manage(AppState::default())
+        .manage(qq::QqState::default())
         .manage(voice::VoiceState::default())
         .manage(memory_chat::MemoryChatState::default())
         .manage(preview::PreviewState::default())
@@ -180,6 +182,7 @@ fn main() {
                 // dispatch, application events and managed state work without
                 // constructing a Window or starting WebView2.
                 runtime_service::install_service(app.handle())?;
+                qq::install(app.handle())?;
                 tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
                 workspace::install_recovery(app.handle());
                 durable_questions::recover_outbox(app.handle().clone());
@@ -194,6 +197,9 @@ fn main() {
             // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
             // 打开 WebView2 DevTools 协议,供 E2 脚本通过 CDP 驱动真实 UI。
             runtime_service::install_client(app.handle());
+            if runtime_service::embedded() {
+                qq::install(app.handle())?;
+            }
             let window_config = app
                 .config()
                 .app

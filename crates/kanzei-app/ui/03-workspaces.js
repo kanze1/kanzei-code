@@ -213,7 +213,7 @@ export function view_allowed(view, project = currentProject) {
 }
 
 export function remember_workspace_view(view) {
-  if (["workspace", "project", "settings", "skills"].includes(view) || !currentProject) return;
+  if (["workspace", "project", "settings", "skills", "qq"].includes(view) || !currentProject) return;
   const saved = project_workspace();
   save_workspace({ [active_space]: { ...saved[active_space], view } });
 }

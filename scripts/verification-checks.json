@@ -1507,5 +1507,22 @@
     "resources": [
       "browser"
     ]
+  },
+  {
+    "key": "qq_native_build",
+    "inputs": "rust",
+    "program": "cargo",
+    "args": ["build", "-p", "kanzei-app"],
+    "paths": ["crates/kanzei-app/src/qq/**", "scripts/ui-qq-native-smoke.mjs"],
+    "resources": ["cargo"]
+  },
+  {
+    "key": "qq_native",
+    "inputs": "frontend",
+    "depends_on": ["qq_native_build"],
+    "program": "node",
+    "args": ["scripts/ui-qq-native-smoke.mjs"],
+    "paths": ["crates/kanzei-app/src/qq/**", "crates/kanzei-app/ui/33-qq.js", "crates/kanzei-app/ui/qq.css", "scripts/ui-qq-native-smoke.mjs"],
+    "resources": ["browser"]
   }
 ]

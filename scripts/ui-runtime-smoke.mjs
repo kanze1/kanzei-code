@@ -1896,6 +1896,7 @@ const payloads = {
   skills_list: [],
   softwire_questions: [],
   app_info: { version: "0.0.0-smoke", build: "smoke" },
+  qq_status: { settings: { enabled: false, groups: [] }, peers: [], connected: false, token_configured: false, error: "", account: "", nickname: "" },
   // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
   // 与真实首次启动(后端无记录)行为一致。
   ui_prefs_get: { theme: null, work_priority: {}, continue_prompt: null, process_auto_state: {} },

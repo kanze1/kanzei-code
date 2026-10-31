@@ -155,10 +155,14 @@ impl MemoryStore {
     }
 
     pub fn project(project_root: &Path) -> Self {
-        let store = MemoryStore::open(
-            MemoryScope::Project,
-            super::project_memory_root(project_root),
-        );
+        let scope = match kanzei_harness::QqConversation::from_root(project_root)
+            .map(|identity| identity.kind)
+        {
+            Some(kanzei_harness::QqPeerKind::Friend) => MemoryScope::QqFriend,
+            Some(kanzei_harness::QqPeerKind::Group) => MemoryScope::QqGroup,
+            None => MemoryScope::Project,
+        };
+        let store = MemoryStore::open(scope, super::project_memory_root(project_root));
         // 保持路径句柄构造的兼容接口;迁移失败必须显式诊断,原始来源仍保留供重入。
         if let Err(error) = store.migrate_legacy(project_root) {
             tracing::error!(
@@ -183,6 +187,9 @@ impl MemoryStore {
     }
 
     pub fn global_for_project(project_root: &Path) -> Option<Self> {
+        if kanzei_harness::QqConversation::from_root(project_root).is_some() {
+            return None;
+        }
         let mut store = Self::global()?;
         store.project_root = Some(project_root.to_path_buf());
         Some(store)

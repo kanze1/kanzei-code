@@ -64,6 +64,7 @@ export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:experience",
 ]);
 export const SESSIONLESS_EVENTS = new Set([
+  "kz:qq", // Connection, peer directory and scoped memory refresh span QQ sessions.
   "kz:native-control", // Desktop ownership spans conversations and auxiliary windows.
   "kz:schedule-run",
   "kz:ask",

@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 impl MemoryStore {
     pub fn write_source_artifact(&self, name: &str, content: &str) -> anyhow::Result<PathBuf> {
         anyhow::ensure!(
-            self.scope == MemoryScope::Project,
+            self.scope != MemoryScope::Global,
             "会话来源必须保存在所属项目中"
         );
         let mut components = Path::new(name).components();

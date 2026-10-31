@@ -2296,6 +2296,97 @@
     "path": "settings::provider_test",
     "returns": "-> Result < String , String >"
   },
+  "qq_config_save": {
+    "host": "service",
+    "parameters": {
+      "settings": {
+        "required": true,
+        "type": "crate :: qq :: config :: Settings"
+      },
+      "token": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "qq::qq_config_save",
+    "returns": "-> Result < () , String >"
+  },
+  "qq_directory": {
+    "host": "service",
+    "parameters": {},
+    "path": "qq::qq_directory",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_memories": {
+    "host": "service",
+    "parameters": {
+      "identity": {
+        "required": true,
+        "type": "kanzei_harness :: QqConversation"
+      }
+    },
+    "path": "qq::component::qq_memories",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_memory_save": {
+    "host": "service",
+    "parameters": {
+      "body": {
+        "required": true,
+        "type": "String"
+      },
+      "description": {
+        "required": true,
+        "type": "String"
+      },
+      "expectedHash": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "id": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "identity": {
+        "required": true,
+        "type": "kanzei_harness :: QqConversation"
+      },
+      "title": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "qq::component::qq_memory_save",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_peer_log": {
+    "host": "service",
+    "parameters": {
+      "identity": {
+        "required": true,
+        "type": "kanzei_harness :: QqConversation"
+      }
+    },
+    "path": "qq::qq_peer_log",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_peer_open": {
+    "host": "service",
+    "parameters": {
+      "identity": {
+        "required": true,
+        "type": "kanzei_harness :: QqConversation"
+      }
+    },
+    "path": "qq::qq_peer_open",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_status": {
+    "host": "service",
+    "parameters": {},
+    "path": "qq::qq_status",
+    "returns": "-> Result < Value , String >"
+  },
   "quick_req": {
     "host": "service",
     "parameters": {

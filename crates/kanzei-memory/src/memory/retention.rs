@@ -91,7 +91,7 @@ impl MemoryStore {
             "记忆保留策略必须有非零观察与隔离窗口"
         );
         anyhow::ensure!(
-            self.scope == MemoryScope::Project,
+            self.scope != MemoryScope::Global,
             "全局记忆不能根据单个项目的未命中情况自动清退"
         );
         let root = self

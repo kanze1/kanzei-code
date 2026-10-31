@@ -104,7 +104,9 @@ fn render(stores: &[MemoryStore]) -> anyhow::Result<Option<String>> {
             used += size;
         } else {
             match preference.scope {
-                MemoryScope::Project => project_omitted += 1,
+                MemoryScope::Project | MemoryScope::QqFriend | MemoryScope::QqGroup => {
+                    project_omitted += 1
+                }
                 MemoryScope::Global => global_omitted += 1,
             }
         }

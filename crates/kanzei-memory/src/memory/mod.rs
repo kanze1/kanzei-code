@@ -13,6 +13,8 @@ mod lifecycle;
 mod manager;
 mod migration;
 mod privacy;
+#[cfg(test)]
+mod qq_tests;
 mod recall_search;
 mod relevance;
 mod retention;
@@ -94,6 +96,8 @@ pub(crate) fn record_memory_lifecycle_event(
 pub enum MemoryScope {
     Global,
     Project,
+    QqFriend,
+    QqGroup,
 }
 
 impl MemoryScope {
@@ -101,6 +105,8 @@ impl MemoryScope {
         match self {
             MemoryScope::Global => "U",
             MemoryScope::Project => "M",
+            MemoryScope::QqFriend => "F",
+            MemoryScope::QqGroup => "Q",
         }
     }
 
@@ -108,6 +114,8 @@ impl MemoryScope {
         match self {
             MemoryScope::Global => "global",
             MemoryScope::Project => "project",
+            MemoryScope::QqFriend => "qq_friend",
+            MemoryScope::QqGroup => "qq_group",
         }
     }
 }
@@ -356,9 +364,22 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
         _ => None,
     };
     let mut bad: Vec<String> = Vec::new();
+    let memory = MemoryStore::project(&ctx.project_root);
+    let memory_prefix = format!("{}-", memory.scope.prefix());
     for raw in refs {
         let id = raw.trim();
         if id.is_empty() {
+            continue;
+        }
+        if id
+            .strip_prefix(&memory_prefix)
+            .is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+        {
+            let exists = memory.load_all().iter().any(|(_, entry)| entry.id == id)
+                || memory.has_archived_id(id);
+            if !exists {
+                bad.push(format!("{id}: no such memory entry (active or archived)"));
+            }
             continue;
         }
         let bytes = id.as_bytes();
@@ -367,18 +388,6 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
             && bytes[1] == b'-'
             && id[2..].chars().all(|c| c.is_ascii_digit());
         if looks_like_id {
-            if id.starts_with("M-") {
-                let store = MemoryStore::open(
-                    MemoryScope::Project,
-                    ctx.project_root.join(".kanzei/memory"),
-                );
-                let exists = store.load_all().iter().any(|(_, entry)| entry.id == id)
-                    || store.has_archived_id(id);
-                if !exists {
-                    bad.push(format!("{id}: no such memory entry (active or archived)"));
-                }
-                continue;
-            }
             let Some(kind) = kind_of(id) else {
                 bad.push(format!("{id}: unknown doc kind"));
                 continue;
@@ -953,7 +962,9 @@ impl kanzei_core::RecallPolicy for FailureRecallPolicy {
 ///
 /// 值不值得写成记忆条目仍由 memory-manager 判定——引擎不做语义判断。
 pub fn harvest_failures(store: &MemoryStore, signals: &[kanzei_core::FailureSignal]) -> usize {
-    let global = MemoryStore::global();
+    let global = (store.scope == MemoryScope::Project)
+        .then(MemoryStore::global)
+        .flatten();
     let mut delivered = 0usize;
     for signal in signals {
         if delivered >= MAX_FAILURE_NOTES_PER_RUN {
@@ -1250,7 +1261,11 @@ pub fn reconcile_candidates(
             .as_millis()
             .try_into()?,
     )?;
-    let global = reconcile_global_candidates(max_age_days)?;
+    let global = if kanzei_harness::QqConversation::from_root(project_root).is_none() {
+        reconcile_global_candidates(max_age_days)?
+    } else {
+        CandidateReconcileReport::default()
+    };
     let mut project = MemoryStore::project(project_root)
         .reconcile_candidates(current_episode_id, max_age_days)?;
     project.global_candidate_files_before = global.global_candidate_files_before;
@@ -1380,7 +1395,9 @@ pub fn mark_memory_file_read(
     }
     let memory_id = format!("{}-{number}", scope_prefix.to_ascii_uppercase());
     let mut stores = vec![MemoryStore::project(project_root)];
-    stores.extend(MemoryStore::global());
+    if kanzei_harness::QqConversation::from_root(project_root).is_none() {
+        stores.extend(MemoryStore::global());
+    }
     for store in stores {
         if !starts_with_ci(path, &store.root) {
             continue;

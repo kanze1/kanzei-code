@@ -594,6 +594,29 @@ export const commandParameters = {
     "protocol": true,
     "proxy": false
   },
+  "qq_config_save": {
+    "settings": true,
+    "token": false
+  },
+  "qq_directory": {},
+  "qq_memories": {
+    "identity": true
+  },
+  "qq_memory_save": {
+    "body": true,
+    "description": true,
+    "expectedHash": false,
+    "id": false,
+    "identity": true,
+    "title": true
+  },
+  "qq_peer_log": {
+    "identity": true
+  },
+  "qq_peer_open": {
+    "identity": true
+  },
+  "qq_status": {},
   "quick_req": {
     "description": true,
     "kind": false,

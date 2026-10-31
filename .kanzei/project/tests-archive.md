@@ -13610,3 +13610,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727210.json; 仅背书该命令的验证范围
 - 收尾: 1792907637
 - 源码指纹: v2 scripts/check-readme-crates.mjs@ebebd2b9db28
+
+## T-1786922727211 QQ 好友助手与群聊隔离原生验收 [passed]
+- 命令: node scripts/ui-qq-native-smoke.mjs
+- 摘要: 真实 WebView2、Rust、SQLite 和本机终端验收通过；OneBot 与模型为本地模拟端，未连接真实 QQ。覆盖好友唤起、QQ 权限确认、本机终端、非 @ 群消息参与与沉默、群能力限制及伪造模式、memory 隔离/CAS、重启恢复、深浅色和窄窗裁切。机器证据：C:/Users/kanzei/Documents/kanzei code/output/evidence/ui-qq-native-smoke/1793461700616-e782be11-c080-435c-a08d-f4ed4cb495e9/receipt.json。
+- 收尾: 1793461859

@@ -70,7 +70,7 @@ impl MemoryLifecycle {
         // 证据落 state.db memory_sources 表(与 episodes 同库,可 join)。
         // 仅 project scope 有 state.db(global 记忆无 episode 证据源)。
         let hash = source_hash.unwrap_or("compiler").to_string();
-        let store = if scope == MemoryScope::Project {
+        let store = if scope != MemoryScope::Global {
             let db_path = root.join("..").join("state.db");
             match kanzei_core::SessionStore::open(&db_path) {
                 Ok(store) => Some(store),

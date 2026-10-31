@@ -247,7 +247,10 @@ pub(crate) async fn run_task(
                 .flatten()
         }),
     );
-    let mut subagent_rt = if subagent_mode.enabled() {
+    let mut subagent_rt = if subagent_mode.enabled()
+        && !kanzei_harness::QqConversation::from_root(&round.ctx.project_root)
+            .is_some_and(|identity| identity.kind == kanzei_harness::QqPeerKind::Group)
+    {
         kanzei_runtime::build_subagent_runtime(
             &deps.rctx,
             &deps.config,

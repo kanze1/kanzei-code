@@ -229,6 +229,12 @@ pub(crate) async fn assemble_run(
             topic.clone(),
         ));
     }
+    if let Some(identity) = kanzei_harness::QqConversation::from_root(&project_root) {
+        harness.add(crate::qq::ConversationComponent {
+            app: window.clone(),
+            identity,
+        });
+    }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot
         .select_primary_agent(mode.agent_name.as_deref())?

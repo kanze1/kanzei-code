@@ -303,10 +303,10 @@ export function focusMainAfterViewChange(view = document.body.dataset.view) {
 export function navigate_view(view, { prepared = false, reload = false } = {}) {
   if (!Object.hasOwn(views, view)) return;
   if (!prepared && view === "chat" && active_space === "dev-auto" && !currentProject && !workbenchProject()) return openGeneralChat();
-  if (!prepared && ["workspace", "settings", "memory", "skills"].includes(view)) cancelProjectNavigation();
+  if (!prepared && ["workspace", "settings", "memory", "skills", "qq"].includes(view)) cancelProjectNavigation();
   // A project selected in the workbench is only a browsing identity. Activate
   // execution explicitly before a project tool can use currentProject.
-  if (!prepared && !["workspace", "settings", "project", "memory", "skills"].includes(view) && active_space === "dev-auto"
+  if (!prepared && !["workspace", "settings", "project", "memory", "skills", "qq"].includes(view) && active_space === "dev-auto"
       && workbenchProject() && (currentProject !== workbenchProject() || (view === "chat" && !activeSessionId))) {
     return openProjectSpace(workbenchProject(), view);
   }

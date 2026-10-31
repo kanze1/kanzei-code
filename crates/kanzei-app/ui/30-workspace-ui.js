@@ -24,7 +24,7 @@ defer(() => {
   const footer = node("div", "workspace-sidebar-footer"); footer.id = "workspace-sidebar-footer";
   const globalNavigation = node("nav", "workspace-global-navigation");
   globalNavigation.setAttribute("aria-label", t("全局导航"));
-  for (const [selector, label] of [['.activity-item[data-view="memory"]', "记忆"], ["#skills-nav", "Skills"], ['.activity-item[data-view="settings"]', "设置"]]) {
+  for (const [selector, label] of [["#qq-nav", "QQ 机器人"], ['.activity-item[data-view="memory"]', "记忆"], ["#skills-nav", "Skills"], ['.activity-item[data-view="settings"]', "设置"]]) {
     const button = document.querySelector(selector);
     if (button) { const text = node("span", "", t(label)); text.dataset.i18nKey = label; button.append(text); globalNavigation.append(button); }
   }

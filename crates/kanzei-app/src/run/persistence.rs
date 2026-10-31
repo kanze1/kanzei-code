@@ -817,6 +817,7 @@ pub(crate) async fn finalize_round(
             .write_shadow_report(&messages);
     }
     finish_typed_flush(typed_flush_task).await?;
+    crate::qq::round_finished(window, &ctx.project_root, run_id, summary).await;
     let _ = window.emit(
         "kz:done",
         with_session_id(

@@ -139,7 +139,6 @@ pub(crate) fn restore_legacy_conversation(
 
 /// Open an existing conversation, or explicitly create one when the project is empty.
 /// Listing/restoring never calls this, so closing the last conversation remains durable.
-#[cfg(test)]
 pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<ProcessHandle, String> {
     restore_processes_from_store_once(state, root)?;
     let existing = state

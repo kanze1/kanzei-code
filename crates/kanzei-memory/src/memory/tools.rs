@@ -205,6 +205,14 @@ impl Tool for MemoryNoteTool {
             Err(out) => return out,
         };
         let action = input.action.as_deref().unwrap_or("note");
+        if kanzei_harness::QqConversation::from_root(&ctx.project_root).is_some()
+            && input
+                .scope
+                .as_deref()
+                .is_some_and(|scope| scope != "project")
+        {
+            return ToolOutput::error("QQ memory is confined to the current peer namespace");
+        }
         if action == "correct" {
             let scope = input.scope.as_deref().unwrap_or("project");
             let store = match scope {
@@ -389,7 +397,7 @@ impl Tool for MemoryStatsTool {
             // R-161 五段漏斗(与 episodes 同库,CLI/桌面端同源写入):A→R→I→U→Y。
             // 只在项目 scope 报一次,避免跨 store 重复计数(global store 命中也会
             // 记进项目 state.db 的 recall_events)。
-            if store.scope.label() == "project" {
+            if store.scope != super::MemoryScope::Global {
                 if let Some(funnel) = project_funnel_counts(ctx) {
                     let action = if funnel.action_changed_available {
                         funnel.action_changed.to_string()
@@ -469,7 +477,7 @@ impl Tool for MemoryStatsTool {
             // R-166 批5(内容⑥,验收④):deprecate 候选——F(m) 评估的
             // low value(effect_mean≤0)+ high confidence(样本足且 CI 窄)才报;
             // age 不参与。只报不删,真正的 deprecated 由 manager 按 reason 落。
-            if store.scope.label() == "project" {
+            if store.scope != super::MemoryScope::Global {
                 if let Ok(db) =
                     kanzei_core::SessionStore::open(&store.root.join("..").join("state.db"))
                 {

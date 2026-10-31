@@ -36,6 +36,7 @@ pub fn is_general_conversation_root(root: &Path) -> bool {
 
 fn is_general_conversation_root_at(root: &Path, home: &Path) -> bool {
     crate::project_root::is_same_dir(root, &home.join("conversations/general"))
+        || crate::QqConversation::from_root_at(root, home).is_some()
 }
 
 /// Files belong to a conversation; shared history and memory stay in the store root.

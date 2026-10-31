@@ -70,3 +70,6 @@ pub use tool_search::{ToolSearchTool, TOOL_SEARCH};
 
 pub mod execution;
 pub mod pending_question;
+
+pub mod conversation_scope;
+pub use conversation_scope::{QqConversation, QqPeerKind};

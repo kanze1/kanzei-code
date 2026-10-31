@@ -902,5 +902,33 @@
   {
     "path": "commands::summarize::save_conversation_export",
     "host": "desktop"
+  },
+  {
+    "path": "qq::qq_status",
+    "host": "service"
+  },
+  {
+    "path": "qq::qq_config_save",
+    "host": "service"
+  },
+  {
+    "path": "qq::qq_directory",
+    "host": "service"
+  },
+  {
+    "path": "qq::qq_peer_open",
+    "host": "service"
+  },
+  {
+    "path": "qq::qq_peer_log",
+    "host": "service"
+  },
+  {
+    "path": "qq::component::qq_memories",
+    "host": "service"
+  },
+  {
+    "path": "qq::component::qq_memory_save",
+    "host": "service"
   }
 ]
