@@ -124,7 +124,7 @@ async fn service(app: tauri::AppHandle) {
             tokio::select! {_=state.stop.cancelled()=>return,_=state.changed.notified()=>continue}
         }
         let cancel = state.stop.child_token();
-        let (events_tx, mut events) = mpsc::channel(128);
+        let (events_tx, mut events) = mpsc::unbounded_channel();
         let (client, task) = protocol::start(
             config.settings.url.clone(),
             config.token.clone(),

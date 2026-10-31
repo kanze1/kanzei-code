@@ -83,7 +83,7 @@ pub(crate) fn start(
     token: String,
     mut account: String,
     cancel: CancellationToken,
-    events: mpsc::Sender<Event>,
+    events: mpsc::UnboundedSender<Event>,
 ) -> (Client, tokio::task::JoinHandle<()>) {
     let (tx, mut calls) = mpsc::channel::<Call>(64);
     let client = Client {
@@ -110,7 +110,6 @@ pub(crate) fn start(
                 .send(Event::Offline(
                     result.err().unwrap_or_else(|| "QQ 连接已关闭".into()),
                 ))
-                .await
                 .is_err()
             {
                 break;
@@ -136,7 +135,7 @@ async fn socket(
     account: &mut String,
     reconnect_delay: &mut Duration,
     cancel: &CancellationToken,
-    events: &mpsc::Sender<Event>,
+    events: &mpsc::UnboundedSender<Event>,
     calls: &mut mpsc::Receiver<Call>,
 ) -> Result<(), String> {
     let mut request = url.into_client_request().map_err(|e| e.to_string())?;
@@ -194,12 +193,14 @@ async fn socket(
                                     }
                                     *account = logged_in;
                                     *reconnect_delay = Duration::from_secs(1);
-                                    events.send(Event::Connected(info)).await.map_err(|_| "QQ 消费者已退出")?;
+                                    events.send(Event::Connected(info)).map_err(|_| "QQ 消费者已退出")?;
                                     authenticated = true;
                                 }
                                 else if let Some(reply) = pending.remove(echo) { let _ = reply.send(result); }
                             } else if authenticated && value["post_type"].as_str() == Some("message") {
-                                events.send(Event::Incoming(value)).await.map_err(|_| "QQ 消费者已退出")?;
+                                // App handlers may await an action response on this
+                                // socket. Their input queue must not block reads.
+                                events.send(Event::Incoming(value)).map_err(|_| "QQ 消费者已退出")?;
                             }
                         },
                         Message::Ping(data) => writer.send(Message::Pong(data)).await.map_err(|e| e.to_string())?,
@@ -257,7 +258,7 @@ mod tests {
         let token = std::env::var("KANZEI_QQ_TOKEN").expect("KANZEI_QQ_TOKEN is required");
         let account = std::env::var("KANZEI_QQ_ACCOUNT").expect("KANZEI_QQ_ACCOUNT is required");
         let cancel = CancellationToken::new();
-        let (tx, mut events) = mpsc::channel(128);
+        let (tx, mut events) = mpsc::unbounded_channel();
         let (client, task) = start(url, token, account.clone(), cancel.clone(), tx);
         let result = tokio::time::timeout(CALL_TIMEOUT, async {
             match events.recv().await.expect("OneBot event channel") {
@@ -317,7 +318,7 @@ mod tests {
             .unwrap();
         });
         let cancel = CancellationToken::new();
-        let (tx, mut events) = mpsc::channel(8);
+        let (tx, mut events) = mpsc::unbounded_channel();
         let (client, worker) = start(url, "secret".into(), "123".into(), cancel.clone(), tx);
         let event = tokio::time::timeout(Duration::from_secs(5), events.recv())
             .await
@@ -330,6 +331,64 @@ mod tests {
         cancel.cancel();
         worker.await.unwrap();
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn inbound_burst_cannot_block_a_directory_response() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(stream).await.unwrap();
+            ws.next().await.unwrap().unwrap();
+            ws.send(Message::Text(
+                json!({"status":"ok","retcode":0,"echo":"login","data":{"user_id":123}})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+            // The application is verifying a friend and cannot drain input until
+            // this read completes. Event backpressure must not stop socket reads.
+            for id in 0..3 {
+                ws.send(Message::Text(
+                    json!({"post_type":"message","message_id":id})
+                        .to_string()
+                        .into(),
+                ))
+                .await
+                .unwrap();
+            }
+            let call: Value =
+                serde_json::from_str(ws.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+            ws.send(Message::Text(
+                json!({"status":"ok","retcode":0,"echo":call["echo"],"data":[]})
+                    .to_string()
+                    .into(),
+            ))
+            .await
+            .unwrap();
+            while ws.next().await.is_some() {}
+        });
+        let cancel = CancellationToken::new();
+        let (tx, mut events) = mpsc::unbounded_channel();
+        let (client, worker) = start(url, "secret".into(), "123".into(), cancel.clone(), tx);
+        assert!(matches!(events.recv().await, Some(Event::Connected(_))));
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.call("get_friend_list", json!({})),
+        )
+        .await;
+        cancel.cancel();
+        // Release the application inbox before joining the transport.
+        drop(events);
+        worker.await.unwrap();
+        server.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "incoming messages blocked the identity response"
+        );
+        assert_eq!(result.unwrap().unwrap(), json!([]));
     }
 
     #[tokio::test]
@@ -388,7 +447,7 @@ mod tests {
             .unwrap();
         });
         let cancel = CancellationToken::new();
-        let (tx, mut events) = mpsc::channel(16);
+        let (tx, mut events) = mpsc::unbounded_channel();
         let (client, worker) = start(url, "secret".into(), "123".into(), cancel.clone(), tx);
         let scenario = async {
             assert!(matches!(events.recv().await, Some(Event::Connected(_))));
