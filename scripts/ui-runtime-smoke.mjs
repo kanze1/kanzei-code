@@ -1896,6 +1896,7 @@ const payloads = {
   skills_list: [],
   softwire_questions: [],
   app_info: { version: "0.0.0-smoke", build: "smoke" },
+  bili_status: { settings: { auto_browse: false, interval_minutes:60, quiet_start:0, quiet_end:8, keyword:"", model:null, daily_comments:30, comment_interval_seconds:120 }, account:0,name:"",logged_in:false,error:"",paused:false,conversation_root:null,records:{drafts:[],browsing:[]} },
   qq_status: { settings: { enabled: false, groups: [] }, peers: [], connected: false, token_configured: false, error: "", account: "", nickname: "" },
   // D-404:关键 UI 偏好后端持久化通道。冒烟默认空 = 回退 localStorage 旧值,
   // 与真实首次启动(后端无记录)行为一致。

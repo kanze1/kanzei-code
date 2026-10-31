@@ -3,6 +3,7 @@
 pub(crate) mod component;
 pub(crate) mod config;
 mod protocol;
+pub(crate) mod setup;
 mod store;
 
 use crate::{AppState, MutexPoisonExt};
@@ -31,6 +32,7 @@ struct Control {
 
 #[derive(Default)]
 pub(crate) struct QqState {
+    setup: setup::SetupState,
     control: Mutex<Control>,
     changed: Notify,
     stop: CancellationToken,
@@ -676,19 +678,24 @@ pub(crate) fn qq_config_save(
     settings: crate::qq::config::Settings,
     token: Option<String>,
 ) -> Result<(), String> {
-    let mut c = state.control.lock_or_recover();
     let config = Stored {
         settings,
-        token: token.unwrap_or_else(|| c.config.token.clone()),
+        token: token.unwrap_or_else(|| state.control.lock_or_recover().config.token.clone()),
     };
+    save_config(&state, config)
+}
+fn save_config(state: &QqState, config: Stored) -> Result<(), String> {
     config.validate()?;
     kanzei_base::atomic_file::write_atomic(
         &directory()?.join("settings.json"),
         &serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    c.config = config;
-    c.error.clear();
+    {
+        let mut c = state.control.lock_or_recover();
+        c.config = config;
+        c.error.clear();
+    }
     state.changed.notify_one();
     Ok(())
 }

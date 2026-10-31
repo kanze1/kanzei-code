@@ -1,20 +1,17 @@
+import { openChannelConversation } from "./34-channel-conversations.js";
+import { renderQqSetup } from "./34-qq-setup.js";
 import { t } from "./02-i18n.js";
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { on } from "./01-runtime-events.js";
-import { currentProject, activeProcessId, navigate_view, toastError, syncNewChatEnabled } from "./03-shell.js";
-import { setConversationRoot, setQqConversationRoots, rememberConversationMode } from "./03-general-scope.js";
-import { switch_workspace, sync_workspace_visibility } from "./03-workspaces.js";
-import { activate_execution_root, refreshProcesses, switchProcess, refreshPendingInputs } from "./09-sessions.js";
-import { cancelProjectNavigation, setBrowsingProject, workbenchNavigationGuard } from "./12-workbench.js";
-import { loadModels } from "./08-models.js";
-import { loadConversation } from "./15-views-misc.js";
+import { currentProject, activeProcessId, navigate_view, toastError } from "./03-shell.js";
+import { setQqConversationRoots } from "./03-general-scope.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 
 const element = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 const button = (text, action, cls = "ghost") => { const node = element("button", text, cls); node.type = "button"; node.addEventListener("click", () => Promise.resolve(action()).catch(error => toastError(String(error)))); return node; };
 const key = identity => JSON.stringify([identity.account, identity.kind, identity.peer]);
-let snapshot = null, selected = null, tab = "connection", reading = 0, openGeneration = 0;
+let snapshot = null, selected = null, tab = "connection", reading = 0;
 let form = null, groupForm = null, dirty = false, tokenDraft = "";
 
 function field(form, label, name, value, type = "text") {
@@ -52,26 +49,9 @@ export async function refreshQq() {
 }
 
 export async function openQqPeer(peer) {
-  const generation = ++openGeneration;
-  cancelProjectNavigation(); const valid = workbenchNavigationGuard();
-  if (!await switch_workspace("dev-auto", { isCurrent: valid }) || !valid()) return;
-  const opened = await invoke("qq_peer_open", { identity: peer.identity });
-  if (!valid() || generation !== openGeneration) return;
-  selected = opened; setBrowsingProject(null); setConversationRoot(opened.root);
-  activate_execution_root(opened.root);
-  await refreshProcesses();
-  if (!valid() || generation !== openGeneration) return;
-  await switchProcess(opened.process_id, true);
-  if (!valid() || generation !== openGeneration) return;
-  await loadConversation();
-  if (!valid() || generation !== openGeneration) return;
-  await loadModels();
-  if (!valid() || generation !== openGeneration) return;
-  await refreshPendingInputs();
-  if (!valid() || generation !== openGeneration) return;
-  setLayoutPref("qq", "last_peer", key(opened.identity)); rememberConversationMode("qq");
-  sync_workspace_visibility(); syncNewChatEnabled(); navigate_view("chat", { prepared: true });
-  syncConversation(); $("prompt").focus();
+  const opened = await openChannelConversation(() => invoke("qq_peer_open", { identity:peer.identity }), "qq");
+  if (!opened) return;
+  selected=opened; setLayoutPref("qq","last_peer",key(opened.identity)); syncConversation(); $("prompt").focus();
 }
 
 function syncConversation() {
@@ -99,6 +79,7 @@ function renderPage() {
   if (tab === "connection" || tab === "persona") {
     form = element("form", null, "qq-form"); form.id = "qq-settings-form";
     if (tab === "connection") {
+      renderQqSetup(host, refreshQq);
       field(form, "启用 QQ", "enabled", settings.enabled, "checkbox");
       field(form, "OneBot 地址", "url", settings.url);
       const token = field(form, "连接令牌", "token", tokenDraft, "password"); token.autocomplete = "new-password"; token.placeholder = snapshot.token_configured ? t("已配置，留空保留") : t("OneBot 访问令牌");

@@ -57,6 +57,9 @@ tempfile.workspace = true
 httparse = "1"
 rusqlite.workspace = true
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+sha2.workspace = true
+md5 = { package = "md-5", version = "0.10" }
 
 [target.'cfg(windows)'.dependencies]
 # D-240:安装助手必须按真实进程句柄判断父进程退出，不能从 tasklist 的本地化文本猜测。

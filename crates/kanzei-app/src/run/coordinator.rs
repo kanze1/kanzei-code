@@ -248,6 +248,7 @@ pub(crate) async fn run_task(
         }),
     );
     let mut subagent_rt = if subagent_mode.enabled()
+        && !kanzei_harness::is_bilibili_conversation(&round.ctx.project_root)
         && !kanzei_harness::QqConversation::from_root(&round.ctx.project_root)
             .is_some_and(|identity| identity.kind == kanzei_harness::QqPeerKind::Group)
     {

@@ -229,6 +229,7 @@ pub(crate) async fn assemble_run(
             topic.clone(),
         ));
     }
+    harness.add(crate::bili::tools::BiliComponent(window.clone()));
     if let Some(identity) = kanzei_harness::QqConversation::from_root(&project_root) {
         harness.add(crate::qq::ConversationComponent {
             app: window.clone(),

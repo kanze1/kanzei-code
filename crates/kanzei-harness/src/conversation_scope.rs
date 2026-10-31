@@ -1,6 +1,41 @@
 //! Application-owned QQ conversation identities. A peer never supplies a storage path.
 use std::path::{Path, PathBuf};
 
+pub fn bilibili_conversation_root(account: &str) -> anyhow::Result<PathBuf> {
+    QqConversation::new(account, QqPeerKind::Friend, "1")?;
+    Ok(crate::kanzei_home()
+        .ok_or_else(|| anyhow::anyhow!("Kanzei home unavailable"))?
+        .join("conversations")
+        .join("bilibili")
+        .join(account))
+}
+pub(crate) fn is_bilibili_root_at(root: &Path, home: &Path) -> bool {
+    root.parent()
+        .is_some_and(|p| crate::project_root::is_same_dir(p, &home.join("conversations/bilibili")))
+        && root
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(|account| QqConversation::new(account, QqPeerKind::Friend, "1").is_ok())
+}
+pub fn is_bilibili_conversation(root: &Path) -> bool {
+    crate::kanzei_home().is_some_and(|home| is_bilibili_root_at(root, &home))
+}
+/// Personal channels share one knowledge owner; group and project owners stay local.
+pub fn memory_owner_root(root: &Path) -> PathBuf {
+    let Some(home) = crate::kanzei_home() else {
+        return root.to_path_buf();
+    };
+    let general = home.join("conversations/general");
+    if crate::project_root::is_same_dir(root, &general)
+        || is_bilibili_root_at(root, &home)
+        || QqConversation::from_root_at(root, &home).is_some_and(|q| q.kind == QqPeerKind::Friend)
+    {
+        general
+    } else {
+        root.to_path_buf()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QqPeerKind {

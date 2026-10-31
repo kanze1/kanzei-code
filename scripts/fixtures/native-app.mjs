@@ -45,7 +45,7 @@ export function toolReply(res, name, args, step) {
   res.writeHead(200,{"Content-Type":"text/event-stream"});
   res.end(`data: ${JSON.stringify({choices:[{index:0,delta:{tool_calls:[{index:0,id:`fixture-${step}`,type:"function",function:{name,arguments:JSON.stringify(args)}}]},finish_reason:null}]})}\n\ndata: ${JSON.stringify({choices:[{index:0,delta:{},finish_reason:"tool_calls"}]})}\n\ndata: [DONE]\n\n`);
 }
-export async function nativeApp(executable, output, label, handle, extraConfig = "") {
+export async function nativeApp(executable, output, label, handle, extraConfig = "", environment = {}) {
   const task=currentTask();
   if(!task) throw new Error("Native app fixtures require withTask to own the environment and retained evidence");
   task.input(executable);
@@ -89,7 +89,7 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
     await writeFile(path.join(appHome,"kanzei.toml"),`[models]\nprimary="stub:test"\nfast="stub:test"\n[providers.stub]\nprotocol="openai"\nbase_url="http://127.0.0.1:${model.address().port}/v1"\ncontext_limit=128000\n${extraConfig}`);
     await new Promise((resolve,reject)=>probe.once("error",reject).listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise((resolve,reject)=>probe.close(error=>error?reject(error):resolve()));
     await copyFile(path.resolve(executable),exe);
-    app=spawn(exe,[],{cwd:project,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:appHome,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`}});
+    app=spawn(exe,[],{cwd:project,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:appHome,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`,...environment}});
     app.on("error",error=>{errors.push(error.message);diagnostics.resource_errors.push(String(error));});
     await until(async()=>{try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`));return true;}catch{return false;}},"Owned native app starts",30000);
     await until(()=>{page=browser.contexts().flatMap(context=>context.pages())[0];return Boolean(page);},"Owned native page exists");

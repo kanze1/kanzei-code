@@ -12,6 +12,7 @@ mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;
+mod personal_import;
 mod privacy;
 #[cfg(test)]
 mod qq_tests;
@@ -69,7 +70,7 @@ pub(crate) fn record_memory_lifecycle_event(
     let Some(project_root) = project_root else {
         return;
     };
-    let state_path = kanzei_core::project_state_path(project_root);
+    let state_path = crate::memory::memory_state_path(project_root);
     let Ok(store) = kanzei_core::SessionStore::open(&state_path) else {
         return;
     };
@@ -98,6 +99,7 @@ pub enum MemoryScope {
     Project,
     QqFriend,
     QqGroup,
+    Personal,
 }
 
 impl MemoryScope {
@@ -107,6 +109,7 @@ impl MemoryScope {
             MemoryScope::Project => "M",
             MemoryScope::QqFriend => "F",
             MemoryScope::QqGroup => "Q",
+            MemoryScope::Personal => "P",
         }
     }
 
@@ -116,6 +119,7 @@ impl MemoryScope {
             MemoryScope::Project => "project",
             MemoryScope::QqFriend => "qq_friend",
             MemoryScope::QqGroup => "qq_group",
+            MemoryScope::Personal => "personal",
         }
     }
 }
@@ -144,7 +148,23 @@ pub fn global_memory_root() -> Option<PathBuf> {
 }
 
 pub fn project_memory_root(project_root: &std::path::Path) -> PathBuf {
-    project_root.join(".kanzei").join("memory")
+    kanzei_harness::memory_owner_root(project_root)
+        .join(".kanzei")
+        .join("memory")
+}
+pub fn memory_state_path(root: &std::path::Path) -> PathBuf {
+    kanzei_core::project_state_path(&kanzei_harness::memory_owner_root(root))
+}
+pub fn import_episode_for_memory(root: &std::path::Path, episode_id: i64) -> anyhow::Result<i64> {
+    let source = kanzei_core::project_state_path(root);
+    let target = memory_state_path(root);
+    if source == target {
+        return Ok(episode_id);
+    }
+    let store = kanzei_core::SessionStore::open(&target)?;
+    let id = store.import_memory_episode(&source, episode_id)?;
+    store.link_recall_events_to_episode(id, 0)?;
+    Ok(id)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -365,24 +385,25 @@ pub fn validate_source_refs(ctx: &ToolCtx, refs: &[String]) -> Result<(), String
     };
     let mut bad: Vec<String> = Vec::new();
     let memory = MemoryStore::project(&ctx.project_root);
-    let memory_prefix = format!("{}-", memory.scope.prefix());
     for raw in refs {
         let id = raw.trim();
         if id.is_empty() {
             continue;
         }
-        if id
-            .strip_prefix(&memory_prefix)
-            .is_some_and(|number| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
-        {
-            let exists = memory.load_all().iter().any(|(_, entry)| entry.id == id)
-                || memory.has_archived_id(id);
+        let bytes = id.as_bytes();
+        let memory_id = bytes.len() > 2
+            && matches!(bytes[0], b'M' | b'P' | b'Q' | b'F')
+            && bytes[1] == b'-'
+            && id[2..].bytes().all(|b| b.is_ascii_digit());
+        let exists = memory_id
+            && (memory.load_all().iter().any(|(_, entry)| entry.id == id)
+                || memory.has_archived_id(id));
+        if memory_id && (bytes[0] != b'F' || exists || memory.scope == MemoryScope::QqFriend) {
             if !exists {
                 bad.push(format!("{id}: no such memory entry (active or archived)"));
             }
             continue;
         }
-        let bytes = id.as_bytes();
         let looks_like_id = bytes.len() > 2
             && matches!(bytes[0], b'R' | b'D' | b'A' | b'I' | b'S' | b'F' | b'M')
             && bytes[1] == b'-'
@@ -1261,7 +1282,9 @@ pub fn reconcile_candidates(
             .as_millis()
             .try_into()?,
     )?;
-    let global = if kanzei_harness::QqConversation::from_root(project_root).is_none() {
+    let global = if kanzei_harness::QqConversation::from_root(project_root)
+        .is_none_or(|q| q.kind != kanzei_harness::QqPeerKind::Group)
+    {
         reconcile_global_candidates(max_age_days)?
     } else {
         CandidateReconcileReport::default()
@@ -1395,14 +1418,16 @@ pub fn mark_memory_file_read(
     }
     let memory_id = format!("{}-{number}", scope_prefix.to_ascii_uppercase());
     let mut stores = vec![MemoryStore::project(project_root)];
-    if kanzei_harness::QqConversation::from_root(project_root).is_none() {
+    if kanzei_harness::QqConversation::from_root(project_root)
+        .is_none_or(|q| q.kind != kanzei_harness::QqPeerKind::Group)
+    {
         stores.extend(MemoryStore::global());
     }
     for store in stores {
         if !starts_with_ci(path, &store.root) {
             continue;
         }
-        let state_path = kanzei_core::project_state_path(project_root);
+        let state_path = crate::memory::memory_state_path(project_root);
         if let Ok(state) = kanzei_core::SessionStore::open(&state_path) {
             if let Err(error) = state.record_memory_read(run_id, &memory_id) {
                 tracing::warn!(%error, %memory_id, "记忆正文读取观测写入失败");
@@ -1663,7 +1688,7 @@ pub(crate) fn seed_entry_recovery(store: &MemoryStore, episode_id: i64, memory_i
         }]));
     }
     let root = store.project_root.as_ref().unwrap();
-    let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
+    let state = kanzei_core::SessionStore::open(&crate::memory::memory_state_path(root)).unwrap();
     state
         .record_episode_recoveries(episode_id, &messages)
         .unwrap();
@@ -2797,7 +2822,7 @@ source: user
             Some("failed-source-run"),
         );
         let store =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+            kanzei_core::SessionStore::open(&crate::memory::memory_state_path(&root)).unwrap();
         let log = store.event_recall_log().unwrap();
         assert_eq!(log[0].2, "unavailable");
         assert!(log[0].1.contains("M-001-invalid.md"));

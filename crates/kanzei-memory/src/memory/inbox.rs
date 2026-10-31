@@ -211,6 +211,65 @@ fn selected_note(blocks: &[String], selector: &str) -> anyhow::Result<Option<usi
 }
 
 impl MemoryStore {
+    pub(crate) fn import_personal_inbox(
+        &self,
+        source: &MemoryStore,
+        ids: &std::collections::BTreeMap<String, String>,
+        paths: &std::collections::BTreeMap<String, String>,
+    ) -> anyhow::Result<()> {
+        let original = source.read_inbox_checked()?;
+        let blocks = inbox_note_blocks(&original);
+        if blocks.is_empty() {
+            return Ok(());
+        }
+        let _lock = self.tree_lock()?;
+        let current = self.read_inbox_checked()?;
+        let mut header = inbox_header(&current);
+        let mut queued = inbox_note_blocks(&current);
+        for block in blocks {
+            let key = format!(
+                "personal-{}",
+                kanzei_base::content_hash(
+                    format!("{}:{}", source.root.display(), note_id(&block)).as_bytes()
+                )
+            );
+            if header
+                .lines()
+                .any(|line| line == format!("- imported_note_id: {key}"))
+            {
+                continue;
+            }
+            let mut migrated = String::new();
+            for line in block.lines() {
+                if line.starts_with("- note_id: ") {
+                    migrated.push_str(&format!("- note_id: {key}\n"));
+                    continue;
+                }
+                let mut line = if let Some(refs) = line.strip_prefix("- refs: ") {
+                    format!(
+                        "- refs: {}",
+                        refs.split_whitespace()
+                            .map(|r| ids.get(r).map(String::as_str).unwrap_or(r))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    )
+                } else {
+                    line.to_string()
+                };
+                for (old, new) in paths {
+                    line = line.replace(old, new);
+                }
+                migrated.push_str(&line);
+                migrated.push('\n');
+            }
+            super::privacy::reject_credentials(&migrated)?;
+            header.push_str(&format!("- imported_note_id: {key}\n"));
+            queued.push(migrated);
+        }
+        let next = format!("{header}\n{}", queued.join("\n"));
+        crate::atomic_file::write_atomic(&self.root.join("inbox.md"), &next)?;
+        Ok(())
+    }
     /// Queue the complete frozen source in one file transaction. Resolved IDs remain
     /// in the same file, so a crash or repeated dream cannot resurrect consumed chunks.
     pub fn queue_source_notes(&self, notes: &[SourceDraftNote]) -> anyhow::Result<Vec<String>> {

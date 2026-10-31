@@ -5,6 +5,11 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
+fn scope_matches(store: &kanzei_memory::memory::MemoryStore, scope: &str) -> bool {
+    store.scope.label() == scope
+        || scope == "project" && store.scope != kanzei_memory::memory::MemoryScope::Global
+}
+
 fn memory_stores_for(project_dir: &str) -> Vec<kanzei_memory::memory::MemoryStore> {
     let cwd = PathBuf::from(project_dir);
     let root = crate::normalized_project_root(&cwd);
@@ -23,7 +28,7 @@ fn append_memory_fact(
 ) -> Result<(), String> {
     let cwd = PathBuf::from(project_dir);
     let root = crate::normalized_project_root(&cwd);
-    let state_path = kanzei_core::project_state_path(&root);
+    let state_path = kanzei_memory::memory::memory_state_path(&root);
     let session_id = kanzei_core::project_session_id(&root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
     store
@@ -116,7 +121,7 @@ pub(crate) fn memory_control_plane(project_dir: String) -> serde_json::Value {
         .lines()
         .find_map(|line| line.strip_prefix("## note ").map(str::to_string));
     let checkpoint = store.read_inbox_checkpoint();
-    let state = kanzei_core::project_state_path(&root);
+    let state = kanzei_memory::memory::memory_state_path(&root);
     let session_id = kanzei_core::project_session_id(&root);
     let session = kanzei_core::SessionStore::open(&state).ok();
     let source_backed = session
@@ -208,7 +213,7 @@ pub(crate) fn memory_entry_feedback(
 ) -> Result<kanzei_core::MemoryUsageCounts, String> {
     let store = memory_stores_for(&project_dir)
         .into_iter()
-        .find(|store| store.scope.label() == scope)
+        .find(|store| scope_matches(store, &scope))
         .ok_or_else(|| format!("未知记忆域: {scope}"))?;
     let counts = store
         .record_user_feedback(&id, &expected_revision, kind)
@@ -228,7 +233,7 @@ pub(crate) fn memory_entries(
     category: Option<String>,
 ) -> Result<serde_json::Value, String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             let profile = store.hit_profile();
             let usage = store.usage_counts();
             let list: Vec<serde_json::Value> = store
@@ -257,7 +262,7 @@ pub(crate) fn memory_archived_entries(
     scope: String,
 ) -> Result<serde_json::Value, String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             let profile = store.hit_profile();
             let usage = store.usage_counts();
             let list: Vec<serde_json::Value> = store
@@ -282,7 +287,7 @@ pub(crate) fn memory_entry_restore(
     status: Option<String>,
 ) -> Result<(), String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             let status = status.as_deref().unwrap_or("active");
             return store
                 .restore_archived(&id, status)
@@ -302,7 +307,7 @@ pub(crate) fn memory_entry_get(
     id: String,
 ) -> Result<serde_json::Value, String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() != scope {
+        if !scope_matches(&store, &scope) {
             continue;
         }
         let profile = store.hit_profile();
@@ -469,7 +474,7 @@ pub(crate) fn memory_note_discard(
         return Err("缺少要丢弃的待整理条目标识".into());
     }
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             return store.discard_note(&fingerprint).map_err(|e| e.to_string());
         }
     }
@@ -483,7 +488,7 @@ pub(crate) fn memory_recalls(
 ) -> Result<serde_json::Value, String> {
     let limit = limit.unwrap_or(20).clamp(1, 200);
     let root = project_root_of(&project_dir);
-    let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
+    let state = kanzei_core::SessionStore::open(&kanzei_memory::memory::memory_state_path(&root))
         .map_err(|error| error.to_string())?;
     let observations = state
         .memory_recall_observations(limit)
@@ -566,7 +571,7 @@ pub(crate) fn memory_entry_save(
     area: Option<Vec<String>>,
 ) -> Result<(), String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             let resolved = match &area {
                 Some(tokens) => Some(resolve_area_tokens(&project_root_of(&project_dir), tokens)?),
                 None => None,
@@ -604,7 +609,7 @@ pub(crate) fn memory_entry_delete(
     id: String,
 ) -> Result<(), String> {
     for store in memory_stores_for(&project_dir) {
-        if store.scope.label() == scope {
+        if scope_matches(&store, &scope) {
             let Some((path, _)) = store.load_all().into_iter().find(|(_, e)| e.id == id) else {
                 return Err(format!("记忆 {id} 不存在(可能已被删除)"));
             };
@@ -665,7 +670,7 @@ pub(crate) fn memory_search_page(
 pub(crate) fn memory_context_bill(project_dir: String) -> serde_json::Value {
     let cwd = PathBuf::from(&project_dir);
     let root = crate::normalized_project_root(&cwd);
-    let state = kanzei_core::project_state_path(&root);
+    let state = kanzei_memory::memory::memory_state_path(&root);
     let session = kanzei_core::project_session_id(&root);
     let Ok(store) = kanzei_core::SessionStore::open(&state) else {
         return json!({"bill": [], "episodes": []});
@@ -834,7 +839,8 @@ mod tests {
         ));
         std::fs::create_dir_all(root.join(".kanzei")).unwrap();
         let state =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+            kanzei_core::SessionStore::open(&kanzei_memory::memory::memory_state_path(&root))
+                .unwrap();
         let event = kanzei_core::RecallEvent {
             recall_id: "old",
             episode_id: None,

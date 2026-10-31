@@ -930,5 +930,77 @@
   {
     "path": "qq::component::qq_memory_save",
     "host": "service"
+  },
+  {
+    "path": "qq::setup::qq_setup_connect",
+    "host": "service"
+  },
+  {
+    "path": "qq::setup::qq_setup_pick_directory",
+    "host": "desktop"
+  },
+  {
+    "path": "qq::setup::qq_setup_status",
+    "host": "service"
+  },
+  {
+    "path": "qq::setup::qq_setup_apply",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_status",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_settings_save",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_cookie_save",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_logout",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_login_start",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_login_cancel",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_login_poll",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_read",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_draft_create",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_draft_edit",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_draft_discard",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_publish",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_conversation_open",
+    "host": "service"
+  },
+  {
+    "path": "bili::bili_browse",
+    "host": "service"
   }
 ]

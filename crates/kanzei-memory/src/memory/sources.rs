@@ -20,6 +20,7 @@ impl MemoryStore {
             .project_root
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("来源文件缺少所属项目"))?;
+        std::fs::create_dir_all(root)?;
         let file = kanzei_harness::permission::ScopedFile::resolve(root, root, &path)?;
         anyhow::ensure!(
             kanzei_harness::permission::FileResource::resolve(root, &path)?

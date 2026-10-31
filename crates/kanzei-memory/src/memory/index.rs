@@ -1456,7 +1456,7 @@ mod tests {
     fn recall_profile_读取现行遥测且陈旧数据不通过新鲜门禁() {
         let (root, _store) = temp_root();
         let store = MemoryStore::project(&root);
-        let db = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        let db = kanzei_core::SessionStore::open(&crate::memory::memory_state_path(&root)).unwrap();
         let event = kanzei_core::RecallEvent {
             recall_id: "profile-r1",
             episode_id: None,
@@ -1480,7 +1480,7 @@ mod tests {
             Some(&(1, 1))
         );
 
-        let conn = rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+        let conn = rusqlite::Connection::open(crate::memory::memory_state_path(&root)).unwrap();
         conn.execute("UPDATE recall_events SET created_at = 0", [])
             .unwrap();
         assert!(store.recall_profile().contains_key("M-001"));

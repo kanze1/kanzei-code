@@ -224,7 +224,13 @@ pub(crate) async fn finish_run(
             {
                 eprintln!("记忆恢复证据写入失败，候选保持未验证: {error}");
             }
-            current_episode_id = Some(episode_id);
+            match kanzei_memory::memory::import_episode_for_memory(
+                &state.ctx.project_root,
+                episode_id,
+            ) {
+                Ok(id) => current_episode_id = Some(id),
+                Err(error) => eprintln!("个人记忆来源导入失败: {error}"),
+            }
         }
         // 给这次输入一个结局:此后任何停止都不再把它追认为 cancelled。
         anyhow::ensure!(

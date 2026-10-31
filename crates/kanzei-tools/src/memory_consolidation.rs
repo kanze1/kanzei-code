@@ -53,7 +53,7 @@ struct ProjectManager {
 
 impl ProjectManager {
     fn load(project_dir: &str) -> anyhow::Result<Self> {
-        let root = std::path::PathBuf::from(project_dir);
+        let root = kanzei_harness::memory_owner_root(std::path::Path::new(project_dir));
         let config = std::sync::Arc::new(KanzeiConfig::load_at_root(&root)?);
         let proxy = match config.proxy.as_deref() {
             Some("off") => ProxyConfig::Disabled,
@@ -200,12 +200,21 @@ pub async fn consolidate_memory_inbox(
     ctx: &ToolCtx,
     current_episode_id: Option<i64>,
 ) -> ConsolidationReport {
+    let owner = kanzei_harness::memory_owner_root(&ctx.project_root);
+    let mut ctx = ctx.clone();
+    let mut rctx = rctx.clone();
+    if ctx.project_root != owner {
+        ctx.project_root = owner.clone();
+        ctx.cwd = owner.clone();
+        rctx.project_root = owner.clone();
+        rctx.cwd = owner;
+    }
     consolidate_inbox_inner(
         config,
         proxy,
         client,
-        rctx,
-        ctx,
+        &rctx,
+        &ctx,
         InboxRequest {
             current_episode_id,
             selection: InboxSelection::All,

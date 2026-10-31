@@ -18,7 +18,7 @@ impl MemoryStore {
         let Some(project_root) = self.project_root.as_deref() else {
             return BTreeMap::new();
         };
-        let path = kanzei_core::project_state_path(project_root);
+        let path = crate::memory::memory_state_path(project_root);
         let Ok(store) = kanzei_core::SessionStore::open(&path) else {
             return BTreeMap::new();
         };
@@ -235,7 +235,7 @@ impl MemoryStore {
         let Some(project_root) = self.project_root.as_deref() else {
             return BTreeMap::new();
         };
-        let path = kanzei_core::project_state_path(project_root);
+        let path = crate::memory::memory_state_path(project_root);
         let Ok(store) = kanzei_core::SessionStore::open(&path) else {
             return BTreeMap::new();
         };

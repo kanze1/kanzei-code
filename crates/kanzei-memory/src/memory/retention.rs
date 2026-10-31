@@ -63,7 +63,7 @@ impl MemoryStore {
             .project_root
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("记忆机会缺少项目来源"))?;
-        let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
+        let store = kanzei_core::SessionStore::open(&crate::memory::memory_state_path(root))?;
         let session = kanzei_core::project_session_id(root);
         store.create_session(&session, &root.display().to_string(), None)?;
         let entries = self
@@ -98,7 +98,7 @@ impl MemoryStore {
             .project_root
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("记忆保留策略缺少项目来源"))?;
-        let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root))?;
+        let state = kanzei_core::SessionStore::open(&crate::memory::memory_state_path(root))?;
         let session = kanzei_core::project_session_id(root);
         state.create_session(&session, &root.display().to_string(), None)?;
         let observations = state.memory_retention_counts()?;
@@ -281,7 +281,7 @@ mod tests {
         }
         let now = super::super::store::now_ms();
         let connection =
-            rusqlite::Connection::open(kanzei_core::project_state_path(&root)).unwrap();
+            rusqlite::Connection::open(crate::memory::memory_state_path(&root)).unwrap();
         connection
             .execute(
                 "UPDATE session_events SET created_at=?1 WHERE event_type='memory.availability'",
@@ -290,7 +290,7 @@ mod tests {
             .unwrap();
         drop(connection);
         let state =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+            kanzei_core::SessionStore::open(&crate::memory::memory_state_path(&root)).unwrap();
         assert!(cold_enough(
             &entry,
             &state.memory_retention_counts().unwrap(),

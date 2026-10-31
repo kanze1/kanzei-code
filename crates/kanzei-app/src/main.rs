@@ -16,6 +16,7 @@ mod app_events;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
+mod bili;
 mod browser_selection;
 mod collaboration;
 mod commands;
@@ -43,6 +44,7 @@ mod harness_ext;
 /// 纯判据模块,不参与产品构建。
 #[cfg(test)]
 mod ipc_contract;
+mod login_qr;
 mod manual_compact;
 mod memory;
 mod memory_chat;
@@ -158,6 +160,7 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(qq::QqState::default())
+        .manage(bili::BiliState::default())
         .manage(voice::VoiceState::default())
         .manage(memory_chat::MemoryChatState::default())
         .manage(preview::PreviewState::default())
@@ -183,6 +186,7 @@ fn main() {
                 // constructing a Window or starting WebView2.
                 runtime_service::install_service(app.handle())?;
                 qq::install(app.handle())?;
+                bili::install(app.handle())?;
                 tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
                 workspace::install_recovery(app.handle());
                 durable_questions::recover_outbox(app.handle().clone());
@@ -199,6 +203,7 @@ fn main() {
             runtime_service::install_client(app.handle());
             if runtime_service::embedded() {
                 qq::install(app.handle())?;
+                bili::install(app.handle())?;
             }
             let window_config = app
                 .config()

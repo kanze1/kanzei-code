@@ -18,7 +18,8 @@ fn store_for(ctx: &ToolCtx, scope: &str) -> anyhow::Result<MemoryStore> {
         "project" => Ok(MemoryStore::project(&ctx.project_root)),
         "global" => {
             anyhow::ensure!(
-                kanzei_harness::QqConversation::from_root(&ctx.project_root).is_none(),
+                kanzei_harness::QqConversation::from_root(&ctx.project_root)
+                    .is_none_or(|q| q.kind != kanzei_harness::QqPeerKind::Group),
                 "QQ memory cannot access the global namespace"
             );
             MemoryStore::global().ok_or_else(|| anyhow::anyhow!("no home dir for global scope"))

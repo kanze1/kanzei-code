@@ -44,7 +44,8 @@ impl MemoryLifecycle {
                 .parent()
                 .and_then(Path::parent)
                 .ok_or_else(|| anyhow::anyhow!("review candidate has no project"))?;
-            let state = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(project))?;
+            let state =
+                kanzei_core::SessionStore::open(&crate::memory::memory_state_path(project))?;
             let reviewed = state.memory_usage_counts()?.get(id).is_some_and(|usage| {
                 usage.last_feedback == Some(kanzei_core::MemoryFeedbackKind::Adopted)
                     && usage.feedback_revision.as_deref()
@@ -275,7 +276,7 @@ mod tests {
             Some("active"),
         );
         let db =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project)).unwrap();
+            kanzei_core::SessionStore::open(&crate::memory::memory_state_path(&project)).unwrap();
         let session_id = kanzei_core::project_session_id(&project);
         let events = db.list_events(&session_id, 0).unwrap();
         assert_eq!(events.len(), 1);

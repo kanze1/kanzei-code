@@ -921,6 +921,7 @@ export function createFixtures({ scene = "chat", theme = "dark", params = {} } =
     instructions: `# ${displayName}\n\n按用户提供的资料完成任务，验证输出并交付文件。`, revision: "fixture:1" }));
   const skill = name => { const found = state.skills.find(skill => skill.id === name || skill.name === name); if (!found) throw `Skill 不存在：${name}`; return found; };
   const commands = {
+    bili_status: { settings: { auto_browse: false, interval_minutes:60, quiet_start:0, quiet_end:8, keyword:"", model:null, daily_comments:30, comment_interval_seconds:120 }, account:0,name:"",logged_in:false,error:"",paused:false,conversation_root:null,records:{drafts:[],browsing:[]} },
     qq_status: { settings: { enabled: false, url: "ws://127.0.0.1:3001", account: "", model: null, persona: "自然、友善地交流", friends_enabled: true, groups: [] }, token_configured: false, connected: false, account: "", nickname: "", error: "", peers: [] },
     // ---- 启动与全局
     app_info: { version: "0.9.26", build: "0.9.26 2009581f 2026-09-26" },

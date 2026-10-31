@@ -1,0 +1,20 @@
+.bili-toolbar { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-bottom: var(--sp-6); }
+.bili-toolbar input { flex: 1; min-width: 180px; }
+.bili-toolbar input, #bili-content textarea { background: var(--input); border: var(--hairline) solid var(--border); border-radius: var(--r-sm); color: var(--fg); padding: var(--sp-4); font: inherit; }
+.bili-feed { display: grid; gap: var(--sp-6); margin: var(--sp-6) 0; }
+.bili-feed-row { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: var(--sp-4) var(--sp-6); padding-bottom: var(--sp-6); border-bottom: var(--hairline) solid var(--border-soft); }
+.bili-feed-row img { grid-row: span 2; width: 100%; aspect-ratio: 16/9; object-fit: cover; border-radius: var(--r-sm); }
+.bili-video-title { text-align: left; padding: 0; background: none; border: 0; color: var(--fg); font-size: var(--fs-16); overflow-wrap: anywhere; }
+.bili-video h2, .qq-setup h2 { font-size: var(--fs-16); }
+#bili-player { width: 100%; aspect-ratio: 16/9; border: var(--hairline) solid var(--border); border-radius: var(--r-sm); }
+.bili-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.bili-comments, .bili-transcript { margin: var(--sp-6) 0; }
+.bili-transcript { max-height: 360px; overflow: auto; }
+#bili-content .qq-log-entry textarea { display: block; width: 100%; min-height: 120px; margin: var(--sp-5) 0; resize: vertical; }
+.bili-receipt { font-size: var(--fs-12); color: var(--dim); }
+.social-qr img, .social-login-qr { display: block; width: 240px; max-width: 100%; background: white; margin: var(--sp-6) 0; }
+.qq-setup { padding-bottom: var(--sp-6); margin-bottom: var(--sp-6); border-bottom: var(--hairline) solid var(--border); }
+.qq-setup details, #bili-content details { margin: var(--sp-6) 0; }
+.qq-setup summary, #bili-content summary { cursor: pointer; margin-bottom: var(--sp-5); }
+#bili-nav .qq-nav-status { order: 2; }
+@media (max-width: 680px) { .bili-feed-row { grid-template-columns: 100px minmax(0, 1fr); } }

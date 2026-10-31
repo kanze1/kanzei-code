@@ -74,13 +74,12 @@ impl Component for ConversationComponent {
                 }),
             );
         } else {
-            draft.context.remove("core/preferences");
             let persona = settings.persona.clone();
             draft.context.insert(
                 "qq/persona",
                 kanzei_harness::source("qq/persona", move |_| {
                     Some(format!(
-                        "QQ 好友助手。使用当前好友独立的会话与记忆。\n{persona}"
+                        "QQ 好友助手。会话独立，使用与个人助手和 B站共享的个人记忆。\n{persona}"
                     ))
                 }),
             );
@@ -104,7 +103,7 @@ impl Tool for ScopedNote {
         "memory_note"
     }
     fn description(&self) -> String {
-        "记录当前好友或群的长期记忆线索，或按内容版本修正本作用域的已有记忆。不会跨好友、群或账号检索与写入。".into()
+        "记录个人助手或当前群的长期记忆线索，按内容版本修正记忆。个人助手、私聊和 B站共用个人记忆；群聊只访问本群。".into()
     }
     fn input_schema(&self) -> Value {
         MemoryNoteTool.input_schema()
@@ -134,7 +133,7 @@ impl Tool for RecallTool {
         "qq_memory"
     }
     fn description(&self) -> String {
-        "检索当前好友或当前群的长期记忆，返回正文、来源与版本。".into()
+        "检索共享个人记忆或当前群的独立记忆，返回正文、来源与版本。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(RecallInput)).unwrap()

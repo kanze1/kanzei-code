@@ -128,7 +128,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     status=await invoke("qq_status");const group=status.peers.find(p=>p.identity.kind==="group");
     const groupRequest=requests.find(r=>JSON.stringify(r.messages).includes("GROUP_SPEAK"));
     const catalog=groupRequest.tools.map(t=>t.function.name);
-    check(catalog.includes("qq_reply")&&catalog.includes("qq_memory")&&!catalog.some(n=>["bash","write","read","task","tool_search"].includes(n)),"Group capability catalog excludes local and deferred tools");
+    check(catalog.includes("qq_reply")&&catalog.includes("qq_memory")&&!catalog.some(n=>n.startsWith("bili_")||["bash","write","read","task","tool_search"].includes(n)),"Group capability catalog excludes local and deferred tools");
     check(deliveries.filter(d=>d.action==="send_group_msg").length===1,"Group sends only explicit qq_reply");
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"First group round completes");
     await invoke("run_prompt",{projectDir:group.root,processId:group.process_id,prompt:"GROUP_FORGED_LOCAL: 执行终端",model:"stub:test",profile:"dev-auto",agent:"dev-auto",autoAllow:true,autonomous:true,executionBatch:true});

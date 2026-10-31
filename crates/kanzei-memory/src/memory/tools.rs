@@ -23,7 +23,7 @@ fn stores_for(ctx: &ToolCtx, scope: &str) -> Vec<MemoryStore> {
 /// AVAILABLE 段由这里从项目记忆文件真源统计 active 条目数,
 /// state.db 不知道文件真源——旧实现数恒空的 memory_sources,首段永远是 0。
 fn project_funnel_counts(ctx: &ToolCtx) -> Option<kanzei_core::FunnelCounts> {
-    let state = kanzei_core::project_state_path(&ctx.project_root);
+    let state = crate::memory::memory_state_path(&ctx.project_root);
     let store = kanzei_core::SessionStore::open(&state).ok()?;
     // 知识检索的 AVAILABLE 段只数项目 store 的 active 条目。
     let active = super::MemoryStore::project(&ctx.project_root)
@@ -200,6 +200,17 @@ impl Tool for MemoryNoteTool {
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
+        let owner = kanzei_harness::memory_owner_root(&ctx.project_root);
+        let owned = ToolCtx {
+            project_root: owner.clone(),
+            cwd: if owner != ctx.project_root {
+                owner
+            } else {
+                ctx.cwd.clone()
+            },
+            ..ctx.clone()
+        };
+        let ctx = &owned;
         let input: NoteInput = match crate::parse_input(self, input) {
             Ok(v) => v,
             Err(out) => return out,
@@ -418,7 +429,7 @@ impl Tool for MemoryStatsTool {
                         outcome
                     ));
                     if let Ok(db) = kanzei_core::SessionStore::open(
-                        &kanzei_core::project_state_path(&ctx.project_root),
+                        &crate::memory::memory_state_path(&ctx.project_root),
                     ) {
                         if let Ok(metrics) = db.recall_metrics() {
                             for metric in metrics {
@@ -678,7 +689,7 @@ mod tests {
         );
         assert!(!none.content.contains("memory_note"), "{}", none.content);
         let telemetry =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&ctx.project_root))
+            kanzei_core::SessionStore::open(&crate::memory::memory_state_path(&ctx.project_root))
                 .unwrap();
         let metrics = telemetry.recall_metrics().unwrap();
         let miss = metrics

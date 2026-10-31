@@ -41,7 +41,7 @@ fn record_current_recall(store: &MemoryStore, hits: &[SearchHit], injected_ids: 
     let retrieved_json = serde_json::to_string(&retrieved).unwrap();
     let injected_json = serde_json::to_string(&injected).unwrap();
     let recall_id = format!("test-recall-{}", now_ms());
-    let db = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(root)).unwrap();
+    let db = kanzei_core::SessionStore::open(&crate::memory::memory_state_path(root)).unwrap();
     db.record_recall_event(&kanzei_core::RecallEvent {
         recall_id: &recall_id,
         episode_id: None,

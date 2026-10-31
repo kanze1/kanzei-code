@@ -428,7 +428,10 @@ fn persist_round_outcome_with_effects(
         if let Err(error) = store.record_episode_recoveries(episode_id, this_run) {
             tracing::warn!(%error, episode_id, "记忆恢复证据写入失败，候选保持未验证");
         }
-        current_episode_id = Some(episode_id);
+        match kanzei_memory::memory::import_episode_for_memory(&ctx.project_root, episode_id) {
+            Ok(memory_episode) => current_episode_id = Some(memory_episode),
+            Err(error) => (effects.report)("导入个人记忆来源", error.to_string()),
+        }
     }
     if summary.halted_by_user {
         if let Err(error) =

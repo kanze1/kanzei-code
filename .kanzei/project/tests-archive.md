@@ -13615,3 +13615,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/ui-qq-native-smoke.mjs
 - 摘要: 真实 WebView2、Rust、SQLite 和本机终端验收通过；OneBot 与模型为本地模拟端，未连接真实 QQ。覆盖好友唤起、QQ 权限确认、本机终端、非 @ 群消息参与与沉默、群能力限制及伪造模式、memory 隔离/CAS、重启恢复、深浅色和窄窗裁切。机器证据：C:/Users/kanzei/Documents/kanzei code/output/evidence/ui-qq-native-smoke/1793461700616-e782be11-c080-435c-a08d-f4ed4cb495e9/receipt.json。
 - 收尾: 1793461859
+
+## T-1786922727212 QQ 配置向导、B站与共享个人记忆原生验收 [passed]
+- 命令: node scripts/ui-social-native-smoke.mjs
+- 摘要: 真实 WebView2/Rust/SQLite/runtime 验收 38 项通过；NapCat/B站/模型为本地协议夹具，未登录真实账号或发送真实评论。覆盖 QQ 自动配置、B站二维码、视频/评论/楼中楼、草稿账号与版本绑定、成功回执及未知发送不重放、原生对话工具流、受限目录和深浅色/窄窗裁切。另以 Rust 子进程验收个人助手/QQ 好友/B站共享 memory、群隔离和旧好友迁移。证据：C:\Users\kanzei\Documents\kanzei code\output\evidence\ui-social-native-smoke\1793467887926-5ce6029b-e5d8-4523-86be-dc00a87a919c\receipt.json。公开热门、二维码生成、视频详情、评论 API 补查 code=0。
+- 收尾: 1793468232

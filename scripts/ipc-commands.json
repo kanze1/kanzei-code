@@ -140,6 +140,175 @@
     "path": "deliveries::batch_evidence",
     "returns": "-> Result < Vec < Value > , String >"
   },
+  "bili_browse": {
+    "host": "service",
+    "parameters": {},
+    "path": "bili::bili_browse",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_conversation_open": {
+    "host": "service",
+    "parameters": {},
+    "path": "bili::bili_conversation_open",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_cookie_save": {
+    "host": "service",
+    "parameters": {
+      "cookie": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_cookie_save",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_draft_create": {
+    "host": "service",
+    "parameters": {
+      "body": {
+        "required": true,
+        "type": "String"
+      },
+      "bvid": {
+        "required": true,
+        "type": "String"
+      },
+      "parent": {
+        "required": false,
+        "type": "Option < u64 >"
+      },
+      "root": {
+        "required": false,
+        "type": "Option < u64 >"
+      }
+    },
+    "path": "bili::bili_draft_create",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_draft_discard": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_draft_discard",
+    "returns": "-> Result < () , String >"
+  },
+  "bili_draft_edit": {
+    "host": "service",
+    "parameters": {
+      "body": {
+        "required": true,
+        "type": "String"
+      },
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "revision": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_draft_edit",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_login_cancel": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_login_cancel",
+    "returns": "-> Result < () , String >"
+  },
+  "bili_login_poll": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_login_poll",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_login_start": {
+    "host": "service",
+    "parameters": {},
+    "path": "bili::bili_login_start",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_logout": {
+    "host": "service",
+    "parameters": {},
+    "path": "bili::bili_logout",
+    "returns": "-> Result < () , String >"
+  },
+  "bili_publish": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "revision": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "bili::bili_publish",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_read": {
+    "host": "service",
+    "parameters": {
+      "action": {
+        "required": true,
+        "type": "String"
+      },
+      "bvid": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "keyword": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "page": {
+        "required": false,
+        "type": "Option < u32 >"
+      },
+      "root": {
+        "required": false,
+        "type": "Option < u64 >"
+      }
+    },
+    "path": "bili::bili_read",
+    "returns": "-> Result < Value , String >"
+  },
+  "bili_settings_save": {
+    "host": "service",
+    "parameters": {
+      "settings": {
+        "required": true,
+        "type": "crate :: bili :: Settings"
+      }
+    },
+    "path": "bili::bili_settings_save",
+    "returns": "-> Result < () , String >"
+  },
+  "bili_status": {
+    "host": "service",
+    "parameters": {},
+    "path": "bili::bili_status",
+    "returns": "-> Result < Value , String >"
+  },
   "cancel_input": {
     "host": "service",
     "parameters": {
@@ -2379,6 +2548,61 @@
       }
     },
     "path": "qq::qq_peer_open",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_setup_apply": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "port": {
+        "required": true,
+        "type": "u16"
+      }
+    },
+    "path": "qq::setup::qq_setup_apply",
+    "returns": "-> Result < () , String >"
+  },
+  "qq_setup_connect": {
+    "host": "service",
+    "parameters": {
+      "directory": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "password": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "totp": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "url": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "qq::setup::qq_setup_connect",
+    "returns": "-> Result < Value , String >"
+  },
+  "qq_setup_pick_directory": {
+    "host": "desktop",
+    "parameters": {},
+    "path": "qq::setup::qq_setup_pick_directory",
+    "returns": "-> Result < Option < String > , String >"
+  },
+  "qq_setup_status": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "qq::setup::qq_setup_status",
     "returns": "-> Result < Value , String >"
   },
   "qq_status": {

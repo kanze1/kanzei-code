@@ -1,0 +1,103 @@
+/* global document, window */
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
+import http from "node:http";
+import path from "node:path";
+import { WebSocketServer } from "ws";
+import { withTask } from "./artifact-lifecycle.mjs";
+import { nativeApp, until, textReply, toolReply } from "./fixtures/native-app.mjs";
+import clipAudit from "./ui-preview/clip-audit.mjs";
+
+await withTask({suite:"ui-social-native-smoke"},async task=>{
+  assert.equal(process.platform,"win32","Social native acceptance requires Windows/WebView2");
+  const checks=[],calls=[],posts=[],errors=[];
+  const check=(value,label)=>{assert(value,label);checks.push(label);console.log(`PASS ${label}`);};
+  const bv="BV1234567890", video={bvid:bv,aid:22,cid:33,title:"测试视频",desc:"视频简介 <script>外部数据</script>",pic:"",owner:{name:"测试 UP"}};
+  let loginCode=0,postMode="success",network={network:{httpServers:[{name:"other"}],websocketServers:[]}};
+  const server=task.server(http.createServer(async(req,res)=>{
+    try {
+      const url=new URL(req.url,"http://127.0.0.1");let raw="";for await(const chunk of req)raw+=chunk;
+      const answer=(data,code=0)=>{res.setHeader("Content-Type","application/json");res.end(JSON.stringify({code,data}));};
+      calls.push({path:url.pathname,query:Object.fromEntries(url.searchParams)});
+      if(url.pathname==="/api/auth/login") {assert.equal(JSON.parse(raw).hash,createHash("sha256").update("local-password.napcat").digest("hex"));answer({Credential:"fixture-credential"});return;}
+      if(url.pathname.startsWith("/api/")) {
+        assert.equal(req.headers.authorization,"Bearer fixture-credential");
+        if(url.pathname.endsWith("CheckLoginStatus"))answer({isLogin:true});
+        else if(url.pathname.endsWith("GetQQLoginInfo"))answer({uin:"100",nick:"QQ 测试"});
+        else if(url.pathname.endsWith("GetConfig"))answer(network);
+        else if(url.pathname.endsWith("SetConfig")){network=JSON.parse(JSON.parse(raw).config);answer({});}
+        else throw new Error(`Unknown NapCat route ${url.pathname}`);return;
+      }
+      switch(url.pathname){
+        case "/x/passport-login/web/qrcode/generate":answer({url:"https://passport.bilibili.com/test-login",qrcode_key:String(calls.length)});break;
+        case "/x/passport-login/web/qrcode/poll":res.setHeader("Set-Cookie",["SESSDATA=owner; HttpOnly; Secure","bili_jct=csrf; Secure"]);answer({code:loginCode});break;
+        case "/x/web-interface/nav":answer({isLogin:true,mid:req.headers.cookie?.includes("SESSDATA=other")?2000:1000,uname:"B站测试",wbi_img:{img_url:"https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png",sub_url:"https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}});break;
+        case "/x/web-interface/popular":answer({list:[video]});break;
+        case "/x/web-interface/wbi/search/type":assert(url.searchParams.has("w_rid"));answer({result:[video]});break;
+        case "/x/web-interface/view":answer(video);break;
+        case "/x/player/wbi/v2":assert(url.searchParams.has("w_rid"));answer({subtitle:{subtitles:[]}});break;
+        case "/x/v2/reply":answer({replies:[{rpid:55,rcount:1,member:{uname:"测试评论者"},content:{message:"测试评论"}}]});break;
+        case "/x/v2/reply/reply":answer({root:{rpid:55,member:{uname:"测试评论者"},content:{message:"测试评论"}},replies:[{rpid:56,member:{uname:"楼中楼"},content:{message:"回复内容"}}]});break;
+        case "/x/v2/reply/add":{
+          const form=Object.fromEntries(new URLSearchParams(raw));assert.equal(form.csrf,"csrf");assert.equal(form.oid,"22");posts.push(form);
+          if(postMode==="disconnect"){req.socket.destroy();return;}
+          if(postMode==="risk"){answer(null,-412);return;}answer({rpid:100+posts.length});break;
+        }
+        default:throw new Error(`Unknown Bili route ${url.pathname}`);
+      }
+    }catch(e){errors.push(String(e));res.statusCode=500;res.end();}
+  }));
+  const ws=new WebSocketServer({server}),sockets=new Set();
+  ws.on("connection",(socket,req)=>{sockets.add(socket);socket.on("close",()=>sockets.delete(socket));assert.equal(req.headers.authorization,`Bearer ${network.network.websocketServers.find(s=>s.name==="kanzei-code").token}`);socket.on("message",raw=>{const call=JSON.parse(String(raw));const data=call.action==="get_login_info"?{user_id:100,nickname:"QQ 测试"}:[];socket.send(JSON.stringify({status:"ok",retcode:0,echo:call.echo,data}));});});
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));const endpoint=`http://127.0.0.1:${server.address().port}`;
+  const app=await nativeApp(path.resolve("target/debug/kzapp.exe"),task.evidence,"Social fixture",(body,res)=>{
+    const used=body.messages.flatMap(m=>m.tool_calls||[]).map(c=>c.function.name);
+    if(!used.includes("bili_feed"))toolReply(res,"bili_feed",{},"feed");
+    else if(!used.includes("bili_video"))toolReply(res,"bili_video",{bvid:bv},"video");
+    else if(!used.includes("bili_comments"))toolReply(res,"bili_comments",{bvid:bv},"comments");
+    else if(!used.includes("bili_comment_draft"))toolReply(res,"bili_comment_draft",{bvid:bv,body:"助手草稿"},"draft");
+    else textReply(res,"BILI_DONE：读取了信息和评论，没有字幕，未分析画面。草稿已保存。");
+  },"",{KANZEI_E2E_BILI_ENDPOINT:endpoint});
+  const {page,invoke}=app;
+  try {
+    const nap=path.join(task.environment,"NapCat");await mkdir(path.join(nap,"config"),{recursive:true});await writeFile(path.join(nap,"config/webui.json"),JSON.stringify({port:server.address().port,token:"local-password"}));
+    const setup=await invoke("qq_setup_connect",{directory:nap,url:null,password:null,totp:null});
+    check(!JSON.stringify(setup).includes("credential"),"NapCat authentication stays in backend");
+    check((await invoke("qq_setup_status",{id:setup.id})).account==="100","NapCat account is read in app");
+    await invoke("qq_setup_apply",{id:setup.id,port:server.address().port});
+    await until(async()=>(await invoke("qq_status")).connected,"Managed OneBot connects");
+    check(network.network.httpServers[0].name==="other"&&network.network.websocketServers[0].name==="kanzei-code","QQ setup preserves other network connections");
+    check(!(JSON.stringify(await invoke("qq_status"))).includes(network.network.websocketServers[0].token),"Generated bridge token never reaches renderer");
+    check(await page.locator("#workspace-sidebar-footer #bili-nav").isVisible(),"Bilibili entry lives in bottom sidebar");
+    await page.locator("#bili-nav").click();await page.locator('#bili-tabs [data-tab="login"]').click();
+    const first=await invoke("bili_login_start"),second=await invoke("bili_login_start");await assert.rejects(()=>invoke("bili_login_poll",{id:first.id}));
+    await invoke("bili_login_cancel",{id:second.id});check((await invoke("bili_login_poll",{id:second.id})).status==="cancelled","Replaced and cancelled QR challenges cannot log in");
+    await page.getByRole("button",{name:"生成登录二维码",exact:true}).click();await until(async()=>(await invoke("bili_status")).account===1000,"QR login completes");
+    let status=await invoke("bili_status");check(!JSON.stringify(status).includes("SESSDATA"),"Bilibili status excludes credentials");
+    status.settings.comment_interval_seconds=0;await invoke("bili_settings_save",{settings:status.settings});
+    await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"热门视频",exact:true}).click();await page.locator(".bili-video-title").click();
+    check((await page.locator("#bili-player").getAttribute("src")).startsWith("https://player.bilibili.com/"),"Video uses official player");
+    check(await page.locator(".bili-description script").count()===0,"Video descriptions render as external text");
+    await page.getByRole("button",{name:"读取字幕",exact:true}).click();await page.locator(".bili-transcript").waitFor();check((await page.locator(".bili-transcript").innerText()).includes("没有可用字幕"),"Missing subtitles are reported without claiming media analysis");
+    await page.getByRole("button",{name:"读取评论",exact:true}).click();await page.getByRole("button",{name:"展开回复",exact:true}).click();await page.getByRole("button",{name:"回复",exact:true}).last().click();
+    await page.locator('#bili-comment-form textarea').fill("人工审核评论");await page.getByRole("button",{name:"保存评论草稿",exact:true}).click();await page.getByRole("button",{name:"发布评论",exact:true}).waitFor();
+    let draft=(await invoke("bili_status")).records.drafts[0];check(draft.root===55&&draft.parent===56,"Comment draft binds to actual thread and reply");
+    await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:"stale"}));check(posts.length===0,"Stale draft cannot send");
+    await page.getByRole("button",{name:"发布评论",exact:true}).click();await until(async()=>(await invoke("bili_status")).records.drafts[0].state==="sent","Comment receipt saved");
+    check(posts.length===1&&posts[0].message==="人工审核评论"&&posts[0].root==="55"&&posts[0].parent==="56","Owner click publishes exactly reviewed text and target");
+    await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===1,"Sent draft is never replayed");
+    draft=await invoke("bili_draft_create",{bvid:bv,body:"账号绑定",root:null,parent:null});await invoke("bili_cookie_save",{cookie:"SESSDATA=other; bili_jct=csrf"});await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===1,"Account switch cannot publish former account drafts");await invoke("bili_cookie_save",{cookie:"SESSDATA=owner; bili_jct=csrf"});
+    postMode="disconnect";await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check((await invoke("bili_status")).records.drafts.find(d=>d.id===draft.id).state==="unknown","Interrupted send is durable unknown");await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===2,"Unknown send is never replayed");postMode="success";
+    await invoke("bili_settings_save",{settings:status.settings});await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"浏览一轮",exact:true}).click();await page.locator("#bili-conversation").waitFor({state:"visible"});await until(async()=>(await page.locator("#messages").innerText()).includes("BILI_DONE"),"Bili agent round completes in native conversation");
+    const request=app.requests.find(r=>r.tools?.some(t=>t.function.name==="bili_feed"));check(request&&!["bash","write","task","bili_publish"].some(name=>request.tools.some(t=>t.function.name===name)),"Bili browsing session has no terminal, delegation, or direct publication tool");
+    check(app.requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("助手草稿"))),"Agent actually creates comment draft through tool stream");check(posts.length===2,"Agent browsing cannot publish comments");
+    await page.locator("#bili-manage").click();
+    for(const theme of ["dark","light"]) {await page.evaluate(theme=>document.documentElement.setAttribute("data-theme",theme),theme);for(const tab of ["browse","drafts","records","login","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`${theme}/${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`${theme}-${tab}.png`)});}}
+    await page.setViewportSize({width:420,height:800});for(const tab of ["browse","drafts","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`Narrow ${tab} no horizontal overflow`);check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`Narrow ${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});}
+    check(errors.length===0&&app.errors.length===0,`No native or fixture errors: ${[...errors,...app.errors].join("; ")}`);
+    const saved=JSON.parse(await readFile(path.join(app.appHome,"bilibili/settings.json"),"utf8"));check(saved.account===1000,"Credentials persist in local backend storage");
+    await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/runtime; local NapCat, Bilibili and model fixtures; no live accounts or real comments",checks,calls,posts,errors},null,2));
+  }catch(e){await page.screenshot({path:path.join(task.evidence,"failure.png")});await writeFile(path.join(task.evidence,"failure.json"),JSON.stringify({error:String(e),status:await invoke("bili_status"),active:await page.evaluate(async()=>{const s=await import("./03-shell.js");return {root:s.currentProject,session:s.activeSessionId,process:s.activeProcessId,items:s.processItems};}),calls,posts,errors,requests:app.requests,ui:await page.locator("body").innerText()},null,2));throw e;}
+  finally{await app.close();for(const socket of sockets)socket.terminate();await new Promise(resolve=>ws.close(resolve));}
+});

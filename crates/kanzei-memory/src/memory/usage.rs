@@ -24,7 +24,7 @@ impl MemoryStore {
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("记忆反馈缺少所属项目，不能推断会话来源"))?;
         let store =
-            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(project_root))?;
+            kanzei_core::SessionStore::open(&crate::memory::memory_state_path(project_root))?;
         let session_id = kanzei_core::project_session_id(project_root);
         store.create_session(&session_id, &project_root.display().to_string(), None)?;
         store.record_memory_feedback(&session_id, id, expected_revision, kind)?;

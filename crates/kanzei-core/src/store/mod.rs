@@ -364,6 +364,8 @@ mod deliveries;
 mod episodes;
 mod eval;
 mod events;
+mod memory_import;
+pub use memory_import::MemorySourceEvidence;
 mod rewind;
 mod segment_metadata;
 pub mod session_execution;
