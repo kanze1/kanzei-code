@@ -16,8 +16,9 @@
 @import url("window-chrome.css") layer(app);
 @import url("skills.css") layer(app);
 @import url("native-control.css") layer(app);
-@import url("qq.css") layer(app);
+
 @import url("bili.css") layer(app);
+@import url("social.css") layer(app);
 @import url("surface.css") layer(surface);
 
 @import url("project-knowledge.css") layer(app);

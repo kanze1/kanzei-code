@@ -1,3 +1,4 @@
+import { renderMessageParts } from "./15-views-misc.js";
 import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
 import { renderTurnReceipt } from "./05-turn-receipts.js";
 import { defer } from "./00-dom.js";
@@ -968,6 +969,15 @@ export function notifyAskElsewhere(payload) {
 
 defer(() => {
   on("kz:input-received", ({ payload }) => {
+    if (payload.message) {
+      const known=[...activePane.querySelectorAll(".msg")].find(node=>node.dataset.inputId===payload.inputId || payload.commandId && node.dataset.commandId===payload.commandId);
+      if (known) known.dataset.inputId=payload.inputId;
+      else {
+        const before=new Set(activePane.children);
+        renderMessageParts([payload.message]);
+        for(const node of activePane.children) if(!before.has(node)) node.dataset.inputId=payload.inputId;
+      }
+    }
     if (payload.sessionId === activeSessionId) void refreshPendingInputs();
   });
   on("kz:ask-resolved", ({ payload }) => {

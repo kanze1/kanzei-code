@@ -439,6 +439,7 @@ function outgoingMessage(record, draft) {
     return;
   }
   const message = addUserMessage(record.payload.prompt, record.payload.attachments, record.payload.autoRound ? "engine" : "human");
+  message.dataset.commandId = record.payload.commandId;
   outgoingMessages.set(record, message);
   const feedback = document.createElement("div"), status = document.createElement("span"), retry = document.createElement("button");
   feedback.className = "outgoing-status"; feedback.setAttribute("role", "status");

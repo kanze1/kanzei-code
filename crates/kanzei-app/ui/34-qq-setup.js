@@ -1,3 +1,4 @@
+import { socialManagement } from "./34-social-state.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { toastError } from "./03-shell.js";
@@ -5,13 +6,13 @@ let session = null, status = null, timer = null, generation = 0;
 const node = (tag, text) => { const e = document.createElement(tag); if (text != null) e.textContent = text; return e; };
 export function renderQqSetup(host, changed) {
   const box = node("section"); box.className = "qq-setup";
-  box.append(node("h2", t("本机 QQ 配置")));
+
   const controls = node("div"); controls.className = "qq-toolbar";
   const connect = node("button", t("选择 NapCat 目录并连接")); connect.type = "button"; connect.className = "primary";
   const result = node("div"); result.className = "qq-setup-state";
   async function showStatus() {
     const own = generation, id = session;
-    if (!id || document.body.dataset.view !== "qq" || !result.isConnected) return;
+    if (!id || !socialManagement("qq") || !result.isConnected) return;
     try { const next = await invoke("qq_setup_status", { id }); if (own !== generation || id !== session || !result.isConnected) return; status = next; paint(); }
     catch (error) { if (own === generation) { clearInterval(timer); timer = null; result.replaceChildren(node("p", String(error))); } }
   }

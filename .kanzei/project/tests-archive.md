@@ -13625,3 +13625,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/ui-social-native-smoke.mjs; cargo test -p kanzei-tools refgraph; cargo test -p kanzei-app memory_chat
 - 摘要: 真实 WebView2/Rust/SQLite/runtime 原生验收 42 项通过，补证 B站真实 memory_note、共享个人收件箱的 project 选择器、QQ 私聊记忆在 B站上下文可管理、默认图谱显示个人记忆、群图谱不包含个人或全局记忆。refgraph 与 memory_chat 定向测试通过，新增 P/Q/F 引用、取代及正文提及边回归通过。来源：C:\Users\kanzei\Documents\kanzei code\output\evidence\ui-social-native-smoke\1793468667341-fee7af4b-8967-440d-82cc-10856c970cbf\receipt.json。接口及模型为本地夹具，未使用真实账号或发送评论。
 - 收尾: 1793468772
+
+## T-1786922727214 社交助手会话合并及 QQ/B站同步回归 [passed]
+- 命令: node scripts/ui-qq-native-smoke.mjs; node scripts/ui-social-native-smoke.mjs; node scripts/ui-state-admission-smoke.mjs; node --experimental-vm-modules --test scripts/tests/ownership/*.test.mjs; cargo test -p kanzei-app; cargo clippy -p kanzei-app -p kanzei-core --all-targets -- -D warnings
+- 摘要: QQ 原生 58 项、B站原生 46 项、状态准入 21 项、所有权 94 项通过；应用 Rust 测试 673 通过、3 ignored，Clippy 通过。验证统一会话与管理、群规则增删及重启持久、安静时段和 600 秒间隔内明确 @ 的排队回复与去重、群工具及 memory 隔离、真实终端持续执行和完成状态、旧混合路径登记修复、后台二维码登录与账号状态同步、评论草稿与发送回执。原生 WebView2/Rust/SQLite/本机终端真实执行，OneBot、B站和模型采用本地协议夹具，未操作真实 QQ/B站账号。
+- 收尾: 1793487195

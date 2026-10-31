@@ -53,6 +53,17 @@ try {
     applyRuntimeSnapshot(sid,snap(1,"blocked","actor-b"));
     return sessionState(sid).running && sessionState(sid).phase==="failed";
   }));
+  check("runtime queries preserve tool progress inside one round and reset it for the next round", await page.evaluate(async () => {
+    const {applyRuntimeSnapshot,beginRuntimeQuery,setSessionDetails,sessionState}=await import("/00-session-state.js");
+    const sid="tool-query", snapshot={actor_epoch:"tool-actor",revision:1,phase:"active",round_generation:7};
+    applyRuntimeSnapshot(sid,snapshot);setSessionDetails(sid,{stage:"工具执行中",detail:"bash"});
+    applyRuntimeSnapshot(sid,snapshot,{queryId:beginRuntimeQuery()});
+    if(sessionState(sid).stage!=="工具执行中"||sessionState(sid).detail!=="bash")return false;
+    applyRuntimeSnapshot(sid,{...snapshot,revision:2},{queryId:beginRuntimeQuery()});
+    if(sessionState(sid).detail!=="bash")return false;
+    applyRuntimeSnapshot(sid,{...snapshot,revision:3,round_generation:8});
+    return sessionState(sid).stage==="运行中"&&sessionState(sid).detail==="";
+  }));
   check("stop timeout queries authoritative progress without inventing stopped", await page.evaluate(async () => {
     const shell=await import("/03-shell.js"), model=await import("/00-session-state.js"), auto=await import("/08-auto.js");
     const items=shell.processItems, sid="watchdog-test", original=window.setTimeout;
@@ -97,6 +108,17 @@ try {
   check("retry keeps the frozen command ID", await page.evaluate(() => {
     const calls=window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt");
     return Boolean(calls[0].args.commandId) && calls[0].args.commandId===calls[1].args.commandId;
+  }));
+  check("committed input reconciles a local send by command identity and deduplicates remote receipts", await page.evaluate(async () => {
+    const shell=await import("/03-shell.js"), panes=await import("/01-chat-panes.js");
+    const command=window.__kzPreview.calls.filter(c=>c.cmd==="run_prompt").at(-1).args;
+    const payload={sessionId:shell.activeSessionId,inputId:"receipt-local",commandId:command.commandId,message:{role:"user",origin:"human",parts:[{type:"text",text:command.prompt}]}};
+    const before=panes.activePane.querySelectorAll(".msg.user").length;
+    window.__kzPreview.emit("kz:input-received",payload);
+    if(panes.activePane.querySelectorAll(".msg.user").length!==before)return false;
+    const remote={...payload,inputId:"receipt-remote",commandId:"remote-command",message:{...payload.message,parts:[{type:"text",text:"REMOTE_INPUT"}]}};
+    window.__kzPreview.emit("kz:input-received",remote);window.__kzPreview.emit("kz:input-received",remote);
+    return panes.activePane.querySelectorAll(".msg.user").length===before+1;
   }));
   await page.evaluate(async () => {
     const shell = await import("/03-shell.js"), runtime = await import("/03-session-runtime.js");

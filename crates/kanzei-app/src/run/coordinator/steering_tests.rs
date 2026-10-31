@@ -322,6 +322,7 @@ async fn run_fixture(point: FailurePoint) -> Value {
                 },
                 "ses".into(),
                 "turn".into(),
+                path.clone(),
             ),
             TypedEventSink::new(writer.clone()),
             TraceSink::new(

@@ -186,7 +186,12 @@ pub(crate) async fn run_task(
     // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
     // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
     let mut on_event = build_event_handler(
-        UiEventSink::new(emit_event, session_id.clone(), run_id.clone()),
+        UiEventSink::new(
+            emit_event,
+            session_id.clone(),
+            run_id.clone(),
+            state_path.clone(),
+        ),
         TypedEventSink::new(typed_writer.clone()),
         TraceSink::new(
             trace_log,

@@ -911,6 +911,8 @@
     "path": "qq::qq_config_save",
     "host": "service"
   },
+  {"path":"qq::qq_group_save","host":"service"},
+  {"path":"qq::qq_group_delete","host":"service"},
   {
     "path": "qq::qq_directory",
     "host": "service"

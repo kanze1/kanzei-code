@@ -18,8 +18,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   const check = (value,label) => {assert(value,label);checks.push(label);console.log(`PASS ${label}`);};
   const executable=process.argv[2]||path.join(process.env.CARGO_TARGET_DIR||"target","debug/kzapp.exe");
   const exe=path.join(run,"kzapp.exe"); await task.copyInput(path.resolve(executable),exe);
-  let friends=[{user_id:200,nickname:"测试好友"}], groupEvents=0;
-  const server=task.server(http.createServer()), onebot=new WebSocketServer({server});
+  let friends=[{user_id:200,nickname:"测试好友"}], groupEvents=0, heldTool=null;
+  const server=task.server(http.createServer((req,res)=>{ if(req.url==="/held-tool"){heldTool=res;return;}res.statusCode=404;res.end();})), onebot=new WebSocketServer({server});
   onebot.on("connection",(ws,request)=>{
     sockets.add(ws);ws.on("close",()=>sockets.delete(ws));
     if(request.headers.authorization!=="Bearer qq-test-token"){errors.push("OneBot authorization header mismatch");ws.close(1008);return;}
@@ -38,8 +38,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     });
   });
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
-  function incoming(kind,peer,text,id){
-    const value={post_type:"message",self_id:100,message_type:kind==="friend"?"private":"group",user_id:kind==="friend"?peer:201,message_id:id,sender:{nickname:kind==="friend"?"测试好友":"群友"},message:[{type:"text",data:{text}}]};
+  function incoming(kind,peer,text,id,segments=null){
+    const value={post_type:"message",self_id:100,message_type:kind==="friend"?"private":"group",user_id:kind==="friend"?peer:201,message_id:id,sender:{nickname:kind==="friend"?"测试好友":"群友"},message:segments||[{type:"text",data:{text}}]};
     if(kind==="group"){value.group_id=peer;groupEvents++;}
     for(const ws of sockets)ws.send(JSON.stringify(value));
   }
@@ -56,12 +56,20 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const text=JSON.stringify([...payload.messages].reverse().find(m=>m.role==="user"));
     const calls=payload.messages.flatMap(m=>m.tool_calls||[]),called=id=>calls.some(c=>c.id===id);
     const call=(id,name,input)=>answer(res,null,{id,name,input});
-    if(text.includes("FRIEND_TERMINAL")){
+    if(text.includes("FRIEND_LIVE")){
+      if(!called("live-shell"))call("live-shell","bash",{command:`Write-Output 'QQ_LIVE_STARTED'; Invoke-RestMethod 'http://127.0.0.1:${server.address().port}/held-tool'`});
+      else answer(res,"LIVE_DONE: 实时工具结束。");
+    }else if(text.includes("FRIEND_TERMINAL")){
       if(!called("friend-shell"))call("friend-shell","bash",{command:"Write-Output 'QQ_TERMINAL_EXECUTED'"});
       else answer(res,"FRIEND_DONE: 本机终端已执行。");
     }else if(text.includes("FRIEND_APPROVAL")){
       if(!called("friend-write"))call("friend-write","write",{path:"qq-approved.txt",content:"QQ_APPROVED_FILE"});
       else answer(res,"APPROVAL_DONE: 已获准写入。");
+    }else if(text.includes("GROUP_MENTION")){
+      if(!called("mention-reply"))call("mention-reply","qq_reply",{text:"MENTION_SENT: 点名回复"});
+      else answer(res,"点名回复完成。");
+    }else if(text.includes("GROUP_SILENCE")){
+      answer(res,"SILENT_DECISION: 本轮不参与。");
     }else if(text.includes("GROUP_SPEAK")){
       if(!called("group-reply"))call("group-reply","qq_reply",{text:"GROUP_SENT: 大家好"});
       else answer(res,"本轮已回复。");
@@ -75,10 +83,12 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   async function until(fn,label,timeout=45000){const deadline=Date.now()+timeout;while(Date.now()<deadline){if(errors.length)throw new Error(errors.join("; "));if(await fn())return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error(`${label} timed out`);}
   async function start(){
     const probe=task.server(net.createServer());await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-    app=spawn(exe,[],{cwd:run,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:home,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:undefined,KANZEI_E2E_CDP:String(port)}});
+    app=spawn(exe,[],{cwd:run,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:home,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),KANZEI_E2E_CDP:String(port)}});
     await until(async()=>{try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1500}));return true;}catch{return false;}},"WebView startup");
     page=browser.contexts()[0].pages()[0];page.on("pageerror",e=>errors.push(String(e)));
     await until(()=>page.url()!=="about:blank","Document navigation");await page.waitForFunction(()=>document.body.dataset.appReady==="true",{timeout:45000});
+    await page.setViewportSize({width:1440,height:900});
+    await page.evaluate(async()=>{window.__qqEvents=[];for(const name of ["kz:input-received","kz:turn","kz:tool-start","kz:tool-end","kz:lifecycle"]){await window.__TAURI__.event.listen(name,event=>{window.__qqEvents.push({name,payload:event.payload});});}});
   }
   async function close(){
     if(page)await invoke("runtime_shutdown").catch(()=>{});
@@ -93,8 +103,11 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   }
   try{
     await start();
-    check(await page.locator("#workspace-sidebar-footer #qq-nav").isVisible(),"QQ entry uses bottom sidebar");
-    await page.locator("#qq-nav").click();await page.locator("#qq-settings-form").waitFor();
+    check(await page.locator("#workspace-sidebar-footer #social-nav").isVisible(),"Unified social entry uses bottom sidebar");
+    check(await page.locator("#qq-nav, #bili-nav, #view-qq, #view-bili").count()===0,"Standalone management routes and duplicated entries are removed");
+    await page.locator("#social-nav").click();await page.locator("#social-toolbar").waitFor();
+    check(!await page.locator("#social-manager").isVisible()&&await page.locator("#prompt").isVisible(),"Social entry opens projectless chat with ordinary composer before connection");
+    await page.locator("#social-manage").click();await page.locator("#qq-settings-form").waitFor();
     const settings=(await invoke("qq_status")).settings;
     settings.enabled=true;settings.url=`ws://127.0.0.1:${server.address().port}`;settings.account="100";settings.model="stub:test";
     settings.groups=[{id:"300",name:"测试群",enabled:true,interval_seconds:1,proactive_minutes:0,quiet_start:0,quiet_end:0,persona:"群内自然交流"}];
@@ -111,11 +124,22 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const request=requests.find(r=>JSON.stringify(r).includes("FRIEND_TERMINAL"));
     check(request.tools.some(t=>t.function.name==="bash"),"Friend reuses local assistant tools");
     check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("QQ_TERMINAL_EXECUTED"))),"Local terminal actually executes");
-    await page.locator("#qq-refresh").click();await page.locator("#qq-open-chat").click();
-    await page.locator("#qq-conversation").waitFor({state:"visible"});
+    await page.locator("#qq-refresh").click();await page.locator("#social-manager-close").click();
+    await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"测试好友"}).click();
     await until(async()=>(await page.locator("#messages").innerText()).includes("FRIEND_DONE"),"QQ native conversation");
-    check(await page.locator("#qq-conversation").isVisible(),"QQ opens ordinary conversation with QQ header");
+    check((await page.locator("#social-target-name").innerText())==="测试好友"&&await page.locator("#prompt").isVisible(),"QQ target uses the ordinary conversation and composer");
     check((await page.locator("#messages").innerText()).includes("QQ_TERMINAL_EXECUTED"),"Native conversation renders actual tool stream");
+    await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"个人助手",exact:false}).click();
+    incoming("friend",200,"FRIEND_LIVE: 持续执行本机工具",22);
+    await until(()=>heldTool!==null,"Live terminal reaches fixture barrier");
+    await until(async()=>await page.locator("#social-nav").getAttribute("data-running")==="true","Background QQ run marks social entry");
+    await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:/测试好友/}).click();
+    await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_LIVE"),"Externally committed QQ input appears in local conversation");
+    check((await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_TERMINAL"),"Opening background stream hydrates older committed history");
+    check((await page.locator("#social-live-state").innerText()).includes("bash")&&await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()>0,"In-flight QQ terminal shows live execution state after switching in");
+    heldTool.end("QQ_LIVE_FINISHED");heldTool=null;
+    await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("LIVE_DONE"),"Local conversation receives live tool completion without refresh");
+    check(await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()===0,"Recovered running tool settles from the real completion event");
     incoming("friend",200,"FRIEND_APPROVAL: 写入文件",20);
     await until(()=>deliveries.some(d=>JSON.stringify(d).includes("/allow")),"Forwarded friend permission request");
     const asks=await invoke("pending_asks_get",{projectDir:friend.root,processId:friend.process_id});
@@ -143,10 +167,27 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await invoke("qq_memory_save",{identity:group.identity,id:entries[0].id,title:entries[0].title,description:entries[0].description,body:"CORRECTED",expectedHash:entries[0].revision});
     await assert.rejects(()=>invoke("qq_memory_save",{identity:group.identity,id:entries[0].id,title:entries[0].title,description:entries[0].description,body:"STALE",expectedHash:entries[0].revision}));
     check(true,"Memory edits reject stale revisions");
-    await page.locator("#qq-manage").click();
+    await page.locator("#prompt").fill("未发送的助手草稿");
+    await page.locator("#social-manage").click();
+    await page.locator('#qq-tabs [data-tab="groups"]').click();
+    await page.getByRole("button",{name:"添加群",exact:true}).click();
+    await page.locator('#qq-group-editor [name="id"]').fill("301");
+    await page.locator('#qq-group-editor [name="name"]').fill("可删除的群");
+    await page.locator("#social-platform-bili").click();await page.locator("#social-platform-qq").click();
+    check(await page.locator('#qq-group-editor [name="id"]').inputValue()==="301","Group draft survives platform switching");
+    await page.getByRole("button",{name:"保存群聊规则",exact:true}).click();
+    await until(async()=>(await invoke("qq_status")).settings.groups.length===2,"Group created from native editor");
+    await page.locator('.qq-rule-row[data-group-id="301"]').getByRole("button",{name:"删除规则",exact:true}).click();
+    await until(async()=>(await invoke("qq_status")).settings.groups.length===1,"Group deletion persists");
+    check((await invoke("qq_status")).settings.groups[0].id==="300","Deleting a rule preserves other saved rules");
+    await page.getByRole("button",{name:"添加群",exact:true}).click();await page.getByRole("button",{name:"取消",exact:true}).click();
+    check(await page.locator("#qq-group-editor").count()===0,"Blank group draft cancels without validation or persisting");
+    await page.locator("#social-manager-close").click();
+    check(await page.locator("#prompt").inputValue()==="未发送的助手草稿"&&await page.locator("#prompt").isVisible(),"Management leaves active conversation draft intact");
+    await page.locator("#social-manage").click();
     for(const theme of ["dark","light"]){
       await page.evaluate(theme=>document.documentElement.setAttribute("data-theme",theme),theme);
-      for(const tab of ["connection","peers","groups","persona","memory","log"]){
+      for(const tab of ["connection","groups","persona","memory","log"]){
         await page.locator(`#qq-tabs [data-tab='${tab}']`).click();await page.locator("#qq-content").waitFor();
         const audit=await page.evaluate(clipAudit,{viewport:true});check(audit.cut===0,`${theme}/${tab} shadow cut=0`);
         await page.screenshot({path:path.join(task.evidence,`${theme}-${tab}.png`)});
@@ -160,27 +201,51 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
       await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});
     }
     await page.setViewportSize({width:1440,height:900});
+    await page.locator("#social-manager-close").click();
     // New ordinary group message may be received but the model can decide to stay silent.
     incoming("group",300,"GROUP_SILENCE: 已经聊完",4);
     await until(()=>requests.some(r=>JSON.stringify(r.messages).includes("GROUP_SILENCE")),"Silent group judgment");
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Silent round completes");
     check(deliveries.filter(d=>d.action==="send_group_msg").length===1,"Silent group judgment produces no chat message");
+    // A direct @ wakes during quiet hours and within the ambient interval.
+    const hour=new Date().getHours();settings.groups[0].interval_seconds=600;settings.groups[0].quiet_start=hour;settings.groups[0].quiet_end=(hour+1)%24;
+    await invoke("qq_config_save",{settings,token:null});await until(async()=>(await invoke("qq_status")).connected,"Quiet rule reconnect");
+    const before=requests.length, priorDeliveries=deliveries.length;
+    incoming("group",300,"OTHER_AT_MUST_STAY_QUIET",30,[{type:"at",data:{qq:"all"}},{type:"at",data:{qq:101}},{type:"text",data:{text:"OTHER_AT_MUST_STAY_QUIET"}}]);
+    incoming("group",300,"GROUP_MENTION: 在干嘛",31,[{type:"at",data:{qq:"100"}},{type:"text",data:{text:"GROUP_MENTION: 在干嘛"}}]);
+    incoming("group",300,"GROUP_MENTION: 在干嘛",31,[{type:"at",data:{qq:"100"}},{type:"text",data:{text:"GROUP_MENTION: 在干嘛"}}]);
+    await until(()=>deliveries.slice(priorDeliveries).some(d=>JSON.stringify(d).includes("MENTION_SENT")),"Explicit mention bypasses quiet hours and 600-second ambient interval",10000);
+    await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Mention round completes");
+    check(deliveries.slice(priorDeliveries).filter(d=>d.action==="send_group_msg").length===1,"Duplicate mentions yield exactly one reply");
+    const mention=requests.slice(before).find(r=>JSON.stringify(r.messages).includes("群聊点名回复"));
+    check(mention&&!mention.tools.some(t=>["bash","read","write","task","tool_search"].includes(t.function.name)),"Direct group mention retains restricted group capabilities");
+    check(requests.slice(before).every(r=>{
+      const prompt=String([...r.messages].reverse().find(m=>m.role==="user")?.content||"");
+      return prompt.startsWith("群聊点名回复")&&prompt.split("当前消息 JSON：").at(-1).includes("GROUP_MENTION")&&!prompt.split("当前消息 JSON：").at(-1).includes("OTHER_AT_MUST_STAY_QUIET");
+    }),"Other-account and at-all mentions do not wake rounds during quiet hours");
     friends=[];incoming("friend",200,"REMOVED_FRIEND_MUST_NOT_WAKE",5);
-    settings.groups[0].enabled=false;await invoke("qq_config_save",{settings,token:null});
+    await page.locator("#social-nav").click();await page.locator("#social-manage").click();await page.locator('#qq-tabs [data-tab="groups"]').click();
+    await page.locator('.qq-rule-row[data-group-id="300"]').getByRole("button",{name:"删除规则",exact:true}).click();
+    await until(async()=>(await invoke("qq_status")).settings.groups.length===0,"Last saved rule can be deleted");
+    await page.locator('#qq-tabs [data-tab="persona"]').click();await page.locator('#qq-settings-form [name="persona"]').fill("保存人设不会复活删除的规则");await page.locator('#qq-settings-form button[type="submit"]').click();
+    await until(async()=>(await invoke("qq_status")).settings.persona==="保存人设不会复活删除的规则","Independent settings persist");
+    check((await invoke("qq_status")).settings.groups.length===0,"Saving another form cannot resurrect deleted rules");
     await until(async()=>(await invoke("qq_status")).connected,"Reconnect after config");
-    incoming("group",300,"DISABLED_GROUP_MUST_NOT_WAKE",6);
+    incoming("group",300,"DISABLED_GROUP_MUST_NOT_WAKE",6,[{type:"at",data:{qq:100}},{type:"text",data:{text:"DISABLED_GROUP_MUST_NOT_WAKE"}}]);
     await invoke("qq_status");
     await close();await start();
     const recovered=await invoke("qq_status");
     check(recovered.peers.length===2,"QQ peers survive runtime restart");
-    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===3,"Removed friends cannot append local assistant input");
-    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===2,"Disabled groups cannot append input");
+    check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
+    check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
+    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===4,"Removed friends cannot append local assistant input");
+    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===4,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);
     await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/terminal; fixture OneBot/model, no real QQ account",checks,groupEvents,requests:requests.length,deliveries,errors},null,2));
   }catch(error){
-    if(page){await page.screenshot({path:path.join(task.evidence,"failure.png")});await writeFile(path.join(task.evidence,"failure.json"),JSON.stringify({error:String(error),status:await invoke("qq_status"),requests,deliveries,errors,ui:await page.locator("body").innerText()},null,2));}
+    if(page){await page.screenshot({path:path.join(task.evidence,"failure.png")});await writeFile(path.join(task.evidence,"failure.json"),JSON.stringify({error:String(error),status:await invoke("qq_status"),requests,deliveries,errors,ui:await page.locator("body").innerText(),events:await page.evaluate(async()=>{const shell=await import("./03-shell.js"), panes=await import("./01-chat-panes.js");return {active:shell.activeSessionId,stage:shell.sessionState(shell.activeSessionId),panes:[...panes.messagePanes].map(([id,pane])=>({id,loaded:pane.dataset.historyLoaded,text:pane.innerText})),events:window.__qqEvents};})},null,2));}
     throw error;
-  }finally{await close();for(const ws of sockets)ws.terminate();await new Promise(resolve=>onebot.close(resolve));}
+  }finally{heldTool?.end();await close();for(const ws of sockets)ws.terminate();await new Promise(resolve=>onebot.close(resolve));}
 });

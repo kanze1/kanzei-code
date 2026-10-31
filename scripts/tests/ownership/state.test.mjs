@@ -276,6 +276,8 @@ test("failed prefs write retains committed cache and queue continues to later re
 test("real text delta after the cached history switch belongs to B and switching back resumes A", async () => {
   const h = await harness(); await h.registerStream();
   h.shell.setCurrentProject("C:/fixture/project"); h.shell.setActiveProcessId("process-a"); h.show("session-a");
+  h.views.renderRecoveredMessages([]);
+  h.show("session-b"); h.views.renderRecoveredMessages([]); h.show("session-a");
   h.deliver("kz:text", { sessionId: "session-a", text: "A1" });
   const a = h.shell.currentAssistant;
   h.deliver("kz:text", { sessionId: "session-b", text: "B1" });
@@ -292,6 +294,22 @@ test("real text delta after the cached history switch belongs to B and switching
   h.deliver("kz:text", { sessionId: "session-a", text: "A3" });
   assert.equal(a.dataset.raw, "A1A2A3");
   assert.equal(h.core.messagePanes.get("session-a").querySelectorAll(".assistant").length, 1, "returning A must resume its original block, not duplicate it");
+});
+
+test("a background stream does not replace history hydration when first opened", async () => {
+  const h=await harness();await h.registerStream();
+  h.shell.setCurrentProject("C:/fixture/project");h.shell.setActiveProcessId("process-a");h.show("session-a");
+  h.deliver("kz:text",{sessionId:"session-b",text:"LATEST_BACKGROUND"});
+  h.handlers.set("conversation_display_get",()=>[
+    {role:"user",origin:"human",parts:[{type:"text",text:"OLDER_COMMITTED_INPUT"}]},
+    {role:"assistant",parts:[{type:"text",text:"LATEST_BACKGROUND"}]},
+  ]);
+  h.handlers.set("conversation_trace_get",()=>[]);
+  h.shell.setActiveProcessId("process-b");h.shell.setActiveSessionId("session-b");
+  const before=h.calls.filter(call=>call.command==="conversation_display_get").length;
+  await h.views.loadConversation();
+  assert.equal(h.calls.filter(call=>call.command==="conversation_display_get").length,before+1);
+  assert(h.core.messagePanes.get("session-b").textContent.includes("OLDER_COMMITTED_INPUT"));
 });
 
 test("real reasoning delta and head retain their session when swapping cached panes", async () => {

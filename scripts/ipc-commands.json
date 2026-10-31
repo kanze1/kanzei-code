@@ -2486,6 +2486,32 @@
     "path": "qq::qq_directory",
     "returns": "-> Result < Value , String >"
   },
+  "qq_group_delete": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "qq::qq_group_delete",
+    "returns": "-> Result < config :: Settings , String >"
+  },
+  "qq_group_save": {
+    "host": "service",
+    "parameters": {
+      "existingId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "group": {
+        "required": true,
+        "type": "crate :: qq :: config :: Group"
+      }
+    },
+    "path": "qq::qq_group_save",
+    "returns": "-> Result < config :: Settings , String >"
+  },
   "qq_memories": {
     "host": "service",
     "parameters": {

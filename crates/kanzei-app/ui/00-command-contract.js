@@ -641,6 +641,13 @@ export const commandParameters = {
     "token": false
   },
   "qq_directory": {},
+  "qq_group_delete": {
+    "id": true
+  },
+  "qq_group_save": {
+    "existingId": false,
+    "group": true
+  },
   "qq_memories": {
     "identity": true
   },

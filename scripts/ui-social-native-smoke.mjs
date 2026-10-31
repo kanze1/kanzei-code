@@ -14,7 +14,8 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
   const checks=[],calls=[],posts=[],errors=[];
   const check=(value,label)=>{assert(value,label);checks.push(label);console.log(`PASS ${label}`);};
   const bv="BV1234567890", video={bvid:bv,aid:22,cid:33,title:"测试视频",desc:"视频简介 <script>外部数据</script>",pic:"",owner:{name:"测试 UP"}};
-  let loginCode=0,postMode="success",network={network:{httpServers:[{name:"other"}],websocketServers:[]}};
+  const loginPolls=[];
+  let loginCode=86101,postMode="success",network={network:{httpServers:[{name:"other"}],websocketServers:[]}};
   const server=task.server(http.createServer(async(req,res)=>{
     try {
       const url=new URL(req.url,"http://127.0.0.1");let raw="";for await(const chunk of req)raw+=chunk;
@@ -31,7 +32,7 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
       }
       switch(url.pathname){
         case "/x/passport-login/web/qrcode/generate":answer({url:"https://passport.bilibili.com/test-login",qrcode_key:String(calls.length)});break;
-        case "/x/passport-login/web/qrcode/poll":res.setHeader("Set-Cookie",["SESSDATA=owner; HttpOnly; Secure","bili_jct=csrf; Secure"]);answer({code:loginCode});break;
+        case "/x/passport-login/web/qrcode/poll":loginPolls.push(loginCode);res.setHeader("Set-Cookie",["SESSDATA=owner; HttpOnly; Secure","bili_jct=csrf; Secure"]);answer({code:loginCode});break;
         case "/x/web-interface/nav":answer({isLogin:true,mid:req.headers.cookie?.includes("SESSDATA=other")?2000:1000,uname:"B站测试",wbi_img:{img_url:"https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png",sub_url:"https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}});break;
         case "/x/web-interface/popular":answer({list:[video]});break;
         case "/x/web-interface/wbi/search/type":assert(url.searchParams.has("w_rid"));answer({result:[video]});break;
@@ -62,6 +63,7 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     else textReply(res,"BILI_DONE：读取了信息和评论，没有字幕，未分析画面。草稿已保存。");
   },"",{KANZEI_E2E_BILI_ENDPOINT:endpoint});
   const {page,invoke}=app;
+  await page.setViewportSize({width:1440,height:900});
   try {
     const nap=path.join(task.environment,"NapCat");await mkdir(path.join(nap,"config"),{recursive:true});await writeFile(path.join(nap,"config/webui.json"),JSON.stringify({port:server.address().port,token:"local-password"}));
     const setup=await invoke("qq_setup_connect",{directory:nap,url:null,password:null,totp:null});
@@ -71,11 +73,19 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     await until(async()=>(await invoke("qq_status")).connected,"Managed OneBot connects");
     check(network.network.httpServers[0].name==="other"&&network.network.websocketServers[0].name==="kanzei-code","QQ setup preserves other network connections");
     check(!(JSON.stringify(await invoke("qq_status"))).includes(network.network.websocketServers[0].token),"Generated bridge token never reaches renderer");
-    check(await page.locator("#workspace-sidebar-footer #bili-nav").isVisible(),"Bilibili entry lives in bottom sidebar");
-    await page.locator("#bili-nav").click();await page.locator('#bili-tabs [data-tab="login"]').click();
+    check(await page.locator("#workspace-sidebar-footer #social-nav").isVisible(),"QQ and Bilibili share one bottom sidebar entry");
+    await page.locator("#social-nav").click();await page.locator("#social-toolbar").waitFor();
+    await page.locator("#social-bili-status").click();await page.locator('#bili-tabs [data-tab="login"]').click();
     const first=await invoke("bili_login_start"),second=await invoke("bili_login_start");await assert.rejects(()=>invoke("bili_login_poll",{id:first.id}));
     await invoke("bili_login_cancel",{id:second.id});check((await invoke("bili_login_poll",{id:second.id})).status==="cancelled","Replaced and cancelled QR challenges cannot log in");
-    await page.getByRole("button",{name:"生成登录二维码",exact:true}).click();await until(async()=>(await invoke("bili_status")).account===1000,"QR login completes");
+    await page.getByRole("button",{name:"生成登录二维码",exact:true}).click();await until(()=>loginPolls.includes(86101),"QR waits for scan");
+    await page.locator('#bili-tabs [data-tab="browse"]').click();loginCode=86090;
+    await until(()=>loginPolls.includes(86090),"QR scan continues outside login tab");
+    await page.locator("#social-manager-close").click();loginCode=0;
+    await until(async()=>(await invoke("bili_status")).account===1000,"QR login completes while management is closed");
+    await until(async()=>await page.locator("#social-bili-status").getAttribute("data-connected")==="true","Header login state updates automatically");
+    await page.locator("#social-bili-status").click();
+    check((await page.locator("#bili-state").innerText()).includes("B站测试")&&(await page.locator("#bili-content").innerText()).includes("已登录"),"Successful QR login immediately shows account without refresh");
     let status=await invoke("bili_status");check(!JSON.stringify(status).includes("SESSDATA"),"Bilibili status excludes credentials");
     status.settings.comment_interval_seconds=0;await invoke("bili_settings_save",{settings:status.settings});
     await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"热门视频",exact:true}).click();await page.locator(".bili-video-title").click();
@@ -91,7 +101,7 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===1,"Sent draft is never replayed");
     draft=await invoke("bili_draft_create",{bvid:bv,body:"账号绑定",root:null,parent:null});await invoke("bili_cookie_save",{cookie:"SESSDATA=other; bili_jct=csrf"});await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===1,"Account switch cannot publish former account drafts");await invoke("bili_cookie_save",{cookie:"SESSDATA=owner; bili_jct=csrf"});
     postMode="disconnect";await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check((await invoke("bili_status")).records.drafts.find(d=>d.id===draft.id).state==="unknown","Interrupted send is durable unknown");await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===2,"Unknown send is never replayed");postMode="success";
-    await invoke("bili_settings_save",{settings:status.settings});await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"浏览一轮",exact:true}).click();await page.locator("#bili-conversation").waitFor({state:"visible"});await until(async()=>(await page.locator("#messages").innerText()).includes("BILI_DONE"),"Bili agent round completes in native conversation");
+    await invoke("bili_settings_save",{settings:status.settings});await page.locator('#bili-tabs [data-tab="browse"]').click();await page.locator("#bili-content").getByRole("button",{name:"浏览一轮",exact:true}).click();await page.locator("#social-toolbar").waitFor({state:"visible"});await until(async()=>(await page.locator("#messages").innerText()).includes("BILI_DONE"),"Bili agent round completes in native conversation");
     const request=app.requests.find(r=>r.tools?.some(t=>t.function.name==="bili_feed"));check(request&&!["bash","write","task","bili_publish"].some(name=>request.tools.some(t=>t.function.name===name)),"Bili browsing session has no terminal, delegation, or direct publication tool");
     check(app.requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("助手草稿"))),"Agent actually creates comment draft through tool stream");check(posts.length===2,"Agent browsing cannot publish comments");
     const target=await invoke("bili_conversation_open");
@@ -102,9 +112,16 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     const graph=await invoke("memory_graph",{projectDir:target.root});check(graph.nodes.some(n=>n.id===entry.id&&n.scope==="project"),"Personal memory appears in default graph filter");
     const global=path.join(app.appHome,"memory");await mkdir(global,{recursive:true});await writeFile(path.join(global,"U-900-private.md"),"---\nid: U-900\nscope: global\ncategory: fact\ntitle: GLOBAL_GRAPH_SENTINEL\ndescription: global private\nstatus: active\ncreated: 2026-11-01\nupdated: 2026-11-01\nsource: user\n---\nPrivate global graph fact.\n");
     const group=path.join(app.appHome,"conversations/qq/100/group/300");await mkdir(group,{recursive:true});const groupGraph=await invoke("memory_graph",{projectDir:group});check(!groupGraph.nodes.some(n=>n.id===entry.id||n.id==="U-900"),"Group memory graph excludes both personal and global memory");
-    await page.locator("#bili-manage").click();
+    check(!await page.locator("#social-manager").isVisible()&&await page.locator("#prompt").isVisible(),"Bili browse returns to ordinary conversation and tool stream");
+    await page.locator("#prompt").fill("会话草稿保持");await page.locator("#social-manage").click();
+    await page.locator('#bili-tabs [data-tab="settings"]').click();await page.locator('#bili-content [name="keyword"]').fill("未保存的浏览偏好");
+    await page.locator("#social-platform-qq").click();await page.locator("#social-platform-bili").click();
+    check(await page.locator('#bili-content [name="keyword"]').inputValue()==="未保存的浏览偏好","Bili settings survive platform switching");
+    await page.locator("#social-manager-close").click();
+    check(await page.locator("#prompt").inputValue()==="会话草稿保持","Bili management preserves current conversation draft");
+    await page.locator("#social-manage").click();
     for(const theme of ["dark","light"]) {await page.evaluate(theme=>document.documentElement.setAttribute("data-theme",theme),theme);for(const tab of ["browse","drafts","records","login","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`${theme}/${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`${theme}-${tab}.png`)});}}
-    await page.setViewportSize({width:420,height:800});for(const tab of ["browse","drafts","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`Narrow ${tab} no horizontal overflow`);check((await page.evaluate(clipAudit,{viewport:true})).cut===0,`Narrow ${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});}
+    await page.setViewportSize({width:420,height:800});for(const tab of ["browse","drafts","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`Narrow ${tab} no horizontal overflow`);const narrowAudit=await page.evaluate(clipAudit,{viewport:true});await writeFile(path.join(task.evidence,`narrow-${tab}-audit.json`),JSON.stringify(narrowAudit,null,2));check(narrowAudit.cut===0,`Narrow ${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});}
     check(errors.length===0&&app.errors.length===0,`No native or fixture errors: ${[...errors,...app.errors].join("; ")}`);
     const saved=JSON.parse(await readFile(path.join(app.appHome,"bilibili/settings.json"),"utf8"));check(saved.account===1000,"Credentials persist in local backend storage");
     await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/runtime; local NapCat, Bilibili and model fixtures; no live accounts or real comments",checks,calls,posts,errors},null,2));

@@ -51,7 +51,7 @@ body[data-general-chat="true"] #project-warn-slot,
 body[data-general-chat="true"] #session-history [data-act="new-task"] { display: none !important; }
 #general-chat-link { margin-left: auto; }
 body[data-general-chat="true"] #workbench-conversation-actions,
-body[data-general-chat="true"] #project-space-nav { display: flex !important; }
+body[data-general-chat="true"]:not([data-social="true"]) #project-space-nav { display: flex !important; }
 body[data-general-chat="true"] #composer .sw-composer-head { display: none !important; }
 body[data-general-chat="true"] #composer-context { display: flex !important; }
 body[data-general-chat="true"] #composer-context > :not(#subagent-control) { display: none !important; }

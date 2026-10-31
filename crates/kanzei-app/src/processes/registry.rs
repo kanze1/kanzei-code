@@ -140,6 +140,35 @@ pub(crate) fn restore_legacy_conversation(
 /// Open an existing conversation, or explicitly create one when the project is empty.
 /// Listing/restoring never calls this, so closing the last conversation remains durable.
 pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<ProcessHandle, String> {
+    // Create before resolving the path: channel roots can contain mixed
+    // separators, and a missing path cannot be canonicalized on Windows.
+    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+    let canonical = crate::normalized_project_root(root);
+    if canonical.as_os_str() != root.as_os_str() {
+        let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&canonical))
+            .map_err(|e| e.to_string())?;
+        for mut record in store
+            .list_processes(&root.display().to_string())
+            .map_err(|e| e.to_string())?
+        {
+            record.origin_project =
+                crate::normalized_project_root(Path::new(&record.origin_project))
+                    .display()
+                    .to_string();
+            record.project_dir = crate::normalized_project_root(Path::new(&record.project_dir))
+                .display()
+                .to_string();
+            store.upsert_process(&record).map_err(|e| e.to_string())?;
+        }
+        for process in state.processes.lock_or_recover().values_mut() {
+            if crate::normalized_project_root(&process.origin_project.0) == canonical {
+                process.origin_project = ProjectRoot(canonical.clone());
+                process.project_dir =
+                    ProjectRoot(crate::normalized_project_root(&process.project_dir.0));
+            }
+        }
+    }
+    let root = canonical.as_path();
     restore_processes_from_store_once(state, root)?;
     let existing = state
         .processes
@@ -174,6 +203,27 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
         .get(&created.id)
         .cloned()
         .ok_or_else(|| "对话创建后已被关闭".into())
+}
+
+/// Channel schedulers own their turns. Opening a channel must not opt it into
+/// the project workflow; existing restricted profiles retain their permissions.
+pub(crate) fn ensure_channel_conversation(
+    state: &AppState,
+    root: &Path,
+) -> Result<ProcessHandle, String> {
+    let process = ensure_conversation(state, root)?;
+    let mut profile = process.profile.lock_or_recover();
+    let next = match profile.as_deref() {
+        Some("readonly" | "isolated") => profile.clone(),
+        _ => Some("dev-pair".into()),
+    };
+    let changed = *profile != next;
+    *profile = next;
+    drop(profile);
+    if changed {
+        persist_process(&process.project_dir.0, &process)?;
+    }
+    Ok(process)
 }
 
 /// Resolve an explicit identity without granting a special first-conversation role.
@@ -459,4 +509,71 @@ fn next_process_index(
         .max()
         .unwrap_or(0)
         + 1
+}
+
+#[cfg(all(test, windows))]
+mod conversation_identity_tests {
+    use super::*;
+    #[test]
+    fn mixed_separator_registration_keeps_its_process_and_uses_one_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("conversations/qq").join("100/friend/200");
+        std::fs::create_dir_all(&raw).unwrap();
+        let canonical = crate::normalized_project_root(&raw);
+        assert_ne!(raw.as_os_str(), canonical.as_os_str());
+        let id = format!("p7|{}", raw.display());
+        let path = kanzei_core::project_state_path(&canonical);
+        let store = kanzei_core::SessionStore::open(&path).unwrap();
+        store
+            .insert_new_process(&kanzei_core::StoredProcess {
+                process_id: id.clone(),
+                origin_project: raw.display().to_string(),
+                project_dir: raw.display().to_string(),
+                worktree_path: None,
+                model: Some("saved:model".into()),
+                profile: Some("dev-auto".into()),
+                research_topic: None,
+                reasoning: None,
+                manual_models: Vec::new(),
+                subagent_mode: kanzei_harness::SubagentMode::Off,
+                tracker_writes_enabled: false,
+                updated_at: 1,
+            })
+            .unwrap();
+        let state = AppState::default();
+        for _ in 0..2 {
+            let process = ensure_channel_conversation(&state, &raw).unwrap();
+            assert_eq!(process.id, id);
+            assert_eq!(
+                process.profile.lock_or_recover().as_deref(),
+                Some("dev-pair")
+            );
+            assert_eq!(process.project_dir.0.as_os_str(), canonical.as_os_str());
+            assert_eq!(
+                process_info_with(&state, &process, &Default::default()).session_id,
+                crate::process_session_id(&canonical, Some(&id))
+            );
+            assert_eq!(
+                process.model.lock_or_recover().as_deref(),
+                Some("saved:model")
+            );
+            assert_eq!(
+                store
+                    .list_processes(&canonical.display().to_string())
+                    .unwrap()
+                    .len(),
+                1
+            );
+            assert!(store
+                .list_processes(&raw.display().to_string())
+                .unwrap()
+                .is_empty());
+        }
+        let missing = dir.path().join("new/conversation");
+        let process = ensure_conversation(&state, &missing).unwrap();
+        assert_eq!(
+            process.project_dir.0.as_os_str(),
+            crate::normalized_project_root(&missing).as_os_str()
+        );
+    }
 }

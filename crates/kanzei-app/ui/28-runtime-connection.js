@@ -29,7 +29,8 @@ function synchronizeRuntime() {
       await refreshWorkspace();
       await restore_active_workspace({ isCurrent });
       if (!isCurrent() || active_space !== "dev-auto") return;
-      if (settings.ui_layout?.prefs?.conversation_mode === "general" || !prefs.projects?.length) await openGeneralChat();
+      if (settings.ui_layout?.prefs?.conversation_mode === "social") await import("./36-social.js").then(module => module.openSocial());
+      else if (settings.ui_layout?.prefs?.conversation_mode === "general" || !prefs.projects?.length) await openGeneralChat();
       else if (prefs.current) await openProjectSpace(prefs.current);
     } else {
       await refreshProcesses();

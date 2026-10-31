@@ -91,7 +91,8 @@ defer(() => {
     await runStep(["工作空间", () => restore_active_workspace({ isCurrent })]);
     if (isCurrent() && active_space === "dev-auto") {
       const mode = (await uiPrefsLoad())?.ui_layout?.prefs?.conversation_mode;
-      if (isCurrent() && (mode === "general" || !lastProjectPrefs.projects?.length)) await runStep(["无项目对话", openGeneralChat]);
+      if (isCurrent() && mode === "social") await runStep(["社交助手", () => import("./36-social.js").then(module => module.openSocial())]);
+      else if (isCurrent() && (mode === "general" || !lastProjectPrefs.projects?.length)) await runStep(["无项目对话", openGeneralChat]);
       else if (isCurrent() && lastProjectPrefs.current) await runStep(["项目概览", () => openProjectSpace(lastProjectPrefs.current)]);
     }
     if (!currentProject) setStatus("空闲", false);

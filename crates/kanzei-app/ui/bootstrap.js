@@ -63,3 +63,4 @@ initializeUi();
 
 import "./33-qq.js";
 import "./35-bili.js";
+import "./36-social.js";

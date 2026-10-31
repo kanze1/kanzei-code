@@ -201,6 +201,7 @@ export function trimLivePane(pane) {
 export function resetPane() {
   activePane.replaceChildren();
   delete activePane.dataset.hasContent;
+  delete activePane.dataset.historyLoaded;
   delete activePane.dataset.droppedLive;
   renderTrimmedHint(activePane);
 }

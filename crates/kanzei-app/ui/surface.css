@@ -150,7 +150,7 @@ body:is(:not([data-view]), [data-view="chat"], [data-view="project"]):has(#ask-o
 /* 预览面板打开时 toast 在它左边的区域里居中(--surface-safe-right 见 §3 芯片注释)。 */
 .k-toast-region {
   position: fixed; inset: auto var(--surface-safe-right, 0px) 40px 0; margin: 0 auto;
-  width: max-content; max-width: min(560px, 90vw);
+  width: max-content; max-width: min(560px, calc(100% - 48px));
   display: flex; flex-direction: column; align-items: center; gap: var(--sp-4);
   background: none; border: 0; border-radius: 0; box-shadow: none; padding: 0;
   pointer-events: none; overflow: visible;

@@ -28,12 +28,25 @@ use super::{now_ms, subagent_round_tool, TRACE_INPUT_KEEP_CHARS};
 /// UI 事件发射通道(window.emit + with_session_id 的闭包)。
 type EmitFn = Arc<dyn Fn(&str, serde_json::Value) -> tauri::Result<()> + Send + Sync>;
 
+pub(crate) fn committed_input_payload(
+    state_path: &std::path::Path,
+    session_id: &str,
+    input_id: &str,
+    message: &kanzei_llm::Message,
+) -> anyhow::Result<serde_json::Value> {
+    let store = kanzei_core::SessionStore::open_read_only(state_path)?;
+    Ok(
+        json!({"inputId":input_id,"commandId":store.input_command_id(session_id,input_id)?,"message":if input_id.starts_with("async:"){None}else{Some(message)}}),
+    )
+}
+
 /// R-253 批8:UI 投影 sink——把 RunEvent 投影为前端可见的 kz:* 事件。
 /// 持有 emit 闭包(捕获 window + session_id);纯 UI 事件只落这一个 sink。
 pub(crate) struct UiEventSink {
     emit: EmitFn,
     session_id: String,
     run_id: String,
+    state_path: std::path::PathBuf,
 }
 
 impl UiEventSink {
@@ -41,11 +54,13 @@ impl UiEventSink {
         emit_event: impl Fn(&str, serde_json::Value) -> tauri::Result<()> + Send + Sync + 'static,
         session_id: String,
         run_id: String,
+        state_path: std::path::PathBuf,
     ) -> Self {
         Self {
             emit: Arc::new(emit_event),
             session_id,
             run_id,
+            state_path,
         }
     }
 
@@ -723,9 +738,12 @@ pub(crate) fn build_event_handler(
                 typed.stream_restarted();
                 ui.emit("kz:response-interrupted", json!({}))
             }
-            RunEvent::InputMessageCommitted { input_id, .. } => {
+            RunEvent::InputMessageCommitted { input_id, message } => {
                 metrics.note_input_committed();
-                ui.emit("kz:input-received", json!({"inputId":input_id}))
+                match committed_input_payload(&ui.state_path, &ui.session_id, &input_id, &message) {
+                    Ok(payload) => ui.emit("kz:input-received", payload),
+                    Err(error) => ui.emit("kz:error", json!({"message":format!("输入显示同步失败: {error}"),"terminal":false})),
+                }
             }
             RunEvent::AssistantMessageCommitted { step, message, commit } => {
                 if let Err(error) = typed.assistant_committed(step, message) {
@@ -1348,6 +1366,7 @@ mod tests {
             },
             "source-session".into(),
             "source-run".into(),
+            path.clone(),
         );
         let mut handler = build_event_handler(
             ui,

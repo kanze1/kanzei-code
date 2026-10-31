@@ -27,6 +27,14 @@ pub struct CommandAdmission<'a> {
 }
 
 impl SessionStore {
+    /// Link a committed input to the client command used for optimistic UI.
+    pub fn input_command_id(
+        &self,
+        session: &str,
+        input: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self.connection.query_row("SELECT json_extract(payload_json,'$.command_id') FROM session_events WHERE session_id=?1 AND event_type='input.command_admitted' AND json_extract(payload_json,'$.input_id')=?2 ORDER BY sequence DESC LIMIT 1", params![session,input], |row| row.get(0)).optional()?)
+    }
     pub fn admit_command(
         &self,
         session: &str,
@@ -1317,6 +1325,20 @@ mod command_and_stop_tests {
         let input = store.admit_command("s", admission("c1", "hash-a")).unwrap();
         let again = store.admit_command("s", admission("c1", "hash-a")).unwrap();
         assert_eq!(input.input_id, again.input_id);
+        assert_eq!(
+            store
+                .input_command_id("s", &input.input_id)
+                .unwrap()
+                .as_deref(),
+            Some("c1")
+        );
+        assert_eq!(
+            store
+                .input_command_id("other-session", &input.input_id)
+                .unwrap(),
+            None
+        );
+        assert_eq!(store.input_command_id("s", "unknown-input").unwrap(), None);
         assert_eq!(store.list_pending_inputs("s").unwrap().len(), 1);
         assert!(store.admit_command("s", admission("c1", "hash-b")).is_err());
         assert_eq!(

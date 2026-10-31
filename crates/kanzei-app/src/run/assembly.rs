@@ -143,6 +143,7 @@ pub(crate) struct RuntimeDeps {
 
 pub(crate) struct SessionContext {
     pub(crate) prior: Vec<kanzei_llm::Message>,
+    pub(crate) input_receipt: serde_json::Value,
     pub(crate) state_path: PathBuf,
     pub(crate) store: kanzei_core::SessionStore,
     pub(crate) promoted_input_id: String,
@@ -335,6 +336,10 @@ pub(crate) async fn assemble_run(
     let (session, round) =
         prepare_session(request, &mode, handles, &halt_token, &mut deps, ctx).await?;
     let _ = window.emit(
+        "kz:input-received",
+        with_session_id(session.input_receipt.clone(), &session_id),
+    );
+    let _ = window.emit(
         "kz:meta",
         with_session_id(
             run_meta_payload(
@@ -525,7 +530,7 @@ async fn prepare_session(
         );
         let user_committed = typed_writer
             .lock_or_recover()
-            .user_message(&promoted_input_id, typed_user_message);
+            .user_message(&promoted_input_id, typed_user_message.clone());
         anyhow::ensure!(
             user_committed,
             "用户输入未持久化: {}",
@@ -536,6 +541,12 @@ async fn prepare_session(
                 .map(String::as_str)
                 .unwrap_or("用户事实提交被拒绝")
         );
+        let input_receipt = super::events::committed_input_payload(
+            &state_path,
+            &request.session_id,
+            &promoted_input_id,
+            &typed_user_message,
+        )?;
         {
             let _lifecycle = handles.lifecycle.lock_or_recover();
             anyhow::ensure!(!halt_token.is_cancelled(), "运行已在装配时停止");
@@ -607,6 +618,7 @@ async fn prepare_session(
             request.process_id.to_string(),
         );
         Ok::<_, anyhow::Error>((
+            input_receipt,
             prior,
             prompt,
             initial_parts,
@@ -621,7 +633,7 @@ async fn prepare_session(
         ))
     }
     .await;
-    let (prior, prompt, initial_parts, round) = match prepared {
+    let (input_receipt, prior, prompt, initial_parts, round) = match prepared {
         Ok(prepared) => prepared,
         Err(error) => {
             return Err(finish_startup_failure(
@@ -655,6 +667,7 @@ async fn prepare_session(
     });
     Ok((
         SessionContext {
+            input_receipt,
             prior,
             state_path,
             store,

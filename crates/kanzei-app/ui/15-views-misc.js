@@ -42,6 +42,7 @@ import {
   applyRecoveredToolDurations,
   buildReasoningBlock,
   buildToolBlock,
+  chatToolBlocks,
   fillToolBlock,
   mergeAdjacentToolGroups,
   mountToolBlock,
@@ -592,6 +593,7 @@ export function renderRecoveredMessages(items) {
     resetPane();
     activePane.innerHTML = emptyStateMarkup();
   }
+  activePane.dataset.historyLoaded = "1";
   renderEarlierHint();
   scrollBottom(true);
 }
@@ -640,7 +642,7 @@ export function renderMessageParts(items) {
         // 轨迹里的耗时按调用 id 回填(applyRecoveredToolDurations)。
         if (part.id) block.wrap.dataset.toolCallId = part.id;
         mountToolBlock(block);
-        if (part.id) pending.set(part.id, { block, input: part.input });
+        if (part.id) { block.input = part.input; pending.set(part.id, { block, input: part.input }); }
         continue;
       }
       if (part.type === "tool_result") {
@@ -731,6 +733,12 @@ export function renderMessageParts(items) {
       subagentHistoryResult(activeSessionId, callId, { interrupted: true });
       continue;
     }
+    if (sessionState(activeSessionId).stage_tools?.has(callId)) {
+      block.input = block.input ?? {};
+      block.finished = false;
+      chatToolBlocks.set(callId, block);
+      continue;
+    }
     block.wrap.classList.remove("running");
     // 与实时停止收尾(chatAbortRunning)同形:标 interrupted,工具组标签据此计「N 中断」。
     block.wrap.classList.add("interrupted");
@@ -764,7 +772,7 @@ export async function loadConversation(sequence = null, switchGeneration = null,
   // **历史快照**——它跟当前 pane 里那段是两回事,直接复用等于什么都没做,而调用方
   // (openConversationForProcess)紧接着还会写一句「已打开历史对话 #N」。用户看到
   // 提示、屏幕没变化,只会以为界面坏了。有 sequence 时一律走下面的真装载。
-  if (!force && sequence === null && activeSessionId && showPane(activeSessionId)) {
+  if (!force && sequence === null && activeSessionId && showPane(activeSessionId) && activePane.dataset.historyLoaded === "1") {
     scrollBottom(true);
     return;
   }
@@ -998,6 +1006,7 @@ export function forgetDeletedSession(sessionId) {
   if (sessionId === activeSessionId) {
     showPane(null);
     clearChat();
+    activePane.dataset.historyLoaded = "1";
     activePane.innerHTML = emptyStateMarkup();
     bgClear();
   }
@@ -1221,6 +1230,7 @@ export function showFreshConversation() {
   // 顺手把越界可见的 pane 收起来(同一时刻只显示一个)。
   showPane(activeSessionId);
   clearChat();
+  activePane.dataset.historyLoaded = "1";
   activePane.innerHTML = emptyStateMarkup();
   setFollowLatest(true);
   noteProgrammaticScroll();

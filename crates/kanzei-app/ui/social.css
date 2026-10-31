@@ -1,0 +1,69 @@
+#social-toolbar { display: flex; align-items: center; gap: var(--sp-5); flex: none; min-height: 56px; padding: var(--sp-4) var(--sp-6); border-bottom: .5px solid var(--border-soft); font-size: var(--fs-14); }
+#social-target { display: flex; align-items: center; gap: var(--sp-4); min-width: 0; padding-inline: var(--sp-3); }
+#social-target-name { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 550; }
+#social-target svg { flex: none; width: 16px; height: 16px; }
+#social-target-kind { flex: none; font-size: var(--fs-12); }
+.social-toolbar-actions { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; flex: none; }
+.social-connection { display: flex; align-items: center; gap: var(--sp-3); color: var(--dim); }
+.social-status-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
+.social-connection[data-connected="true"] .social-status-dot { background: var(--ok); }
+body[data-social="true"] #project-space-nav { display: none; }
+#view-chat { --social-manager-width: 440px; position: relative; }
+#view-chat[data-social-panel="open"] { padding-right: var(--social-manager-width); }
+#social-manager { position: absolute; inset: 0 0 0 auto; width: var(--social-manager-width); display: flex; flex-direction: column; min-height: 0; overflow: hidden; border-left: .5px solid var(--border); background: var(--panel); z-index: 4; animation: social-panel-in .18s ease; font-size: var(--fs-14); }
+.social-manager-head { display: flex; align-items: center; justify-content: space-between; flex: none; min-height: 56px; padding: var(--sp-4) 20px; }
+.social-manager-head strong { font-size: var(--fs-16); font-weight: 550; }
+.social-manager-head svg { width: 18px; height: 18px; }
+.social-platforms { display: flex; gap: var(--sp-5); padding: 0 20px; flex: none; border-bottom: .5px solid var(--border-soft); }
+.social-platforms button { padding: var(--sp-4) var(--sp-3) var(--sp-5); border: 0; border-radius: 0; background: transparent; color: var(--dim); }
+.social-platforms button.active { color: var(--fg-strong); box-shadow: inset 0 -1px var(--fg-strong); }
+.social-platform { flex: 1; min-height: 0; }
+.social-manager-page { height: 100%; display: flex; flex-direction: column; min-height: 0; padding: 0 20px; }
+.social-account-row { display: flex; align-items: center; gap: var(--sp-5); min-height: 44px; flex: none; }
+.social-account-row > :first-child { margin-right: auto; }
+#qq-page-error:empty, #bili-error:empty { display: none; }
+#qq-page-error, #bili-error { color: var(--err); overflow-wrap: anywhere; margin: var(--sp-3) 0; }
+.social-manager-page .qq-tabs { flex: none; display: flex; flex-wrap: nowrap; gap: var(--sp-2); overflow-x: auto; margin: 0; padding: var(--sp-3) 0 var(--sp-5); border-bottom: .5px solid var(--border-soft); }
+.qq-tabs button { flex: none; border: 0; padding: var(--sp-3) var(--sp-4); color: var(--dim); background: transparent; font-size: var(--fs-12); }
+.qq-tabs button.active { color: var(--fg-strong); background: var(--surface-selected); }
+.social-manager-page .qq-content { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-6) 0 24px; scrollbar-width: thin; }
+.qq-form { display: grid; gap: var(--sp-6); }
+.qq-field { display: grid; gap: var(--sp-3); font-size: var(--fs-14); }
+.qq-field input, .qq-field textarea, .qq-content select { min-width: 0; width: 100%; background: var(--input); border: .5px solid var(--border); border-radius: var(--r-sm); color: var(--fg); padding: 9px var(--sp-4); font: inherit; }
+.qq-field input:read-only { color: var(--dim); }
+.qq-field textarea { min-height: 112px; resize: vertical; }
+.qq-field:has(input[type="checkbox"]) { display: flex; align-items: center; justify-content: space-between; }
+.qq-field input[type="checkbox"] { width: 16px; height: 16px; }
+.qq-form > button { justify-self: start; }
+.qq-toolbar { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.qq-rule-list { margin-top: var(--sp-6); }
+.qq-rule-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-6) 0; border-bottom: .5px solid var(--border-soft); }
+.qq-rule-identity { display: grid; gap: var(--sp-2); min-width: 0; margin-right: auto; }
+.qq-rule-identity strong { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 550; }
+.qq-rule-identity span, .qq-rule-state { font-size: var(--fs-12); color: var(--dim); }
+.qq-rule-row button { padding: var(--sp-3); flex: none; font-size: var(--fs-12); }
+#qq-group-editor { margin-top: var(--sp-6); }
+#qq-group-editor .qq-toolbar { position: sticky; bottom: 0; padding: var(--sp-5) 0; background: var(--panel); }
+.qq-rule-heading { display: flex; align-items: center; justify-content: space-between; }
+.qq-memory-entry, .qq-log-entry { padding: var(--sp-6) 0; border-bottom: .5px solid var(--border-soft); overflow-wrap: anywhere; }
+.qq-memory-entry > span { margin-left: var(--sp-4); font-size: var(--fs-12); }
+.qq-memory-entry p, .qq-log-entry p { white-space: pre-wrap; margin: var(--sp-4) 0; }
+.qq-log-entry small { font-size: var(--fs-12); color: var(--dim); }
+.qq-log-entry > button { margin-right: var(--sp-3); }
+#qq-records h2 { font-size: var(--fs-16); margin: var(--sp-6) 0; }
+.bili-draft-heading { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
+.bili-draft-heading span { font-size: var(--fs-12); }
+#view-chat[data-social-panel="open"][data-social-narrow="true"] { padding-right: 0; }
+#view-chat[data-social-panel="open"][data-social-narrow="true"] > :not(#social-manager) { visibility: hidden; }
+#view-chat[data-social-narrow="true"] #social-manager { width: 100%; border-left: 0; }
+#view-chat[data-social-narrow="true"] .social-manager-page { padding-inline: clamp(20px, 6vw, 64px); }
+@container (max-width: 620px) { #social-target-kind, .social-connection { display: none; } #social-toolbar { gap: var(--sp-3); padding-inline: var(--sp-5); } }
+@keyframes social-panel-in { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { #view-chat { transition: none; } #social-manager { animation: none; } }
+
+body[data-social="true"] #view-chat > #social-toolbar { grid-area: head; }
+body[data-social="true"] #general-chat-link { display: none; }
+body[data-social="true"] #view-chat[data-preview-narrow="preview"] > #social-toolbar { display: none; }
+
+#social-live-state { color: var(--dim); font-size: var(--fs-12); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#social-nav[data-running="true"]::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-left: auto; }

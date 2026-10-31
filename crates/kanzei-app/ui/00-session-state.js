@@ -84,11 +84,17 @@ export function applyRuntimeSnapshot(sessionId, snapshot, { queryId = null } = {
       retired.add(current.actor_epoch);
     }
   } else if (!queried) queryFloors.set(state, ++querySequence);
+  const sameRunningRound = current?.actor_epoch === snapshot.actor_epoch
+    && current.round_generation === snapshot.round_generation && state.phase === "running" && phase === "running";
   retiredEpochs.set(state, retired); authorities.set(state, Object.freeze(structuredClone(snapshot)));
   if (snapshot.phase === "active" || snapshot.last_outcome === "stopped") autoPolicies.set(state, false);
   phases.set(state, phase);
-  state.stage = ({starting:"启动中", running:"运行中", stopping:"回收中", failed:"出错", stopped:"已停止", idle:"空闲"})[phase];
-  state.detail = snapshot.error || "";
+  // Lifecycle queries own phase, while execution events own progress within a
+  // running round. Reopening a conversation must not erase its active tool.
+  if (!sameRunningRound) {
+    state.stage = ({starting:"启动中", running:"运行中", stopping:"回收中", failed:"出错", stopped:"已停止", idle:"空闲"})[phase];
+    state.detail = snapshot.error || "";
+  }
   revisions.set(state, state.revision + 1);
   for (const listener of listeners) listener(sessionId, state);
   return true;
