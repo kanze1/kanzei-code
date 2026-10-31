@@ -1,6 +1,36 @@
 //! Application-owned QQ conversation identities. A peer never supplies a storage path.
 use std::path::{Path, PathBuf};
 
+pub fn social_conversation_root() -> anyhow::Result<PathBuf> {
+    Ok(crate::kanzei_home()
+        .ok_or_else(|| anyhow::anyhow!("Kanzei home unavailable"))?
+        .join("conversations/social"))
+}
+
+pub fn is_social_conversation(root: &Path) -> bool {
+    crate::kanzei_home().is_some_and(|home| {
+        crate::project_root::is_same_dir(root, &home.join("conversations/social"))
+            || QqConversation::from_root_at(root, &home).is_some()
+            || is_bilibili_root_at(root, &home)
+    })
+}
+
+/// Files are independent of shared memory and runtime/credential storage.
+/// Personal social channels share a workspace; each group owns a separate one.
+pub fn social_workspace_root(root: &Path) -> Option<PathBuf> {
+    if !is_social_conversation(root) {
+        return None;
+    }
+    let home = crate::kanzei_home()?;
+    let workspaces = home.join("social-workspaces");
+    match QqConversation::from_root_at(root, &home) {
+        Some(q) if q.kind == QqPeerKind::Group => {
+            Some(workspaces.join("groups").join(q.account).join(q.peer))
+        }
+        _ => Some(workspaces.join("personal")),
+    }
+}
+
 pub fn bilibili_conversation_root(account: &str) -> anyhow::Result<PathBuf> {
     QqConversation::new(account, QqPeerKind::Friend, "1")?;
     Ok(crate::kanzei_home()
@@ -27,6 +57,7 @@ pub fn memory_owner_root(root: &Path) -> PathBuf {
     };
     let general = home.join("conversations/general");
     if crate::project_root::is_same_dir(root, &general)
+        || crate::project_root::is_same_dir(root, &home.join("conversations/social"))
         || is_bilibili_root_at(root, &home)
         || QqConversation::from_root_at(root, &home).is_some_and(|q| q.kind == QqPeerKind::Friend)
     {

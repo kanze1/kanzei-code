@@ -2,6 +2,149 @@ use super::*;
 use kanzei_harness::ProfileKind;
 
 #[test]
+fn social_channels_have_a_persistent_workspace_without_host_or_deferred_capabilities() {
+    kanzei_base::test_support::isolated_test(
+        module_path!(),
+        "social_channels_have_a_persistent_workspace_without_host_or_deferred_capabilities",
+        || {
+            let directory = kanzei_base::test_support::TestDir::new("kz-social-scope-");
+            let home = directory.join("home");
+            std::fs::create_dir_all(home.join("agents")).unwrap();
+            std::env::set_var("KANZEI_HOME", &home);
+            std::fs::write(
+                home.join("agents/dev-pair.md"),
+                "---\nname: dev-pair\n---\nUNSAFE_CUSTOM_AGENT_USE_HOST_BASH",
+            )
+            .unwrap();
+            let personal = kanzei_harness::social_conversation_root().unwrap();
+            let friend = kanzei_harness::QqConversation::new(
+                "100",
+                kanzei_harness::QqPeerKind::Friend,
+                "200",
+            )
+            .unwrap()
+            .root()
+            .unwrap();
+            let group = kanzei_harness::QqConversation::new(
+                "100",
+                kanzei_harness::QqPeerKind::Group,
+                "300",
+            )
+            .unwrap()
+            .root()
+            .unwrap();
+            let other = kanzei_harness::QqConversation::new(
+                "100",
+                kanzei_harness::QqPeerKind::Group,
+                "301",
+            )
+            .unwrap()
+            .root()
+            .unwrap();
+            let bili = kanzei_harness::bilibili_conversation_root("1000").unwrap();
+            for root in [&personal, &friend, &bili] {
+                assert_eq!(
+                    kanzei_harness::social_workspace_root(root),
+                    Some(home.join("social-workspaces/personal"))
+                );
+                assert_eq!(
+                    kanzei_harness::memory_owner_root(root),
+                    home.join("conversations/general")
+                );
+            }
+            assert_ne!(
+                kanzei_harness::social_workspace_root(&group),
+                kanzei_harness::social_workspace_root(&other)
+            );
+            assert_ne!(
+                kanzei_harness::social_workspace_root(&group),
+                kanzei_harness::social_workspace_root(&personal)
+            );
+            assert_eq!(kanzei_harness::memory_owner_root(&group), group);
+            assert!(
+                kanzei_harness::social_workspace_root(&home.join("conversations/general"))
+                    .is_none()
+            );
+            let mut config = KanzeiConfig::default();
+            config.fill_defaults();
+            config.permissions.rules.push(kanzei_harness::rule(
+                "*",
+                "*",
+                kanzei_harness::Effect::Allow,
+            ));
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let resolved = config.resolve_model("primary").unwrap();
+            let route = Route::openai_at("http://127.0.0.1:1/v1", None);
+            for root in [&personal, &friend, &group, &bili] {
+                std::fs::create_dir_all(root).unwrap();
+                for profile in [
+                    ProfileKind::DevAuto,
+                    ProfileKind::DevPair,
+                    ProfileKind::Isolated,
+                ] {
+                    let snapshot = build_harness(profile, |_| {}, |_| {})
+                        .resolve(&ResolveCtx {
+                            profile,
+                            cwd: root.clone(),
+                            project_root: root.clone(),
+                            config: Arc::new(config.clone()),
+                        })
+                        .unwrap();
+                    let names: std::collections::BTreeSet<_> = snapshot
+                        .materialize_tools()
+                        .iter()
+                        .map(|t| t.name())
+                        .collect();
+                    assert_eq!(
+                        names,
+                        [
+                            "sandbox",
+                            "websearch",
+                            "webfetch",
+                            "memory_search",
+                            "memory_note"
+                        ]
+                        .into_iter()
+                        .collect()
+                    );
+                    assert!(snapshot.deferred_tools().is_empty());
+                    assert!(snapshot.agent_sources().is_empty());
+                    let agent = snapshot
+                        .select_primary_agent(Some(profile.as_str()))
+                        .unwrap();
+                    assert!(!agent.system.contains("UNSAFE_CUSTOM_AGENT"));
+                    // The task runtime has its own snapshot. It must not recreate
+                    // host-capable children after the primary capability projection.
+                    let rctx = ResolveCtx {
+                        profile,
+                        cwd: root.clone(),
+                        project_root: root.clone(),
+                        config: Arc::new(config.clone()),
+                    };
+                    assert!(runtime
+                        .block_on(build_subagent_runtime(
+                            &rctx,
+                            &config,
+                            &ProxyConfig::Disabled,
+                            &resolved,
+                            &route,
+                            None,
+                            None,
+                            None,
+                            None
+                        ))
+                        .unwrap()
+                        .is_none());
+                }
+            }
+        },
+    );
+}
+
+#[test]
 fn readonly_composition_preserves_the_boundary_with_custom_instructions_and_broad_rules() {
     kanzei_base::test_support::isolated_test(
         module_path!(),

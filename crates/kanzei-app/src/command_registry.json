@@ -692,6 +692,10 @@
     "host": "service"
   },
   {
+    "path": "general_chat::social_conversation_open",
+    "host": "service"
+  },
+  {
     "path": "general_chat::general_chat_location",
     "host": "service"
   },

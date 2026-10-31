@@ -3,6 +3,8 @@ import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
   "已登录": "Signed in",
   "社交助手": "Social assistant",
+  "大肥鱼": "Big fish",
+  "沙箱工作区": "Sandbox workspace",
   "切换社交会话": "Switch social conversation",
   "B站浏览": "Bilibili browsing",
   "个人助手": "Personal assistant",

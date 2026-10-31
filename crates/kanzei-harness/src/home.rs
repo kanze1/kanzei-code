@@ -36,12 +36,16 @@ pub fn is_general_conversation_root(root: &Path) -> bool {
 
 fn is_general_conversation_root_at(root: &Path, home: &Path) -> bool {
     crate::project_root::is_same_dir(root, &home.join("conversations/general"))
+        || crate::project_root::is_same_dir(root, &home.join("conversations/social"))
         || crate::QqConversation::from_root_at(root, home).is_some()
         || crate::conversation_scope::is_bilibili_root_at(root, home)
 }
 
 /// Files belong to a conversation; shared history and memory stay in the store root.
 pub fn general_conversation_workspace(root: &Path, session: &str) -> PathBuf {
+    if let Some(workspace) = crate::social_workspace_root(root) {
+        return workspace;
+    }
     root.join("artifacts")
         .join(kanzei_base::content_hash(session.as_bytes()))
 }

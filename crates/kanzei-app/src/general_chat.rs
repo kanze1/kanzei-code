@@ -77,6 +77,17 @@ pub(crate) fn general_chat_open(state: State<'_, crate::AppState>) -> Result<Str
     open(&state)
 }
 
+#[tauri::command]
+pub(crate) fn social_conversation_open(
+    state: State<'_, crate::AppState>,
+) -> Result<serde_json::Value, String> {
+    let root = kanzei_harness::social_conversation_root().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let root = crate::normalized_project_root(&root);
+    let process = crate::processes::registry::ensure_channel_conversation(&state, &root)?;
+    Ok(serde_json::json!({"root": root, "process_id": process.id}))
+}
+
 struct LinkGuard(std::sync::Arc<crate::SessionRuntime>);
 impl Drop for LinkGuard {
     fn drop(&mut self) {

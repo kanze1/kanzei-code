@@ -1,7 +1,7 @@
 // WebView2 + real runtime/SQLite/tools; local model and OneBot protocol fixtures.
 /* global window, document */
 import assert from "node:assert/strict";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, access } from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
@@ -18,8 +18,10 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   const check = (value,label) => {assert(value,label);checks.push(label);console.log(`PASS ${label}`);};
   const executable=process.argv[2]||path.join(process.env.CARGO_TARGET_DIR||"target","debug/kzapp.exe");
   const exe=path.join(run,"kzapp.exe"); await task.copyInput(path.resolve(executable),exe);
-  let friends=[{user_id:200,nickname:"测试好友"}], groupEvents=0, heldTool=null;
-  const server=task.server(http.createServer((req,res)=>{ if(req.url==="/held-tool"){heldTool=res;return;}res.statusCode=404;res.end();})), onebot=new WebSocketServer({server});
+  let friends=[{user_id:200,nickname:"测试好友"}], groupEvents=0;
+  const workspace=path.join(home,"social-workspaces/personal");
+  const liveScript='from pathlib import Path\nimport time\nPath("live-started").write_text("started")\nwhile not Path("live-release").exists():\n time.sleep(0.05)\nprint("QQ_LIVE_FINISHED")';
+  const server=task.server(http.createServer((req,res)=>{res.statusCode=404;res.end();})), onebot=new WebSocketServer({server});
   onebot.on("connection",(ws,request)=>{
     sockets.add(ws);ws.on("close",()=>sockets.delete(ws));
     if(request.headers.authorization!=="Bearer qq-test-token"){errors.push("OneBot authorization header mismatch");ws.close(1008);return;}
@@ -57,14 +59,14 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const calls=payload.messages.flatMap(m=>m.tool_calls||[]),called=id=>calls.some(c=>c.id===id);
     const call=(id,name,input)=>answer(res,null,{id,name,input});
     if(text.includes("FRIEND_LIVE")){
-      if(!called("live-shell"))call("live-shell","bash",{command:`Write-Output 'QQ_LIVE_STARTED'; Invoke-RestMethod 'http://127.0.0.1:${server.address().port}/held-tool'`});
+      if(!called("live-shell"))call("live-shell","sandbox",{command:"python3 -c '"+liveScript+"'",timeout_ms:120000});
       else answer(res,"LIVE_DONE: 实时工具结束。");
     }else if(text.includes("FRIEND_TERMINAL")){
-      if(!called("friend-shell"))call("friend-shell","bash",{command:"Write-Output 'QQ_TERMINAL_EXECUTED'"});
-      else answer(res,"FRIEND_DONE: 本机终端已执行。");
+      if(!called("friend-shell"))call("friend-shell","sandbox",{command:"printf QQ_TERMINAL_EXECUTED"});
+      else answer(res,"FRIEND_DONE: 沙箱命令已执行。");
     }else if(text.includes("FRIEND_APPROVAL")){
-      if(!called("friend-write"))call("friend-write","write",{path:"qq-approved.txt",content:"QQ_APPROVED_FILE"});
-      else answer(res,"APPROVAL_DONE: 已获准写入。");
+      if(!called("friend-write"))call("friend-write","sandbox",{command:"printf QQ_WORKSPACE_FILE > qq-workspace.txt; cat qq-workspace.txt"});
+      else answer(res,"APPROVAL_DONE: 已写入独立工作区。");
     }else if(text.includes("GROUP_MENTION")){
       if(!called("mention-reply"))call("mention-reply","qq_reply",{text:"MENTION_SENT: 点名回复"});
       else answer(res,"点名回复完成。");
@@ -122,31 +124,29 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const friendLog=await invoke("qq_peer_log",{identity:friend.identity});
     check(friendLog.messages.length===1&&friendLog.deliveries.length===1,"Duplicate events create one task and one delivery");
     const request=requests.find(r=>JSON.stringify(r).includes("FRIEND_TERMINAL"));
-    check(request.tools.some(t=>t.function.name==="bash"),"Friend reuses local assistant tools");
-    check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("QQ_TERMINAL_EXECUTED"))),"Local terminal actually executes");
+    check(request.tools.some(t=>t.function.name==="sandbox")&&!request.tools.some(t=>["bash","read","write","browser","desktop","task","process"].includes(t.function.name)),"Friend gets isolated workspace tools without host control");
+    check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("QQ_TERMINAL_EXECUTED"))),"Isolated POSIX command actually executes");
     await page.locator("#qq-refresh").click();await page.locator("#social-manager-close").click();
     await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"测试好友"}).click();
     await until(async()=>(await page.locator("#messages").innerText()).includes("FRIEND_DONE"),"QQ native conversation");
     check((await page.locator("#social-target-name").innerText())==="测试好友"&&await page.locator("#prompt").isVisible(),"QQ target uses the ordinary conversation and composer");
     check((await page.locator("#messages").innerText()).includes("QQ_TERMINAL_EXECUTED"),"Native conversation renders actual tool stream");
-    await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"个人助手",exact:false}).click();
+    await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"大肥鱼",exact:false}).click();
     incoming("friend",200,"FRIEND_LIVE: 持续执行本机工具",22);
-    await until(()=>heldTool!==null,"Live terminal reaches fixture barrier");
+    await until(async()=>{try{await access(path.join(workspace,"live-started"));return true;}catch{return false;}},"Live sandbox reaches file barrier");
     await until(async()=>await page.locator("#social-nav").getAttribute("data-running")==="true","Background QQ run marks social entry");
     await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:/测试好友/}).click();
     await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_LIVE"),"Externally committed QQ input appears in local conversation");
     check((await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_TERMINAL"),"Opening background stream hydrates older committed history");
-    check((await page.locator("#social-live-state").innerText()).includes("bash")&&await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()>0,"In-flight QQ terminal shows live execution state after switching in");
-    heldTool.end("QQ_LIVE_FINISHED");heldTool=null;
+    check((await page.locator("#social-live-state").innerText()).includes("sandbox")&&await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()>0,"In-flight QQ sandbox shows live execution state after switching in");
+    await writeFile(path.join(workspace,"live-release"),"release");
     await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("LIVE_DONE"),"Local conversation receives live tool completion without refresh");
     check(await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()===0,"Recovered running tool settles from the real completion event");
     incoming("friend",200,"FRIEND_APPROVAL: 写入文件",20);
-    await until(()=>deliveries.some(d=>JSON.stringify(d).includes("/allow")),"Forwarded friend permission request");
+    await until(()=>deliveries.some(d=>JSON.stringify(d).includes("APPROVAL_DONE")),"Friend completes isolated file work");
+    check((await readFile(path.join(workspace,"qq-workspace.txt"),"utf8"))==="QQ_WORKSPACE_FILE","QQ file work persists only inside social workspace");
     const asks=await invoke("pending_asks_get",{projectDir:friend.root,processId:friend.process_id});
-    check(asks.length===1,"Permission question belongs to the friend session");
-    incoming("friend",200,`/allow ${asks[0].id}`,21);
-    await until(()=>deliveries.some(d=>JSON.stringify(d).includes("APPROVAL_DONE")),"Friend approves once over QQ");
-    check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&m.tool_call_id==="friend-write"&&JSON.stringify(m).includes("bytes"))),"QQ approval resumes actual local tool execution");
+    check(asks.length===0,"Sandbox work does not request host permission");
     incoming("group",300,"GROUP_SPEAK: 这条普通群消息没有 at",3);
     await until(()=>deliveries.some(d=>d.action==="send_group_msg"),"Non-mention group participation");
     status=await invoke("qq_status");const group=status.peers.find(p=>p.identity.kind==="group");
@@ -238,14 +238,14 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(recovered.peers.length===2,"QQ peers survive runtime restart");
     check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
     check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
-    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===4,"Removed friends cannot append local assistant input");
+    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===3,"Removed friends cannot append local assistant input");
     check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===4,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);
-    await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/terminal; fixture OneBot/model, no real QQ account",checks,groupEvents,requests:requests.length,deliveries,errors},null,2));
+    await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/WSL sandbox; fixture OneBot/model, no real QQ account",checks,groupEvents,requests:requests.length,deliveries,errors},null,2));
   }catch(error){
     if(page){await page.screenshot({path:path.join(task.evidence,"failure.png")});await writeFile(path.join(task.evidence,"failure.json"),JSON.stringify({error:String(error),status:await invoke("qq_status"),requests,deliveries,errors,ui:await page.locator("body").innerText(),events:await page.evaluate(async()=>{const shell=await import("./03-shell.js"), panes=await import("./01-chat-panes.js");return {active:shell.activeSessionId,stage:shell.sessionState(shell.activeSessionId),panes:[...panes.messagePanes].map(([id,pane])=>({id,loaded:pane.dataset.historyLoaded,text:pane.innerText})),events:window.__qqEvents};})},null,2));}
     throw error;
-  }finally{heldTool?.end();await close();for(const ws of sockets)ws.terminate();await new Promise(resolve=>onebot.close(resolve));}
+  }finally{await close();for(const ws of sockets)ws.terminate();await new Promise(resolve=>onebot.close(resolve));}
 });

@@ -1,11 +1,12 @@
 import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
 import { $, defer } from "./00-dom.js";
+import { invoke } from "./00-ipc.js";
 import { openMenu } from "./00-surface.js";
 import { t } from "./02-i18n.js";
 import { currentProject, activeProcessId, activeSessionId, sessionState, toastError } from "./03-shell.js";
-import { isGeneralChat, rememberConversationMode } from "./03-general-scope.js";
+import { isGeneralChat, rememberConversationMode, setSocialConversationRoot } from "./03-general-scope.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
-import { openGeneralChat } from "./29-general-chat.js";
+import { openChannelConversation } from "./34-channel-conversations.js";
 import { cancelProjectNavigation, workbenchNavigationGuard } from "./12-workbench.js";
 import { closePreviewDock } from "./24-preview.js";
 import { refreshQq, qqSnapshot, openQqPeer, showQqSection } from "./33-qq.js";
@@ -27,8 +28,8 @@ function sync() {
   $("social-nav").classList.toggle("active", visible); $("social-nav").setAttribute("aria-pressed", String(visible));
   $("social-manage").setAttribute("aria-expanded", String(visible && panelOpen));
   const peer = selectedPeer(), bili = selectedBili();
-  $("social-target-name").textContent = peer ? peer.title : bili ? t("B站浏览") : t("个人助手");
-  $("social-target-kind").textContent = peer ? peer.identity.kind === "group" ? t("QQ 群聊") : t("QQ 好友") : bili ? t("B站") : t("无项目对话");
+  $("social-target-name").textContent = peer ? peer.title : bili ? t("B站浏览") : t("大肥鱼");
+  $("social-target-kind").textContent = `${peer ? peer.identity.kind === "group" ? t("QQ 群聊") : t("QQ 好友") : bili ? t("B站") : ""} ${t("沙箱工作区")}`.trim();
   const state = activeSessionId ? sessionState(activeSessionId) : null;
   $("social-live-state").textContent = state?.running ? `${t(state.stage || "运行中")}${state.detail ? ` ${state.detail}` : ""}` : state?.terminal_status ? t(state.terminal_status) : "";
   const busy = qqSnapshot()?.peers.some(item => sessionState(item.session_id).running) || selectedBili() && state?.running;
@@ -50,7 +51,9 @@ async function openTarget(target = "personal", { restore = false } = {}) {
   const peer = qqSnapshot()?.peers.find(peer => peerKey(peer) === target);
   if (peer) { if(!await openQqPeer(peer)) return false; }
   else if (target === "bili" && biliSnapshot()?.account) { if(!await openBiliConversation()) return false; }
-  else if (!await openGeneralChat()) { setSocialActive(false); sync(); return false; }
+  else if (!await openChannelConversation(async () => {
+    const target = await invoke("social_conversation_open"); setSocialConversationRoot(target.root); return target;
+  }, "social")) { setSocialActive(false); sync(); return false; }
   if (own !== opening) return;
   setSocialActive(true); rememberConversationMode("social"); setLayoutPref("social", "last_target", peer ? peerKey(peer) : target === "bili" && biliSnapshot()?.account ? "bili" : "personal"); sync(); return true;
 }
@@ -66,7 +69,7 @@ async function manage(nextPlatform, section) {
 function closeManager() { panelOpen = false; sync(); if (socialActive()) $("social-manage").focus({ preventScroll: true }); }
 function picker() {
   const peer = selectedPeer();
-  const items = [{ label: t("个人助手"), desc: t("无项目对话"), checked: !peer && !selectedBili(), onSelect: () => { void openTarget().catch(error => toastError(String(error))); } }];
+  const items = [{ label: t("大肥鱼"), desc: t("沙箱工作区"), checked: !peer && !selectedBili(), onSelect: () => { void openTarget().catch(error => toastError(String(error))); } }];
   for (const [kind, label] of [["friend", "QQ 好友"], ["group", "QQ 群聊"]]) {
     const peers = qqSnapshot()?.peers.filter(item => item.identity.kind === kind) || [];
     if (peers.length) { items.push({ heading: t(label) }); for (const item of peers) items.push({ label: item.title, desc: sessionState(item.session_id).running ? `${t(sessionState(item.session_id).stage || "运行中")} ${sessionState(item.session_id).detail || ""}` : item.identity.peer, checked: !!peer && peerKey(peer) === peerKey(item), onSelect: () => { void openTarget(peerKey(item)).catch(error => toastError(String(error))); } }); }

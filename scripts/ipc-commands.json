@@ -3235,6 +3235,12 @@
     "path": "skills::skills_set_enabled",
     "returns": "-> Result < Vec < Value > , String >"
   },
+  "social_conversation_open": {
+    "host": "service",
+    "parameters": {},
+    "path": "general_chat::social_conversation_open",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
   "softwire_answer_question": {
     "host": "service",
     "parameters": {

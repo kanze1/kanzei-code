@@ -834,6 +834,7 @@ export const commandParameters = {
     "enabled": true,
     "name": true
   },
+  "social_conversation_open": {},
   "softwire_answer_question": {
     "attachments": false,
     "expectedRevision": true,

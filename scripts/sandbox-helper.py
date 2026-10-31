@@ -1,11 +1,12 @@
 """Engine-owned Linux bubblewrap executor, embedded by the sandbox tool.
 
 One JSON request on stdin, followed by an optional cancel message or EOF.
-Only /usr and an immutable input directory enter the container. All writes are
-to bounded tmpfs mounts, and no output file is published back to the project.
+Only /usr and the engine-selected input/workspace enter the namespace. Disposable
+runs write bounded tmpfs; social runs retain only their dedicated workspace.
 """
 
 import json
+import fcntl
 import math
 import os
 from pathlib import Path
@@ -28,10 +29,24 @@ def limits(seconds):
     resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
     resource.setrlimit(resource.RLIMIT_NPROC, (128, 128))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (WORKSPACE_BYTES, WORKSPACE_BYTES))
 
 
 def execute(request):
-    inputs = str(Path(request["inputs"]).resolve(strict=True))
+    persistent = "workspace" in request
+    workspace_lock = None
+    if persistent:
+        workspace = Path(request["workspace"])
+        workspace_lock = os.open(workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        # A shared personal workspace has one writer across QQ/Bili/local runs.
+        # Never wait indefinitely while a different conversation owns it.
+        fcntl.flock(workspace_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        mount = ["--bind", str(workspace.resolve(strict=True)), "/workspace"]
+        entry = ["/bin/sh", "-c", request["command"]]
+    else:
+        inputs = str(Path(request["inputs"]).resolve(strict=True))
+        mount = ["--ro-bind", inputs, "/input", "--size", str(WORKSPACE_BYTES), "--tmpfs", "/workspace"]
+        entry = ["/bin/sh", "-c", 'cp -R /input/. /workspace/ && exec /bin/sh -c "$1"', "sandbox", request["command"]]
     seconds = request["timeout_ms"] / 1000
     if not 0 < seconds <= 120 or not isinstance(request["command"], str):
         raise ValueError("invalid sandbox deadline or command")
@@ -43,14 +58,12 @@ def execute(request):
         "--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin",
         "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
         "--proc", "/proc", "--dev", "/dev",
-        "--ro-bind", inputs, "/input",
-        "--size", str(WORKSPACE_BYTES), "--tmpfs", "/workspace",
+        *mount,
         "--size", str(TEMP_BYTES), "--tmpfs", "/tmp",
         "--dir", "/home", "--dir", "/home/sandbox", "--chdir", "/workspace",
         "--setenv", "PATH", "/usr/bin:/bin", "--setenv", "HOME", "/home/sandbox",
         "--setenv", "LANG", "C.UTF-8", "--setenv", "TMPDIR", "/tmp",
-        "--", "/bin/sh", "-c", 'cp -R /input/. /workspace/ && exec /bin/sh -c "$1"',
-        "sandbox", request["command"],
+        "--", *entry,
     ]
     try:
         process = subprocess.Popen(
@@ -112,6 +125,8 @@ def execute(request):
         selector.close()
         process.stdout.close()
         os.close(status_read)
+        if workspace_lock is not None:
+            os.close(workspace_lock)
     documents = [json.loads(line) for line in status.splitlines() if line.strip()]
     started = next((item for item in documents if "child-pid" in item), None)
     namespaces = ["mnt", "net", "pid", "ipc", "uts"]
@@ -127,8 +142,10 @@ def execute(request):
         "isolation_verified": verified, "namespaces": started,
         "exit_code": code, "output": output.decode("utf-8", errors="replace"),
         "output_bytes": total_bytes, "output_truncated": total_bytes > CAPTURE_BYTES,
-        "workspace_bytes": WORKSPACE_BYTES, "tmp_bytes": TEMP_BYTES,
-        "network": "denied", "host_writes": "none", "published_files": [],
+        "workspace": "persistent" if persistent else "disposable",
+        "file_write_limit_bytes": WORKSPACE_BYTES,
+        "workspace_bytes": None if persistent else WORKSPACE_BYTES, "tmp_bytes": TEMP_BYTES,
+        "network": "denied", "host_writes": "workspace_only" if persistent else "none", "published_files": [],
     }
 
 

@@ -3,9 +3,11 @@
 let generalRoot = null;
 let qqRoots = new Set();
 let biliRoots = new Set();
+let socialRoot = null;
+export function setSocialConversationRoot(root) { socialRoot = rootKey(root); }
 export function setBiliConversationRoot(root) { if (root) biliRoots.add(rootKey(root)); }
 export function isBiliConversation(root = conversationRoot) { return biliRoots.has(rootKey(root)); }
-export function isChannelConversation(root = conversationRoot) { return isQqConversation(root) || isBiliConversation(root); }
+export function isChannelConversation(root = conversationRoot) { return isQqConversation(root) || isBiliConversation(root) || !!socialRoot && rootKey(root) === socialRoot; }
 export function setQqConversationRoots(roots) { qqRoots = new Set(roots.map(rootKey)); }
 export function isQqConversation(root = conversationRoot) { return qqRoots.has(rootKey(root)); }
 let conversationRoot = null;

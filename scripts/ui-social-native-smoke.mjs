@@ -55,7 +55,8 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
   const app=await nativeApp(path.resolve("target/debug/kzapp.exe"),task.evidence,"Social fixture",(body,res)=>{
     if(!body.tools?.some(t=>t.function.name==="bili_feed")){textReply(res,"MEMORY_REVIEW_PENDING");return;}
     const used=body.messages.flatMap(m=>m.tool_calls||[]).map(c=>c.function.name);
-    if(!used.includes("bili_feed"))toolReply(res,"bili_feed",{},"feed");
+    if(!used.includes("sandbox"))toolReply(res,"sandbox",{command:"mkdir -p notes; printf BILI_WORKSPACE_RESULT > notes/bili.txt; python3 -c 'print(6*7)'"},"sandbox");
+    else if(!used.includes("bili_feed"))toolReply(res,"bili_feed",{},"feed");
     else if(!used.includes("bili_video"))toolReply(res,"bili_video",{bvid:bv},"video");
     else if(!used.includes("bili_comments"))toolReply(res,"bili_comments",{bvid:bv},"comments");
     else if(!used.includes("bili_comment_draft"))toolReply(res,"bili_comment_draft",{bvid:bv,body:"助手草稿"},"draft");
@@ -103,6 +104,8 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     postMode="disconnect";await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check((await invoke("bili_status")).records.drafts.find(d=>d.id===draft.id).state==="unknown","Interrupted send is durable unknown");await assert.rejects(()=>invoke("bili_publish",{id:draft.id,revision:draft.revision}));check(posts.length===2,"Unknown send is never replayed");postMode="success";
     await invoke("bili_settings_save",{settings:status.settings});await page.locator('#bili-tabs [data-tab="browse"]').click();await page.locator("#bili-content").getByRole("button",{name:"浏览一轮",exact:true}).click();await page.locator("#social-toolbar").waitFor({state:"visible"});await until(async()=>(await page.locator("#messages").innerText()).includes("BILI_DONE"),"Bili agent round completes in native conversation");
     const request=app.requests.find(r=>r.tools?.some(t=>t.function.name==="bili_feed"));check(request&&!["bash","write","task","bili_publish"].some(name=>request.tools.some(t=>t.function.name===name)),"Bili browsing session has no terminal, delegation, or direct publication tool");
+    check(["sandbox","websearch","webfetch"].every(name=>request.tools.some(t=>t.function.name===name)),"Bilibili retains sandbox and public internet tools");
+    check(await readFile(path.join(app.appHome,"social-workspaces/personal/notes/bili.txt"),"utf8")==="BILI_WORKSPACE_RESULT","Bilibili agent actually writes a persistent task file inside the isolated workspace");
     check(app.requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("助手草稿"))),"Agent actually creates comment draft through tool stream");check(posts.length===2,"Agent browsing cannot publish comments");
     const target=await invoke("bili_conversation_open");
     const pending=await invoke("memory_note_candidates",{projectDir:target.root});check(pending.some(n=>n.summary==="BILI_PENDING_NOTE"&&n.scope==="project"),"Shared personal inbox keeps existing adoption selector");

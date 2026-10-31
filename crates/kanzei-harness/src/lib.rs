@@ -73,6 +73,6 @@ pub mod pending_question;
 
 pub mod conversation_scope;
 pub use conversation_scope::{
-    bilibili_conversation_root, is_bilibili_conversation, memory_owner_root, QqConversation,
-    QqPeerKind,
+    bilibili_conversation_root, is_bilibili_conversation, is_social_conversation,
+    memory_owner_root, social_conversation_root, social_workspace_root, QqConversation, QqPeerKind,
 };

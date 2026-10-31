@@ -13630,3 +13630,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/ui-qq-native-smoke.mjs; node scripts/ui-social-native-smoke.mjs; node scripts/ui-state-admission-smoke.mjs; node --experimental-vm-modules --test scripts/tests/ownership/*.test.mjs; cargo test -p kanzei-app; cargo clippy -p kanzei-app -p kanzei-core --all-targets -- -D warnings
 - 摘要: QQ 原生 58 项、B站原生 46 项、状态准入 21 项、所有权 94 项通过；应用 Rust 测试 673 通过、3 ignored，Clippy 通过。验证统一会话与管理、群规则增删及重启持久、安静时段和 600 秒间隔内明确 @ 的排队回复与去重、群工具及 memory 隔离、真实终端持续执行和完成状态、旧混合路径登记修复、后台二维码登录与账号状态同步、评论草稿与发送回执。原生 WebView2/Rust/SQLite/本机终端真实执行，OneBot、B站和模型采用本地协议夹具，未操作真实 QQ/B站账号。
 - 收尾: 1793487195
+
+## T-1786922727215 大肥鱼持久沙箱和社交工具边界验收 [passed]
+- 命令: node scripts/sandbox-workspace-smoke.mjs; node scripts/ui-qq-native-smoke.mjs; node scripts/ui-social-native-smoke.mjs; cargo test --workspace; cargo clippy --all-targets
+- 摘要: 真实 WSL2/bubblewrap 隔离边界 11 项通过；QQ 原生 58 项、B站原生 48 项通过；好友和 B站实际运行沙箱命令并持久写入工作文件，切换会话期间工具状态和完成事件同步；个人工作区共享，群工作区和 memory 隔离；共用子代理构造层禁止社交会话安装 host 子代理。真实公网 example.com 读取成功，模型实际请求目录无 task/bash/read/write/desktop/browser/process。Rust workspace 2826 passed、22 ignored、0 failed；受影响四个 crate all-target Clippy 通过。UI i18n 和 runtime 修复后重测通过。QQ/NapCat/B站业务协议使用本地夹具，未登录真实账号或发送真实消息、评论。最终完整发布门禁另由 dist/verification.json 记录。
+- 收尾: 1793491144

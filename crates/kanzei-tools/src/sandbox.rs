@@ -1,5 +1,8 @@
-//! Disposable execution: explicit file copies, immutable runtime, no network or host writes.
-use std::{path::Path, process::Stdio};
+//! Namespace execution with disposable inputs or an engine-owned persistent workspace.
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
 use async_trait::async_trait;
 use kanzei_harness::{
@@ -33,6 +36,98 @@ fn default_timeout() -> u64 {
 }
 
 pub struct SandboxTool;
+
+/// The engine chooses the workspace. Model input can never select a host mount.
+pub struct WorkspaceSandboxTool {
+    workspace: PathBuf,
+}
+impl WorkspaceSandboxTool {
+    pub fn new(workspace: PathBuf) -> Self {
+        Self { workspace }
+    }
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct WorkspaceInput {
+    /// POSIX shell command; all file paths refer to the sandbox, never the host.
+    command: String,
+    #[serde(default = "default_timeout")]
+    timeout_ms: u64,
+}
+
+#[async_trait]
+impl Tool for WorkspaceSandboxTool {
+    fn name(&self) -> &'static str {
+        "sandbox"
+    }
+    fn description(&self) -> String {
+        "Run a POSIX command in your persistent isolated Linux workspace (/workspace). Use shell/Python to read, create and edit your own files. Only this workspace is writable and retained; host files, host programs, credentials and networking are unavailable. Use websearch/webfetch for public internet research. Python 3 and bubblewrap 0.9+ are required (Windows: default WSL2 distribution). Missing isolation fails closed, never uses a host shell. Per-command timeout 1..120000 ms, per-file write limit 64 MiB.".into()
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::to_value(schemars::schema_for!(WorkspaceInput)).unwrap()
+    }
+    fn concurrency(&self, _: &Value, _: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::ResourceWrite(format!("social-workspace:{}", self.workspace.display()))
+    }
+    async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput {
+        self.execute_cancellable(input, ctx, None).await
+    }
+    async fn execute_cancellable(
+        &self,
+        value: Value,
+        ctx: &ToolCtx,
+        halt: Option<&CancellationToken>,
+    ) -> ToolOutput {
+        let input: WorkspaceInput = match crate::parse_input(self, value) {
+            Ok(input) => input,
+            Err(output) => return output,
+        };
+        if input.command.is_empty()
+            || input.command.len() > 30_000
+            || !(1..=120_000).contains(&input.timeout_ms)
+        {
+            return ToolOutput::needs_correction(
+                "SANDBOX_INPUT_INVALID",
+                "command: 1..30000 bytes; timeout_ms: 1..120000",
+            );
+        }
+        if kanzei_harness::social_workspace_root(&ctx.project_root).as_ref()
+            != Some(&self.workspace)
+        {
+            return ToolOutput::error(
+                "SANDBOX_SCOPE_MISMATCH: workspace is not owned by this social conversation",
+            );
+        }
+        let result = async {
+            std::fs::create_dir_all(&self.workspace).map_err(refused)?;
+            if std::fs::symlink_metadata(&self.workspace).map_err(refused)?.file_type().is_symlink() {
+                return Err(refused("workspace must not be a symbolic link"));
+            }
+            let workspace = linux_path(&self.workspace).await?;
+            run_helper(json!({"workspace":workspace,"command":input.command,"timeout_ms":input.timeout_ms}), halt).await
+        }.await;
+        output(result)
+    }
+}
+
+fn output(result: Result<Value, Box<ToolOutput>>) -> ToolOutput {
+    match result {
+        Ok(result) => {
+            let success = result.get("isolation_verified").and_then(Value::as_bool) == Some(true)
+                && result.get("status").and_then(Value::as_str) == Some("completed")
+                && result.get("exit_code").and_then(Value::as_i64) == Some(0);
+            let content = result.to_string();
+            (if success {
+                ToolOutput::ok(content)
+            } else {
+                ToolOutput::error(content)
+            })
+            .with_external_source(ExternalSourceKind::Process, "sandbox:bubblewrap")
+        }
+        Err(output) => *output,
+    }
+}
 
 #[async_trait]
 impl Tool for SandboxTool {
@@ -86,22 +181,7 @@ impl Tool for SandboxTool {
                 "command: 1..30000 bytes; timeout_ms: 1..120000; at most 128 regular input files",
             );
         }
-        match run(input, ctx, halt).await {
-            Ok(result) => {
-                let success = result.get("isolation_verified").and_then(Value::as_bool)
-                    == Some(true)
-                    && result.get("status").and_then(Value::as_str) == Some("completed")
-                    && result.get("exit_code").and_then(Value::as_i64) == Some(0);
-                let content = result.to_string();
-                let output = if success {
-                    ToolOutput::ok(content)
-                } else {
-                    ToolOutput::error(content)
-                };
-                output.with_external_source(ExternalSourceKind::Process, "sandbox:bubblewrap")
-            }
-            Err(output) => *output,
-        }
+        output(run(input, ctx, halt).await)
     }
 }
 
@@ -164,6 +244,17 @@ async fn run(
         target.write_atomic(&content, || Ok(())).map_err(refused)?;
     }
     let inputs = linux_path(staging.path()).await?;
+    run_helper(
+        json!({"inputs":inputs,"command":input.command,"timeout_ms":input.timeout_ms}),
+        halt,
+    )
+    .await
+}
+
+async fn run_helper(
+    request: Value,
+    halt: Option<&CancellationToken>,
+) -> Result<Value, Box<ToolOutput>> {
     let mut command = helper_command();
     let mut child = command
         .stdin(Stdio::piped())
@@ -180,13 +271,7 @@ async fn run(
         stderr.read_to_end(&mut bytes).await.map(|_| bytes)
     });
     stdin
-        .write_all(
-            format!(
-                "{}\n",
-                json!({"inputs":inputs,"command":input.command,"timeout_ms":input.timeout_ms})
-            )
-            .as_bytes(),
-        )
+        .write_all(format!("{}\n", request).as_bytes())
         .await
         .map_err(refused)?;
     stdin.flush().await.map_err(refused)?;
