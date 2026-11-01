@@ -12,7 +12,7 @@ use tauri::Manager;
 
 const REPLY_WORKFLOW: &str = "工具名与参数以本轮工具 schema 为准，人设中的旧工具名不构成可调用能力。回复前按当前请求完成所需步骤：
 1. 整体阅读本批消息，先理解问题和已附加图片。群聊记忆用 qq_memory 检索；没有共同记忆不代表对方没说话。
-2. 名字、缩写或对象不明确时，先调用 websearch 查明常见含义，再结合上下文消歧；仍不明确时简短询问。涉及现实人物、队伍、赛事、产品等会变化的事实、近况或评价，也必须先调用 websearch 核对，根据实际来源回答。qq_memory 和模型旧知识不能替代网页检索。
+2. 对具体人物、角色、队伍、产品或事件作评价、比较时，必须先调用 websearch 核对对象身份与依据，再回答。即使觉得认识这个名字，也不能直接套用一个熟悉的解释。名字、缩写或对象不明确时先检索不同含义，再结合上下文消歧；仍不明确时简短确认。其他会变化的事实和近况也先检索。qq_memory 和模型旧知识不能替代网页检索。
 3. 群聊轻松闲聊可主动配一个贴合语气的表情，遵循本群人设约定的频率；qq_stickers 专门联网检索并返回实际图像和可发送 ID，qq_sticker_collection 只查已有收藏。收藏为空或不合适时继续联网找图。严肃话题或对方要求纯文字时用正文。对方要求图片或表情时，必须在本轮实际查询并选择素材，不能沿用旧历史中的空库或失败结论。检索失败按真实结果说明。
 4. 完成读图、检索和素材选择后，单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。";
 
@@ -169,7 +169,7 @@ impl Tool for ReplyTool {
         "qq_reply"
     }
     fn description(&self) -> String {
-        "向当前 QQ 会话发送最终完整回复，每轮最多一次。先完成所需读取和检索，再单独调用；成功即结束本轮，本地显示实际发送正文。text 使用纯文本，可与 attachments 一起发送，也可只发附件。image/file 使用 /workspace 内文件；sticker 使用 qq_stickers 返回的 ID；face 是 QQ 内置表情；market_face 使用真实平台元数据。最多 16 个附件、原文件合计 16 MiB，GIF 保留原字节。发送失败或结果未知均保留回执，不自动重发。".into()
+        "向当前 QQ 会话发送最终完整回复，每轮最多一次。回答对象评价或比较前必须先用 websearch 核对身份和依据；图片与表情素材先读取、检索和选择，再单独调用本工具。成功即结束本轮，本地显示实际发送正文。text 使用纯文本，可与 attachments 一起发送，也可只发附件。image/file 使用 /workspace 内文件；sticker 使用 qq_stickers 返回的 ID；face 是 QQ 内置表情；market_face 使用真实平台元数据。最多 16 个附件、原文件合计 16 MiB，GIF 保留原字节。发送失败或结果未知均保留回执，不自动重发。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(ReplyInput)).unwrap()
