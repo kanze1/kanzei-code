@@ -6,10 +6,7 @@ use tauri::Manager;
 pub(crate) struct BiliComponent(pub tauri::AppHandle);
 impl Component for BiliComponent {
     fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
-        if !kanzei_harness::is_general_conversation_root(&ctx.project_root)
-            || kanzei_harness::QqConversation::from_root(&ctx.project_root)
-                .is_some_and(|q| q.kind == kanzei_harness::QqPeerKind::Group)
-        {
+        if !kanzei_harness::is_general_conversation_root(&ctx.project_root) {
             return Ok(());
         }
         if kanzei_harness::is_bilibili_conversation(&ctx.project_root) {
@@ -80,11 +77,8 @@ impl Tool for BiliTool {
         json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
     }
     async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput {
-        if !kanzei_harness::is_general_conversation_root(&ctx.project_root)
-            || kanzei_harness::QqConversation::from_root(&ctx.project_root)
-                .is_some_and(|q| q.kind == kanzei_harness::QqPeerKind::Group)
-        {
-            return ToolOutput::error("B站工具只供个人助手使用");
+        if !kanzei_harness::is_general_conversation_root(&ctx.project_root) {
+            return ToolOutput::error("B站工具只供社交助手会话使用");
         }
         #[derive(serde::Deserialize)]
         #[serde(deny_unknown_fields)]

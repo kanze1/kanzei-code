@@ -6,18 +6,28 @@ use std::{collections::BTreeMap, time::Duration};
 #[derive(Debug, Clone)]
 pub(crate) enum Error {
     Transport,
+    Request {
+        stage: &'static str,
+        cause: std::sync::Arc<reqwest::Error>,
+    },
     Http(u16),
     Platform(i64),
     Input(String),
 }
 impl Error {
     pub fn uncertain(&self) -> bool {
-        matches!(self, Self::Transport | Self::Http(500..=599))
+        matches!(
+            self,
+            Self::Transport | Self::Request { .. } | Self::Http(500..=599)
+        )
     }
     pub fn pause(&self) -> bool {
         matches!(
             self,
-            Self::Transport | Self::Http(412 | 429) | Self::Platform(-101 | -352 | -412 | -509)
+            Self::Transport
+                | Self::Request { .. }
+                | Self::Http(412 | 429)
+                | Self::Platform(-101 | -352 | -412 | -509)
         )
     }
 }
@@ -25,7 +35,17 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Transport => f.write_str("B站连接中断或响应无效，结果未确认；未自动重试"),
+            Self::Request { stage, cause } => {
+                write!(f, "B站{stage}失败：{cause}")?;
+                let mut source = std::error::Error::source(cause.as_ref());
+                while let Some(error) = source {
+                    write!(f, "；{error}")?;
+                    source = error.source();
+                }
+                Ok(())
+            }
             Self::Http(code) => write!(f, "B站 HTTP {code}，请求已停止"),
+            Self::Platform(-101) => f.write_str("B站登录未生效或已过期，请重新扫码登录（-101）"),
             Self::Platform(code) => write!(f, "B站接口返回错误 {code}，请求已停止"),
             Self::Input(message) => f.write_str(message),
         }
@@ -91,7 +111,7 @@ impl Api {
         } else {
             self.http.get(format!("{base}{path}")).query(params)
         };
-        let response=request.header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36").header("Referer","https://www.bilibili.com/").header("Cookie",cookie).send().await.map_err(|_|Error::Transport)?;
+        let response=request.header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36").header("Referer","https://www.bilibili.com/").header("Cookie",cookie).send().await.map_err(|error|Error::Request { stage: "请求", cause: std::sync::Arc::new(error.without_url()) })?;
         if !response.status().is_success() {
             return Err(Error::Http(response.status().as_u16()));
         }
@@ -102,7 +122,10 @@ impl Api {
             .map(|v| v.to_str().map(str::to_owned))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| "B站登录凭据格式错误")?;
-        let value: Value = response.json().await.map_err(|_| Error::Transport)?;
+        let value: Value = response.json().await.map_err(|error| Error::Request {
+            stage: "解析响应",
+            cause: std::sync::Arc::new(error.without_url()),
+        })?;
         let code = value["code"].as_i64().ok_or(Error::Transport)?;
         if code != 0 {
             return Err(Error::Platform(code));
@@ -290,6 +313,31 @@ pub(crate) fn validate_cookie(cookie: &str) -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// The login response owns the session cookie set, including account identity cookies.
+/// Set-Cookie attributes are response metadata and never enter the Cookie request header.
+pub(crate) fn login_cookie(headers: &[String]) -> Result<String, Error> {
+    let mut cookies = BTreeMap::new();
+    for header in headers {
+        let pair = header
+            .split(';')
+            .next()
+            .ok_or("B站登录凭据格式错误")?
+            .trim();
+        let (name, value) = pair.split_once('=').ok_or("B站登录凭据格式错误")?;
+        if name.is_empty() || pair.contains(['\r', '\n']) {
+            return Err("B站登录凭据格式错误".into());
+        }
+        cookies.insert(name, value);
+    }
+    let cookie = cookies
+        .into_iter()
+        .map(|(name, value)| format!("{name}={value}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    validate_cookie(&cookie)?;
+    Ok(cookie)
+}
 fn signed_params(
     nav: &Value,
     params: Vec<(String, String)>,
@@ -348,6 +396,75 @@ fn signed_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn response_diagnostics_identify_the_stage_without_login_urls_or_credentials() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                headers.push(socket.read_u8().await.unwrap());
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: SESSDATA=private-cookie\r\nContent-Length: 1\r\nConnection: close\r\n\r\n{").await.unwrap();
+        });
+        let api = Api {
+            http: reqwest::Client::builder().no_proxy().build().unwrap(),
+            api: endpoint.clone(),
+            passport: endpoint,
+        };
+        let error = api
+            .request(
+                "/x/passport-login/web/qrcode/poll",
+                "",
+                &[("qrcode_key".into(), "private-qr-key".into())],
+                false,
+            )
+            .await
+            .unwrap_err();
+        server.await.unwrap();
+        let text = error.to_string();
+        assert!(text.contains("解析响应失败"));
+        assert!(error.uncertain());
+        assert!(error.pause());
+        for hidden in ["qrcode_key", "private-qr-key", "private-cookie", "SESSDATA"] {
+            assert!(
+                !text.contains(hidden),
+                "diagnostic contains credential metadata: {hidden}"
+            );
+        }
+    }
+
+    #[test]
+    fn qr_login_retains_the_complete_session_cookie_set_without_response_attributes() {
+        let cookie = login_cookie(&[
+            "SESSDATA=token%2Cencoded; Path=/; HttpOnly; Secure".into(),
+            "bili_jct=csrf; Path=/; Secure".into(),
+            "DedeUserID=123; Domain=bilibili.com; Path=/".into(),
+            "DedeUserID__ckMd5=identity; Path=/".into(),
+            "sid=session; Path=/".into(),
+        ])
+        .unwrap();
+        for (name, value) in [
+            ("SESSDATA", "token%2Cencoded"),
+            ("bili_jct", "csrf"),
+            ("DedeUserID", "123"),
+            ("DedeUserID__ckMd5", "identity"),
+            ("sid", "session"),
+        ] {
+            assert_eq!(cookie_value(&cookie, name), Some(value));
+        }
+        assert!(!cookie.contains("Path="));
+        assert!(!cookie.contains("Domain="));
+        assert!(!cookie.contains("HttpOnly"));
+        assert!(login_cookie(&["SESSDATA=token".into()]).is_err());
+        assert!(login_cookie(&[
+            "SESSDATA=token\r\nHost: other".into(),
+            "bili_jct=csrf".into()
+        ])
+        .is_err());
+    }
     #[test]
     fn wbi_signature_matches_reference_with_unicode_and_filtered_punctuation() {
         let nav = json!({"wbi_img":{"img_url":"https://i0.hdslb.com/bfs/wbi/7cd084941338484aae1ad9425b84077c.png","sub_url":"https://i0.hdslb.com/bfs/wbi/4932caff0ff746eab6f01bf08b70ac45.png"}});
@@ -379,6 +496,36 @@ mod tests {
         assert!(!Error::Platform(-412).uncertain());
         assert!(Error::Platform(-412).pause());
     }
+    #[tokio::test]
+    #[ignore = "requires live Bilibili network access; creates an unclaimed QR challenge and reads the public feed"]
+    async fn live_qr_and_public_feed_use_the_real_bilibili_transport() {
+        let api = Api::new().unwrap();
+        assert_eq!(api.api, "https://api.bilibili.com");
+        assert_eq!(api.passport, "https://passport.bilibili.com");
+        let challenge = api
+            .get("/x/passport-login/web/qrcode/generate", "", &[])
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        let key = challenge["qrcode_key"]
+            .as_str()
+            .expect("QR key is required");
+        let (poll, _) = api
+            .request(
+                "/x/passport-login/web/qrcode/poll",
+                "",
+                &[("qrcode_key".into(), key.into())],
+                false,
+            )
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(poll["code"], 86101, "unclaimed QR must wait for a scan");
+        let feed = api
+            .feed("", "", 1)
+            .await
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert!(feed["list"].as_array().is_some_and(|list| !list.is_empty()));
+    }
+
     #[tokio::test]
     #[ignore = "requires KANZEI_BILI_LIVE_COOKIE from an owner login and live Bilibili connectivity; read-only"]
     async fn live_account_feed_video_comments_and_subtitle_contract() {

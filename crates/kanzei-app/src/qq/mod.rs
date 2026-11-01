@@ -3,6 +3,7 @@
 pub(crate) mod component;
 pub(crate) mod config;
 mod protocol;
+mod questions;
 pub(crate) mod setup;
 mod store;
 
@@ -703,7 +704,7 @@ async fn handle_command(app: &tauri::AppHandle, peer: &Peer, body: &str) -> anyh
 }
 
 async fn forward_ask(app: &tauri::AppHandle, value: Value) -> anyhow::Result<()> {
-    let session = value["sessionId"].as_str().unwrap_or("");
+    let session = value["sessionId"].as_str().unwrap_or("").to_owned();
     let peer = {
         let qq = app.state::<QqState>();
         let c = qq.control.lock_or_recover();
@@ -716,7 +717,7 @@ async fn forward_ask(app: &tauri::AppHandle, value: Value) -> anyhow::Result<()>
         let id = value["id"]
             .as_u64()
             .ok_or_else(|| anyhow::anyhow!("QQ 问题缺少编号"))?;
-        let text=format!("需要你处理的问题 #{id}\n{}\n允许本次操作：/allow {id}\n拒绝：/deny {id}\n回答：/answer {id} 内容",serde_json::to_string(&value)?);
+        let text = questions::present(value)?;
         send(
             app,
             &peer.identity,

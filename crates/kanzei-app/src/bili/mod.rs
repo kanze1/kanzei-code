@@ -87,7 +87,7 @@ fn connection(state: &BiliState) -> Result<(Api, Stored), String> {
     let c = state.control.lock_or_recover();
     Ok((c.api.clone().ok_or("B站服务未初始化")?, c.stored.clone()))
 }
-fn observed(state: &BiliState, result: Result<Value, api::Error>) -> Result<Value, String> {
+fn observed<T>(state: &BiliState, result: Result<T, api::Error>) -> Result<T, String> {
     match result {
         Ok(value) => Ok(value),
         Err(e) => {
@@ -377,27 +377,33 @@ pub(crate) async fn bili_login_poll(
             q.image.clear();
         }
     }
-    let (data, cookies) = response.map_err(String::from)?;
-    let status = match data["code"].as_i64() {
-        Some(86101) => "waiting",
-        Some(86090) => "scanned",
-        Some(86038) => "expired",
-        Some(0) => {
-            let cookie = cookies
-                .iter()
-                .filter_map(|s| s.split(';').next())
-                .filter(|s| {
-                    s.starts_with("SESSDATA=")
-                        || s.starts_with("bili_jct=")
-                        || s.starts_with("buvid3=")
-                })
-                .collect::<Vec<_>>()
-                .join("; ");
-            accept_credentials(&state, cookie, Some(&id)).await?;
-            return Ok(json!({"id":id,"status":"success"}));
-        }
-        _ => return Err("B站返回了未知登录状态".into()),
-    };
+    let (data, cookies) = observed(&state, response)?;
+    let status =
+        match data["code"].as_i64() {
+            Some(86101) => "waiting",
+            Some(86090) => "scanned",
+            Some(86038) => "expired",
+            Some(0) => {
+                let accepted = match api::login_cookie(&cookies) {
+                    Ok(cookie) => accept_credentials(&state, cookie, Some(&id)).await,
+                    Err(error) => Err(error.to_string()),
+                };
+                if let Err(error) = accepted {
+                    let mut c = state.control.lock_or_recover();
+                    c.error = error.clone();
+                    if let Some(q) = c.challenge.as_mut().filter(|q| {
+                        q.id == id && matches!(q.status.as_str(), "waiting" | "scanned")
+                    }) {
+                        q.status = "error".into();
+                        q.key.clear();
+                        q.image.clear();
+                    }
+                    return Err(error);
+                }
+                return Ok(json!({"id":id,"status":"success"}));
+            }
+            _ => return Err("B站返回了未知登录状态".into()),
+        };
     let mut c = state.control.lock_or_recover();
     let q = c
         .challenge
