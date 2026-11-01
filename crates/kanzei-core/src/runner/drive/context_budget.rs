@@ -22,6 +22,7 @@ pub(super) async fn enforce_context_budget(
     config: &RunnerConfig,
     project_root: &std::path::Path,
     system: &[String],
+    request_context: &super::request_context::RequestContext,
     specs: &[ToolSpec],
     protocol: ProtocolKind,
     context_report: &[(String, usize)],
@@ -55,8 +56,10 @@ pub(super) async fn enforce_context_budget(
             config.max_tokens,
             config.limits.compact_buffer_tokens(),
         );
+        let budget_system = request_context.budget_system(system);
         ensure_fixed_context_fits(
             system,
+            &request_context.project(&[]).0,
             specs,
             protocol,
             config.context_limit,
@@ -69,16 +72,25 @@ pub(super) async fn enforce_context_budget(
         // history and let the provider decide; its existing overflow recovery still
         // handles a real rejection. This also applies to a known window when the
         // head fits actual input capacity but exceeds the early-compaction target.
-        let fixed_budget =
-            budgeted_tokens_for_protocol(system, &[], specs, calibration, Some(protocol));
+        let fixed_budget = budgeted_tokens_for_protocol(
+            system,
+            &request_context.project(&[]).0,
+            specs,
+            calibration,
+            Some(protocol),
+        );
         if fixed_budget > budget {
             tracing::debug!(fixed_budget, compact_target = budget, known_limit = ?config.context_limit,
                 "fixed context exceeds soft compaction target; preserve history for provider admission");
             return Ok(());
         }
         let anchored_tokens = |messages: &[Message]| {
-            let current_estimated_tokens =
-                estimate_prompt_tokens_for_protocol(system, messages, specs, Some(protocol));
+            let current_estimated_tokens = estimate_prompt_tokens_for_protocol(
+                system,
+                &request_context.project(messages).0,
+                specs,
+                Some(protocol),
+            );
             budgeted_tokens_from_last_usage(
                 last_input_tokens,
                 last_estimated_tokens,
@@ -138,7 +150,7 @@ pub(super) async fn enforce_context_budget(
                 if anchored_tokens(messages) > budget {
                     trim_tail_for_protocol(
                         messages,
-                        system,
+                        &budget_system,
                         specs,
                         budget,
                         calibration,
@@ -174,6 +186,7 @@ pub(super) async fn enforce_context_budget(
 /// to soft compaction decisions and must not manufacture a hard rejection.
 fn ensure_fixed_context_fits(
     system: &[String],
+    fixed_messages: &[Message],
     specs: &[ToolSpec],
     protocol: ProtocolKind,
     known_limit: Option<u64>,
@@ -184,11 +197,12 @@ fn ensure_fixed_context_fits(
         return Ok(());
     };
     let capacity = limit.saturating_sub(u64::from(max_output_tokens));
-    let fixed = estimate_prompt_tokens_for_protocol(system, &[], specs, Some(protocol));
+    let fixed = estimate_prompt_tokens_for_protocol(system, fixed_messages, specs, Some(protocol));
     if fixed <= capacity {
         return Ok(());
     }
-    let system_tokens = estimate_prompt_tokens_for_protocol(system, &[], &[], Some(protocol));
+    let system_tokens =
+        estimate_prompt_tokens_for_protocol(system, fixed_messages, &[], Some(protocol));
     let schema_tokens = estimate_prompt_tokens_for_protocol(&[], &[], specs, Some(protocol));
     let mut sources: Vec<_> = context_report.iter().collect();
     sources.sort_by_key(|(_, chars)| std::cmp::Reverse(*chars));

@@ -103,6 +103,7 @@ async fn assert_long_command_contract(call_count: usize) {
     };
     let recall = Arc::new(AtomicUsize::new(0));
     let config = RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

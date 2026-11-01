@@ -62,6 +62,7 @@ async fn incomplete_responses_turn_never_executes_an_already_emitted_tool_call()
         system: "read sample".into(),
     };
     let runner = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: vec![],
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -187,6 +188,7 @@ async fn redacted_thinking_survives_runner_history_without_a_fake_tool_event() {
         system: "read sample".into(),
     };
     let runner = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: vec![],
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

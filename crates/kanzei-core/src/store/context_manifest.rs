@@ -59,6 +59,7 @@ pub struct ContextSnapshot {
 
 #[derive(Default)]
 pub struct ContextCapture<'a> {
+    pub runtime_context: Option<(usize, &'a [(String, String)])>,
     pub contributions: &'a [(String, usize)],
     pub system_sources: &'a [Vec<(String, usize)>],
     pub source_reads: &'a [kanzei_harness::ContextSourceReport],
@@ -74,6 +75,7 @@ fn hash(bytes: &[u8]) -> String {
 impl ContextSnapshot {
     pub fn capture(request: &LlmRequest, route: &Route, capture: ContextCapture<'_>) -> Self {
         let ContextCapture {
+            runtime_context,
             contributions,
             system_sources,
             source_reads,
@@ -164,7 +166,29 @@ impl ContextSnapshot {
             for (part_index, part) in message.parts.iter().enumerate() {
                 let label = format!("messages/{}/{}", index + 1, part_index + 1);
                 match part {
-                    Part::Text { text } => snapshot.text("message", role, &label, text, None),
+                    Part::Text { text } => {
+                        if let Some((_, sections)) =
+                            runtime_context.filter(|(context_index, _)| *context_index == index)
+                        {
+                            // The immutable source ledger addresses original source
+                            // text; the request fingerprint covers its wire envelope.
+                            snapshot.text(
+                                "runtime_context",
+                                role,
+                                &sections[part_index].0,
+                                &sections[part_index].1,
+                                Some(json!({"origin":"engine","scope":"current_request"})),
+                            );
+                        } else {
+                            snapshot.text(
+                                "message",
+                                role,
+                                &label,
+                                text,
+                                Some(json!({"origin":message.origin.as_str()})),
+                            );
+                        }
+                    }
                     Part::Reasoning { text, .. } => {
                         snapshot.text("reasoning", role, &label, text, None)
                     }

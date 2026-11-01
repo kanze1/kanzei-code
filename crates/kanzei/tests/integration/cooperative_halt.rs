@@ -82,6 +82,7 @@ fn runner_config(
     halt: kanzei_core::CancellationToken,
 ) -> kanzei_core::RunnerConfig {
     kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

@@ -34,6 +34,7 @@ async fn run_button_agent(
         .map_err(|error| format!("模型路由失败: {error}"))?;
     let client = LlmClient::new(&proxy).map_err(|error| error.to_string())?;
     let runner = RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

@@ -12,6 +12,11 @@ pub(crate) fn retry_after_seconds(value: &str, now: std::time::SystemTime) -> Op
 
 #[derive(Debug, Error)]
 pub enum LlmError {
+    /// Scheduling control: the incomplete model turn has no committed tools.
+    #[error("maintenance inference yielded to interactive work")]
+    Yielded,
+    #[error("active inference exceeded {0:?}")]
+    InferenceTimeout(std::time::Duration),
     // reqwest 的 Display 只给出 `error sending request for url (...)` 这一层，
     // Windows 上真正可行动的原因（DNS、连接拒绝、TLS、超时）藏在 source 链里。
     // GUI 最终只会拿 error.to_string()，所以必须在这里把整条因果链保留下来。

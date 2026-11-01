@@ -1,7 +1,6 @@
 //! A review never produces a chat message. It selects an intention; the normal
 //! runner researches and writes in the original conversation only after selection.
 use super::model::{Decision, Review, Target, Topic};
-use futures::StreamExt;
 use kanzei_llm::{
     FinishReason, LlmClient, LlmEvent, LlmRequest, Message, MessageOrigin, Part, Route,
 };
@@ -95,21 +94,14 @@ pub(crate) async fn evaluate(
     request: &LlmRequest,
     stop: &kanzei_core::CancellationToken,
 ) -> anyhow::Result<Decision> {
-    let mut stream = tokio::select! {
+    let events = tokio::select! {
         _ = stop.cancelled() => anyhow::bail!("主动评估已停止"),
-        stream = client.stream(route,request) => stream?,
+        events = client.complete(route, request) => events?,
     };
     let mut decision = None;
     let mut completed = false;
-    loop {
-        let event = tokio::select! {
-            _ = stop.cancelled() => anyhow::bail!("主动评估已停止"),
-            event = stream.next() => event,
-        };
-        let Some(event) = event else {
-            break;
-        };
-        match event? {
+    for event in events {
+        match event {
             LlmEvent::ToolCall { name, input, .. } => {
                 anyhow::ensure!(name == DECISION_TOOL, "主动评估返回了未授权的工具");
                 anyhow::ensure!(decision.is_none(), "主动评估重复作出决定");

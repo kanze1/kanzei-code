@@ -596,6 +596,7 @@ async fn run_subagent_inner(
         }),
     });
     let config = RunnerConfig {
+        run_context: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: model.clone(),

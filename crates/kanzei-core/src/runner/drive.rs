@@ -27,6 +27,7 @@ use parallel_tools::{
     ParallelToolRequest,
 };
 mod assembly;
+mod request_context;
 use assembly::{
     assemble_run_once, observe_context_sources, source_spans, update_source_ledger, RunOnceAssembly,
 };
@@ -51,9 +52,8 @@ pub fn run_once<'a>(
     config: &'a RunnerConfig,
     ctx: &'a ToolCtx,
     prompt: &'a str,
-    // D-185:开跑预检索的记忆提示块(R-106)。只作本轮 system 一次性注入,不拼进
-    // prompt 字符串——否则随 User message 进 messages → 落 conversations →
-    // 下轮 prior 回灌,逐轮累积 N 个 hint 块。
+    // Recall is request-only context after history, never part of the human input
+    // or the persisted transcript. It must not rewrite the stable system prefix.
     memory_hints: Option<&'a str>,
     prior: &'a [Message],
     subagent: Option<&'a SubagentRuntime>,
@@ -86,7 +86,7 @@ pub fn run_once_with_parts<'a>(
     config: &'a RunnerConfig,
     ctx: &'a ToolCtx,
     prompt: &'a str,
-    // D-185:同 run_once,只进本轮 system,不进 messages/历史。
+    // Same request-only recall contract as run_once.
     memory_hints: Option<&'a str>,
     // 之前轮次的完整消息历史(空 = 新对话)。
     prior: &'a [Message],
@@ -98,6 +98,7 @@ pub fn run_once_with_parts<'a>(
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<RunSummary>> + Send + 'a>> {
     Box::pin(async move {
         anyhow::ensure!(config.hosted_tools.is_empty(), "Ambient provider-hosted tools are unsupported: use the registered websearch tool so permission, unattended policy, search budgets and source receipts apply before dispatch");
+        let _interactive = client.reserve_interactive(route);
         let mut run_ctx = ctx.clone();
         if snapshot.profile() == kanzei_harness::ProfileKind::Isolated {
             run_ctx.invoked_skills = None;
@@ -111,6 +112,7 @@ pub fn run_once_with_parts<'a>(
         // R-202 批6:装配段(工具/specs/system 分块/消息初始化/各类运行态)抽离为
         // assemble_run_once,返回 RunOnceAssembly;halt/halted 借用 config 留本地。
         let RunOnceAssembly {
+            run_context,
             tools,
             mut specs,
             mut context_report,
@@ -266,7 +268,7 @@ pub fn run_once_with_parts<'a>(
                     messages.push(message);
                 }
             }
-            // R-184:动态源只替换本步 system 段，不累积进 messages。
+            // Refresh sources without rewriting the reusable system/history prefix.
             if step > 1 {
                 let (baseline, sources) = observe_context_sources(
                     snapshot.refreshable_system_baseline_with_report(),
@@ -280,12 +282,10 @@ pub fn run_once_with_parts<'a>(
                 }
                 update_source_ledger(&mut context_report, &sources);
             }
-            let mut system = stable_system.clone();
-            let mut system_sources = stable_system_sources.clone();
-            if !refreshable_baseline.trim().is_empty() {
-                system.push(refreshable_baseline.clone());
-                system_sources.push(refreshable_sources.clone());
-            }
+            let system = &stable_system;
+            let system_sources = &stable_system_sources;
+            let mut request_context = run_context.clone();
+            request_context.append_sources(&refreshable_baseline, &refreshable_sources);
             let budget_extension = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
             let winddown_signal = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             on_event(RunEvent::TurnStart {
@@ -311,11 +311,7 @@ pub fn run_once_with_parts<'a>(
             // Resolve this step's fixed wire inputs once. Admission, compaction and
             // provider retries must see the same system sections and tool schemas.
             if let Some(instruction) = execution_limit_context(last_step, winddown) {
-                system.push(instruction);
-                system_sources.push(vec![(
-                    "runtime/budget".into(),
-                    system.last().unwrap().len(),
-                )]);
+                request_context.push("runtime/budget", instruction);
             }
             let step_specs: &[ToolSpec] = if last_step { &[] } else { &specs };
 
@@ -329,7 +325,8 @@ pub fn run_once_with_parts<'a>(
                 subagent,
                 config,
                 &ctx.project_root,
-                &system,
+                system,
+                &request_context,
                 step_specs,
                 route.kind,
                 &context_report,
@@ -355,11 +352,12 @@ pub fn run_once_with_parts<'a>(
                 client,
                 route,
                 config,
-                &system,
+                system,
+                &request_context,
                 step_specs,
                 &mut messages,
                 &context_report,
-                &system_sources,
+                system_sources,
                 &context_source_reads,
                 halt,
                 &mut input_requests,
@@ -630,6 +628,7 @@ async fn stream_request_step(
     route: &Route,
     config: &RunnerConfig,
     system: &[String],
+    request_context: &request_context::RequestContext,
     specs: &[ToolSpec],
     messages: &mut Vec<Message>,
     context_report: &[(String, usize)],
@@ -655,9 +654,14 @@ async fn stream_request_step(
         let request_messages = projection.messages.into_owned();
         // 请求构造前记录本次估算:StepFinish 用真实 input tokens 反推校准因子,
         // 固定 system/tools 已由步级装配选好，与预算准入使用同一份输入。
-        let last_estimated =
-            estimate_prompt_tokens_for_protocol(system, &request_messages, specs, Some(route.kind));
-        let request = assembly::build_request(config, system, request_messages, specs);
+        let last_estimated = estimate_prompt_tokens_for_protocol(
+            system,
+            &request_context.project(&request_messages).0,
+            specs,
+            Some(route.kind),
+        );
+        let (request, context_index) =
+            assembly::build_request(config, system, request_messages, specs, request_context);
         // Persist the request before dispatch, including failed transports.
         let mut context_snapshot = crate::store::context_manifest::ContextSnapshot::capture(
             &request,
@@ -669,6 +673,8 @@ async fn stream_request_step(
                 estimated_tokens: last_estimated,
                 repeated_results,
                 omitted_bytes,
+                runtime_context: context_index
+                    .map(|index| (index, request_context.sections.as_slice())),
             },
         );
         context_snapshot.manifest.execution = ctx.execution_identity.as_deref().cloned();
@@ -701,6 +707,7 @@ async fn stream_request_step(
             => result,
         };
         let mut stream = match opened {
+            Err(kanzei_llm::LlmError::Yielded) => continue,
             Err(error) if error.is_context_overflow() => {
                 if recover_context_overflow(messages, overflow_recoveries, overflow_traces) {
                     continue;
@@ -877,7 +884,13 @@ async fn stream_request_step(
         if halted_mid_stream {
             return Ok(StepOutcome::Stopped);
         }
+        // Only uncommitted inference yields; prior tool receipts stay in history.
+        drop(stream);
         match stream_error {
+            Some(kanzei_llm::LlmError::Yielded) => {
+                on_event(RunEvent::ResponseInterrupted);
+                continue;
+            }
             None => {
                 for (_, text) in std::mem::take(&mut text_buffers) {
                     parts.push(Part::Text { text });
@@ -1914,6 +1927,7 @@ mod commit_ack_tests {
         let client = LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
         let route = Route::openai_at(&format!("http://{address}/v1"), None);
         let config = RunnerConfig {
+            run_context: Vec::new(),
             hosted_tools: vec![],
             digest_model: None,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,

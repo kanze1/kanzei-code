@@ -356,7 +356,9 @@ async fn annotate_backend(cwd: &Path) -> Result<AnnotateBackend, String> {
     let route = kanzei_core::build_route(&resolved, &proxy)
         .await
         .map_err(|e| e.to_string())?;
-    let client = LlmClient::new(&proxy).map_err(|e| e.to_string())?;
+    let client = LlmClient::new(&proxy)
+        .map_err(|e| e.to_string())?
+        .with_priority(kanzei_llm::RequestPriority::Maintenance);
     let service_tier = config.service_tier_for(&resolved);
     Ok(AnnotateBackend::Llm {
         client,
@@ -390,18 +392,21 @@ impl AnnotateBackend {
                         { "role": "user", "content": input.model_text(user) },
                     ],
                 });
-                let response = reqwest::Client::new()
-                    .post(format!("{base}/api/chat"))
-                    .json(&body)
-                    .timeout(std::time::Duration::from_secs(120))
-                    .send()
+                let http = reqwest::Client::new();
+                let value: serde_json::Value =
+                    kanzei_llm::scheduling::maintenance(base, || async {
+                        let response = http
+                            .post(format!("{base}/api/chat"))
+                            .json(&body)
+                            .timeout(std::time::Duration::from_secs(120))
+                            .send()
+                            .await
+                            .and_then(reqwest::Response::error_for_status)
+                            .map_err(kanzei_llm::LlmError::from)?;
+                        response.json().await.map_err(kanzei_llm::LlmError::from)
+                    })
                     .await
-                    .and_then(reqwest::Response::error_for_status)
                     .map_err(|e| format!("ollama 请求失败: {e}"))?;
-                let value: serde_json::Value = response
-                    .json()
-                    .await
-                    .map_err(|e| format!("ollama 响应解析失败: {e}"))?;
                 native_annotation_content(&value)?.to_owned()
             }
             AnnotateBackend::Llm {
@@ -410,7 +415,6 @@ impl AnnotateBackend {
                 model,
                 service_tier,
             } => {
-                use futures::StreamExt;
                 let request = kanzei_llm::LlmRequest {
                     model: model.clone(),
                     system: vec![system.to_string()],
@@ -423,14 +427,14 @@ impl AnnotateBackend {
                     reasoning: kanzei_llm::ReasoningEffort::Off,
                     service_tier: service_tier.clone(),
                 };
-                let mut stream = client
-                    .stream(route, &request)
+                let events = client
+                    .complete(route, &request)
                     .await
                     .map_err(|e| e.to_string())?;
                 let mut out = String::new();
                 let mut finish = None;
-                while let Some(event) = stream.next().await {
-                    match event.map_err(|error| error.to_string())? {
+                for event in events {
+                    match event {
                         kanzei_llm::LlmEvent::TextDelta { text, .. } => out.push_str(&text),
                         kanzei_llm::LlmEvent::StepFinish { reason, .. } => finish = Some(reason),
                         _ => {}

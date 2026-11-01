@@ -215,6 +215,7 @@ async fn 串行写策略下并行勘察真实可达_读槽被消费且重叠() {
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

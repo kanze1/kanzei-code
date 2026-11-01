@@ -206,6 +206,7 @@ async fn 运行中的task被单条停止_以被停终态收尾_读槽释放_主�
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

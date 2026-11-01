@@ -62,6 +62,7 @@ fn tools(root: &Path) -> Vec<Arc<dyn Tool>> {
 
 fn config() -> RunnerConfig {
     RunnerConfig {
+        run_context: Vec::new(),
         digest_model: None,
         intensity: Default::default(),
         model: "main-probe".into(),

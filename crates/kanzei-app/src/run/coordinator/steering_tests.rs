@@ -280,6 +280,7 @@ async fn run_fixture(point: FailurePoint) -> Value {
     let client = kanzei_llm::LlmClient::new(&kanzei_llm::ProxyConfig::Disabled).unwrap();
     let route = kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), None);
     let config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: vec![],
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

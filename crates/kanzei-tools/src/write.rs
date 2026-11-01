@@ -1135,6 +1135,7 @@ mod tests {
         let client = LlmClient::new(&ProxyConfig::Disabled).unwrap();
         let route = Route::openai_at(&format!("http://{address}/v1"), None);
         let runner_config = RunnerConfig {
+            run_context: Vec::new(),
             hosted_tools: Vec::new(),
             digest_model: None,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,

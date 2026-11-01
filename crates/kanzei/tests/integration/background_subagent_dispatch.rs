@@ -202,6 +202,7 @@ async fn 后台模式派发即返回_主代理不阻塞_真实结果落backgroun
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

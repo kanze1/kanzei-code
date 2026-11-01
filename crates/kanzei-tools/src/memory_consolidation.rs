@@ -355,6 +355,10 @@ async fn consolidate_owned_inbox(
         rctx,
         ctx,
     } = environment;
+    let client = client
+        .clone()
+        .with_priority(kanzei_llm::RequestPriority::Maintenance);
+    let client = &client;
     let InboxRequest {
         current_episode_id,
         selection,
@@ -491,6 +495,7 @@ async fn consolidate_owned_inbox(
             job.control.publish()?;
             let route = kanzei_core::build_route(&resolved, proxy).await?;
             let runner_config = RunnerConfig {
+                run_context: Vec::new(),
                 hosted_tools: Vec::new(),
                 digest_model: None,
                 intensity: kanzei_harness::HarnessIntensity::Autonomous,
