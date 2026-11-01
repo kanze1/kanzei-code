@@ -107,30 +107,23 @@ async fn load(
 /// Channel images are input attachments, independent of model tool selection.
 /// A failed load is visible source status; it never turns an image into empty input.
 pub(super) async fn prepare_input(
-    app: &tauri::AppHandle,
     client: &super::protocol::Client,
-    job: &super::store::Job,
+    identity: &QqConversation,
+    batch: &super::store::InputBatch,
     peer: &super::Peer,
 ) -> anyhow::Result<(Vec<crate::PromptAttachment>, String)> {
-    let recorded = {
-        let qq = app.state::<super::QqState>();
-        let control = qq.control.lock_or_recover();
-        let floor = super::context_message_floor(&peer.root, &peer.session_id)?;
-        super::database(&control)?.input_image(job, floor)?
-    };
-    let Some((message_id, sender, count)) = recorded else {
-        return Ok((Vec::new(), String::new()));
-    };
     let ctx = ToolCtx::new(peer.root.clone(), peer.root.clone());
     let mut attachments = Vec::new();
     let mut status = String::new();
     let mut total = 0;
-    for image_index in 0..count {
-        let input = ImageInput {
-            message_id: message_id.clone(),
-            image_index,
-        };
-        match load(client,&job.identity,&input,&sender,&ctx).await {
+    for message in &batch.request {
+        let message_id = &message.message_id;
+        for image_index in 0..message.images.len() {
+            let input = ImageInput {
+                message_id: message_id.clone(),
+                image_index,
+            };
+            match load(client,identity,&input,&message.sender,&ctx).await {
             Ok(image) => {
                 let bytes = STANDARD.decode(&image.data)?.len();
                 if total + bytes > crate::attachments::MAX_TOTAL_BYTES {
@@ -146,6 +139,7 @@ pub(super) async fn prepare_input(
                 });
             }
             Err(error) => status.push_str(&format!("\nQQ 图片 {message_id}/{image_index} 读取失败，尚未获得图像：{error:#}。这是图片消息，不能说对方未发图片。")),
+        }
         }
     }
     Ok((attachments, status))

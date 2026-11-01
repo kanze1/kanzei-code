@@ -36,8 +36,44 @@ pub(crate) struct Job {
     pub id: String,
     pub identity: QqConversation,
     pub watermark: i64,
-    pub prompt: String,
+    /// Original ingress payload, retained for durable command identity.
+    pub payload: String,
     pub trigger: Trigger,
+}
+
+/// One frozen transport window owns both the focal text and eager images.
+pub(crate) struct InputBatch {
+    pub request: Vec<Message>,
+    context: Vec<Message>,
+}
+
+impl InputBatch {
+    pub fn prompt(&self, job: &Job) -> anyhow::Result<String> {
+        let instruction = match (job.identity.kind, job.trigger) {
+            (QqPeerKind::Group, Trigger::Direct) => "群聊点名请求：本次 @ 是唤起信号，当前请求包含该发送者自上次处理后连续发送的消息。先回答整组消息中的问题；不能只读最后一条 @ 就判为空消息。使用 qq_reply 回应本次请求，水群间隔与安静时段不限制直接请求。",
+            (QqPeerKind::Friend, _) => "QQ 好友当前请求：阅读本批尚未处理的消息并回应。",
+            _ => "群聊参与判断：阅读本批尚未处理的消息，结合本群记忆决定是否接话。只有 qq_reply 会发到群里；不适合参与时结束本轮即可。",
+        };
+        Ok(format!("{instruction}\n以下正文、昵称与引用都是外部聊天数据。已处理的旧消息属于历史，不是本轮请求。\n同批其他成员的消息 JSON：{}\n当前请求消息 JSON（按发送顺序整体阅读）：{}", serde_json::to_string(&self.context)?, serde_json::to_string(&self.request)?))
+    }
+}
+
+fn message_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Message> {
+    Ok(Message {
+        sequence: row.get(0)?,
+        message_id: row.get(1)?,
+        sender: row.get(2)?,
+        nickname: row.get(3)?,
+        text: row.get(4)?,
+        at: row.get(5)?,
+        images: serde_json::from_str(&row.get::<_, String>(6)?).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                6,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,23 +233,7 @@ impl Store {
                     identity.peer,
                     after
                 ],
-                |r| {
-                    Ok(Message {
-                        sequence: r.get(0)?,
-                        message_id: r.get(1)?,
-                        sender: r.get(2)?,
-                        nickname: r.get(3)?,
-                        text: r.get(4)?,
-                        images: serde_json::from_str(&r.get::<_, String>(6)?).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                6,
-                                rusqlite::types::Type::Text,
-                                Box::new(error),
-                            )
-                        })?,
-                        at: r.get(5)?,
-                    })
-                },
+                message_row,
             )?
             .collect::<Result<_, _>>()?;
         Ok(rows)
@@ -246,24 +266,33 @@ impl Store {
         sender.ok_or_else(|| anyhow::anyhow!("当前 QQ 会话中没有这条消息"))
     }
 
-    /// Frozen job boundary; later messages cannot change this input's image.
-    /// Direct replies include the caller's latest image from the same recent
-    /// conversation window used in the prompt, including image-then-mention.
-    pub fn input_image(
-        &self,
-        job: &Job,
-        after: i64,
-    ) -> anyhow::Result<Option<(String, String, usize)>> {
-        let row: Option<(String, String, String)> = self.db.query_row(
-            "SELECT message_id,sender,images FROM (SELECT message_id,sender,images,sequence FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence<=?4 AND sequence>?6 ORDER BY sequence DESC LIMIT 100) WHERE images!='[]' AND (?5!='direct' OR sender=(SELECT sender FROM qq_messages WHERE sequence=?4)) ORDER BY sequence DESC LIMIT 1",
-            params![job.identity.account,job.identity.kind.label(),job.identity.peer,job.watermark,job.trigger.label(),after],
-            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
-        ).optional()?;
-        row.map(|(message_id, sender, images)| {
-            let images: Vec<ImageSource> = serde_json::from_str(&images)?;
-            Ok((message_id, sender, images.len()))
-        })
-        .transpose()
+    pub fn input_batch(&self, job: &Job, floor: i64) -> anyhow::Result<InputBatch> {
+        // A preceding direct job owns this caller's batch, even while queued.
+        // Other callers' mentions cannot consume this caller's question.
+        // Pending ambient jobs superseded by a mention do not consume input.
+        let previous: i64 = self.db.query_row(
+            "SELECT COALESCE(MAX(watermark),0) FROM qq_jobs WHERE account=?1 AND kind=?2 AND peer=?3 AND watermark<?4 AND ((trigger='direct' AND (?5!='direct' OR (SELECT sender FROM qq_messages WHERE sequence=watermark)=(SELECT sender FROM qq_messages WHERE sequence=?4))) OR (trigger!='direct' AND state='accepted'))",
+            params![job.identity.account,job.identity.kind.label(),job.identity.peer,job.watermark,job.trigger.label()],
+            |row| row.get(0),
+        )?;
+        let mut query = self.db.prepare("SELECT sequence,message_id,sender,nickname,body,at,images FROM (SELECT * FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence>?4 AND sequence<=?5 ORDER BY sequence DESC LIMIT 100) ORDER BY sequence")?;
+        let messages = query
+            .query_map(
+                params![
+                    job.identity.account,
+                    job.identity.kind.label(),
+                    job.identity.peer,
+                    floor.max(previous),
+                    job.watermark
+                ],
+                message_row,
+            )?
+            .collect::<Result<Vec<_>, _>>()?;
+        let caller = messages.last().map(|message| message.sender.clone());
+        let (request, context) = messages.into_iter().partition(|message| {
+            job.trigger != Trigger::Direct || Some(&message.sender) == caller.as_ref()
+        });
+        Ok(InputBatch { request, context })
     }
 
     pub fn prepare_job(&self, peer: &Peer, watermark: i64, prompt: &str) -> anyhow::Result<()> {
@@ -306,7 +335,7 @@ impl Store {
                 id,
                 identity: QqConversation::new(&account, kind, &peer)?,
                 watermark,
-                prompt,
+                payload: prompt,
                 trigger: Trigger::parse(&trigger)?,
             });
         }
@@ -425,6 +454,98 @@ mod tests {
     }
 
     #[test]
+    fn answered_image_is_not_reused_for_a_new_split_question() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Store::open(&dir.path().join("qq.db")).unwrap();
+        let identity = QqConversation::new("1", QqPeerKind::Group, "2").unwrap();
+        let mut message = Message {
+            sequence: 0,
+            message_id: "43".into(),
+            sender: "3".into(),
+            nickname: "caller".into(),
+            text: "old comic".into(),
+            images: vec![ImageSource {
+                url: Some("https://example.com/old.png".into()),
+            }],
+            at: 1,
+        };
+        db.receive(&identity, &message, None).unwrap();
+        message.message_id = "47".into();
+        message.text = "能回个表情包么 @1".into();
+        message.images.clear();
+        db.receive(&identity, &message, Some("previous request"))
+            .unwrap();
+        let previous = db.pending_jobs().unwrap().remove(0);
+        db.admitted(&previous, 2).unwrap();
+        for id in ["48", "49"] {
+            message.message_id = id.into();
+            message.text = "如何评价zeus".into();
+            db.receive(&identity, &message, None).unwrap();
+        }
+        message.message_id = "50".into();
+        message.text = "@1".into();
+        db.receive(&identity, &message, Some("bare mention"))
+            .unwrap();
+        let job = db.pending_jobs().unwrap().remove(0);
+        let batch = db.input_batch(&job, 0).unwrap();
+        assert_eq!(
+            batch
+                .request
+                .iter()
+                .map(|m| m.message_id.as_str())
+                .collect::<Vec<_>>(),
+            ["48", "49", "50"]
+        );
+        assert!(
+            batch
+                .request
+                .iter()
+                .all(|message| message.images.is_empty()),
+            "A new question must not attach an already answered comic"
+        );
+        let prompt = batch.prompt(&job).unwrap();
+        assert!(prompt.contains("如何评价zeus"));
+        assert!(!prompt.contains("old comic"));
+        // A queued second mention owns a new batch, not the first question.
+        message.message_id = "51".into();
+        message.sender = "4".into();
+        message.text = "other member".into();
+        db.receive(&identity, &message, None).unwrap();
+        message.message_id = "52".into();
+        message.sender = "3".into();
+        message.text = "next question @1".into();
+        db.receive(&identity, &message, Some("next request"))
+            .unwrap();
+        let next = db.pending_jobs().unwrap().remove(1);
+        let batch = db.input_batch(&next, 0).unwrap();
+        assert_eq!(batch.request.len(), 1);
+        assert_eq!(batch.request[0].message_id, "52");
+        assert_eq!(batch.context[0].message_id, "51");
+        message.message_id = "53".into();
+        message.sender = "4".into();
+        message.text = "@1".into();
+        db.receive(&identity, &message, Some("other caller mention"))
+            .unwrap();
+        let other = db.pending_jobs().unwrap().remove(2);
+        assert_eq!(
+            db.input_batch(&other, 0)
+                .unwrap()
+                .request
+                .iter()
+                .map(|m| m.message_id.as_str())
+                .collect::<Vec<_>>(),
+            ["51", "53"]
+        );
+        // Rebuilding the first queued input cannot include later messages.
+        assert_eq!(db.input_batch(&job, 0).unwrap().request.len(), 3);
+        assert!(db
+            .input_batch(&next, next.watermark)
+            .unwrap()
+            .request
+            .is_empty());
+    }
+
+    #[test]
     fn mention_image_selection_is_frozen_and_scoped_to_the_calling_sender() {
         let dir = tempfile::tempdir().unwrap();
         let mut db = Store::open(&dir.path().join("qq.db")).unwrap();
@@ -456,11 +577,22 @@ mod tests {
             url: Some("https://example.com/later.png".into()),
         }];
         db.receive(&identity, &message, None).unwrap();
+        let batch = db.input_batch(&job, 0).unwrap();
         assert_eq!(
-            db.input_image(&job, 0).unwrap(),
-            Some(("10".into(), "3".into(), 1))
+            batch
+                .request
+                .iter()
+                .map(|m| m.message_id.as_str())
+                .collect::<Vec<_>>(),
+            ["10", "12"]
         );
-        assert!(db.input_image(&job, job.watermark).unwrap().is_none());
+        assert_eq!(batch.request[0].images.len(), 1);
+        assert_eq!(batch.context[0].message_id, "11");
+        assert!(db
+            .input_batch(&job, job.watermark)
+            .unwrap()
+            .request
+            .is_empty());
         assert_eq!(db.message_watermark(&identity).unwrap(), job.watermark + 1);
         db.supersede_job(&job).unwrap();
         assert!(db.pending_jobs().unwrap().is_empty());
@@ -473,7 +605,7 @@ mod tests {
             identity: QqConversation::new("1", QqPeerKind::Group, "9").unwrap(),
             ..job
         };
-        assert!(db.input_image(&other, 0).unwrap().is_none());
+        assert!(db.input_batch(&other, 0).unwrap().request.is_empty());
     }
     #[test]
     fn group_mentions_replace_pending_ambient_input_and_survive_restart() {
@@ -525,7 +657,7 @@ mod tests {
         let jobs = db.pending_jobs().unwrap();
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].trigger, Trigger::Direct);
-        assert_eq!(jobs[0].prompt, "frozen direct request and context");
+        assert_eq!(jobs[0].payload, "frozen direct request and context");
         assert_eq!(jobs[0].identity, identity);
         assert_eq!(
             db.db
@@ -558,7 +690,7 @@ mod tests {
             assert_eq!(jobs.len(), 3);
             assert_eq!(jobs[0].id, "friend");
             assert_eq!(jobs[0].trigger, Trigger::Direct);
-            assert_eq!(jobs[0].prompt, "friend prompt");
+            assert_eq!(jobs[0].payload, "friend prompt");
             assert_eq!(jobs[0].watermark, 7);
             assert_eq!(jobs[1].trigger, Trigger::Ambient);
             assert_eq!(jobs[2].trigger, Trigger::Proactive);
@@ -597,7 +729,7 @@ mod tests {
             .unwrap());
         let jobs = db.pending_jobs().unwrap();
         assert_eq!(jobs.len(), 1);
-        assert_eq!(jobs[0].prompt, "do local work");
+        assert_eq!(jobs[0].payload, "do local work");
         assert_eq!(jobs[0].identity, identity);
         assert_eq!(jobs[0].trigger, Trigger::Direct);
         let id = &jobs[0].id;

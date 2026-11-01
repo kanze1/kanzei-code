@@ -80,7 +80,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const payload=JSON.parse(body);requests.push(payload);
     const latest=[...payload.messages].reverse().find(m=>m.role==="user"&&typeof m.content==="string"&&!m.content.startsWith("[external_source_data]\n"));
     const current=String(latest?.content||"");
-    const text=current.includes("当前消息 JSON：")?current.split("当前消息 JSON：").at(-1):JSON.stringify(latest);
+    const text=current.split("当前请求消息 JSON（按发送顺序整体阅读）：").at(-1);
     const turn=payload.messages.slice(payload.messages.findLastIndex(m=>m.role==="user")+1);
     const calls=turn.flatMap(m=>m.tool_calls||[]),called=id=>calls.some(c=>c.id===id);
     const call=(id,name,input)=>answer(res,null,{id,name,input});
@@ -89,7 +89,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
       if(!called("media-outcome"))call("media-outcome","qq_reply",{text:marker,attachments:[{type:"image",path:"/workspace/screenshot.png"}]});
       else answer(res,"MUST_NOT_RESEND_AFTER_MEDIA_OUTCOME");
     }else if(text.includes("FRIEND_MEDIA")){
-      if(!called("media-find"))call("media-find","qq_stickers",{source:"workspace",query:"庆祝"});
+      if(!called("media-find"))call("media-find","qq_sticker_collection",{query:"庆祝"});
       else if(!called("media-send"))call("media-send","qq_reply",{text:"**MEDIA_SENT**",attachments:[{type:"sticker",id:"happy"},{type:"file",path:"/workspace/qq-workspace.txt",name:"工作区文件.txt"},{type:"face",id:14}]});
       else answer(res,"MUST_NOT_DUPLICATE_MEDIA_REPLY");
     }else if(text.includes("GROUP_MEDIA")){
@@ -104,6 +104,13 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     }else if(text.includes("FRIEND_APPROVAL")){
       if(!called("friend-write"))call("friend-write","sandbox",{command:"printf QQ_WORKSPACE_FILE > qq-workspace.txt; cat qq-workspace.txt"});
       else answer(res,"APPROVAL_DONE: 已写入独立工作区。");
+    }else if(text.includes('"message_id":"77"')){
+      const batch=JSON.parse(text);
+      assert.deepEqual(batch.map(m=>m.message_id),["75","76","77"]);
+      assert(batch.slice(0,2).every(m=>m.text==="如何评价zeus"));
+      assert(batch.every(m=>m.images.length===0));
+      assert(!current.includes('"message_id":"72"'),"Processed image must stay outside the new input");
+      call("split-question-reply","qq_reply",{text:"SPLIT_QUESTION_UNDERSTOOD"});
     }else if(text.includes('"message_id":"73"')){
       assert(payload.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url"&&p.image_url.url===`data:image/png;base64,${png.toString("base64")}`)),"Pixels must arrive before the first model tool selection");
       if(!called("eager-image-reply"))call("eager-image-reply","qq_reply",{text:"IMAGE_PIXELS_RECEIVED"});
@@ -174,7 +181,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(deliveries[0].params.message[0].data.text==="FRIEND_DONE\n\n沙箱命令已执行。见文档 (https://example.com/qq)。","QQ receives readable plain text with the Markdown link destination preserved");
     const request=requests.find(r=>JSON.stringify(r).includes("FRIEND_TERMINAL"));
     check(request.tools.some(t=>t.function.name==="sandbox")&&!request.tools.some(t=>["bash","read","write","browser","desktop","task","process"].includes(t.function.name)),"Friend gets isolated workspace tools without host control");
-    check(["qq_reply","qq_stickers","qq_image"].every(name=>request.tools.some(t=>t.function.name===name))&&JSON.stringify(request.messages).includes("QQ 普通聊天不渲染 Markdown"),"Friends receive media reading/sending tools and QQ plain-text guidance");
+    check(["qq_reply","qq_stickers","qq_sticker_collection","qq_image"].every(name=>request.tools.some(t=>t.function.name===name))&&JSON.stringify(request.messages).includes("QQ 普通聊天不渲染 Markdown"),"Friends receive distinct sticker search/collection tools, image reading, sending and QQ plain-text guidance");
     check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("QQ_TERMINAL_EXECUTED"))),"Isolated POSIX command actually executes");
     await page.locator("#qq-refresh").click();await page.locator("#social-manager-close").click();
     await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"测试好友"}).click();
@@ -274,11 +281,12 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await until(()=>deliveries.slice(priorDeliveries).some(d=>JSON.stringify(d).includes("MENTION_SENT")),"Explicit mention bypasses quiet hours and 600-second ambient interval",10000);
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Mention round completes");
     check(deliveries.slice(priorDeliveries).filter(d=>d.action==="send_group_msg").length===1,"Duplicate mentions yield exactly one reply");
-    const mention=requests.slice(before).find(r=>JSON.stringify(r.messages).includes("群聊点名回复"));
+    const mention=requests.slice(before).find(r=>JSON.stringify(r.messages).includes("群聊点名请求"));
     check(mention&&!mention.tools.some(t=>["bash","read","write","task","tool_search"].includes(t.function.name)),"Direct group mention retains restricted group capabilities");
     check(requests.slice(before).every(r=>{
       const prompt=String([...r.messages].reverse().find(m=>m.role==="user")?.content||"");
-      return prompt.startsWith("群聊点名回复")&&prompt.split("当前消息 JSON：").at(-1).includes("GROUP_MENTION")&&!prompt.split("当前消息 JSON：").at(-1).includes("OTHER_AT_MUST_STAY_QUIET");
+      const focal=prompt.split("当前请求消息 JSON（按发送顺序整体阅读）：").at(-1);
+      return prompt.startsWith("群聊点名请求")&&JSON.parse(focal).at(-1).message_id==="31";
     }),"Other-account and at-all mentions do not wake rounds during quiet hours");
     const mediaStart=deliveries.length;
     incoming("friend",200,"FRIEND_MEDIA: 发庆祝表情和刚才生成的文件",50);
@@ -315,7 +323,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Image reading round completes");
     const imageRequests=requests.slice(imageStart);
     const imagePrompt=String(imageRequests[0].messages.findLast(m=>m.role==="user").content);
-    check(imagePrompt.includes('"message_id":"70"')&&imagePrompt.includes('"images":[{"url":')&&imagePrompt.split("当前消息 JSON：").at(-1).includes('"message_id":"71"'),"The bare mention retains the earlier photo's identity and typed image source");
+    check(imagePrompt.includes('"message_id":"70"')&&imagePrompt.includes('"images":[{"url":')&&imagePrompt.split("当前请求消息 JSON（按发送顺序整体阅读）：").at(-1).includes('"message_id":"71"'),"The bare mention retains the earlier photo's identity and typed image source");
     check(imageRequests.some(r=>r.messages.some(m=>m.role==="tool"&&String(m.content).includes("未能读取这张 QQ 图片，尚未获得图像")&&String(m.content).includes("WEBFETCH_ADDRESS_BLOCKED"))),"QQ image reading uses the existing public-address guard and reports failure without claiming pixels");
     const eagerStart=requests.length;
     incoming("group",300,"",72,[{type:"image",data:{url:`http://8.8.8.8:${server.address().port}/image`}}]);
@@ -325,6 +333,13 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const eager=requests.slice(eagerStart).find(r=>r.messages.some(m=>typeof m.content==="string"&&m.content.includes('"message_id":"73"')));
     check(eager.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url"&&p.image_url.url===`data:image/png;base64,${png.toString("base64")}`)),"The first model request contains original image pixels with no qq_image selection");
     check(!requests.slice(eagerStart).some(r=>r.messages.slice(r.messages.findLastIndex(m=>m.role==="user")+1).some(m=>(m.tool_calls||[]).some(c=>c.function.name==="qq_image"))),"Image delivery does not depend on the model choosing an image tool");
+    const splitStart=deliveries.length;
+    incoming("group",300,"如何评价zeus",75);
+    incoming("group",300,"如何评价zeus",76);
+    incoming("group",300,"",77,[{type:"at",data:{qq:"100"}}]);
+    await until(()=>deliveries.slice(splitStart).some(d=>JSON.stringify(d).includes("SPLIT_QUESTION_UNDERSTOOD")),"Split question survives a separate bare mention after an answered image");
+    await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Split question completes");
+    check(deliveries.length===splitStart+1,"Split question and bare mention form one current request without reattaching the processed image");
     await page.evaluate(async peer=>{await (await import("./33-qq.js")).openQqPeer(peer);},group);
     await page.locator("#status-tokens").click();
     check(await page.locator("#context-clear").isEnabled(),"An idle QQ conversation offers Clear context in the context panel");
@@ -357,7 +372,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
     check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
     check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===6,"Removed friends cannot append local assistant input");
-    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===10,"Deleted groups cannot append mention input");
+    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===13,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);

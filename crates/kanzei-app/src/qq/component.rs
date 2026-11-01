@@ -10,6 +10,12 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::Manager;
 
+const REPLY_WORKFLOW: &str = "工具名与参数以本轮工具 schema 为准，人设中的旧工具名不构成可调用能力。回复前按当前请求完成所需步骤：
+1. 整体阅读本批消息，先理解问题和已附加图片。群聊记忆用 qq_memory 检索；没有共同记忆不代表对方没说话。
+2. 名字、缩写或对象不明确时，先调用 websearch 查明常见含义，再结合上下文消歧；仍不明确时简短询问。涉及现实人物、队伍、赛事、产品等会变化的事实、近况或评价，也必须先调用 websearch 核对，根据实际来源回答。qq_memory 和模型旧知识不能替代网页检索。
+3. 群聊轻松闲聊可主动配一个贴合语气的表情，遵循本群人设约定的频率；qq_stickers 专门联网检索并返回实际图像和可发送 ID，qq_sticker_collection 只查已有收藏。收藏为空或不合适时继续联网找图。严肃话题或对方要求纯文字时用正文。对方要求图片或表情时，必须在本轮实际查询并选择素材，不能沿用旧历史中的空库或失败结论。检索失败按真实结果说明。
+4. 完成读图、检索和素材选择后，单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。";
+
 pub(crate) struct ConversationComponent {
     pub app: tauri::AppHandle,
     pub identity: QqConversation,
@@ -41,7 +47,11 @@ impl Component for ConversationComponent {
         };
         for name in ["general", "dev-auto", "dev-pair", "isolated"] {
             if let Some(mut agent) = draft.agents.get(name).cloned() {
-                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 按关键词联网检索并查看实际图像，按返回 ID 选择；source=workspace 只检索已收藏素材，空收藏不表示无法联网找图。对方要求图片或表情时，必须在本轮实际查询并选择素材，不能沿用旧历史中的空库或失败结论。先完成读图、检索和素材选择，再单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。", super::plain_text::STYLE, super::image::STYLE));
+                agent.system.push_str(&format!(
+                    "\n{role}\n{}\n{}\n{REPLY_WORKFLOW}",
+                    super::plain_text::STYLE,
+                    super::image::STYLE
+                ));
                 draft.agents.insert(name, agent);
             }
         }
@@ -68,6 +78,12 @@ impl Component for ConversationComponent {
         draft.tools.insert(
             "qq_memory",
             Arc::new(RecallTool {
+                identity: self.identity.clone(),
+            }),
+        );
+        draft.tools.insert(
+            "qq_sticker_collection",
+            Arc::new(CollectionTool {
                 identity: self.identity.clone(),
             }),
         );
@@ -238,23 +254,13 @@ fn workspace_concurrency(ctx: &ToolCtx) -> ToolConcurrency {
 #[derive(Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct StickerQuery {
-    /// Match ID, name or scene description. Empty returns the library catalogue.
-    #[serde(default)]
+    /// Keywords for live image search.
     query: String,
-    #[serde(default)]
-    source: StickerSource,
     #[serde(default = "sticker_limit")]
     #[schemars(range(min = 1, max = 5))]
     limit: usize,
 }
 
-#[derive(Default, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-enum StickerSource {
-    #[default]
-    Web,
-    Workspace,
-}
 fn sticker_limit() -> usize {
     3
 }
@@ -269,7 +275,7 @@ impl Tool for StickerTool {
         "qq_stickers"
     }
     fn description(&self) -> String {
-        "按 query 关键词联网搜索表情包（source 默认 web），下载校验原图并返回实际图像、来源与可发送 ID，limit 默认 3、最多 5。用 qq_reply 的 sticker 附件发送返回 ID。source=workspace 时按 ID、名称和描述检索 /workspace/stickers/manifest.json 收藏，空 query 列出收藏。空收藏不代表联网无结果；搜索或下载失败明确报错。".into()
+        "按 query 关键词联网搜索新表情包，下载校验原图并返回实际图像、来源与可发送 ID，limit 默认 3、最多 5。用 qq_reply 的 sticker 附件发送返回 ID。此工具始终联网；只查已有收藏用 qq_sticker_collection。搜索或下载失败明确报错。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(StickerQuery)).unwrap()
@@ -288,24 +294,56 @@ impl Tool for StickerTool {
         let Some(workspace) = kanzei_harness::social_workspace_root(&ctx.project_root) else {
             return ToolOutput::error("QQ 表情库缺少社交工作区");
         };
-        if matches!(input.source, StickerSource::Web) {
-            if input.query.trim().is_empty() {
-                return ToolOutput::error(
-                    "联网表情检索需要 query 关键词；列出收藏请用 source=workspace",
-                );
-            }
-            return match super::stickers::search(&input.query, input.limit, &workspace, ctx).await {
-                Ok(output) => output,
-                Err(error) => ToolOutput::failed(
-                    "QQ_STICKER_SEARCH_FAILED",
-                    format!("联网表情检索未完成：{error:#}"),
-                ),
-            };
+        match super::stickers::search(&input.query, input.limit, &workspace, ctx).await {
+            Ok(output) => output,
+            Err(error) => ToolOutput::failed(
+                "QQ_STICKER_SEARCH_FAILED",
+                format!("联网表情检索未完成：{error:#}"),
+            ),
         }
+    }
+}
+
+#[derive(Default, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct CollectionQuery {
+    #[serde(default)]
+    query: String,
+}
+
+struct CollectionTool {
+    identity: QqConversation,
+}
+
+#[async_trait::async_trait]
+impl Tool for CollectionTool {
+    fn name(&self) -> &'static str {
+        "qq_sticker_collection"
+    }
+    fn description(&self) -> String {
+        "只查询当前会话已有的表情收藏，按 query 匹配 ID、名称或描述；空 query 列出收藏。空收藏不代表无法发送表情；需要新图或没有合适收藏时用 qq_stickers 联网搜索。".into()
+    }
+    fn input_schema(&self) -> Value {
+        serde_json::to_value(schemars::schema_for!(CollectionQuery)).unwrap()
+    }
+    fn concurrency(&self, _: &Value, ctx: &ToolCtx) -> ToolConcurrency {
+        workspace_concurrency(ctx)
+    }
+    async fn execute(&self, input: Value, ctx: &ToolCtx) -> ToolOutput {
+        if QqConversation::from_root(&ctx.project_root).as_ref() != Some(&self.identity) {
+            return ToolOutput::error("QQ 表情收藏身份不匹配");
+        }
+        let input: CollectionQuery = match serde_json::from_value(input) {
+            Ok(input) => input,
+            Err(error) => return ToolOutput::error(error.to_string()),
+        };
+        let Some(workspace) = kanzei_harness::social_workspace_root(&ctx.project_root) else {
+            return ToolOutput::error("QQ 表情收藏缺少社交工作区");
+        };
         match tokio::task::spawn_blocking(move || super::media::stickers(&workspace)).await {
             Ok(Ok(stickers)) => {
                 let query = input.query.to_lowercase();
-                ToolOutput::ok(json!({"stickers":stickers.into_iter().filter(|item| [&item.id, &item.name, &item.description].iter().any(|value| value.to_lowercase().contains(&query))).collect::<Vec<_>>(),"manifest":"/workspace/stickers/manifest.json"}).to_string())
+                ToolOutput::ok(json!({"source":"collection","stickers":stickers.into_iter().filter(|item| [&item.id, &item.name, &item.description].iter().any(|value| value.to_lowercase().contains(&query))).collect::<Vec<_>>(),"manifest":"/workspace/stickers/manifest.json"}).to_string())
                     .with_external_source(kanzei_harness::ExternalSourceKind::File, "/workspace/stickers/manifest.json")
             }
             Ok(Err(error)) => ToolOutput::error(format!("QQ 表情库读取失败：{error:#}")),
