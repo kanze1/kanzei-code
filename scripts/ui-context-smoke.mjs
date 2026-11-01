@@ -34,7 +34,7 @@ try{
  await page.evaluate(async()=>{const shell=await import('/03-shell.js');shell.setCtxTokens(0);shell.renderTokens();});assert.equal(await page.locator('#status-tokens').isVisible(),true);checks.push('context remains inspectable before provider usage is available');
  await page.evaluate(async()=>{const shell=await import('/03-shell.js');shell.setCtxTokens(1234);shell.renderTokens();});
  await page.locator('#status-tokens').click();await page.locator('.context-request-select').waitFor();
- assert.equal(await page.locator('#context-detail').isVisible(),true);assert.equal(await page.locator('.context-assembly-group').count(),9);checks.push('existing context entry renders real assembly groups');
+ assert.equal(await page.locator('#context-detail').isVisible(),true);assert.equal(await page.locator('.context-block').count(),blocks.length);assert.equal(await page.locator('.context-assembly-group').filter({hasText:'项目与运行上下文'}).count(),1);checks.push('existing context entry renders every source in its assembly group');
  const identity=page.locator('.context-assembly-group').filter({hasText:'运行快照'}).first();await identity.locator('summary').click();assert.match(await identity.innerText(),/frozen-head/);assert.match(await identity.innerText(),/api-model/);checks.push('execution workspace, source identity and actual request parameters remain inspectable');
  await page.locator('.context-assembly-group').filter({hasText:'Agent 规则与运行策略'}).locator('summary').first().click();
  await page.locator('.context-block').filter({hasText:'系统提示词'}).locator('summary').click();
