@@ -58,6 +58,7 @@ async fn primary_and_subagent_continue_past_32_without_a_step_limit() {
             system: "read then finish".into(),
         };
         let runner = kanzei_core::RunnerConfig {
+            run_context: Vec::new(),
             hosted_tools: Vec::new(),
             digest_model: None,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -204,6 +205,7 @@ async fn long_writer_keeps_tools_and_scope_past_the_old_batch_window() {
         system: "write the requested task".into(),
     };
     let runner = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

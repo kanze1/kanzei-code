@@ -403,7 +403,8 @@ async fn make_decision(
     let resolved = config.resolve_model(&model)?;
     let proxy = crate::run::assembly::resolve_proxy(&config);
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
-    let client = crate::run::assembly::new_llm_client(&proxy)?;
+    let client = crate::run::assembly::new_llm_client(&proxy)?
+        .with_priority(kanzei_llm::RequestPriority::Maintenance);
     let store = super::open_store()?;
     let topics = store.topics(&target.identity.session_id)?;
     let reviews = store.recent_reviews(&target.identity.session_id)?;

@@ -3,7 +3,7 @@ import { invoke } from "./00-ipc.js";
 import { activeProcessId, activeSessionId, currentProject } from "./03-shell.js";
 import { contextBillLabel } from "./13-memory.js";
 import { t } from "./02-i18n.js";
-import { contextGroups, requestSources } from "./07-context-model.js";
+import { contextGroups, isContextSource, requestSources } from "./07-context-model.js";
 import { resourceLinks } from "./04-resource-types.js";
 import { structuredNav } from "./04-structured.js";
 import { conversationEpoch } from "./15-views-misc.js";
@@ -28,7 +28,7 @@ async function inspect(view, block, destination) {
 
 function blockDetails(view, block) {
   const detail=node("details","context-block"), summary=node("summary");
-  const title=block.kind==="system"?contextBillLabel(block.label):block.label;
+  const title=isContextSource(block)?contextBillLabel(block.label):block.label;
   const size=block.kind==="attachment"?`${number(block.bytes)} ${t("编码字节")}`:`${number(block.chars)} ${t("字符")}`;
   summary.append(node("span","context-block-label",title),node("span","dim",size));detail.append(summary);
   const body=node("div","context-block-body");body.append(row(t("输入角色"),block.role),row(t("内容指纹"),block.sha256));
@@ -51,7 +51,7 @@ function assembly(view) {
     for(const block of group.blocks) detail.append(blockDetails(view,block));box.append(detail);
   }
   const order=node("details","context-assembly-group");order.append(node("summary","",t("实际装配顺序")));
-  const list=node("ol","context-order");for(const block of manifest.blocks)list.append(node("li","",`${block.position+1}  ${block.role}  ${block.kind==="system"?contextBillLabel(block.label):block.label}`));order.append(list);box.append(order);
+  const list=node("ol","context-order");for(const block of manifest.blocks)list.append(node("li","",`${block.position+1}  ${block.role}  ${isContextSource(block)?contextBillLabel(block.label):block.label}`));order.append(list);box.append(order);
   if(manifest.source_reads?.length) {
     const reads=node("details","context-assembly-group");reads.append(node("summary","",t("来源装载结果")));
     for(const source of manifest.source_reads) {

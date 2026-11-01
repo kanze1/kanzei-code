@@ -11,18 +11,23 @@ pub(super) fn build_request(
     system: &[String],
     messages: Vec<Message>,
     specs: &[ToolSpec],
-) -> LlmRequest {
-    LlmRequest {
-        model: config.model.clone(),
-        system: system.to_vec(),
-        messages,
-        tools: specs.to_vec(),
-        hosted_tools: vec![],
-        max_tokens: config.max_tokens,
-        temperature: None,
-        reasoning: config.reasoning,
-        service_tier: config.service_tier.clone(),
-    }
+    context: &super::request_context::RequestContext,
+) -> (LlmRequest, Option<usize>) {
+    let (messages, context_index) = context.project(&messages);
+    (
+        LlmRequest {
+            model: config.model.clone(),
+            system: system.to_vec(),
+            messages,
+            tools: specs.to_vec(),
+            hosted_tools: vec![],
+            max_tokens: config.max_tokens,
+            temperature: None,
+            reasoning: config.reasoning,
+            service_tier: config.service_tier.clone(),
+        },
+        context_index,
+    )
 }
 
 /// Publish the same report on both success and required-source failure.
@@ -60,6 +65,7 @@ pub(super) fn update_source_ledger(
 /// 变量名与内联时代逐字节一致,后续主循环零改动。halt/halted 借用 config 不进入
 /// struct(生命周期留在调用方)。
 pub(super) struct RunOnceAssembly<'a> {
+    pub(super) run_context: super::request_context::RequestContext,
     pub(super) tools: Vec<Arc<dyn Tool>>,
     pub(super) specs: Vec<ToolSpec>,
     pub(super) context_report: Vec<(String, usize)>,
@@ -152,9 +158,7 @@ pub(super) fn assemble_run_once<'a>(
     if spec_chars > 0 {
         context_report.push(("tools/schema".into(), spec_chars));
     }
-    // D-185:记忆提示块是稳定 system 段(每步都在,同 agent/system),但**不进
-    // messages**——messages 是持久化与回灌的载体,进去就会被逐轮累积回灌。
-    // context_report 单独记 memory/hints,让注入 token 账单能看到 hint 段的占比。
+    // Transient facts/recall are projected only at dispatch, after history.
     if let Some(hints) = memory_hints {
         if !hints.trim().is_empty() {
             context_report.push(("memory/hints".into(), hints.chars().count()));
@@ -171,6 +175,22 @@ pub(super) fn assemble_run_once<'a>(
     let stable_sources = source_spans(&stable_report);
     if !stable_sources.is_empty() {
         stable_system_sources.push(stable_sources);
+    }
+    stable_system.push(super::request_context::GUIDANCE.into());
+    stable_system_sources.push(vec![(
+        "runtime/context-policy".into(),
+        super::request_context::GUIDANCE.len(),
+    )]);
+    context_report.push((
+        "runtime/context-policy".into(),
+        super::request_context::GUIDANCE.chars().count(),
+    ));
+    let mut run_context = super::request_context::RequestContext::default();
+    for (key, text) in &config.run_context {
+        run_context.push(key, text);
+        if !text.trim().is_empty() {
+            context_report.push((key.clone(), text.chars().count()));
+        }
     }
     let refreshable_sources = source_spans(&refreshable_report);
     let context_source_reads = stable_report
@@ -205,16 +225,14 @@ pub(super) fn assemble_run_once<'a>(
     }
     if let Some(hints) = memory_hints {
         if !hints.trim().is_empty() {
-            stable_system.push(hints.to_string());
-            stable_system_sources.push(vec![("memory/hints".into(), hints.len())]);
+            run_context.push("memory/hints", hints);
         }
     }
 
     if let Some(skills) = invoked_skills {
         let text = skills.as_str();
         context_report.push(("skills/invoked".into(), text.chars().count()));
-        stable_system.push(text.into());
-        stable_system_sources.push(vec![("skills/invoked".into(), text.len())]);
+        run_context.push("skills/invoked", text);
     }
 
     // prior 可能来自旧快照或跨进程恢复，先统一清洗孤儿工具 part，避免首次请求
@@ -256,6 +274,7 @@ pub(super) fn assemble_run_once<'a>(
 
     let step = 0u32;
     Ok(RunOnceAssembly {
+        run_context,
         tools,
         specs,
         context_report,

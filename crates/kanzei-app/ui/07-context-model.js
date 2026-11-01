@@ -1,8 +1,12 @@
 // The manifest is the authority for inclusion. Search/acquisition receipts only
 // describe observations; they never prove that their text entered this request.
+export function isContextSource(block) {
+  return block.kind === "system" || block.kind === "runtime_context";
+}
+
 export function contextGroup(block) {
   if (block.kind === "tool_schema" || block.label === "tools/catalog") return "tools";
-  if (block.kind === "system") {
+  if (isContextSource(block)) {
     if (/memory|preferences|project-knowledge|skills/.test(block.label)) return "knowledge";
     if (/agent\/system|verification-policy|workflow/.test(block.label)) return "rules";
     return "project";

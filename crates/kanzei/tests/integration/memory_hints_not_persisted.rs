@@ -2,16 +2,9 @@
 //! message 进 summary.messages → 落 conversations → 下轮 prior 回灌,逐轮累积
 //! N 个 hint 块。
 //!
-//! 修复:提示块不再拼进 prompt 字符串,改由 run_once 的 `memory_hints` 参数作为
-//! **本轮 system 一次性注入**——system 不进 messages,自然不进 conversations,
-//! 下轮 prior 回灌不到。
-//!
-//! 本测试用 mock SSE 服务器捕获首个请求,断言四层证据:
-//!   ① 请求 system 数组里确实含 hint 块(模型本轮看得到);
-//!   ② 请求 messages 的 User text **不含** hint 块(hints 未拼进 prompt);
-//!   ③ summary.messages 全程无任何 hint 块(不进历史 → 不回灌,连跑 N 轮都只有一个);
-//!   ④ summary.context_report 含 `memory/hints` 条目(注入 token 账单能看到 hint
-//!      段独立占比,验收②)。
+//! Recall is projected after history as engine-authored request context. It must
+//! remain absent from the stable system, human input and persisted transcript.
+//! The source ledger still accounts for memory/hints independently.
 
 use std::sync::Arc;
 
@@ -76,7 +69,7 @@ fn text_response(text: &str) -> serde_json::Value {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn memory_hints只进本轮system_不进messages_不落历史() {
+async fn memory_hints只进本轮请求_不进持久化messages() {
     let suffix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -112,6 +105,7 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         system: "test".into(),
     };
     let runner_config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -157,8 +151,7 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         .and_then(|raw| serde_json::from_str(raw).ok())
         .expect("请求体应为合法 JSON");
 
-    // ①/② 解析 messages 数组:role=system 的 content 应含 hint 块(模型本轮看得到),
-    //    role=user 的 content 不应含 hint 块(hints 未拼进 prompt)。
+    // Dynamic recall stays outside the stable system and has an engine source envelope.
     let messages_arr = parsed["messages"]
         .as_array()
         .expect("请求 messages 应为数组");
@@ -176,8 +169,8 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        system_text.contains("<memory-hints>"),
-        "请求 system 未含 hint 块: {system_text}"
+        !system_text.contains("<memory-hints>"),
+        "动态记忆污染了稳定 system: {system_text}"
     );
 
     let user_text = messages_arr
@@ -187,8 +180,10 @@ async fn memory_hints只进本轮system_不进messages_不落历史() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        !user_text.contains("<memory-hints>"),
-        "hint 块被拼进了 User prompt,会随 messages 落库回灌: {user_text}"
+        user_text.contains("<memory-hints>")
+            && user_text.contains("conversation_context")
+            && user_text.contains("context_only"),
+        "请求必须保留引擎上下文的来源与权限边界: {user_text}"
     );
 
     // ③ summary.messages 全程无 hint 块(不进历史 → 不回灌)。

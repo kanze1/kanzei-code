@@ -10,6 +10,7 @@ pub mod event;
 pub mod protocol;
 pub mod proxy;
 pub mod request;
+pub mod scheduling;
 pub mod sse;
 
 pub use client::{Endpoint, LlmClient, Route};
@@ -17,3 +18,4 @@ pub use error::LlmError;
 pub use event::{FinishReason, LlmEvent, Usage};
 pub use proxy::ProxyConfig;
 pub use request::{LlmRequest, Message, MessageOrigin, Part, ReasoningEffort, Role, ToolSpec};
+pub use scheduling::RequestPriority;

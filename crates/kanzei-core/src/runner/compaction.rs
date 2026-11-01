@@ -10,7 +10,6 @@ use super::SubagentRuntime;
 use super::MAX_CONTEXT_OVERFLOW_RECOVERIES;
 use crate::runner::context::{clip, digest_acceptable, is_input_message, render_for_digest};
 use crate::runner::metrics::{summarize_failures, summarize_tools};
-use futures::StreamExt;
 use kanzei_llm::{LlmClient, LlmEvent, LlmRequest, Message, Part, ReasoningEffort, Usage};
 
 /// A summarizer is a model route, independent of delegation being enabled.
@@ -497,25 +496,20 @@ async fn digest_segment(
         reasoning: ReasoningEffort::Off,
         service_tier: rt.service_tier.clone(),
     };
-    // Bound the entire stream, including headers and stalled deltas.
-    kanzei_harness::tool_pipeline::with_timeout(
-        async {
-            let mut stream = client.stream(&rt.route, &request).await.ok()?;
-            let mut summary = String::new();
-            while let Some(event) = stream.next().await {
-                match event {
-                    Ok(LlmEvent::TextDelta { text, .. }) => summary.push_str(&text),
-                    Err(_) => return None,
-                    _ => {}
-                }
-            }
-            (!summary.trim().is_empty()).then(|| summary.trim().to_string())
-        },
-        std::time::Duration::from_secs(30),
-    )
-    .await
-    .ok()
-    .flatten()
+    // Queue/yield time is not an inference failure and must not trigger a lossy
+    // fallback. Keep the existing deadline on active headers and streaming.
+    let events = client
+        .complete_with_timeout(&rt.route, &request, std::time::Duration::from_secs(30))
+        .await
+        .ok()?;
+    let summary = events
+        .into_iter()
+        .filter_map(|event| match event {
+            LlmEvent::TextDelta { text, .. } => Some(text),
+            _ => None,
+        })
+        .collect::<String>();
+    (!summary.trim().is_empty()).then(|| summary.trim().to_string())
 }
 
 pub(crate) fn recover_context_overflow(

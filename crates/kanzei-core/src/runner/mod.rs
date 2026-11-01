@@ -78,6 +78,9 @@ impl AskPolicy {
 }
 
 pub struct RunnerConfig {
+    /// Engine-owned facts for this run. Projected after history, never committed
+    /// as conversation messages or interpolated into the stable system prefix.
+    pub run_context: Vec<(String, String)>,
     pub digest_model: Option<DigestModel>,
     /// R-322:本轮门禁强度。决定引擎对**任务判断**介入多深(续跑提示与队列停止判断);
     /// 权限、托管围栏与事件真源不受它影响。默认 `Autonomous` = 引入前行为。

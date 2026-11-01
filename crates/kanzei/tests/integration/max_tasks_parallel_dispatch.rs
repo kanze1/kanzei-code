@@ -213,6 +213,7 @@ async fn 并发上限20时同轮派发21个task_20个全执行_第21个落溢出
         transcript_provider: None,
     };
     let runner_config = kanzei_core::RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

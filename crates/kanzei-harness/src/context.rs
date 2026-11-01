@@ -1,4 +1,4 @@
-//! Context sources contribute complete system sections and report their read status.
+//! Context sources contribute complete instruction or runtime sections and report their read status.
 
 use std::sync::Arc;
 
@@ -77,7 +77,7 @@ pub trait ContextSource: Send + Sync {
     fn requirement(&self) -> ContextRequirement {
         ContextRequirement::Optional
     }
-    /// true = 每个模型步骤前重新渲染,并替换本步骤的临时 system 段。
+    /// true = 每个模型步骤前重新渲染，作为历史之后的请求级运行上下文。
     /// 默认 false,既有项目文档/记忆上下文保持一次快照语义。
     fn refresh_each_step(&self) -> bool {
         false

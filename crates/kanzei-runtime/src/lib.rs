@@ -59,6 +59,7 @@ pub fn build_runner_config(
     halt: Option<kanzei_core::CancellationToken>,
 ) -> RunnerConfig {
     RunnerConfig {
+        run_context: Vec::new(),
         hosted_tools: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,

@@ -226,6 +226,7 @@ async fn run_fixture_with_limit(
     };
     let agent = serde_json::from_value(json!({"name":"fixture","profile":"dev-auto","mode":"primary","steps":steps,"system":"Follow every project convention in full."})).unwrap();
     let config = RunnerConfig {
+        run_context: Vec::new(),
         digest_model: None,
         intensity: kanzei_harness::HarnessIntensity::Autonomous,
         model: "mock".into(),

@@ -372,7 +372,6 @@ async fn prepare_session(
     mut ctx: ToolCtx,
 ) -> anyhow::Result<(SessionContext, RoundContext)> {
     let profile = deps.profile;
-    let agent = &mut deps.agent;
     let general = crate::general_chat::is_general_root(&ctx.project_root);
     let state_path = kanzei_core::project_state_path(&ctx.project_root);
     let mut store = kanzei_core::SessionStore::open(&state_path)?;
@@ -488,27 +487,37 @@ async fn prepare_session(
                 goal.as_deref(),
                 completion_mode,
             ) {
-                agent.system.push_str(&contract);
+                deps.runner_config
+                    .run_context
+                    .push(("runtime/completion".into(), contract));
             }
         }
         // Capture once before any write/claim by this run. Later working
         // tree observations are not evidence of what existed at this boundary.
-        let (run_id, _baseline_context) = super::baseline::prepare(
+        let mut baseline_context = String::new();
+        let (run_id, _) = super::baseline::prepare(
             profile,
             if general { &ctx.project_root } else { &ctx.cwd },
             &mut store,
             &request.session_id,
-            &mut agent.system,
+            &mut baseline_context,
         )
         .await?;
+        deps.runner_config
+            .run_context
+            .push(("runtime/origin".into(), baseline_context));
+        let mut facts_context = String::new();
         super::facts::prepare(
             &store,
             &request.session_id,
             &run_id,
             &promoted_input_id,
             &deps.resolved,
-            &mut agent.system,
+            &mut facts_context,
         )?;
+        deps.runner_config
+            .run_context
+            .push(("runtime/run-facts".into(), facts_context));
         // R-241 shadow 双写：先从最新 legacy snapshot 幂等 seed，并闭合上次强杀留下的
         // open draft/tool；再提交本轮 user fact。恢复必须持有同数据库/session 执行权。
         request
@@ -975,6 +984,7 @@ mod startup_tests {
             }))
             .unwrap();
             let runner_config = kanzei_core::RunnerConfig {
+                run_context: Vec::new(),
                 hosted_tools: vec![],
                 digest_model: None,
                 intensity: kanzei_harness::HarnessIntensity::Autonomous,
@@ -1546,9 +1556,25 @@ mod startup_tests {
     #[tokio::test]
     async fn startup_normal_provider_completes_and_releases_owner() {
         let mut fixture = Fixture::new(kanzei_harness::ProfileKind::Readonly).await;
+        let stable_system = fixture.deps.agent.system.clone();
         let request = fixture.request(None);
         let prepared = fixture.prepare(request).await;
+        assert_eq!(
+            fixture.deps.agent.system, stable_system,
+            "run identity and timestamps cannot rewrite the stable prefix"
+        );
+        for source in ["runtime/origin", "runtime/run-facts"] {
+            assert!(fixture
+                .deps
+                .runner_config
+                .run_context
+                .iter()
+                .any(|(key, text)| key == source && !text.is_empty()));
+        }
         let summary = fixture.execute_if_prepared(prepared).await.unwrap();
+        assert!(!serde_json::to_string(&summary.messages)
+            .unwrap()
+            .contains("engine_run_facts"));
         assert_eq!(summary.text, "done");
         assert_eq!(fixture.requests.load(Ordering::SeqCst), 1);
         assert_eq!(

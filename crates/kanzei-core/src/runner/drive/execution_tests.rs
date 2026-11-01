@@ -420,6 +420,7 @@ impl Component for Policy {
 
 fn config(policy: kanzei_harness::orchestration::ExecutionPolicy) -> RunnerConfig {
     RunnerConfig {
+        run_context: Vec::new(),
         digest_model: None,
         intensity: Default::default(),
         model: "fixture".into(),

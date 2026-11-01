@@ -161,13 +161,93 @@ impl Route {
 #[derive(Clone)]
 pub struct LlmClient {
     http: reqwest::Client,
+    priority: crate::RequestPriority,
 }
 
 impl LlmClient {
     pub fn new(proxy: &ProxyConfig) -> Result<Self, LlmError> {
         Ok(LlmClient {
             http: build_http_client_without_redirect(proxy)?,
+            priority: crate::RequestPriority::Interactive,
         })
+    }
+
+    pub fn with_priority(mut self, priority: crate::RequestPriority) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn reserve_interactive(
+        &self,
+        route: &Route,
+    ) -> Option<crate::scheduling::InteractiveReservation> {
+        (self.priority == crate::RequestPriority::Interactive)
+            .then(|| crate::scheduling::reserve_interactive(&route.endpoint.base_url))
+    }
+
+    /// Collect one complete inference turn. A yielded maintenance turn is discarded
+    /// before exposing any output; completed tool calls are returned only once.
+    pub async fn complete(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+    ) -> Result<Vec<LlmEvent>, LlmError> {
+        self.complete_turn(route, request, None).await
+    }
+
+    /// Bound active inference, excluding time spent yielding to interactive work.
+    pub async fn complete_with_timeout(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+        timeout: std::time::Duration,
+    ) -> Result<Vec<LlmEvent>, LlmError> {
+        self.complete_turn(route, request, Some(timeout)).await
+    }
+
+    async fn complete_turn(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<Vec<LlmEvent>, LlmError> {
+        loop {
+            let admission = crate::scheduling::admit(&route.endpoint.base_url, self.priority).await;
+            let inference = async {
+                let mut stream = self
+                    .open_stream(
+                        route,
+                        request,
+                        MAX_TRANSPORT_RETRIES,
+                        MAX_RATE_LIMIT_RETRIES,
+                        |_, _| {},
+                    )
+                    .await?;
+                let mut events = Vec::new();
+                while let Some(event) = stream.next().await {
+                    events.push(event?);
+                }
+                Ok(events)
+            };
+            let bounded = async {
+                match timeout {
+                    Some(timeout) => tokio::time::timeout(timeout, inference)
+                        .await
+                        .map_err(|_| LlmError::InferenceTimeout(timeout))?,
+                    None => inference.await,
+                }
+            };
+            let result = tokio::select! {
+                biased;
+                _ = admission.yielded() => None,
+                result = bounded => Some(result),
+            };
+            drop(admission);
+            if let Some(result) = result {
+                return result;
+            }
+            tracing::info!("uncommitted maintenance inference yielded to interactive work");
+        }
     }
 
     /// 发起一次 provider turn,返回 LlmEvent 流。
@@ -206,6 +286,38 @@ impl LlmClient {
     /// 与 [`stream_with_retry_notice`] 相同,但由调用方提供流建立前的两类重试上限。
     /// 传入 0 表示不重试；默认入口仍使用兼容旧行为的常量。
     pub async fn stream_with_retry_notice_with_limits<F>(
+        &self,
+        route: &Route,
+        request: &LlmRequest,
+        transport_retries: u32,
+        rate_limit_retries: u32,
+        on_retry: F,
+    ) -> Result<std::pin::Pin<Box<dyn Stream<Item = Result<LlmEvent, LlmError>> + Send>>, LlmError>
+    where
+        F: FnMut(u32, std::time::Duration),
+    {
+        let admission = crate::scheduling::admit(&route.endpoint.base_url, self.priority).await;
+        let mut stream = tokio::select! {
+            biased;
+            _ = admission.yielded() => return Err(LlmError::Yielded),
+            result = self.open_stream(route, request, transport_retries, rate_limit_retries, on_retry) => result?,
+        };
+        Ok(Box::pin(async_stream::try_stream! {
+            // Admission covers headers and streaming. Interactive work waits for
+            // the cancelled HTTP body to drop before entering the server queue.
+            let admission = admission;
+            loop {
+                let next = tokio::select! {
+                    biased;
+                    _ = admission.yielded() => Some(Err(LlmError::Yielded)),
+                    event = stream.next() => event,
+                };
+                match next { Some(event) => yield event?, None => break }
+            }
+        }))
+    }
+
+    async fn open_stream<F>(
         &self,
         route: &Route,
         request: &LlmRequest,
