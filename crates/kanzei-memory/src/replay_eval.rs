@@ -31,7 +31,7 @@ use kanzei_harness::config::KanzeiConfig;
 /// 把六臂记忆注入接到真实检索策略上。
 pub struct ReplayMemoryProvider {
     /// Current/LeaveOneOut/CompressionCF 共用现状策略(fingerprint → BM25)。
-    policy: FailureRecallPolicy,
+    policy: Box<dyn RecallPolicy>,
     /// Candidate 臂:三通道混合检索(fingerprint → BM25 + dense → RRF 融合,
     /// R-164 批4 装配)。无 [embeddings] 配置时退化为 lexical,与 Current 同源。
     hybrid: SqliteMemoryIndex,
@@ -50,7 +50,7 @@ impl ReplayMemoryProvider {
             .map(|e| Arc::new(e) as Arc<dyn crate::embed::Embedder>);
         let hybrid = SqliteMemoryIndex::with_embedder(project_root, embedder);
         Self {
-            policy,
+            policy: Box::new(policy),
             hybrid,
             project_root: project_root.to_path_buf(),
         }
@@ -327,9 +327,19 @@ mod tests {
 
     #[test]
     fn oracle臂注入自动事后正确做法_no_memory臂恒空() {
+        struct UnreachableRecall;
+        impl RecallPolicy for UnreachableRecall {
+            fn retrieve(
+                &self,
+                _: &kanzei_core::RecallTrigger,
+            ) -> Result<Vec<kanzei_core::RecallHit>, String> {
+                panic!("Oracle and NoMemory must not query the live retrieval policy");
+            }
+        }
         // 临时目录,避免在源码树里留下 memory 索引(D-174 文件隔离精神)。
         let root = kanzei_base::test_support::TestDir::new("kz-replay-eval-");
-        let provider = ReplayMemoryProvider::new(&root);
+        let mut provider = ReplayMemoryProvider::new(&root);
+        provider.policy = Box::new(UnreachableRecall);
         let case = parse_trace_payload(SAMPLE, "t").unwrap();
         // Oracle:失败后成功步骤(read)合成事后正确做法。
         let oracle = provider.context_for(&Arm::Oracle, &case);
@@ -337,16 +347,43 @@ mod tests {
         assert!(oracle.contains("read"), "{oracle}");
         // NoMemory 恒空。
         assert!(provider.context_for(&Arm::NoMemory, &case).is_empty());
-        // 空记忆目录 + 无 [embeddings] 配置:Candidate 退化为 lexical,与 Current
-        // 同源(都无命中 → 空);CompressionCF 与 Current 同源(合并器未落地)。
-        assert_eq!(
-            provider.context_for(&Arm::Candidate, &case),
-            provider.context_for(&Arm::Current, &case)
-        );
-        assert_eq!(
-            provider.context_for(&Arm::CompressionCF, &case),
-            provider.context_for(&Arm::Current, &case)
-        );
+    }
+
+    #[test]
+    fn replay_distinguishes_empty_retrieval_from_unavailable_retrieval() {
+        struct FixedRecall(Result<Vec<kanzei_core::RecallHit>, String>);
+        impl RecallPolicy for FixedRecall {
+            fn retrieve(
+                &self,
+                _: &kanzei_core::RecallTrigger,
+            ) -> Result<Vec<kanzei_core::RecallHit>, String> {
+                self.0.clone()
+            }
+        }
+        let root = kanzei_base::test_support::TestDir::new("kz-replay-retrieval-outcomes-");
+        let mut provider = ReplayMemoryProvider::new(&root);
+        provider.hybrid = SqliteMemoryIndex::new(&root);
+        provider.policy = Box::new(FixedRecall(Ok(Vec::new())));
+        let case = parse_trace_payload(SAMPLE, "outcomes").unwrap();
+        // Test arm projection independently of the production 30ms worker
+        // deadline. Real owner/ranking/deadline behavior has dedicated tests.
+        for arm in [
+            Arm::Current,
+            Arm::CompressionCF,
+            Arm::LeaveOneOut,
+            Arm::Candidate,
+        ] {
+            assert!(provider.context_for(&arm, &case).is_empty());
+        }
+        let error = "failure recall deadline exceeded";
+        provider.policy = Box::new(FixedRecall(Err(error.into())));
+        for arm in [Arm::Current, Arm::CompressionCF, Arm::LeaveOneOut] {
+            assert_eq!(
+                provider.context_for(&arm, &case),
+                format!("[memory retrieval unavailable] {error}")
+            );
+        }
+        assert!(provider.evaluation_memory_ids(&case).is_empty());
     }
 
     fn seed_recall_memory(root: &std::path::Path) -> String {

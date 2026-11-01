@@ -13635,3 +13635,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/sandbox-workspace-smoke.mjs; node scripts/ui-qq-native-smoke.mjs; node scripts/ui-social-native-smoke.mjs; cargo test --workspace; cargo clippy --all-targets
 - 摘要: 真实 WSL2/bubblewrap 隔离边界 11 项通过；QQ 原生 58 项、B站原生 48 项通过；好友和 B站实际运行沙箱命令并持久写入工作文件，切换会话期间工具状态和完成事件同步；个人工作区共享，群工作区和 memory 隔离；共用子代理构造层禁止社交会话安装 host 子代理。真实公网 example.com 读取成功，模型实际请求目录无 task/bash/read/write/desktop/browser/process。Rust workspace 2826 passed、22 ignored、0 failed；受影响四个 crate all-target Clippy 通过。UI i18n 和 runtime 修复后重测通过。QQ/NapCat/B站业务协议使用本地夹具，未登录真实账号或发送真实消息、评论。最终完整发布门禁另由 dist/verification.json 记录。
 - 收尾: 1793491144
+
+## T-1786922727216 回放记忆的空命中与超时错误契约回归 [passed]
+- 命令: cargo test -p kanzei-memory; cargo clippy -p kanzei-memory --all-targets -- -D warnings
+- 摘要: 最终发布门禁发现回放测试把实际无命中与 FailureRecallPolicy 的 30ms 超时结果比较，忙时产生时序误判。回放装配复用 RecallPolicy trait 注入测试结果，Oracle/NoMemory 验证不得查询检索策略；Current/CompressionCF/LeaveOneOut 分别验证空命中和显式不可用错误，Candidate 使用真实空 lexical 索引。生产仍使用相同 FailureRecallPolicy，30ms 预算、真实检索和持锁超时回归均保留。记忆单元测试 229 passed、0 failed，文档示例 1 ignored；all-target Clippy 通过。
+- 收尾: 1793492100
