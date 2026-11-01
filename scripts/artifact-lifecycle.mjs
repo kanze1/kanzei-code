@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const exec = promisify(execFile);
 const context = new AsyncLocalStorage();
-export const POLICY = Object.freeze({ successfulRunsPerSuite: 3, failedRunDays: 7, localReleases: 2, cacheBudgetHeadroom: 1.5, minimumBuildFreeBytes: 2 * 1073741824 });
+export const POLICY = Object.freeze({ successfulRunsPerSuite: 3, failedRunDays: 7, localReleases: 2, cacheBudgetHeadroom: 1.5, minimumBuildFreeBytes: 2 * 1073741824, registryLockTimeoutMs: 5000 });
 const markerName = ".kanzei-artifact-owner.json";
 const day = 86400000;
 const json = value => JSON.stringify(value, null, 2);
@@ -102,6 +102,9 @@ export class ArtifactStore {
     fs.mkdirSync(this.directory, { recursive: true });
     fs.mkdirSync(this.evidence, { recursive: true });
     this.db = new DatabaseSync(path.join(this.directory, "registry.sqlite"));
+    // All worktrees and native checks share this writer. Let SQLite serialize
+    // short registration transactions; expiry remains an explicit failure.
+    this.db.exec(`PRAGMA busy_timeout=${POLICY.registryLockTimeoutMs};`);
     this.db.exec("PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL); CREATE TABLE IF NOT EXISTS pins(reference TEXT NOT NULL, artifact TEXT NOT NULL, PRIMARY KEY(reference,artifact));");
     this.environments = this.transaction(() => {
       const registered = this.all("environment-root").find(root => root.active);

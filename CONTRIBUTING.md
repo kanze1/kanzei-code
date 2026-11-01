@@ -41,7 +41,7 @@ cargo test -p <crate> <test-filter> -- --ignored
 
 日常开发在 dev 推进，main 通过允许的前向合并接收发布状态；需要隔离时使用临时干净 worktree。保留公开提交、标签和分支历史，不以重置共享分支或删除历史引用做清理。
 
-构建、安装器和运行回执不入库，生命周期由 `scripts/artifact-lifecycle.mjs` 管理。度量机器基线为 `scripts/metrics-baseline.json`，不再维护 Markdown 榜单副本。发布结果与验收登记到现有交付/测试台账及机器回执，不为每次运行新增说明文档。
+构建、安装器和运行回执不入库，生命周期由 `scripts/artifact-lifecycle.mjs` 管理。各 worktree 和并行检查共用的产物登记库由 SQLite 串行化写事务，锁等待上限为 5 秒，超时显式失败；调用方不通过重跑任务掩盖登记冲突。度量机器基线为 `scripts/metrics-baseline.json`，不再维护 Markdown 榜单副本。发布结果与验收登记到现有交付/测试台账及机器回执，不为每次运行新增说明文档。
 
 ## 文档
 

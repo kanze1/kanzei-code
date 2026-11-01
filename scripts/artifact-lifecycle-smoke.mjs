@@ -7,7 +7,7 @@ import { once } from "node:events";
 import http from "node:http";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { ArtifactStore, sameProcess, containsPath, withTask, spawnOwned, withCacheLocks } from "./artifact-lifecycle.mjs";
+import { ArtifactStore, POLICY, sameProcess, containsPath, withTask, spawnOwned, withCacheLocks } from "./artifact-lifecycle.mjs";
 import { planLegacy, applyLegacy } from "./reclaim-legacy-artifacts.mjs";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "kanzei-artifact-lifecycle-"));
@@ -15,10 +15,50 @@ let store;
 const checks = [];
 const check = (condition, label) => { assert(condition, label); checks.push(label); };
 const orphan = run => { run.owner = { ...run.owner, started: "retired-owner-identity" }; store.put(run); };
+async function openCompetingRegistry(releaseOnOpen) {
+  const source=`import { ArtifactStore } from ${JSON.stringify(new URL("./artifact-lifecycle.mjs",import.meta.url).href)};
+process.send("ready");
+process.once("message",()=>{
+  process.send("opening");
+  const contender=new ArtifactStore(process.argv[1]);
+  contender.close();
+  process.stdout.write("registry-opened");
+  process.disconnect();
+});`;
+  const child=spawn(process.execPath,["--input-type=module","-e",source,root],{windowsHide:true,stdio:["ignore","pipe","pipe","ipc"]});
+  let output="",error="",locked=false,release;
+  child.stdout.on("data",data=>{output+=data;});child.stderr.on("data",data=>{error+=data;});
+  const exited=once(child,"close");
+  const nextMessage=()=>Promise.race([
+    once(child,"message").then(([message])=>message),
+    exited.then(([code])=>{throw new Error(`Registry fixture exited before its handshake (${code}): ${error}`);}),
+  ]);
+  // A timeout is a failed test, never an alternate successful registration path.
+  const limit=setTimeout(()=>child.kill(),2*POLICY.registryLockTimeoutMs);
+  try {
+    assert.equal(await nextMessage(),"ready");
+    store.db.exec("BEGIN IMMEDIATE");locked=true;
+    const opening=nextMessage();child.send("open");
+    assert.equal(await opening,"opening");
+    // Keep a real writer past the opening handshake, then commit it while the
+    // other process is inside SQLite. The second case never releases the writer.
+    if(releaseOnOpen)release=setTimeout(()=>{store.db.exec("COMMIT");locked=false;},100);
+    const [code]=await exited;
+    return {code,output,error};
+  } finally {
+    clearTimeout(limit);clearTimeout(release);
+    if(locked)store.db.exec("ROLLBACK");
+    if(child.exitCode===null&&child.signalCode===null){child.kill();await exited;}
+  }
+}
 try {
   execFileSync("git", ["init", "-q", root]);
   execFileSync("git", ["-C", root, "-c", "user.name=Fixture", "-c", "user.email=fixture@local", "commit", "--allow-empty", "-qm", "fixture"]);
   store = new ArtifactStore(root);
+  const waiting=await openCompetingRegistry(true);
+  check(waiting.code===0&&waiting.output==="registry-opened",`Concurrent registry construction waits for the committing writer: ${waiting.error}`);
+  const exhausted=await openCompetingRegistry(false);
+  check(exhausted.code===1&&exhausted.error.includes("database is locked"),"A writer that never releases the registry produces a bounded explicit lock failure");
   const cache = path.join(root, "target"); fs.mkdirSync(cache);
   const run = await store.begin({ suite: "export", kind: "test", caches: [cache] });
   check(spawnSync("git",["-C",run.environment,"rev-parse","--show-toplevel"],{stdio:"ignore"}).status!==0,"Owned temporary environments cannot inherit the source repository through Git discovery");
