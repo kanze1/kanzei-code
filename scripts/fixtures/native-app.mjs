@@ -61,7 +61,7 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
     }catch(error){errors.push(String(error));textReply(res,"FIXTURE_FAILED");}
   }));
   const probe=task.server(net.createServer()), exe=path.join(run,"kzapp.exe");
-  const diagnostics={ page_errors:[], failed_invocations:[], resource_errors:[] };
+  const diagnostics={ page_errors:[], promise_rejections:[], failed_invocations:[], resource_errors:[] };
   let app,browser,page,closing;
   const invoke=async(command,args={})=>{
     try { return await page.evaluate(({command,args})=>window.__TAURI__.core.invoke(command,args),{command,args}); }
@@ -94,6 +94,15 @@ export async function nativeApp(executable, output, label, handle, extraConfig =
     await until(async()=>{try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`));return true;}catch{return false;}},"Owned native app starts",30000);
     await until(()=>{page=browser.contexts().flatMap(context=>context.pages())[0];return Boolean(page);},"Owned native page exists");
     page.on("pageerror",error=>{errors.push(error.message);diagnostics.page_errors.push({message:error.message,stack:error.stack});});
+    const rejectionMarker="KANZEI_NATIVE_PROMISE_REJECTION ";
+    page.on("console",message=>{
+      if(message.text().startsWith(rejectionMarker))diagnostics.promise_rejections.push(JSON.parse(message.text().slice(rejectionMarker.length)));
+    });
+    await page.addInitScript(marker=>window.addEventListener("unhandledrejection",event=>{
+      const reason=event.reason;
+      const record={url:window.location.href,name:reason?.name,message:reason?.message,stack:reason?.stack,value:reason&&typeof reason==="object"?Object.fromEntries(Object.getOwnPropertyNames(reason).map(key=>[key,String(reason[key])])):String(reason)};
+      window.queueMicrotask(()=>console.debug(marker+JSON.stringify({...record,prevented:event.defaultPrevented})));
+    }),rejectionMarker);
     await page.waitForFunction(()=>document.body.dataset.appReady==="true");
     await invoke("projects_init",{path:project,name:label});await page.reload();await page.waitForFunction(()=>document.body.dataset.appReady==="true");
     await page.locator(".workbench-project-name").filter({hasText:label}).click();

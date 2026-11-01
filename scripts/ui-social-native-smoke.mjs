@@ -11,7 +11,7 @@ import clipAudit from "./ui-preview/clip-audit.mjs";
 
 await withTask({suite:"ui-social-native-smoke"},async task=>{
   assert.equal(process.platform,"win32","Social native acceptance requires Windows/WebView2");
-  const checks=[],calls=[],posts=[],errors=[],groupDeliveries=[];
+  const checks=[],calls=[],posts=[],errors=[],groupDeliveries=[],playerFrames=[];
   const check=(value,label)=>{assert(value,label);checks.push(label);console.log(`PASS ${label}`);};
   const bv="BV1234567890", video={bvid:bv,aid:22,cid:33,title:"测试视频",desc:"视频简介 <script>外部数据</script>",pic:"",owner:{name:"测试 UP"}};
   const loginPolls=[];
@@ -70,6 +70,12 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
   const {page,invoke}=app;
   await page.setViewportSize({width:1440,height:900});
   try {
+    // The synthetic video has no live playback contract. Keep the official
+    // embed URL while owning the child document, just like the API fixtures.
+    await page.route("https://player.bilibili.com/**",async route=>{
+      playerFrames.push(route.request().url());
+      await route.fulfill({status:200,contentType:"text/html",body:"<!doctype html><html><title>Player fixture</title><body></body></html>"});
+    });
     const nap=path.join(task.environment,"NapCat");await mkdir(path.join(nap,"config"),{recursive:true});await writeFile(path.join(nap,"config/webui.json"),JSON.stringify({port:server.address().port,token:"local-password"}));
     const setup=await invoke("qq_setup_connect",{directory:nap,url:null,password:null,totp:null});
     check(!JSON.stringify(setup).includes("credential"),"NapCat authentication stays in backend");
@@ -102,6 +108,8 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     status.settings.comment_interval_seconds=0;await invoke("bili_settings_save",{settings:status.settings});
     await page.locator('#bili-tabs [data-tab="browse"]').click();await page.getByRole("button",{name:"热门视频",exact:true}).click();await page.locator(".bili-video-title").click();
     check((await page.locator("#bili-player").getAttribute("src")).startsWith("https://player.bilibili.com/"),"Video uses official player");
+    await until(()=>playerFrames.length>0,"Official player frame is served by the local fixture");
+    check(playerFrames.every(url=>new URL(url).searchParams.get("bvid")===bv),"Player documents stay isolated and preserve the selected video identity");
     check(await page.locator(".bili-description script").count()===0,"Video descriptions render as external text");
     await page.getByRole("button",{name:"读取字幕",exact:true}).click();await page.locator(".bili-transcript").waitFor();check((await page.locator(".bili-transcript").innerText()).includes("没有可用字幕"),"Missing subtitles are reported without claiming media analysis");
     await page.getByRole("button",{name:"读取评论",exact:true}).click();await page.getByRole("button",{name:"展开回复",exact:true}).click();await page.getByRole("button",{name:"回复",exact:true}).last().click();
@@ -146,7 +154,7 @@ await withTask({suite:"ui-social-native-smoke"},async task=>{
     await page.setViewportSize({width:420,height:800});for(const tab of ["browse","drafts","settings"]){await page.locator(`#bili-tabs [data-tab="${tab}"]`).click();check(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),`Narrow ${tab} no horizontal overflow`);const narrowAudit=await page.evaluate(clipAudit,{viewport:true});await writeFile(path.join(task.evidence,`narrow-${tab}-audit.json`),JSON.stringify(narrowAudit,null,2));check(narrowAudit.cut===0,`Narrow ${tab} shadow cut=0`);await page.screenshot({path:path.join(task.evidence,`narrow-${tab}.png`)});}
     check(errors.length===0&&app.errors.length===0,`No native or fixture errors: ${[...errors,...app.errors].join("; ")}`);
     const saved=JSON.parse(await readFile(path.join(app.appHome,"bilibili/settings.json"),"utf8"));check(saved.account===1000,"Credentials persist in local backend storage");
-    await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/runtime; local NapCat, Bilibili and model fixtures; no live accounts or real comments",checks,calls,posts,errors},null,2));
+    await writeFile(path.join(task.evidence,"receipt.json"),JSON.stringify({boundary:"Real WebView2/Rust/SQLite/runtime; local NapCat, Bilibili API/player and model fixtures; no live accounts or real comments",checks,calls,posts,playerFrames,errors},null,2));
   }catch(e){await page.screenshot({path:path.join(task.evidence,"failure.png")});await writeFile(path.join(task.evidence,"failure.json"),JSON.stringify({error:String(e),status:await invoke("bili_status"),active:await page.evaluate(async()=>{const s=await import("./03-shell.js");return {root:s.currentProject,session:s.activeSessionId,process:s.activeProcessId,items:s.processItems};}),calls,posts,errors,requests:app.requests,ui:await page.locator("body").innerText()},null,2));throw e;}
   finally{await app.close();for(const socket of sockets)socket.terminate();await new Promise(resolve=>ws.close(resolve));}
 });
