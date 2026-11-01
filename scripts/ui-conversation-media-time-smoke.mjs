@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { chromium } from "playwright-core";
 import { startPreviewServer } from "./ui-preview/server.mjs";
+import clipAudit from "./ui-preview/clip-audit.mjs";
 
 const output = "output/playwright/conversation-media-time";
 await mkdir(output, { recursive: true });
@@ -157,25 +158,50 @@ try {
   seed.traces = [
     { kind: "turn.elapsed", runId: "recovered-run", sessionId: owner.session, elapsedMs: 12345, outcome: "completed", source: "backend_elapsed" },
     { kind: "turn.elapsed", runId: "recovered-old", sessionId: owner.session, elapsedMs: 2500, outcome: "failed", source: "persisted_timestamps" },
+    ...Array.from({ length: 14 }, (_, index) => ({ kind: "turn.elapsed", runId: `recovered-${index}`, sessionId: owner.session, elapsedMs: 14200 + index * 1000, outcome: "completed" })),
     { kind: "turn.elapsed", runId: "no-duration", sessionId: owner.session },
+    { kind: "turn.elapsed", runId: "foreign-receipt", sessionId: "other-session", elapsedMs: 1000 },
   ];
   seed.drafts = [];
   await page.reload(); await page.waitForFunction(() => window.__kzPreview?.ready); await settle();
   metrics = await imageMetrics(".msg-pane:not(.hidden) .msg.user img");
   check(metrics.length === 1 && metrics[0].natural[0] === 480 && metrics[0].shown[0] <= 300, "Historical recovery retains actual image data and reasonable dimensions");
   check(await receipt("recovered-run").getAttribute("data-elapsed-ms") === "12345" && await receipt("recovered-old").getAttribute("data-source") === "persisted_timestamps", "Reload restores fixed backend receipts and explicitly sourced legacy timestamps");
+  const historical = page.locator('.msg-pane:not(.hidden) .recovered-turn-times');
+  check(!(await historical.evaluate(el => el.open)), "Sixteen recovered durations start collapsed instead of filling the conversation tail");
+  check((await historical.locator("summary").innerText()).includes("16") && !(await receipt("recovered-run").isVisible()), "The collapsed summary counts only valid receipts in this session");
+  check(!(await historical.textContent()).includes("本轮结束"), "Historical records do not repeat the current-round completion label");
+  await page.screenshot({ path: `${output}/history-times-collapsed-dark.png` });
+  await historical.locator("summary").focus(); await historical.locator("summary").press("Enter");
+  check(await historical.evaluate(el => el.open) && await receipt("recovered-run").isVisible(), "Keyboard activation opens the historical durations on demand");
+  check((await historical.boundingBox()).height < 180 && (await receipt("recovered-old").innerText()).includes("未完成"), "Expanded history is a compact grid with truthful completion outcomes");
   await page.evaluate(async traces => {
     const pane = await import("/01-chat-panes.js");
     (await import("/05-turn-receipts.js")).renderRecoveredTurnReceipts(traces, pane.activePane, pane.appendToPane);
   }, seed.traces);
   check(await receipt("recovered-run").count() === 1 && await receipt("no-duration").count() === 0, "Historical replay is idempotent and legacy history without time stays blank");
+  check(await historical.evaluate(el => el.open) && await receipt("foreign-receipt").count() === 0 && (await historical.locator("summary").innerText()).includes("16"), "History replay preserves the user's expansion choice, receipt count and session ownership");
+  await emit("kz:done", { runId: "recovered-run", elapsedMs: 12345, steps: 1 });
+  check(await historical.locator('.turn-elapsed-receipt[data-run-id="recovered-run"]').count() === 1, "A repeated Done event cannot move a historical receipt into the current reply");
+  await emit("kz:turn-elapsed", { runId: "new-live-run", elapsedMs: 8100, outcome: "completed" });
+  check(await receipt("new-live-run").isVisible() && (await receipt("new-live-run").innerText()).includes("本轮结束") && await historical.locator('[data-run-id="new-live-run"]').count() === 0, "A new live completion remains visible outside the historical group");
+  check(await page.evaluate(async () => {
+    const pane = document.createElement("div"); pane.dataset.sessionId = "empty-session";
+    (await import("/05-turn-receipts.js")).renderRecoveredTurnReceipts([{ kind: "turn.elapsed", runId: "missing-time" }, { kind: "turn.elapsed", runId: "foreign", sessionId: "other", elapsedMs: 100 }], pane, node => pane.append(node));
+    return pane.children.length === 0;
+  }), "Unreliable or foreign receipts cannot create an empty history disclosure");
+  check((await page.evaluate(clipAudit, { root: ".msg-pane:not(.hidden)", viewport: true })).cut === 0, "Expanded conversation receipts have no clipped shadows");
+  await page.screenshot({ path: `${output}/history-times-expanded-dark.png` });
   await page.locator('.msg-pane:not(.hidden) .attachment-image-preview').click();
   check(await page.locator("#viewer-body img").evaluate(img => img.naturalWidth === 480), "Recovered image can use the same safe enlarged viewer");
   await page.locator("#viewer-close").click();
   await page.evaluate(async () => (await import("/03-shell.js")).applyTheme("light"));
   await page.screenshot({ path: `${output}/history-images-time-light.png` });
   await page.setViewportSize({ width: 800, height: 760 }); await settle();
+  check((await historical.boundingBox()).width <= (await page.locator('.msg-pane:not(.hidden)').boundingBox()).width, "The historical duration grid fits a narrow conversation pane");
   await page.screenshot({ path: `${output}/history-images-time-narrow.png` });
+  await historical.locator("summary").click();
+  check(!(await historical.evaluate(el => el.open)) && await receipt("new-live-run").isVisible(), "Collapsing history keeps the current round duration visible");
   check(errors.length === 0, "No browser/event handler errors: " + errors.join("; "));
   await writeFile(`${output}/acceptance.json`, JSON.stringify({ passed: checks.length, checks, errors }, null, 2));
   console.log(`Conversation media/time PASS: ${checks.length} checks`);

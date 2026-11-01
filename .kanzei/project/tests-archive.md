@@ -13734,3 +13734,13 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node output/qq-visual-regression/live-warm-engine.mjs
 - 摘要: 隔离真实Rust runtime与当前qwen38-agent-256k:latest：先通过现有工具制造旧的空收藏结论，再输入用户原图与“能回个表情包么？”。模型本轮调用qq_stickers联网检索并用qq_reply发出1条实际表情，最终正文“就这个，正好对上"无聊。"那句”与本地持久历史完全一致，4次模型请求。OneBot为隔离模拟，无真实QQ发送。回执 output/evidence/qq-warm-history-reply-engine/1793553180915-a4df67e7-a49c-4da0-b24e-47a2a2dadcb6/receipt.json。前序夹具代理拒绝公网、回合边界误把工具图片当新输入的问题均已修正，原失败证据保留。
 - 收尾: 1793553302
+
+## T-1786922727234 历史耗时恢复默认展开复现 [failed]
+- 命令: node scripts/ui-conversation-media-time-smoke.mjs; npm run lint; node scripts/ui-i18n-smoke.mjs
+- 摘要: 旧版渲染器恢复16条不同运行的耗时后默认展开，并重复使用“本轮结束”文案。新增断言在原始实现上失败，日志 output/history-duration-before.log；不是同一run重复计算，原始时长数据有效。
+- 收尾: 1793556482
+
+## T-1786922727235 历史耗时折叠、紧凑呈现与归属专项 [passed]
+- 命令: node scripts/ui-conversation-media-time-smoke.mjs; npm run lint; node scripts/ui-i18n-smoke.mjs
+- 摘要: 真实Edge浏览器加载生产ESM、IPC为夹具：43项通过，覆盖16条记录默认折叠及计数、显式键盘展开、紧凑网格、结果状态、会话隔离、空/不可靠记录、重复恢复保留展开选择、迟到Done不移走历史记录、新实时轮耗时独立可见、窄窗及裁切cut=0。截图 output/playwright/conversation-media-time/history-times-collapsed-dark.png 与 history-times-expanded-dark.png。npm run lint及ui-i18n-smoke通过；没有改动后台耗时口径，最终提交Full待执行。
+- 收尾: 1793556482

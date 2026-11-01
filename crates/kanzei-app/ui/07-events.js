@@ -774,7 +774,7 @@ defer(() => {
       `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}  ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? `  ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? `  ${endReason}` : ""}`
     );
     const receipt = renderTurnReceipt(p, activePane, appendToPane);
-    if (receipt) activePane?.append(receipt);
+    if (receipt?.parentElement === activePane) activePane.append(receipt);
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
     const duration = elapsedSeconds === null ? "" : `  ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
     log(`${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}: ${p.steps} ${t("轮")}${duration}`);
