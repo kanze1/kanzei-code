@@ -13668,3 +13668,29 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 自动执行结果: failed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727212.json; 仅背书该命令的验证范围
 - 收尾: 1793058643
 - 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@d713145b9514,crates/kanzei-memory/src/memory/store/tests/admission.rs@a49154ca3e30,crates/kanzei-memory/src/memory/store/tests/derived_index.rs@6ce3a6eeeea1,crates/kanzei-memory/src/memory/store/tests/inbox.rs@b50e1700d73c,crates/kanzei-memory/src/memory/store/tests/integrity.rs@5329a3490330,crates/kanzei-memory/src/memory/store/tests/lifecycle.rs@210bba685e20,crates/kanzei-memory/src/memory/store/tests/merge_reconcile.rs@a2a3e26236af,crates/kanzei-memory/src/memory/store/tests/migration_refs.rs@d6e321ab8fb0,crates/kanzei-memory/src/memory/store/tests/mod.rs@537487bb8533,crates/kanzei-memory/src/memory/store/tests/search_recall.rs@e1ca84ff251a
+
+
+## T-1786922727221 Integrated regression before workspace fixture ownership repair [failed]
+- 命令: scripts/verify.ps1 (base build-dcaabe62)
+- 摘要: Source 772af7e2: 84 of 85 checks passed; Rust stopped at the empty-project read-only test. The original isolated test passed; the shared timestamp fixture had no exclusive directory ownership. Failure retained. Evidence: C:\Users\kanzei\Documents\kanzei code\dist\verification-runs\1793502045790-29c2838a-e04a-4650-acb8-b65471441f72\results.json
+- 收尾: 1793503505
+
+## T-1786922727222 Integrated Rust regression before memory fixture ownership repair [failed]
+- 命令: scripts/verify.ps1
+- 摘要: Source f2aadb90: app tests passed; memory tool novelty-boundary test saw an unexpected pending note. The old case passed alone. Shared timestamp ctx factory was replaced by the existing owned TestDir. Failure retained. Evidence: C:\Users\kanzei\Documents\kanzei code\dist\verification-runs\1793502849496-f2bb0138-dfa9-402c-a58b-644e931eb3d2\results.json
+- 收尾: 1793503505
+
+## T-1786922727223 Integrated Rust regression after fixture ownership repairs [passed]
+- 命令: scripts/verify.ps1
+- 摘要: Source 31e02d17ddf96500b891c9eb978132f6ab1e6327: all 13 affected checks passed. Rust workspace: 2872 passed, 0 failed, 27 ignored (ignored is not passed). Workspace 15 and memory-tool 11 cases also passed with 32 test threads; affected all-target Clippy passed. Initial 84 successful integrated UI/native checks are recorded in the earlier run. Final clean-commit Full release verification remains to run. Evidence: C:\Users\kanzei\Documents\kanzei-qq-media\dist\verification-targeted.json
+- 收尾: 1793503505
+
+## T-1786922727224 Configured local model interactive priority live probe [passed]
+- 命令: cargo test -p kanzei-llm --test local_priority_probe -- --ignored --nocapture
+- 摘要: Read-only inference probe on source 772af7e2, four trials, unchanged model thinking configuration. Foreground first token: baseline 5060/5216 ms, maintenance-priority 163/172 ms; each maintenance trial yielded once then completed its background generation. These are trial observations, not a general performance guarantee. Evidence: C:\Users\kanzei\Documents\kanzei code\output\evidence\integrated-local-priority-probe\1793502166880-a56fc68e-01f6-4ef0-99d4-f52ab0f2a472\priority-measurements.json
+- 收尾: 1793503505
+
+## T-1786922727225 Read-only live QQ original message and image-byte retrieval [passed]
+- 命令: cargo test -p kanzei-app qq::image::tests::live_public_image_download_returns_pixels -- --exact --ignored
+- 摘要: Source 31e02d17: authenticated live NapCat original-message identity and structured image URL verified; the explicit real-image test ran 1 case and passed, 0 ignored. Real pixels were retrieved through the guarded public transport and converted to visual input. No messages were sent to real chats. Earlier local-model testing also selected the preceding picture after a bare mention and identified its contents. Credentials, signed URLs and chat images are not copied into this ledger.
+- 收尾: 1793503505
