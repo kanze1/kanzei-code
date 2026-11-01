@@ -522,29 +522,19 @@ mod tests {
     use kanzei_harness::Tool;
     use serde_json::json;
 
-    fn ctx() -> (std::path::PathBuf, ToolCtx) {
-        let dir = std::env::temp_dir().join(format!(
-            "kz-memtool-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        (
-            dir.clone(),
-            ToolCtx {
-                cwd: dir.clone(),
-                project_root: dir,
-                ..Default::default()
-            },
-        )
+    fn ctx() -> (kanzei_base::test_support::TestDir, ToolCtx) {
+        let dir = kanzei_base::test_support::TestDir::new("kz-memtool-");
+        let ctx = ToolCtx {
+            cwd: dir.to_path_buf(),
+            project_root: dir.to_path_buf(),
+            ..Default::default()
+        };
+        (dir, ctx)
     }
 
     #[tokio::test]
     async fn search_note_stats_roundtrip_on_project_scope() {
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
             .add(
@@ -592,13 +582,12 @@ mod tests {
             "{}",
             stats.content
         );
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn stats_reports_recall_adoption_and_flags_zero_adoption_candidates() {
         // R-149:召回≥3 从未拉正文的条目要在 stats 里被点名(只报不删)。
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
             .add(
@@ -672,12 +661,11 @@ mod tests {
             "{}",
             stats.content
         );
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn empty_result_reports_no_match_and_invalid_enum_errors() {
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let none = MemorySearchTool
             .execute(json!({"query": "不存在的词条", "scope": "project"}), &ctx)
             .await;
@@ -703,7 +691,6 @@ mod tests {
             .execute(json!({"query": "x", "scope": "银河系"}), &ctx)
             .await;
         assert!(bad.is_error);
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
@@ -734,8 +721,6 @@ mod tests {
         let (hint, summary, detail) = store.pending_note_list().pop().unwrap();
         assert_eq!((hint.as_str(), summary.as_str()), ("fact", "真引用"));
         assert!(detail.contains("refs: R-070"), "{detail}");
-
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
@@ -787,7 +772,6 @@ mod tests {
                     "failed retrieval must not record a novelty verdict"
                 );
             }
-            std::fs::remove_dir_all(dir).unwrap();
         }
     }
 
@@ -861,7 +845,6 @@ mod tests {
                 .unwrap();
             assert_eq!(recorded, verdict);
         }
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
@@ -893,13 +876,12 @@ mod tests {
         assert!(!MemoryStore::project(&dir)
             .read_inbox()
             .contains("demo/ipc demo/ipc"));
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn memory_note_correct_synchronously_updates_and_audits_existing_text() {
         // R-316:真实 memory_note 调用验证同步落盘、CAS 与旧/新值审计。
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
             .add(
@@ -977,14 +959,12 @@ mod tests {
             "过期 expected_hash 不得覆盖: {}",
             stale.content
         );
-
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn memory_note_correct_rolls_back_when_audit_write_fails() {
         // D-675:审计目标不可写时，正文修改必须回滚而不是留下无审计新值。
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         match store
             .add(
@@ -1031,13 +1011,12 @@ mod tests {
             .find(|(_, candidate)| candidate.title == "审计失败回滚")
             .unwrap();
         assert_eq!(restored.description, "旧描述");
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
     async fn d568_two_corrupted_descriptions_are_corrected_in_one_session() {
         // R-316/D-568:同一 ToolCtx 连续修正两条既有记忆，验证不进 inbox 且 INDEX 同步。
-        let (dir, ctx) = ctx();
+        let (_directory, ctx) = ctx();
         let store = MemoryStore::project(&ctx.project_root);
         for index in 1..=15 {
             let id = format!("M-{index:03}");
@@ -1111,7 +1090,6 @@ mod tests {
         assert!(audit.contains("M-014") && audit.contains("M-015"));
         assert!(audit.contains("与 M-014 正文真源逐行比对"));
         assert!(audit.contains("与 M-015 正文真源逐行比对"));
-        std::fs::remove_dir_all(dir).ok();
     }
 
     #[tokio::test]
