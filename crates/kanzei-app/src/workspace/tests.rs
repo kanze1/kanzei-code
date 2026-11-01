@@ -1,25 +1,23 @@
 use super::*;
 
-struct Project(PathBuf);
+struct Project {
+    root: PathBuf,
+    _directory: kanzei_base::test_support::TestDir,
+}
 impl Project {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "kz-workbench-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        Self(project_root(&root.display().to_string()))
+        let directory = kanzei_base::test_support::TestDir::new("kz-workbench-");
+        Self {
+            root: project_root(&directory.display().to_string()),
+            _directory: directory,
+        }
     }
     fn path(&self) -> String {
-        self.0.display().to_string()
+        self.root.display().to_string()
     }
     fn tracker(&self, text: &str) {
-        std::fs::create_dir_all(self.0.join(".kanzei/project")).unwrap();
-        std::fs::write(self.0.join(REQUIREMENTS.rel_path), text).unwrap();
+        std::fs::create_dir_all(self.root.join(".kanzei/project")).unwrap();
+        std::fs::write(self.root.join(REQUIREMENTS.rel_path), text).unwrap();
     }
     fn prefs(&self) -> AppPrefs {
         AppPrefs {
@@ -29,12 +27,6 @@ impl Project {
         }
     }
 }
-impl Drop for Project {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 #[test]
 fn overview_and_details_do_not_initialize_empty_projects_or_runtime() {
     let root = Project::new();
@@ -51,8 +43,8 @@ fn overview_and_details_do_not_initialize_empty_projects_or_runtime() {
         .as_array()
         .unwrap()
         .is_empty());
-    recover_project(&state, &root.0).unwrap();
-    assert!(!root.0.join(".kanzei").exists());
+    recover_project(&state, &root.root).unwrap();
+    assert!(!root.root.join(".kanzei").exists());
     assert!(state.processes.lock().unwrap().is_empty());
     assert!(state.runtimes.lock().unwrap().is_empty());
 }
@@ -82,9 +74,9 @@ fn same_ids_stay_project_scoped_and_unknown_batches_have_no_denominator() {
     let selected = details(&state, &prefs, Some(&other.path()));
     assert_eq!(selected["projects"].as_array().unwrap().len(), 1);
     assert_eq!(selected["projects"][0]["path"], other.path());
-    assert!(!reader.0.join(".kanzei/state.db").exists());
+    assert!(!reader.root.join(".kanzei/state.db").exists());
     assert!(!reader
-        .0
+        .root
         .join(".kanzei/project/requirements.md.lock")
         .exists());
 }
@@ -93,7 +85,7 @@ fn same_ids_stay_project_scoped_and_unknown_batches_have_no_denominator() {
 fn empty_child_does_not_read_its_parents_project() {
     let parent = Project::new();
     parent.tracker("## R-001 Parent [doing]\n- 批次: 2/5\n");
-    let child = parent.0.join("child");
+    let child = parent.root.join("child");
     std::fs::create_dir(&child).unwrap();
     let path = child.display().to_string();
     let prefs = AppPrefs {
@@ -113,7 +105,7 @@ fn failed_read_retains_previous_summary_and_marks_stale() {
     let prefs = root.prefs();
     let first = overview(&state, &prefs);
     // A malformed/inaccessible state is not equivalent to an empty project.
-    std::fs::write(root.0.join(".kanzei/state.db"), "not a database").unwrap();
+    std::fs::write(root.root.join(".kanzei/state.db"), "not a database").unwrap();
     let failed = overview(&state, &prefs);
     assert_eq!(failed["projects"][0]["freshness"], "stale");
     assert!(failed["projects"][0]["error"].is_string());
@@ -125,7 +117,7 @@ fn failed_read_retains_previous_summary_and_marks_stale() {
         failed["projects"][0]["observed_at"],
         first["projects"][0]["observed_at"]
     );
-    let missing = root.0.join("missing").display().to_string();
+    let missing = root.root.join("missing").display().to_string();
     let unseen = overview(
         &state,
         &AppPrefs {
@@ -142,15 +134,15 @@ fn historical_doing_is_not_running_and_only_successful_claim_associates_default(
     let root = Project::new();
     root.tracker("## R-001 Old [doing]\n\n## R-002 Actual [doing]\n\n## R-003 Failed [doing]\n");
     let state = AppState::default();
-    let process = crate::ensure_default_process(&state, &root.0);
-    let session = crate::process_session_id(&root.0, Some(&process.id));
+    let process = crate::ensure_default_process(&state, &root.root);
+    let session = crate::process_session_id(&root.root, Some(&process.id));
     crate::runtime_for(&state, &session).activate_for_test();
     crate::runtime_for(&state, &session)
         .live
         .lock()
         .unwrap()
         .begin("turn", "input", "", "", "");
-    let store = SessionStore::open(&kanzei_core::project_state_path(&root.0)).unwrap();
+    let store = SessionStore::open(&kanzei_core::project_state_path(&root.root)).unwrap();
     store.create_session(&session, &root.path(), None).unwrap();
     let before = project_summary(&state, &root.prefs(), &root.path()).unwrap();
     assert_eq!(before["running_lines"], 1);
@@ -237,7 +229,7 @@ fn git_batch_progress_uses_shared_derivation_not_markdown_count() {
         ],
     ] {
         assert!(crate::state::hidden_command("git")
-            .current_dir(&root.0)
+            .current_dir(&root.root)
             .args(args)
             .status()
             .unwrap()
@@ -255,9 +247,9 @@ fn workspace_overview_形状与ipc契约一致() {
     let root = Project::new();
     root.tracker("## R-001 Reader [doing]\n- 批次: 2/5\n- 优先级: P1\n");
     let state = AppState::default();
-    let process = crate::ensure_default_process(&state, &root.0);
-    let session = crate::process_session_id(&root.0, Some(&process.id));
-    let store = SessionStore::open(&kanzei_core::project_state_path(&root.0)).unwrap();
+    let process = crate::ensure_default_process(&state, &root.root);
+    let session = crate::process_session_id(&root.root, Some(&process.id));
+    let store = SessionStore::open(&kanzei_core::project_state_path(&root.root)).unwrap();
     store.create_session(&session, &root.path(), None).unwrap();
     store
         .append_event(
@@ -305,9 +297,9 @@ fn ten_idle_projects_have_bounded_payload_and_no_new_runtime_state() {
     assert!(state.runtimes.lock().unwrap().is_empty());
     assert!(state.processes.lock().unwrap().is_empty());
     for root in projects {
-        assert!(!root.0.join(".kanzei/state.db").exists());
+        assert!(!root.root.join(".kanzei/state.db").exists());
         assert_eq!(
-            std::fs::read_dir(root.0.join(".kanzei/project"))
+            std::fs::read_dir(root.root.join(".kanzei/project"))
                 .unwrap()
                 .count(),
             1
@@ -319,11 +311,11 @@ fn ten_idle_projects_have_bounded_payload_and_no_new_runtime_state() {
 fn startup_recovery_is_idempotent_and_does_not_override_live_settings() {
     let root = Project::new();
     let state = AppState::default();
-    let process = crate::ensure_default_process(&state, &root.0);
-    crate::processes::registry::persist_process(&root.0, &process).unwrap();
-    recover_project(&state, &root.0).unwrap();
+    let process = crate::ensure_default_process(&state, &root.root);
+    crate::processes::registry::persist_process(&root.root, &process).unwrap();
+    recover_project(&state, &root.root).unwrap();
     *process.subagent_mode.lock().unwrap() = kanzei_harness::SubagentMode::Off;
-    recover_project(&state, &root.0).unwrap();
+    recover_project(&state, &root.root).unwrap();
     assert!(!(*process.subagent_mode.lock().unwrap()).enabled());
     assert_eq!(state.processes.lock().unwrap().len(), 1);
     assert!(state.runtimes.lock().unwrap().is_empty());
@@ -394,12 +386,12 @@ fn summary_cache_is_bounded_by_project_count_and_payload_bytes() {
 fn overview_success_does_not_disguise_a_detail_read_failure() {
     let root = Project::new();
     root.tracker("## R-001 Reader [doing]\n- 批次: 2/5\n");
-    let store = SessionStore::open(&kanzei_core::project_state_path(&root.0)).unwrap();
-    let journal = kanzei_core::project_session_id(&root.0);
+    let store = SessionStore::open(&kanzei_core::project_state_path(&root.root)).unwrap();
+    let journal = kanzei_core::project_session_id(&root.root);
     store.create_session(&journal, &root.path(), None).unwrap();
-    std::fs::create_dir_all(root.0.join(".kanzei/verification")).unwrap();
+    std::fs::create_dir_all(root.root.join(".kanzei/verification")).unwrap();
     let record = root
-        .0
+        .root
         .join(".kanzei/verification/v-00000000000000000000000000000000.json");
     std::fs::write(&record, "invalid JSON").unwrap();
     let state = AppState::default();
@@ -418,15 +410,15 @@ fn overview_success_does_not_disguise_a_detail_read_failure() {
 #[test]
 fn missing_database_with_existing_verification_is_not_reported_as_empty() {
     let root = Project::new();
-    std::fs::create_dir_all(root.0.join(".kanzei/verification")).unwrap();
-    std::fs::write(root.0.join(".kanzei/verification/job.json"), "{}").unwrap();
+    std::fs::create_dir_all(root.root.join(".kanzei/verification")).unwrap();
+    std::fs::write(root.root.join(".kanzei/verification/job.json"), "{}").unwrap();
     let result = overview(&AppState::default(), &root.prefs());
     assert_eq!(result["projects"][0]["freshness"], "unavailable");
     assert!(result["projects"][0]["error"]
         .as_str()
         .unwrap()
         .contains("状态库缺失"));
-    assert!(!root.0.join(".kanzei/state.db").exists());
+    assert!(!root.root.join(".kanzei/state.db").exists());
 }
 
 /// UX-009:state.db 里登记、还没进内存表的线也带展示名/标题/类型/序号/最近活动,
@@ -434,7 +426,7 @@ fn missing_database_with_existing_verification_is_not_reported_as_empty() {
 #[test]
 fn lines_带命名事实并按数字序排() {
     let root = Project::new();
-    let store = SessionStore::open(&kanzei_core::project_state_path(&root.0)).unwrap();
+    let store = SessionStore::open(&kanzei_core::project_state_path(&root.root)).unwrap();
     let stored = |id: &str, profile: Option<&str>| kanzei_core::StoredProcess {
         process_id: format!("{id}|{}", root.path()),
         origin_project: root.path(),
@@ -458,7 +450,7 @@ fn lines_带命名事实并按数字序排() {
         .unwrap();
     store.upsert_process(&stored("p3", None)).unwrap();
     let p2 = format!("p2|{}", root.path());
-    let session = crate::process_session_id(&root.0, Some(&p2));
+    let session = crate::process_session_id(&root.root, Some(&p2));
     store
         .set_session_title(&session, &root.path(), Some("方案对照"))
         .unwrap();
