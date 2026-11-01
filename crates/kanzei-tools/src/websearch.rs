@@ -9,6 +9,7 @@ use kanzei_llm::proxy::build_http_client_without_redirect as build_http_client;
 use kanzei_llm::ProxyConfig;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+mod bing;
 mod codex;
 mod filters;
 mod health;
@@ -174,6 +175,7 @@ impl Tool for WebSearchTool {
 
     fn resources(&self, _input: &serde_json::Value) -> Vec<String> {
         vec![
+            bing::SEARCH_URL.into(),
             SEARCH_URL.into(),
             "https://chatgpt.com/backend-api/codex/responses".into(),
         ]
@@ -266,22 +268,32 @@ impl WebSearchTool {
             Err(error) => return ToolOutput::failed("WEB_SEARCH_CONFIG", error),
         };
         let (codex, codex_unavailable) = match backend {
-            SearchBackend::Duckduckgo => (None, None),
+            SearchBackend::Bing | SearchBackend::Duckduckgo => (None, None),
             _ => match load_native_backend(&config, &proxy, profile, backend).await {
                 Ok(backend) => (Some(backend), None),
                 Err(reason) => (None, Some(reason)),
             },
         };
         let mut outcomes = join_all(queries.into_iter().map(|query| {
-            search_one_query(
-                backend,
-                query,
-                limit,
-                codex.as_ref(),
-                codex_unavailable.as_deref(),
-                &client,
-                SEARCH_URL,
-            )
+            let client = &client;
+            let codex = codex.as_ref();
+            let codex_unavailable = codex_unavailable.as_deref();
+            async move {
+                if backend == SearchBackend::Bing {
+                    let result = bing::search(&query, limit, ctx).await;
+                    return backend_outcome(query, "bing", None, result, true);
+                }
+                search_one_query(
+                    backend,
+                    query,
+                    limit,
+                    codex,
+                    codex_unavailable,
+                    client,
+                    SEARCH_URL,
+                )
+                .await
+            }
         }))
         .await;
         for outcome in &mut outcomes {
@@ -410,6 +422,7 @@ fn search_resources(
         return tool.resources(input);
     };
     match selected_backend_for(&config, profile) {
+        Ok(SearchBackend::Bing) => vec![bing::SEARCH_URL.into()],
         Ok(SearchBackend::Duckduckgo) => vec![SEARCH_URL.into()],
         Ok(backend) => {
             let mut resources = Vec::new();
@@ -445,7 +458,7 @@ fn selected_backend_for(
                 .resolve_model("primary")
                 .map_err(|error| format!("primary search route configuration: {error}"))?;
             Ok(if config.hosted_tools_for(&resolved, profile).is_empty() {
-                SearchBackend::Duckduckgo
+                SearchBackend::Bing
             } else {
                 SearchBackend::Auto
             })
@@ -1176,10 +1189,7 @@ mod tests {
         config.models.primary = Some("plain:fixture".into());
         config.models.fast = Some("codex:fixture".into());
         config.models.compact = Some("codex:fixture".into());
-        assert_eq!(
-            selected_backend(&config).unwrap(),
-            SearchBackend::Duckduckgo
-        );
+        assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Bing);
         config.models.primary = Some("codex:fixture".into());
         assert_eq!(selected_backend(&config).unwrap(), SearchBackend::Auto);
         let resolved = config.resolve_model("primary").unwrap();

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum SearchBackend {
     #[default]
     Auto,
+    Bing,
     Duckduckgo,
     Codex,
     Responses,
@@ -23,7 +24,7 @@ pub struct WebSection {
     /// Anthropic server-search tool version; consumed only after the Claude probe passes.
     #[serde(default)]
     pub anthropic_search_tool: Option<String>,
-    /// auto | duckduckgo | codex | responses. Subscription and API contracts differ.
+    /// auto | bing | duckduckgo | codex | responses. Auto uses Bing for local models.
     #[serde(default)]
     pub search_backend: Option<SearchBackend>,
 }
