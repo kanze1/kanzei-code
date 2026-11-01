@@ -72,9 +72,15 @@ mod tests {
         let input: super::super::media::ReplyInput =
             serde_json::from_value(json!({"attachments":[{"type":"sticker","id":id}]})).unwrap();
         let message = input.prepare(&workspace).unwrap();
+        use base64::Engine;
+        let file = content["stickers"][0]["sticker"]["file"].as_str().unwrap();
+        let original = std::fs::read(workspace.join("stickers").join(file)).unwrap();
         assert_eq!(
             message.wire[0]["data"]["file"],
-            format!("base64://{}", output.images[0].data)
+            format!(
+                "base64://{}",
+                base64::engine::general_purpose::STANDARD.encode(original)
+            )
         );
         assert_eq!(message.wire[0]["data"]["sub_type"], 1);
         assert!(!message.record.to_string().contains("base64://"));

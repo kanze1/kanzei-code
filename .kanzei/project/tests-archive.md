@@ -13709,3 +13709,13 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: node scripts/ui-qq-native-smoke.mjs; cargo clippy -p kanzei-app -p kanzei-tools --all-targets -- -D warnings; scripts/dev.ps1 check --workspace --all-targets
 - 摘要: 原生 WebView2/Rust/SQLite/WSL、OneBot及模型夹具共72项通过，新增逐字节确认首次模型请求已含图片，不依赖当前轮qq_image调用；私网拒绝、错误状态、发送一次性、表情原字节和历史保留均通过。all-targets clippy 与全工作区 all-targets check通过。前序用例开发暴露测试夹具把附件来源元数据当作新输入、把历史轮qq_image混作本轮调用，现按消息来源及当前输入边界修正；原始失败回执保留。先前targeted运行Rust通过，但QQ夹具失败，不能当成绿色发版证据。最终干净提交Full尚待执行。
 - 收尾: 1793507720
+
+## T-1786922727229 真实视觉接口拒绝 GIF 的失败复现 [failed]
+- 命令: POST configured local Ollama /v1/chat/completions with data:image/gif; node output/qq-visual-regression/live-sticker-engine.mjs
+- 摘要: 373070d2干净提交Full91项通过后，追加真实模型整链测试发现：检索5候选包含GIF，原图已下载但后续无发送；直接把同一50338字节GIF交给当前Ollama得到HTTP400 invalid image input。失败证据 output/qq-visual-regression/gif-provider.json；原五候选超时回执 output/evidence/qq-live-sticker-engine/1793508187384-128afea3-70fd-4a84-8bde-e4c8b0e861e6/failure.json。未将Full绿色等同于真实模型格式兼容通过，未发布该中间提交。
+- 收尾: 1793508922
+
+## T-1786922727230 GIF 静态视觉预览与原动画发送整链验证 [passed]
+- 命令: cargo test -p kanzei-tools image::tests -- --nocapture; cargo test -p kanzei-app qq::image::tests -- --nocapture; node output/qq-visual-regression/live-gif-engine.mjs; node output/qq-visual-regression/live-sticker-engine.mjs
+- 摘要: 公共for_model转换GIF/WebP首帧为PNG，保留原始下载、收藏与发送字节；双帧GIF首帧颜色和解码内存预算回归通过，QQ图片3通过1ignored。真实Rust QQ适配器+当前qwen验证：原先HTTP400的GIF经PNG首帧正确识别，1次模拟QQ送达；联网5候选(含GIF)的真实模型回合确认GIF预览为PNG，并成功选择发送表情1条。隔离OneBot，不向真实QQ发送。模型回执 output/evidence/qq-live-gif-engine/1793508771259-c9755471-7c88-43fc-ae2f-fb18098e85c7/receipt.json 和 output/evidence/qq-live-sticker-engine/1793508789181-df45d37e-c9f9-4dc7-ad2a-c119f44ffbc0/receipt.json。all-targets clippy、workspace all-targets check及workspace clippy通过；最终新增提交Full待跑。
+- 收尾: 1793508922

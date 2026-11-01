@@ -253,7 +253,7 @@ impl WebFetchTool {
         }
         if let Some(image) = page.image {
             return ToolOutput::ok(format!(
-                "HTTP {} · Image saved to `{}`; actual pixels attached to this tool result.\nAcquisition: {acquisition_id}; SHA-256: {}{}",
+                "HTTP {} · Original image saved to `{}`; static pixels attached (animated GIF/WebP: first frame only).\nAcquisition: {acquisition_id}; SHA-256: {}{}",
                 page.status, page.artifact_path, page.artifact.sha256,
                 if cache_hit { " (15-minute session cache hit)" } else { "" }
             )).with_images(vec![image]);
@@ -534,13 +534,9 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
     {
         return Err("Response declares an image but has no supported PNG/JPEG/GIF/WebP bytes; no text or pixels were fabricated".into());
     }
-    let image = image_type.map(|media_type| {
-        use base64::Engine;
-        kanzei_harness::ToolImage {
-            media_type: media_type.into(),
-            data: base64::engine::general_purpose::STANDARD.encode(&response.body),
-        }
-    });
+    let image = image_type
+        .map(|_| crate::image::for_model(&response.body))
+        .transpose()?;
     let binary = is_pdf || image.is_some();
     let mut content_issue = None;
     let (extension, markdown, links) = if let Some(media_type) = image_type {

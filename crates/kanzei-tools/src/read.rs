@@ -169,7 +169,7 @@ async fn read_body(tool: &dyn Tool, input: &serde_json::Value, ctx: &ToolCtx) ->
         })) => {
             // 文本位仍要给一句实话:模型看得到图,但轨迹与 UI 只留这行。
             let summary = format!(
-                "[image] {} ({media_type}, {bytes} bytes) — attached to this tool result.",
+                "[image] {} ({media_type}, {bytes} source bytes) — static preview attached (animated GIF/WebP: first frame only).",
                 path.display()
             );
             ToolOutput::ok(summary).with_images(vec![ToolImage { media_type, data }])
@@ -242,11 +242,10 @@ fn read_any(
         file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
         let mut raw = Vec::with_capacity(bytes);
         file.read_to_end(&mut raw).map_err(|e| e.to_string())?;
-        use base64::Engine;
-        let data = base64::engine::general_purpose::STANDARD.encode(&raw);
+        let image = crate::image::for_model(&raw)?;
         return Ok(ReadPayload::Image {
-            media_type: media_type.to_string(),
-            data,
+            media_type: image.media_type,
+            data: image.data,
             bytes: raw.len(),
         });
     }
