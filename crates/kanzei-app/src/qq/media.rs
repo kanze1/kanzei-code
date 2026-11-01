@@ -8,7 +8,7 @@ use std::{collections::HashSet, io::Read, path::Path};
 
 // Application memory budgets, not advertised QQ platform limits. Base64 is
 // materialized only for the active send, never persisted in the delivery log.
-const MAX_REPLY_BYTES: u64 = 16 * 1024 * 1024;
+pub(super) const MAX_REPLY_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_ATTACHMENTS: usize = 16;
 const MANIFEST: &str = "stickers/manifest.json";
@@ -213,7 +213,7 @@ fn read_file(workspace: &Path, path: &str, limit: u64) -> anyhow::Result<Vec<u8>
     Ok(bytes)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
     version: u32,
@@ -271,6 +271,54 @@ pub(super) fn stickers(workspace: &Path) -> anyhow::Result<Vec<Sticker>> {
         );
     }
     Ok(manifest.stickers)
+}
+
+pub(super) fn cache_sticker(
+    workspace: &Path,
+    source: &kanzei_tools::image_search::ImageResult,
+    bytes: &[u8],
+) -> anyhow::Result<Sticker> {
+    use sha2::{Digest, Sha256};
+    anyhow::ensure!(!source.title.trim().is_empty(), "表情名称不能为空");
+    anyhow::ensure!(
+        !bytes.is_empty() && bytes.len() as u64 <= MAX_REPLY_BYTES,
+        "表情文件为空或超过附件预算"
+    );
+    let media_type = kanzei_tools::image::media_type(bytes)
+        .ok_or_else(|| anyhow::anyhow!("表情下载未返回支持的图片"))?;
+    let id = format!("web-{:x}", Sha256::digest(bytes));
+    let sticker = Sticker {
+        file: format!("{id}.{}", media_type.strip_prefix("image/").unwrap()),
+        id,
+        name: source.title.clone(),
+        description: format!(
+            "{}\n来源：{}\n原图：{}",
+            source.title, source.page_url, source.image_url
+        ),
+    };
+    let mut existing = stickers(workspace)?;
+    existing.retain(|item| item.id != sticker.id);
+    existing.push(Sticker {
+        id: sticker.id.clone(),
+        file: sticker.file.clone(),
+        name: sticker.name.clone(),
+        description: sticker.description.clone(),
+    });
+    let encoded = serde_json::to_vec(&Manifest {
+        version: 1,
+        stickers: existing,
+    })?;
+    anyhow::ensure!(
+        encoded.len() as u64 <= MAX_MANIFEST_BYTES,
+        "表情收藏清单超过 256 KiB 预算，未写入素材"
+    );
+    std::fs::create_dir_all(workspace)?;
+    let file = scoped(workspace, &sticker.path())?;
+    file.create_parent()?;
+    file.write_atomic(bytes, || Ok(()))?;
+    let manifest = scoped(workspace, MANIFEST)?;
+    manifest.write_atomic(&encoded, || Ok(()))?;
+    Ok(sticker)
 }
 
 #[cfg(test)]

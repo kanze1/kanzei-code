@@ -1,4 +1,4 @@
-//! webfetch 工具(R-023):抓取网页转纯文本。走 kanzei 代理策略(loopback 豁免),
+//! webfetch 工具(R-023):网页按行号读取，图片按原始像素交付。走 kanzei 代理策略,
 //! 响应大小与输出长度双重截断;research 模式的主力工具。
 
 use async_trait::async_trait;
@@ -93,7 +93,7 @@ impl Tool for WebFetchTool {
     }
 
     fn description(&self) -> String {
-        "Fetch a URL or websearch ref, save the page, and return line-numbered markdown. prompt selects original source lines verbatim; it does not return a model-written summary. A truncated preview is incomplete evidence: continue from the returned from_line or use find/prompt for the relevant missing section. Reuse saved pages instead of fetching the same opening again. Optional: prompt, from_line, find, links, max_chars.".into()
+        "Fetch a URL or websearch ref. PNG/JPEG/GIF/WebP images are saved as original bytes and attached for vision. Text pages return line-numbered markdown; prompt selects original source lines verbatim, not a model-written summary. Line selectors apply only to text. A truncated preview is incomplete evidence: continue from from_line or use find/prompt. Reuse saved pages instead of fetching the same opening again. Optional: prompt, from_line, find, links, max_chars.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -217,6 +217,8 @@ impl WebFetchTool {
             content_type: page.content_type.clone(),
             method: if page.content_issue.is_some() {
                 crate::web_refs::AcquisitionMethod::UnverifiedHtml
+            } else if page.image.is_some() {
+                crate::web_refs::AcquisitionMethod::DownloadedImage
             } else if page.is_pdf {
                 crate::web_refs::AcquisitionMethod::DownloadedPdf
             } else {
@@ -248,6 +250,13 @@ impl WebFetchTool {
                     page.status, page.final_url, page.artifact_path
                 ),
             );
+        }
+        if let Some(image) = page.image {
+            return ToolOutput::ok(format!(
+                "HTTP {} · Image saved to `{}`; actual pixels attached to this tool result.\nAcquisition: {acquisition_id}; SHA-256: {}{}",
+                page.status, page.artifact_path, page.artifact.sha256,
+                if cache_hit { " (15-minute session cache hit)" } else { "" }
+            )).with_images(vec![image]);
         }
         if page.is_pdf {
             return ToolOutput::ok(format!(
@@ -394,6 +403,7 @@ struct WebPage {
     markdown: String,
     links: Vec<PageLink>,
     is_pdf: bool,
+    image: Option<kanzei_harness::ToolImage>,
     content_issue: Option<&'static str>,
     artifact: crate::web_refs::WebArtifact,
     raw_artifact: crate::web_refs::WebArtifact,
@@ -509,13 +519,37 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         .to_ascii_lowercase()
         .contains("application/pdf")
         || response.body.starts_with(b"%PDF-");
-    if is_pdf && response.truncated {
-        return Err(
-            "PDF exceeds the 3 MiB download limit; incomplete PDF was not saved or cached".into(),
-        );
+    let image_type = crate::image::media_type(&response.body);
+    if (is_pdf || image_type.is_some()) && response.truncated {
+        return Err(format!(
+            "Binary source exceeds the 3 MiB download limit; incomplete {} was not saved or cached",
+            if is_pdf { "PDF" } else { "image" }
+        ));
     }
+    if image_type.is_none()
+        && response
+            .content_type
+            .to_ascii_lowercase()
+            .starts_with("image/")
+    {
+        return Err("Response declares an image but has no supported PNG/JPEG/GIF/WebP bytes; no text or pixels were fabricated".into());
+    }
+    let image = image_type.map(|media_type| {
+        use base64::Engine;
+        kanzei_harness::ToolImage {
+            media_type: media_type.into(),
+            data: base64::engine::general_purpose::STANDARD.encode(&response.body),
+        }
+    });
+    let binary = is_pdf || image.is_some();
     let mut content_issue = None;
-    let (extension, markdown, links) = if is_pdf {
+    let (extension, markdown, links) = if let Some(media_type) = image_type {
+        (
+            media_type.strip_prefix("image/").unwrap(),
+            String::new(),
+            Vec::new(),
+        )
+    } else if is_pdf {
         ("pdf", String::new(), Vec::new())
     } else {
         let text = String::from_utf8_lossy(&response.body);
@@ -536,14 +570,14 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         ("md", markdown, links)
     };
     let mut markdown = markdown;
-    if response.truncated && !is_pdf {
+    if response.truncated && !binary {
         markdown.push_str("\n[response body truncated at 3 MiB]\n");
     }
     let artifact_path = save_web_artifact(
         ctx,
         url,
         extension,
-        if is_pdf {
+        if binary {
             &response.body
         } else {
             markdown.as_bytes()
@@ -552,13 +586,13 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
     let artifact = crate::web_refs::WebArtifact::from_saved(
         ctx,
         &artifact_path,
-        if is_pdf {
+        if binary {
             &response.body
         } else {
             markdown.as_bytes()
         },
     )?;
-    let raw_artifact = if is_pdf {
+    let raw_artifact = if binary {
         artifact.clone()
     } else {
         let raw_path = save_web_artifact(ctx, url, "raw", &response.body)?;
@@ -571,6 +605,7 @@ async fn fetch_cached_page(ctx: &ToolCtx, url: &str) -> Result<FetchPage, String
         markdown,
         links,
         is_pdf,
+        image,
         content_issue,
         artifact,
         raw_artifact,
@@ -1499,6 +1534,46 @@ base_url = "{base_url}/v1"
             .unwrap();
         assert_eq!(std::fs::read(saved.path()).unwrap(), pdf.as_bytes());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn binary_image_fetch_returns_pixels_including_cache_hits() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        let root = kanzei_base::test_support::TestDir::new("webfetch-image-");
+        let ctx = ToolCtx::new(root.to_path_buf(), root.to_path_buf())
+            .with_session_id("image-session".into());
+        prepare_session(&ctx);
+        let bytes = STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=").unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let original = bytes.clone();
+        let server = std::thread::spawn(move || {
+            use std::io::{BufRead, BufReader, Write};
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut request = String::new();
+            BufReader::new(&mut socket).read_line(&mut request).unwrap();
+            assert!(request.starts_with("GET /download?fileid=actual-image "));
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", original.len()).unwrap();
+            socket.write_all(&original).unwrap();
+        });
+        let input = serde_json::json!({"url":format!("http://8.8.8.8:{port}/download?fileid=actual-image")});
+        let output =
+            crate::public_http::fixture_scope(WebFetchTool.execute(input.clone(), &ctx)).await;
+        server.join().unwrap();
+        assert!(!output.is_error, "{}", output.content);
+        assert_eq!(
+            output.images.len(),
+            1,
+            "binary response must not become page text"
+        );
+        assert_eq!(STANDARD.decode(&output.images[0].data).unwrap(), bytes);
+        assert!(!output.content.contains("IHDR"));
+        let cached = WebFetchTool.execute(input, &ctx).await;
+        assert!(!cached.is_error, "{}", cached.content);
+        assert_eq!(cached.images, output.images);
     }
 
     #[test]

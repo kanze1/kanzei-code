@@ -13694,3 +13694,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-app qq::image::tests::live_public_image_download_returns_pixels -- --exact --ignored
 - 摘要: Source 31e02d17: authenticated live NapCat original-message identity and structured image URL verified; the explicit real-image test ran 1 case and passed, 0 ignored. Real pixels were retrieved through the guarded public transport and converted to visual input. No messages were sent to real chats. Earlier local-model testing also selected the preceding picture after a bare mention and identified its contents. Credentials, signed URLs and chat images are not copied into this ledger.
 - 收尾: 1793503505
+
+## T-1786922727226 QQ 图片实际为网页乱码的原始失败复现 [failed]
+- 命令: cargo test -p kanzei-tools binary_image_fetch_returns_pixels_including_cache_hits -- --nocapture
+- 摘要: 基线 build-215a2145：真实会话选择 webfetch，PNG 经 UTF-8 网页转换。新增回归在旧代码得到 images=0、预期=1，明确复现。随后修复统一字节类型判定与 ToolImage 返回，含缓存路径。保留失败事实，不作为已通过记录。
+- 收尾: 1793507558
+
+## T-1786922727227 QQ 图片与联网表情真实来源验证 [passed]
+- 命令: cargo test -p kanzei-tools live_sticker_search_returns_downloadable_pixels -- --ignored --nocapture; cargo test -p kanzei-app live_search_caches_original_stickers_and_prepares_a_reply -- --ignored --nocapture; cargo test -p kanzei-app live_public_image_download_returns_pixels -- --ignored --nocapture
+- 摘要: 三个显式外部用例分别通过：Bing真实搜索得到3候选并下载原图；应用检索缓存3个带来源表情并以原字节准备sticker发送结构；get_msg核对实际QQ消息后经应用公网链路取得图像。另对已保存原图使用当前qwen38-agent-256k:latest，准确读出三格漫画、蓝/白/橙发角色及帅不帅/说实话/无聊。模型证据 output/evidence/qq-acquired-image-vision/1793507129911-954190ba-8944-46fb-999c-e24773bfbdbb/receipt.json。未向真实QQ发消息；原生回归和最终Full另行验证，不在此宣称通过。
+- 收尾: 1793507558
+
+## T-1786922727228 QQ 首次模型输入真实像素与媒体全链原生回归 [passed]
+- 命令: node scripts/ui-qq-native-smoke.mjs; cargo clippy -p kanzei-app -p kanzei-tools --all-targets -- -D warnings; scripts/dev.ps1 check --workspace --all-targets
+- 摘要: 原生 WebView2/Rust/SQLite/WSL、OneBot及模型夹具共72项通过，新增逐字节确认首次模型请求已含图片，不依赖当前轮qq_image调用；私网拒绝、错误状态、发送一次性、表情原字节和历史保留均通过。all-targets clippy 与全工作区 all-targets check通过。前序用例开发暴露测试夹具把附件来源元数据当作新输入、把历史轮qq_image混作本轮调用，现按消息来源及当前输入边界修正；原始失败回执保留。先前targeted运行Rust通过，但QQ夹具失败，不能当成绿色发版证据。最终干净提交Full尚待执行。
+- 收尾: 1793507720

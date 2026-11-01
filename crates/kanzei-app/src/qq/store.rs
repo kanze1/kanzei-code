@@ -234,6 +234,22 @@ impl Store {
         sender.ok_or_else(|| anyhow::anyhow!("当前 QQ 会话中没有这条消息"))
     }
 
+    /// Frozen job boundary; later messages cannot change this input's image.
+    /// Direct replies include the caller's latest image from the same recent
+    /// conversation window used in the prompt, including image-then-mention.
+    pub fn input_image(&self, job: &Job) -> anyhow::Result<Option<(String, String, usize)>> {
+        let row: Option<(String, String, String)> = self.db.query_row(
+            "SELECT message_id,sender,images FROM (SELECT message_id,sender,images,sequence FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence<=?4 ORDER BY sequence DESC LIMIT 100) WHERE images!='[]' AND (?5!='direct' OR sender=(SELECT sender FROM qq_messages WHERE sequence=?4)) ORDER BY sequence DESC LIMIT 1",
+            params![job.identity.account,job.identity.kind.label(),job.identity.peer,job.watermark,job.trigger.label()],
+            |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
+        ).optional()?;
+        row.map(|(message_id, sender, images)| {
+            let images: Vec<ImageSource> = serde_json::from_str(&images)?;
+            Ok((message_id, sender, images.len()))
+        })
+        .transpose()
+    }
+
     pub fn prepare_job(&self, peer: &Peer, watermark: i64, prompt: &str) -> anyhow::Result<()> {
         let pending:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM qq_jobs WHERE account=?1 AND kind=?2 AND peer=?3 AND state='pending')",params![peer.identity.account,peer.identity.kind.label(),peer.identity.peer],|r|r.get(0))?;
         if pending {
@@ -390,6 +406,49 @@ mod tests {
             assert!(db.recent_messages(&identity).unwrap()[0].images.is_empty());
             assert_eq!(db.message_sender(&identity, "7").unwrap(), "3");
         }
+    }
+
+    #[test]
+    fn mention_image_selection_is_frozen_and_scoped_to_the_calling_sender() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = Store::open(&dir.path().join("qq.db")).unwrap();
+        let identity = QqConversation::new("1", QqPeerKind::Group, "2").unwrap();
+        let mut message = Message {
+            sequence: 0,
+            message_id: "10".into(),
+            sender: "3".into(),
+            nickname: "caller".into(),
+            text: "image".into(),
+            images: vec![ImageSource {
+                url: Some("https://example.com/first.png".into()),
+            }],
+            at: 1,
+        };
+        db.receive(&identity, &message, None).unwrap();
+        message.message_id = "11".into();
+        message.sender = "4".into();
+        db.receive(&identity, &message, None).unwrap();
+        message.message_id = "12".into();
+        message.sender = "3".into();
+        message.images.clear();
+        message.text = "@1".into();
+        db.receive(&identity, &message, Some("frozen mention"))
+            .unwrap();
+        let job = db.pending_jobs().unwrap().remove(0);
+        message.message_id = "13".into();
+        message.images = vec![ImageSource {
+            url: Some("https://example.com/later.png".into()),
+        }];
+        db.receive(&identity, &message, None).unwrap();
+        assert_eq!(
+            db.input_image(&job).unwrap(),
+            Some(("10".into(), "3".into(), 1))
+        );
+        let other = Job {
+            identity: QqConversation::new("1", QqPeerKind::Group, "9").unwrap(),
+            ..job
+        };
+        assert!(db.input_image(&other).unwrap().is_none());
     }
     #[test]
     fn group_mentions_replace_pending_ambient_input_and_survive_restart() {

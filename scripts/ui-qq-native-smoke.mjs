@@ -29,7 +29,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await writeFile(path.join(owned,"screenshot.png"),Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=","base64"));
   }
   const liveScript='from pathlib import Path\nimport time\nPath("live-started").write_text("started")\nwhile not Path("live-release").exists():\n time.sleep(0.05)\nprint("QQ_LIVE_FINISHED")';
-  const server=task.server(http.createServer((req,res)=>{res.statusCode=404;res.end();})), onebot=new WebSocketServer({server});
+  const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=","base64");
+  const server=task.server(http.createServer((req,res)=>{if(req.url==="/image"){res.setHeader("Content-Type","application/octet-stream");res.end(png);}else{res.statusCode=404;res.end();}})), onebot=new WebSocketServer({server});
   onebot.on("connection",(ws,request)=>{
     sockets.add(ws);ws.on("close",()=>sockets.delete(ws));
     if(request.headers.authorization!=="Bearer qq-test-token"){errors.push("OneBot authorization header mismatch");ws.close(1008);return;}
@@ -54,6 +55,13 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     });
   });
   await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+  const imageProxy=task.server(http.createServer());
+  imageProxy.on("connect",(req,socket,head)=>{
+    if(req.url!==`8.8.8.8:${server.address().port}`){socket.end("HTTP/1.1 502 Fixture target unavailable\r\nConnection: close\r\n\r\n");return;}
+    const upstream=net.connect(server.address().port,"127.0.0.1",()=>{socket.write("HTTP/1.1 200 Connection established\r\n\r\n");if(head.length)upstream.write(head);socket.pipe(upstream);upstream.pipe(socket);});
+    socket.on("error",()=>upstream.destroy());upstream.on("error",()=>socket.destroy());
+  });
+  await new Promise(resolve=>imageProxy.listen(0,"127.0.0.1",resolve));
   function incoming(kind,peer,text,id,segments=null){
     const value={post_type:"message",self_id:100,message_type:kind==="friend"?"private":"group",user_id:kind==="friend"?peer:201,message_id:id,sender:{nickname:kind==="friend"?"测试好友":"群友"},message:segments||[{type:"text",data:{text}}]};
     if(kind==="group"){value.group_id=peer;groupEvents++;}
@@ -70,7 +78,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     if(req.url?.endsWith("/models")){res.end(JSON.stringify({data:[{id:"test"}]}));return;}
     let body="";for await(const chunk of req)body+=chunk;
     const payload=JSON.parse(body);requests.push(payload);
-    const latest=[...payload.messages].reverse().find(m=>m.role==="user");
+    const latest=[...payload.messages].reverse().find(m=>m.role==="user"&&typeof m.content==="string"&&!m.content.startsWith("[external_source_data]\n"));
     const current=String(latest?.content||"");
     const text=current.includes("当前消息 JSON：")?current.split("当前消息 JSON：").at(-1):JSON.stringify(latest);
     const turn=payload.messages.slice(payload.messages.findLastIndex(m=>m.role==="user")+1);
@@ -81,7 +89,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
       if(!called("media-outcome"))call("media-outcome","qq_reply",{text:marker,attachments:[{type:"image",path:"/workspace/screenshot.png"}]});
       else answer(res,"MUST_NOT_RESEND_AFTER_MEDIA_OUTCOME");
     }else if(text.includes("FRIEND_MEDIA")){
-      if(!called("media-find"))call("media-find","qq_stickers",{query:"庆祝"});
+      if(!called("media-find"))call("media-find","qq_stickers",{source:"workspace",query:"庆祝"});
       else if(!called("media-send"))call("media-send","qq_reply",{text:"**MEDIA_SENT**",attachments:[{type:"sticker",id:"happy"},{type:"file",path:"/workspace/qq-workspace.txt",name:"工作区文件.txt"},{type:"face",id:14}]});
       else answer(res,"MUST_NOT_DUPLICATE_MEDIA_REPLY");
     }else if(text.includes("GROUP_MEDIA")){
@@ -96,6 +104,10 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     }else if(text.includes("FRIEND_APPROVAL")){
       if(!called("friend-write"))call("friend-write","sandbox",{command:"printf QQ_WORKSPACE_FILE > qq-workspace.txt; cat qq-workspace.txt"});
       else answer(res,"APPROVAL_DONE: 已写入独立工作区。");
+    }else if(text.includes('"message_id":"73"')){
+      assert(payload.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url"&&p.image_url.url===`data:image/png;base64,${png.toString("base64")}`)),"Pixels must arrive before the first model tool selection");
+      if(!called("eager-image-reply"))call("eager-image-reply","qq_reply",{text:"IMAGE_PIXELS_RECEIVED"});
+      else answer(res,"已按图回复。");
     }else if(text.includes('"message_id":"71"')){
       if(!called("read-prior-image"))call("read-prior-image","qq_image",{message_id:"70",image_index:0});
       else if(!called("image-failed-reply"))call("image-failed-reply","qq_reply",{text:"IMAGE_UNAVAILABLE: 看到前面的图片消息，但未能读取图像。"});
@@ -118,7 +130,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   async function until(fn,label,timeout=45000){const deadline=Date.now()+timeout;while(Date.now()<deadline){if(errors.length)throw new Error(errors.join("; "));if(await fn())return;await new Promise(resolve=>setTimeout(resolve,100));}throw new Error(`${label} timed out`);}
   async function start(){
     const probe=task.server(net.createServer());await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
-    app=spawn(exe,[],{cwd:run,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:home,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),KANZEI_E2E_CDP:String(port)}});
+    app=spawn(exe,[],{cwd:run,windowsHide:true,stdio:"ignore",env:{...process.env,HTTP_PROXY:`http://127.0.0.1:${imageProxy.address().port}`,HTTPS_PROXY:`http://127.0.0.1:${imageProxy.address().port}`,KANZEI_HOME:home,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),KANZEI_E2E_CDP:String(port)}});
     await until(async()=>{try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1500}));return true;}catch{return false;}},"WebView startup");
     const context=browser.contexts()[0];
     page=context.pages()[0]??await context.waitForEvent("page");page.on("pageerror",e=>errors.push(String(e)));
@@ -294,6 +306,14 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const imagePrompt=String(imageRequests[0].messages.findLast(m=>m.role==="user").content);
     check(imagePrompt.includes('"message_id":"70"')&&imagePrompt.includes('"images":[{"url":')&&imagePrompt.split("当前消息 JSON：").at(-1).includes('"message_id":"71"'),"The bare mention retains the earlier photo's identity and typed image source");
     check(imageRequests.some(r=>r.messages.some(m=>m.role==="tool"&&String(m.content).includes("未能读取这张 QQ 图片，尚未获得图像")&&String(m.content).includes("WEBFETCH_ADDRESS_BLOCKED"))),"QQ image reading uses the existing public-address guard and reports failure without claiming pixels");
+    const eagerStart=requests.length;
+    incoming("group",300,"",72,[{type:"image",data:{url:`http://8.8.8.8:${server.address().port}/image`}}]);
+    incoming("group",300,"",73,[{type:"at",data:{qq:"100"}}]);
+    await until(()=>deliveries.some(d=>JSON.stringify(d).includes("IMAGE_PIXELS_RECEIVED")),"A bare mention gets prior pixels before model selection");
+    await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Eager image round completes");
+    const eager=requests.slice(eagerStart).find(r=>r.messages.some(m=>typeof m.content==="string"&&m.content.includes('"message_id":"73"')));
+    check(eager.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url"&&p.image_url.url===`data:image/png;base64,${png.toString("base64")}`)),"The first model request contains original image pixels with no qq_image selection");
+    check(!requests.slice(eagerStart).some(r=>r.messages.slice(r.messages.findLastIndex(m=>m.role==="user")+1).some(m=>(m.tool_calls||[]).some(c=>c.function.name==="qq_image"))),"Image delivery does not depend on the model choosing an image tool");
     friends=[];incoming("friend",200,"REMOVED_FRIEND_MUST_NOT_WAKE",5);
     await page.locator("#social-nav").click();await page.locator("#social-manage").click();await page.locator('#qq-tabs [data-tab="groups"]').click();
     await page.locator('.qq-rule-row[data-group-id="300"]').getByRole("button",{name:"删除规则",exact:true}).click();
@@ -310,7 +330,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
     check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
     check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===6,"Removed friends cannot append local assistant input");
-    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===7,"Deleted groups cannot append mention input");
+    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===9,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);

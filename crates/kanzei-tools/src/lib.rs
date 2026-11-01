@@ -87,6 +87,8 @@ pub mod research_write;
 mod search_walk;
 mod web_content;
 pub use read::pdf_to_text;
+pub mod image;
+pub mod image_search;
 mod shell;
 pub mod team;
 pub mod test_record;

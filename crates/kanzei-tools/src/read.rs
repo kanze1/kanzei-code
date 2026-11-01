@@ -208,22 +208,7 @@ enum ReadPayload {
 /// 扩展名会骗人:`.png` 结尾的其实是 jpeg 时,media_type 与实际字节不符,
 /// provider 直接 400,而报错指向请求体、不指向这个文件,极难定位。magic bytes
 /// 同时让没有扩展名的截图也能读。
-fn sniff_image(head: &[u8]) -> Option<&'static str> {
-    if head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
-        return Some("image/png");
-    }
-    if head.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        return Some("image/jpeg");
-    }
-    if head.starts_with(b"GIF87a") || head.starts_with(b"GIF89a") {
-        return Some("image/gif");
-    }
-    // WebP = RIFF 容器,第 8..12 字节是 "WEBP"。
-    if head.len() >= 12 && head.starts_with(b"RIFF") && &head[8..12] == b"WEBP" {
-        return Some("image/webp");
-    }
-    None
-}
+use crate::image::media_type as sniff_image;
 
 fn read_any(
     mut file: std::fs::File,

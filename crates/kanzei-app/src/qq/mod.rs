@@ -9,6 +9,7 @@ mod plain_text;
 mod protocol;
 mod questions;
 pub(crate) mod setup;
+mod stickers;
 mod store;
 
 use crate::{AppState, MutexPoisonExt};
@@ -526,15 +527,17 @@ async fn tick(app: &tauri::AppHandle, client: &protocol::Client) -> anyhow::Resu
         {
             continue;
         }
+        let (attachments, image_status) =
+            image::prepare_input(app, client, &job, &peer.root).await?;
         crate::commands::run::schedule_run(
             app.clone(),
             &state,
             peer.root.display().to_string(),
             Some(peer.process_id),
             crate::commands::run::Submission::Prompt {
-                prompt: job.prompt.clone(),
+                prompt: format!("{}{image_status}", job.prompt),
                 delivery: kanzei_core::Delivery::Queue,
-                attachments: None,
+                attachments: Some(attachments),
             },
             crate::commands::run::RunOptions {
                 command: Some(crate::commands::run::InputCommand {

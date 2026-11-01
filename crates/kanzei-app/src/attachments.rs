@@ -8,6 +8,7 @@ use calamine::{open_workbook_auto_from_rs, Data, Reader};
 use crate::PromptAttachment;
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_TOTAL_BYTES: usize = 18 * 1024 * 1024;
 const MAX_TEXT: usize = 160_000;
 const MAX_SHEETS: usize = 12;
 const MAX_ROWS: u32 = 1_000;
@@ -47,7 +48,7 @@ pub(crate) fn prepare(
                 attachment.file_name
             );
             total += bytes.len();
-            anyhow::ensure!(total <= 18 * 1024 * 1024, "每次附件合计最多 18 MB");
+            anyhow::ensure!(total <= MAX_TOTAL_BYTES, "每次附件合计最多 18 MB");
             Ok(bytes)
         })
         .collect::<Result<Vec<_>>>()?;

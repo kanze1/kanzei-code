@@ -124,6 +124,7 @@ impl WebArtifact {
 pub enum AcquisitionMethod {
     StaticText,
     DownloadedPdf,
+    DownloadedImage,
     RenderedDom,
     UnverifiedHtml,
 }

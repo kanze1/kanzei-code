@@ -1,6 +1,50 @@
 use super::*;
 
 #[test]
+fn searched_original_stickers_are_sendable_and_keep_existing_collection() {
+    let root = tempfile::tempdir().unwrap();
+    let source = kanzei_tools::image_search::ImageResult {
+        title: "开心".into(),
+        image_url: "https://example.com/original.gif".into(),
+        page_url: "https://example.com/source".into(),
+    };
+    let bytes = b"GIF89a-original-animation";
+    let sticker = cache_sticker(root.path(), &source, bytes).unwrap();
+    let other = kanzei_tools::image_search::ImageResult {
+        title: "庆祝".into(),
+        ..source
+    };
+    cache_sticker(root.path(), &other, b"GIF89a-other-animation").unwrap();
+    assert_eq!(stickers(root.path()).unwrap().len(), 2);
+    let input: ReplyInput =
+        serde_json::from_value(json!({"attachments":[{"type":"sticker","id":sticker.id}]}))
+            .unwrap();
+    let message = input.prepare(root.path()).unwrap();
+    assert_eq!(
+        STANDARD
+            .decode(
+                message.wire[0]["data"]["file"]
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("base64://")
+                    .unwrap()
+            )
+            .unwrap(),
+        bytes
+    );
+    assert!(stickers(root.path()).unwrap()[0]
+        .description
+        .contains("https://example.com/source"));
+    assert!(cache_sticker(root.path(), &other, b"<html>not pixels</html>").is_err());
+    let oversize = kanzei_tools::image_search::ImageResult {
+        title: "x".repeat(MAX_MANIFEST_BYTES as usize),
+        ..other
+    };
+    assert!(cache_sticker(root.path(), &oversize, b"GIF89a-budget-overflow").is_err());
+    assert_eq!(stickers(root.path()).unwrap().len(), 2);
+}
+
+#[test]
 fn sandbox_files_and_gif_stickers_use_original_bytes_and_byte_free_records() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join("stickers")).unwrap();

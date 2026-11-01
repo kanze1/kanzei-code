@@ -41,7 +41,7 @@ impl Component for ConversationComponent {
         };
         for name in ["general", "dev-auto", "dev-pair", "isolated"] {
             if let Some(mut agent) = draft.agents.get(name).cloned() {
-                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 检索并按返回 ID 选择；没有贴切的素材就自然用文字回复，不编造 ID。", super::plain_text::STYLE, super::image::STYLE));
+                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 按关键词联网检索并查看实际图像，按返回 ID 选择；source=workspace 只检索已收藏素材，空收藏不表示无法联网找图。需要发图或表情时先选好素材，再用一次 qq_reply 发送完整回复，不提前发送占位文字。", super::plain_text::STYLE, super::image::STYLE));
                 draft.agents.insert(name, agent);
             }
         }
@@ -234,6 +234,22 @@ struct StickerQuery {
     /// Match ID, name or scene description. Empty returns the library catalogue.
     #[serde(default)]
     query: String,
+    #[serde(default)]
+    source: StickerSource,
+    #[serde(default = "sticker_limit")]
+    #[schemars(range(min = 1, max = 5))]
+    limit: usize,
+}
+
+#[derive(Default, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum StickerSource {
+    #[default]
+    Web,
+    Workspace,
+}
+fn sticker_limit() -> usize {
+    3
 }
 
 struct StickerTool {
@@ -246,7 +262,7 @@ impl Tool for StickerTool {
         "qq_stickers"
     }
     fn description(&self) -> String {
-        "按 ID、名称或场景描述检索当前社交工作区的表情包清单。用 qq_reply 的 sticker 附件选择返回的 ID。素材保存在 /workspace/stickers/，清单 manifest.json 格式：{\"version\":1,\"stickers\":[{\"id\":\"happy\",\"file\":\"happy.gif\",\"name\":\"开心\",\"description\":\"庆祝成功\"}]}。可用 sandbox 管理自己的素材；空图库返回空列表，坏清单或缺失素材明确报错。".into()
+        "按 query 关键词联网搜索表情包（source 默认 web），下载校验原图并返回实际图像、来源与可发送 ID，limit 默认 3、最多 5。用 qq_reply 的 sticker 附件发送返回 ID。source=workspace 时按 ID、名称和描述检索 /workspace/stickers/manifest.json 收藏，空 query 列出收藏。空收藏不代表联网无结果；搜索或下载失败明确报错。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(StickerQuery)).unwrap()
@@ -265,10 +281,25 @@ impl Tool for StickerTool {
         let Some(workspace) = kanzei_harness::social_workspace_root(&ctx.project_root) else {
             return ToolOutput::error("QQ 表情库缺少社交工作区");
         };
+        if matches!(input.source, StickerSource::Web) {
+            if input.query.trim().is_empty() {
+                return ToolOutput::error(
+                    "联网表情检索需要 query 关键词；列出收藏请用 source=workspace",
+                );
+            }
+            return match super::stickers::search(&input.query, input.limit, &workspace, ctx).await {
+                Ok(output) => output,
+                Err(error) => ToolOutput::failed(
+                    "QQ_STICKER_SEARCH_FAILED",
+                    format!("联网表情检索未完成：{error:#}"),
+                ),
+            };
+        }
         match tokio::task::spawn_blocking(move || super::media::stickers(&workspace)).await {
             Ok(Ok(stickers)) => {
                 let query = input.query.to_lowercase();
                 ToolOutput::ok(json!({"stickers":stickers.into_iter().filter(|item| [&item.id, &item.name, &item.description].iter().any(|value| value.to_lowercase().contains(&query))).collect::<Vec<_>>(),"manifest":"/workspace/stickers/manifest.json"}).to_string())
+                    .with_external_source(kanzei_harness::ExternalSourceKind::File, "/workspace/stickers/manifest.json")
             }
             Ok(Err(error)) => ToolOutput::error(format!("QQ 表情库读取失败：{error:#}")),
             Err(error) => ToolOutput::error(format!("QQ 表情库任务失败：{error}")),
