@@ -41,10 +41,17 @@ impl Component for ConversationComponent {
         };
         for name in ["general", "dev-auto", "dev-pair", "isolated"] {
             if let Some(mut agent) = draft.agents.get(name).cloned() {
-                agent.system.push_str(&format!("\n{role}\n{}\n表情包通过 qq_stickers 检索并按返回 ID 选择；没有贴切的素材就自然用文字回复，不编造 ID。", super::plain_text::STYLE));
+                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 检索并按返回 ID 选择；没有贴切的素材就自然用文字回复，不编造 ID。", super::plain_text::STYLE, super::image::STYLE));
                 draft.agents.insert(name, agent);
             }
         }
+        draft.tools.insert(
+            "qq_image",
+            Arc::new(super::image::ImageTool {
+                app: self.app.clone(),
+                identity: self.identity.clone(),
+            }),
+        );
         draft.tools.insert(
             "qq_reply",
             Arc::new(ReplyTool {

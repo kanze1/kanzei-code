@@ -1,4 +1,5 @@
 //! Transport facts and delivery receipts. Agent history remains in SessionStore.
+use super::input::ImageSource;
 use kanzei_harness::{QqConversation, QqPeerKind};
 use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
@@ -27,6 +28,7 @@ pub(crate) struct Message {
     pub sender: String,
     pub nickname: String,
     pub text: String,
+    pub images: Vec<ImageSource>,
     pub at: i64,
 }
 
@@ -71,7 +73,7 @@ impl Store {
         db.busy_timeout(std::time::Duration::from_secs(10))?;
         db.execute_batch("PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS qq_peers(account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, title TEXT NOT NULL, process TEXT NOT NULL, session TEXT NOT NULL, watermark INTEGER NOT NULL DEFAULT 0, last_started INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(account,kind,peer));
-            CREATE TABLE IF NOT EXISTS qq_messages(sequence INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, message_id TEXT NOT NULL, sender TEXT NOT NULL, nickname TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE(account,kind,peer,message_id));
+            CREATE TABLE IF NOT EXISTS qq_messages(sequence INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, message_id TEXT NOT NULL, sender TEXT NOT NULL, nickname TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, images TEXT NOT NULL DEFAULT '[]', UNIQUE(account,kind,peer,message_id));
             CREATE TABLE IF NOT EXISTS qq_jobs(id TEXT PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, watermark INTEGER NOT NULL, prompt TEXT NOT NULL, trigger TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending');
             CREATE TABLE IF NOT EXISTS qq_deliveries(id TEXT PRIMARY KEY, account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, body TEXT NOT NULL, state TEXT NOT NULL, remote_id TEXT, error TEXT, at INTEGER NOT NULL);")?;
         let columns = {
@@ -88,6 +90,17 @@ impl Store {
                 INSERT INTO qq_jobs SELECT id,account,kind,peer,watermark,prompt,CASE WHEN kind='friend' THEN 'direct' WHEN automatic=1 THEN 'proactive' ELSE 'ambient' END,CASE WHEN admitted=1 THEN 'accepted' ELSE 'pending' END FROM qq_jobs_legacy;
                 DROP TABLE qq_jobs_legacy;")?;
             tx.commit()?;
+        }
+        let has_images = db
+            .prepare("PRAGMA table_info(qq_messages)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?
+            .iter()
+            .any(|name| name == "images");
+        if !has_images {
+            db.execute_batch(
+                "ALTER TABLE qq_messages ADD COLUMN images TEXT NOT NULL DEFAULT '[]'",
+            )?;
         }
         Ok(Self { db })
     }
@@ -154,8 +167,8 @@ impl Store {
         wake_prompt: Option<&str>,
     ) -> anyhow::Result<bool> {
         let tx = self.db.transaction()?;
-        let fresh = tx.execute("INSERT OR IGNORE INTO qq_messages(account,kind,peer,message_id,sender,nickname,body,at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![identity.account,identity.kind.label(),identity.peer,message.message_id,message.sender,message.nickname,message.text,message.at])? == 1;
+        let fresh = tx.execute("INSERT OR IGNORE INTO qq_messages(account,kind,peer,message_id,sender,nickname,body,at,images) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+            params![identity.account,identity.kind.label(),identity.peer,message.message_id,message.sender,message.nickname,message.text,message.at,serde_json::to_string(&message.images)?])? == 1;
         if let Some(prompt) = wake_prompt.filter(|_| fresh) {
             let sequence = tx.last_insert_rowid();
             if identity.kind == QqPeerKind::Group {
@@ -175,7 +188,7 @@ impl Store {
 
     pub fn messages(&self, identity: &QqConversation, after: i64) -> anyhow::Result<Vec<Message>> {
         // Pending input drains oldest-first, independently of display pagination.
-        let mut stmt=self.db.prepare("SELECT sequence,message_id,sender,nickname,body,at FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence>?4 ORDER BY sequence LIMIT 100")?;
+        let mut stmt=self.db.prepare("SELECT sequence,message_id,sender,nickname,body,at,images FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence>?4 ORDER BY sequence LIMIT 100")?;
         let rows = stmt
             .query_map(
                 params![
@@ -191,6 +204,13 @@ impl Store {
                         sender: r.get(2)?,
                         nickname: r.get(3)?,
                         text: r.get(4)?,
+                        images: serde_json::from_str(&r.get::<_, String>(6)?).map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                6,
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })?,
                         at: r.get(5)?,
                     })
                 },
@@ -202,6 +222,16 @@ impl Store {
     pub fn recent_messages(&self, identity: &QqConversation) -> anyhow::Result<Vec<Message>> {
         let first: i64 = self.db.query_row("SELECT COALESCE(MIN(sequence),1) FROM (SELECT sequence FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 ORDER BY sequence DESC LIMIT 100)",params![identity.account,identity.kind.label(),identity.peer],|r|r.get(0))?;
         self.messages(identity, first - 1)
+    }
+
+    pub fn message_sender(
+        &self,
+        identity: &QqConversation,
+        message_id: &str,
+    ) -> anyhow::Result<String> {
+        let sender: Option<String> = self.db.query_row("SELECT sender FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND message_id=?4",
+            params![identity.account, identity.kind.label(), identity.peer, message_id], |row| row.get(0)).optional()?;
+        sender.ok_or_else(|| anyhow::anyhow!("当前 QQ 会话中没有这条消息"))
     }
 
     pub fn prepare_job(&self, peer: &Peer, watermark: i64, prompt: &str) -> anyhow::Result<()> {
@@ -305,6 +335,63 @@ impl Store {
 mod tests {
     use super::*;
     #[test]
+    fn images_survive_restart_without_losing_message_or_conversation_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qq.db");
+        let identity = QqConversation::new("1", QqPeerKind::Group, "2").unwrap();
+        let sources = vec![
+            ImageSource {
+                url: Some("https://example.com/a.png".into()),
+            },
+            ImageSource { url: None },
+        ];
+        let mut db = Store::open(&path).unwrap();
+        let message = Message {
+            sequence: 0,
+            message_id: "7".into(),
+            sender: "3".into(),
+            nickname: "name".into(),
+            text: "photo".into(),
+            images: sources.clone(),
+            at: 1,
+        };
+        assert!(db.receive(&identity, &message, None).unwrap());
+        drop(db);
+        let mut db = Store::open(&path).unwrap();
+        assert_eq!(db.recent_messages(&identity).unwrap()[0].images, sources);
+        assert_eq!(db.message_sender(&identity, "7").unwrap(), "3");
+        assert!(db.message_sender(&identity, "unknown").is_err());
+        for other in [
+            QqConversation::new("9", QqPeerKind::Group, "2").unwrap(),
+            QqConversation::new("1", QqPeerKind::Group, "9").unwrap(),
+            QqConversation::new("1", QqPeerKind::Friend, "2").unwrap(),
+        ] {
+            assert!(db.message_sender(&other, "7").is_err());
+        }
+        let changed = Message {
+            images: Vec::new(),
+            ..message
+        };
+        assert!(!db.receive(&identity, &changed, None).unwrap());
+        assert_eq!(db.recent_messages(&identity).unwrap()[0].images, sources);
+    }
+
+    #[test]
+    fn legacy_messages_migrate_without_inventing_visual_evidence() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("qq.db");
+        let legacy = Connection::open(&path).unwrap();
+        legacy.execute_batch("CREATE TABLE qq_messages(sequence INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, kind TEXT NOT NULL, peer TEXT NOT NULL, message_id TEXT NOT NULL, sender TEXT NOT NULL, nickname TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL, UNIQUE(account,kind,peer,message_id));
+            INSERT INTO qq_messages(account,kind,peer,message_id,sender,nickname,body,at) VALUES('1','group','2','7','3','name','[图片 https://example.com/a.png]',1);").unwrap();
+        drop(legacy);
+        for _ in 0..2 {
+            let db = Store::open(&path).unwrap();
+            let identity = QqConversation::new("1", QqPeerKind::Group, "2").unwrap();
+            assert!(db.recent_messages(&identity).unwrap()[0].images.is_empty());
+            assert_eq!(db.message_sender(&identity, "7").unwrap(), "3");
+        }
+    }
+    #[test]
     fn group_mentions_replace_pending_ambient_input_and_survive_restart() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("qq.db");
@@ -326,6 +413,7 @@ mod tests {
             sender: "3".into(),
             nickname: "name".into(),
             text: "ordinary".into(),
+            images: Vec::new(),
             at: 1,
         };
         db.receive(&identity, &message, None).unwrap();
@@ -411,6 +499,7 @@ mod tests {
             sender: "2".into(),
             nickname: "friend".into(),
             text: "do local work".into(),
+            images: Vec::new(),
             at: 1,
         };
         let mut db = Store::open(&path).unwrap();
@@ -450,6 +539,7 @@ mod tests {
             sender: "8".into(),
             nickname: "name".into(),
             text: "hello".into(),
+            images: Vec::new(),
             at: 1,
         };
         assert!(db.receive(&identity, &message, None).unwrap());
