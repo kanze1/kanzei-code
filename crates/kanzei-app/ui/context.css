@@ -1,5 +1,6 @@
 /* Context uses the existing anchored surface and product tokens. */
-#context-detail > strong { display:block; margin-bottom:var(--sp-5); font-size:var(--fs-14); }
+.context-header { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); margin-bottom:var(--sp-5); }
+.context-header > strong { font-size:var(--fs-14); }
 .context-manifest { margin-bottom:var(--sp-6); }
 .context-request-select { width:100%; min-width:0; font:inherit; padding:var(--sp-4); color:var(--fg); background:var(--panel); border:var(--hairline) solid var(--border); border-radius:var(--r-sm); }
 .context-note { margin:var(--sp-4) 0 var(--sp-5); overflow-wrap:anywhere; }

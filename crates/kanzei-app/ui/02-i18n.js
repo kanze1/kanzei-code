@@ -1,6 +1,9 @@
 import { $, defer } from "./00-dom.js";
 import { stageWord, statusWord } from "./04-status-words.js";
 export const I18N_EN = {
+  "清理上下文": "Clear context",
+  "开始新的上下文，历史记录仍可查看": "Start fresh and keep chat history",
+  "上下文已清理，历史记录已保留": "Context cleared; chat history kept",
   "主动搭话": "Start conversations",
   "等待评估": "Waiting to review",
   "需要处理": "Needs attention",

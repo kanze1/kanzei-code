@@ -62,6 +62,12 @@ try{
  assert.equal(await page.locator('#context-detail').isVisible(),false);assert.equal(await page.locator('#prompt').inputValue(),'未发送的草稿');checks.push('late reads after a new segment cannot restore old context or overwrite the draft');
  await page.evaluate(()=>window.__kzPreview.setCommand('context_snapshot',()=>({sessionId:window.contextScope.sessionId,requests:[],selected:null,web:[]})));
  await page.locator('#status-tokens').click();await page.getByText('这段对话尚未记录请求装配清单。后续请求会在这里保留来源、顺序和内容版本。').waitFor();checks.push('legacy conversations show missing evidence explicitly');
+ await page.evaluate(async()=>{const state=await import('/00-session-state.js'),current=state.sessionState(window.contextScope.sessionId).runtime;state.applyRuntimeSnapshot(window.contextScope.sessionId,{...current,actor_epoch:current?.actor_epoch||'context-fixture',revision:(current?.revision||0)+1,phase:'idle'});window.__kzPreview.setCommand('conversation_clear', args=>{window.clearContextRequest=args;return new Promise(resolve=>window.resolveContextClear=resolve);});});
+ await page.locator('#context-clear').click();await page.waitForFunction(()=>typeof window.resolveContextClear==='function');
+ assert.equal(await page.locator('#context-clear').isDisabled(),true);assert.equal(await page.locator('#context-clear').getAttribute('aria-busy'),'true');checks.push('clearing context is an explicit current-conversation action with an in-flight guard');
+ assert.deepEqual(await page.evaluate(()=>window.clearContextRequest),await page.evaluate(()=>({projectDir:window.contextScope.projectDir,processId:window.contextScope.processId})));
+ await page.evaluate(()=>window.resolveContextClear(null));await page.waitForFunction(()=>document.querySelector('#context-detail').classList.contains('hidden'));
+ assert.equal(await page.locator('#prompt').inputValue(),'未发送的草稿');checks.push('context reset uses the existing segment command and preserves the unsent draft');
  await page.evaluate(async()=>{const shell=await import('/03-shell.js');shell.setActiveSessionId('another-conversation');});assert.equal(await page.locator('#context-detail').isVisible(),false);checks.push('switching conversation closes the old context surface');
  assert.deepEqual(errors,[]);checks.push('production ESM has no browser runtime errors');
  await writeFile(output+'/acceptance.json',JSON.stringify({checks,errors},null,2));console.log(JSON.stringify({checks,errors},null,2));

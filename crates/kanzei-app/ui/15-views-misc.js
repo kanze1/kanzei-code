@@ -1243,6 +1243,24 @@ export function showFreshConversation() {
   promptBox.focus();
 }
 
+/// Start a new context segment on this identity; historical segments stay readable.
+export async function clearCurrentContext() {
+  const owner = { projectDir: currentProject, processId: activeProcessId, sessionId: activeSessionId };
+  if (!owner.projectDir || !owner.sessionId) return;
+  await invoke("conversation_clear", { projectDir: owner.projectDir, processId: owner.processId });
+  cancelAutoContinueTimer(owner.sessionId);
+  bumpConversationEpoch(owner.sessionId);
+  forgetPaneHistory(owner.sessionId);
+  invalidateConversationHistory(owner.projectDir, owner.processId);
+  if (currentProject === owner.projectDir && activeSessionId === owner.sessionId) {
+    showFreshConversation();
+    await refreshConversationLists();
+    toast(t("上下文已清理，历史记录已保留"), { kind: "ok" });
+  } else {
+    discardSessionPane(owner.sessionId);
+  }
+}
+
 /// 新对话创建普通开发会话，继承模型与思考强度；已有对话保留自己的运行与历史。
 async function startConversationOnNewLine() {
   const from = processItems.find((item) => item.id === activeProcessId);

@@ -13719,3 +13719,18 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-tools image::tests -- --nocapture; cargo test -p kanzei-app qq::image::tests -- --nocapture; node output/qq-visual-regression/live-gif-engine.mjs; node output/qq-visual-regression/live-sticker-engine.mjs
 - 摘要: 公共for_model转换GIF/WebP首帧为PNG，保留原始下载、收藏与发送字节；双帧GIF首帧颜色和解码内存预算回归通过，QQ图片3通过1ignored。真实Rust QQ适配器+当前qwen验证：原先HTTP400的GIF经PNG首帧正确识别，1次模拟QQ送达；联网5候选(含GIF)的真实模型回合确认GIF预览为PNG，并成功选择发送表情1条。隔离OneBot，不向真实QQ发送。模型回执 output/evidence/qq-live-gif-engine/1793508771259-c9755471-7c88-43fc-ae2f-fb18098e85c7/receipt.json 和 output/evidence/qq-live-sticker-engine/1793508789181-df45d37e-c9f9-4dc7-ad2a-c119f44ffbc0/receipt.json。all-targets clippy、workspace all-targets check及workspace clippy通过；最终新增提交Full待跑。
 - 收尾: 1793508922
+
+## T-1786922727231 QQ 本地最终答复与实际发送分歧复现 [failed]
+- 命令: node scripts/ui-qq-native-smoke.mjs (旧版 87a733b2)
+- 摘要: 旧版原生夹具在 Local final answer equals the actual QQ delivery after reload 断言失败；传输账本证实发送成功后模型又写本地收尾。原始日志 output/qq-reply-before.log；真实用户会话仅只读诊断，未重发。
+- 收尾: 1793553302
+
+## T-1786922727232 QQ 最终响应与上下文清理专项验收 [passed]
+- 命令: cargo test -p kanzei-core final_response -- --nocapture; node scripts/ui-context-smoke.mjs; node scripts/ui-qq-native-smoke.mjs
+- 摘要: 核心5项通过，覆盖唯一最终答案、空正文、长正文、错误继续处理、批量发送拒绝、提交拒绝与消息身份；原生WebView2/Rust/SQLite/WSL及模拟OneBot 81项通过，确认重新打开后的正文等于实际发送，清理后不回灌旧群消息/图片，历史和其他会话保留，运行中禁用，popover裁切为0。浏览器上下文检查通过并保留草稿。原生回执 output/evidence/ui-qq-native-smoke/1793553027083-e9a76d20-d27f-46f3-9c73-0651ace51f70/receipt.json。未发送真实QQ。定向仓库检查发现typed.rs增长超过预算，已把响应提交内聚到writer_response模块；最终干净提交Full待跑。
+- 收尾: 1793553302
+
+## T-1786922727233 旧空表情库历史下真实模型重新检索与一致发送 [passed]
+- 命令: node output/qq-visual-regression/live-warm-engine.mjs
+- 摘要: 隔离真实Rust runtime与当前qwen38-agent-256k:latest：先通过现有工具制造旧的空收藏结论，再输入用户原图与“能回个表情包么？”。模型本轮调用qq_stickers联网检索并用qq_reply发出1条实际表情，最终正文“就这个，正好对上"无聊。"那句”与本地持久历史完全一致，4次模型请求。OneBot为隔离模拟，无真实QQ发送。回执 output/evidence/qq-warm-history-reply-engine/1793553180915-a4df67e7-a49c-4da0-b24e-47a2a2dadcb6/receipt.json。前序夹具代理拒绝公网、回合边界误把工具图片当新输入的问题均已修正，原失败证据保留。
+- 收尾: 1793553302

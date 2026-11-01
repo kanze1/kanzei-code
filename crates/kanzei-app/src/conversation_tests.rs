@@ -11,6 +11,41 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn context_reset_rejects_queued_input_without_hiding_or_consuming_it() {
+    let root = kanzei_base::test_support::TestDir::new("context-reset-queued");
+    let project = root.to_string_lossy().into_owned();
+    let session = crate::process_session_id(&crate::normalized_project_root(&root), None);
+    let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+    store.create_session(&session, &project, None).unwrap();
+    store
+        .admit_input(
+            &session,
+            "queued-input",
+            "keep this input",
+            kanzei_core::Delivery::Queue,
+        )
+        .unwrap();
+    let state = AppState::default();
+    assert!(clear_conversation(&state, &project, None)
+        .unwrap_err()
+        .contains("排队输入"));
+    assert!(store
+        .list_events_by_type(&session, 0, "conversation.reset")
+        .unwrap()
+        .is_empty());
+    assert_eq!(store.list_pending_inputs(&session).unwrap().len(), 1);
+    store.cancel_pending_inputs(&session).unwrap();
+    clear_conversation(&state, &project, None).unwrap();
+    assert_eq!(
+        store
+            .list_events_by_type(&session, 0, "conversation.reset")
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn prompt_attachments_become_image_and_document_parts() {
     let parts = prompt_attachment_parts(vec![
         PromptAttachment {

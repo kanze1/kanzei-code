@@ -12,10 +12,11 @@ pub(crate) mod timing;
 #[tauri::command]
 pub(crate) fn conversation_clear(
     state: State<'_, AppState>,
+    qq: State<'_, crate::qq::QqState>,
     project_dir: String,
     process_id: Option<String>,
 ) -> Result<(), String> {
-    clear_conversation(&state, &project_dir, process_id.as_deref())
+    crate::qq::clear_context(&qq, &state, &project_dir, process_id.as_deref())
 }
 
 /// 「新对话」的内核:给该线开一个新段(conversation.reset)。
@@ -28,6 +29,15 @@ pub(crate) fn clear_conversation(
     state: &AppState,
     project_dir: &str,
     process_id: Option<&str>,
+) -> Result<(), String> {
+    clear_conversation_at(state, project_dir, process_id, None)
+}
+
+pub(crate) fn clear_conversation_at(
+    state: &AppState,
+    project_dir: &str,
+    process_id: Option<&str>,
+    qq_message_floor: Option<i64>,
 ) -> Result<(), String> {
     let root = normalized_project_root(Path::new(project_dir));
     let session_id = process_session_id(&root, process_id);
@@ -43,6 +53,13 @@ pub(crate) fn clear_conversation(
     .map_err(|e| format!("对话正在执行，不能修改历史：{e}"))?;
     let store = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root))
         .map_err(|e| e.to_string())?;
+    if !store
+        .list_pending_inputs(&session_id)
+        .map_err(|e| e.to_string())?
+        .is_empty()
+    {
+        return Err("当前对话还有排队输入，请先处理或取消，再清理上下文".into());
+    }
     // A late clear request must not recreate a closed or deleted identity.
     let id = process_id
         .map(str::to_owned)
@@ -64,7 +81,7 @@ pub(crate) fn clear_conversation(
         .append_event(
             &session_id,
             "conversation.reset",
-            &json!({ "cleared": true }),
+            &json!({ "cleared": true, "qq_message_floor": qq_message_floor }),
         )
         .map_err(|e| e.to_string())?;
     runtime

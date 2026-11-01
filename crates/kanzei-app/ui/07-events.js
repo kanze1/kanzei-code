@@ -1,4 +1,4 @@
-import { renderMessageParts } from "./15-views-misc.js";
+import { renderMessageParts, clearCurrentContext } from "./15-views-misc.js";
 import { closeSurface, hideCard, isModalOpen, onEscapeFallthrough, openPopover, showCard } from "./00-surface.js";
 import { renderTurnReceipt } from "./05-turn-receipts.js";
 import { defer } from "./00-dom.js";
@@ -298,7 +298,18 @@ export function renderContextDetail() {
   const usage = document.createElement("details"), usageTitle = document.createElement("summary");
   usageTitle.textContent = t("本轮累计用量"); usage.append(usageTitle, table);
   const manifest = document.createElement("section"); manifest.className = "context-manifest";
-  detail.replaceChildren(title, manifest, usage);
+  const clear = document.createElement("button"); clear.type = "button"; clear.id = "context-clear"; clear.className = "ghost mini";
+  clear.textContent = t("清理上下文");
+  clear.title = t("开始新的上下文，历史记录仍可查看");
+  clear.disabled = !currentProject || !activeSessionId || sessionState(activeSessionId).running;
+  clear.addEventListener("click", async () => {
+    clear.disabled = true; clear.setAttribute("aria-busy", "true");
+    try { await clearCurrentContext(); }
+    catch (error) { toastError(String(error)); }
+    finally { clear.removeAttribute("aria-busy"); clear.disabled = sessionState(activeSessionId).running; }
+  });
+  const header = document.createElement("div"); header.className = "context-header"; header.append(title, clear);
+  detail.replaceChildren(header, manifest, usage);
   renderRequestContext(manifest);
   openPopover($("status-tokens"), detail, { placement: "top-end" });
   $("status-tokens").setAttribute("aria-expanded", "true");
@@ -306,6 +317,7 @@ export function renderContextDetail() {
 
 defer(() => on("kz:context-request", event => notifyContextRequest(event.payload.sessionId)));
 defer(() => document.addEventListener("kz:active-session-changed", hideContextDetail));
+defer(() => onSessionStateChange(sessionId => {const clear=$("context-clear");if(clear && sessionId===activeSessionId && !clear.hasAttribute("aria-busy"))clear.disabled=sessionState(sessionId).running;}));
 defer(() => document.addEventListener("kz:conversation-epoch-changed", event => {if(event.detail.sessionId===activeSessionId)hideContextDetail();}));
 
 export function hideContextDetail() {

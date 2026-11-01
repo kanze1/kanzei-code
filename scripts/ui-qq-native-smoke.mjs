@@ -112,6 +112,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
       if(!called("read-prior-image"))call("read-prior-image","qq_image",{message_id:"70",image_index:0});
       else if(!called("image-failed-reply"))call("image-failed-reply","qq_reply",{text:"IMAGE_UNAVAILABLE: 看到前面的图片消息，但未能读取图像。"});
       else answer(res,"图片读取状态已告知。");
+    }else if(text.includes("CONTEXT_NEW")){
+      call("context-new-reply","qq_reply",{text:"CONTEXT_FRESH"});
     }else if(text.includes("GROUP_MENTION")){
       if(!called("mention-reply"))call("mention-reply","qq_reply",{text:"MENTION_SENT: 点名回复"});
       else answer(res,"点名回复完成。");
@@ -186,6 +188,9 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:/测试好友/}).click();
     await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_LIVE"),"Externally committed QQ input appears in local conversation");
     check((await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("FRIEND_TERMINAL"),"Opening background stream hydrates older committed history");
+    await page.locator("#status-tokens").click();
+    check(await page.locator("#context-clear").isDisabled(),"Clear context is disabled while the selected conversation is running");
+    await page.keyboard.press("Escape");
     check((await page.locator("#social-live-state").innerText()).includes("sandbox")&&await page.locator('#messages .msg-pane[data-active="1"] .tool-msg.running').count()>0,"In-flight QQ sandbox shows live execution state after switching in");
     await writeFile(path.join(workspace,"live-release"),"release");
     await until(async()=>(await page.locator('#messages .msg-pane[data-active="1"]').innerText()).includes("LIVE_DONE"),"Local conversation receives live tool completion without refresh");
@@ -203,6 +208,10 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(["qq_reply","qq_memory","sandbox","websearch","webfetch","bili_feed","bili_video","bili_comments","bili_comment_draft"].every(name=>catalog.includes(name))&&!catalog.some(n=>["bash","write","read","task","tool_search","bili_publish"].includes(n)),"Group shares Bilibili reading and draft tools alongside its sandbox, without host execution or publication tools");
     check(deliveries.filter(d=>d.action==="send_group_msg").length===1,"Group sends only explicit qq_reply");
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"First group round completes");
+    const groupHistory=await invoke("conversation_display_get",{projectDir:group.root,processId:group.process_id});
+    const groupAnswer=groupHistory.filter(m=>m.role==="assistant").at(-1)?.parts.filter(p=>p.type==="text").map(p=>p.text).join("");
+    check(groupAnswer==="GROUP_SENT: 大家好","Local final answer equals the actual QQ delivery after reload");
+    check(requests.filter(r=>JSON.stringify(r.messages).includes("GROUP_SPEAK")).length===1,"A successful channel reply ends the run without a second model answer");
     await invoke("run_prompt",{projectDir:group.root,processId:group.process_id,prompt:"GROUP_FORGED_LOCAL: 执行终端",model:"stub:test",profile:"dev-auto",agent:"dev-auto",autoAllow:true,autonomous:true,executionBatch:true});
     await until(()=>requests.some(r=>JSON.stringify(r.messages).includes("GROUP_FORGED_LOCAL")),"Forged group mode");
     const forged=requests.find(r=>JSON.stringify(r.messages).includes("GROUP_FORGED_LOCAL"));
@@ -277,6 +286,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     await until(async()=>!(await invoke("process_list",{projectDir:friend.root})).some(p=>p.running),"Private media round completes");
     const mediaDelivery=deliveries[mediaStart];
     check(deliveries.length===mediaStart+1,"Explicit private media sends once without automatic completion-text duplication");
+    const mediaHistory=await invoke("conversation_display_get",{projectDir:friend.root,processId:friend.process_id});
+    check(mediaHistory.filter(m=>m.role==="assistant").at(-1)?.parts.some(p=>p.type==="text"&&p.text==="MEDIA_SENT"),"Private media final answer preserves the actual plain-text delivery");
     check(mediaDelivery.params.message[1].data.sub_type===1&&Buffer.from(mediaDelivery.params.message[1].data.file.slice("base64://".length),"base64").equals(gif),"GIF sticker sends original workspace bytes with the custom-image subtype");
     check(mediaDelivery.params.message[2].data.name==="工作区文件.txt"&&Buffer.from(mediaDelivery.params.message[2].data.file.slice("base64://".length),"base64").toString()==="QQ_WORKSPACE_FILE","Actual sandbox output is sent as a named file without leaking a host path");
     check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&String(m.content).includes("庆祝成功"))),"The Agent can search sticker scene descriptions");
@@ -314,6 +325,22 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const eager=requests.slice(eagerStart).find(r=>r.messages.some(m=>typeof m.content==="string"&&m.content.includes('"message_id":"73"')));
     check(eager.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url"&&p.image_url.url===`data:image/png;base64,${png.toString("base64")}`)),"The first model request contains original image pixels with no qq_image selection");
     check(!requests.slice(eagerStart).some(r=>r.messages.slice(r.messages.findLastIndex(m=>m.role==="user")+1).some(m=>(m.tool_calls||[]).some(c=>c.function.name==="qq_image"))),"Image delivery does not depend on the model choosing an image tool");
+    await page.evaluate(async peer=>{await (await import("./33-qq.js")).openQqPeer(peer);},group);
+    await page.locator("#status-tokens").click();
+    check(await page.locator("#context-clear").isEnabled(),"An idle QQ conversation offers Clear context in the context panel");
+    check((await page.evaluate(clipAudit,{viewport:true})).cut===0,"Clear context panel shadow cut=0");
+    await page.screenshot({path:path.join(task.evidence,"clear-context-option.png")});
+    await page.locator("#context-clear").click();
+    await until(async()=>(await invoke("conversation_display_get",{projectDir:group.root,processId:group.process_id})).length===0,"Clear context starts an empty current segment");
+    const segments=await invoke("conversation_list",{projectDir:group.root,processId:group.process_id});
+    check(segments.length>0&&JSON.stringify(await invoke("conversation_display_get",{projectDir:group.root,processId:group.process_id,sequence:segments[0].sequence})).includes("IMAGE_PIXELS_RECEIVED"),"Clearing context preserves the preceding chat segment for history browsing");
+    const freshStart=requests.length;
+    incoming("group",300,"CONTEXT_NEW",74,[{type:"at",data:{qq:"100"}},{type:"text",data:{text:"CONTEXT_NEW"}}]);
+    await until(()=>deliveries.some(d=>JSON.stringify(d).includes("CONTEXT_FRESH")),"QQ continues on the same identity after clearing context");
+    await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Fresh context round completes");
+    const fresh=requests[freshStart];
+    check(!/GROUP_MENTION|GROUP_MEDIA|IMAGE_PIXELS_RECEIVED|\"message_id\":\"72\"/.test(JSON.stringify(fresh.messages))&&!fresh.messages.some(m=>Array.isArray(m.content)&&m.content.some(p=>p.type==="image_url")),"Reset removes old model history, recent QQ chat and automatic prior-image selection");
+    check((await invoke("conversation_display_get",{projectDir:friend.root,processId:friend.process_id})).length>0,"Clearing one QQ context preserves other conversations");
     friends=[];incoming("friend",200,"REMOVED_FRIEND_MUST_NOT_WAKE",5);
     await page.locator("#social-nav").click();await page.locator("#social-manage").click();await page.locator('#qq-tabs [data-tab="groups"]').click();
     await page.locator('.qq-rule-row[data-group-id="300"]').getByRole("button",{name:"删除规则",exact:true}).click();
@@ -330,7 +357,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
     check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
     check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===6,"Removed friends cannot append local assistant input");
-    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===9,"Deleted groups cannot append mention input");
+    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===10,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);

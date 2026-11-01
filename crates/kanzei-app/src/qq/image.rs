@@ -110,17 +110,18 @@ pub(super) async fn prepare_input(
     app: &tauri::AppHandle,
     client: &super::protocol::Client,
     job: &super::store::Job,
-    root: &std::path::Path,
+    peer: &super::Peer,
 ) -> anyhow::Result<(Vec<crate::PromptAttachment>, String)> {
     let recorded = {
         let qq = app.state::<super::QqState>();
         let control = qq.control.lock_or_recover();
-        super::database(&control)?.input_image(job)?
+        let floor = super::context_message_floor(&peer.root, &peer.session_id)?;
+        super::database(&control)?.input_image(job, floor)?
     };
     let Some((message_id, sender, count)) = recorded else {
         return Ok((Vec::new(), String::new()));
     };
-    let ctx = ToolCtx::new(root.to_owned(), root.to_owned());
+    let ctx = ToolCtx::new(peer.root.clone(), peer.root.clone());
     let mut attachments = Vec::new();
     let mut status = String::new();
     let mut total = 0;

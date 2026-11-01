@@ -224,6 +224,18 @@ impl Store {
         self.messages(identity, first - 1)
     }
 
+    pub fn message_watermark(&self, identity: &QqConversation) -> anyhow::Result<i64> {
+        Ok(self.db.query_row("SELECT COALESCE(MAX(sequence),0) FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3", params![identity.account,identity.kind.label(),identity.peer], |row|row.get(0))?)
+    }
+
+    pub fn supersede_job(&self, job: &Job) -> anyhow::Result<()> {
+        self.db.execute(
+            "UPDATE qq_jobs SET state='superseded' WHERE id=?1 AND state='pending'",
+            [&job.id],
+        )?;
+        Ok(())
+    }
+
     pub fn message_sender(
         &self,
         identity: &QqConversation,
@@ -237,10 +249,14 @@ impl Store {
     /// Frozen job boundary; later messages cannot change this input's image.
     /// Direct replies include the caller's latest image from the same recent
     /// conversation window used in the prompt, including image-then-mention.
-    pub fn input_image(&self, job: &Job) -> anyhow::Result<Option<(String, String, usize)>> {
+    pub fn input_image(
+        &self,
+        job: &Job,
+        after: i64,
+    ) -> anyhow::Result<Option<(String, String, usize)>> {
         let row: Option<(String, String, String)> = self.db.query_row(
-            "SELECT message_id,sender,images FROM (SELECT message_id,sender,images,sequence FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence<=?4 ORDER BY sequence DESC LIMIT 100) WHERE images!='[]' AND (?5!='direct' OR sender=(SELECT sender FROM qq_messages WHERE sequence=?4)) ORDER BY sequence DESC LIMIT 1",
-            params![job.identity.account,job.identity.kind.label(),job.identity.peer,job.watermark,job.trigger.label()],
+            "SELECT message_id,sender,images FROM (SELECT message_id,sender,images,sequence FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3 AND sequence<=?4 AND sequence>?6 ORDER BY sequence DESC LIMIT 100) WHERE images!='[]' AND (?5!='direct' OR sender=(SELECT sender FROM qq_messages WHERE sequence=?4)) ORDER BY sequence DESC LIMIT 1",
+            params![job.identity.account,job.identity.kind.label(),job.identity.peer,job.watermark,job.trigger.label(),after],
             |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?)),
         ).optional()?;
         row.map(|(message_id, sender, images)| {
@@ -441,14 +457,23 @@ mod tests {
         }];
         db.receive(&identity, &message, None).unwrap();
         assert_eq!(
-            db.input_image(&job).unwrap(),
+            db.input_image(&job, 0).unwrap(),
             Some(("10".into(), "3".into(), 1))
+        );
+        assert!(db.input_image(&job, job.watermark).unwrap().is_none());
+        assert_eq!(db.message_watermark(&identity).unwrap(), job.watermark + 1);
+        db.supersede_job(&job).unwrap();
+        assert!(db.pending_jobs().unwrap().is_empty());
+        assert_eq!(
+            db.recent_messages(&identity).unwrap().len(),
+            4,
+            "reset boundaries preserve transport history"
         );
         let other = Job {
             identity: QqConversation::new("1", QqPeerKind::Group, "9").unwrap(),
             ..job
         };
-        assert!(db.input_image(&other).unwrap().is_none());
+        assert!(db.input_image(&other, 0).unwrap().is_none());
     }
     #[test]
     fn group_mentions_replace_pending_ambient_input_and_survive_restart() {
