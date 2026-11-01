@@ -1,7 +1,9 @@
 //! QQ is an input/output adapter for the existing projectless session owner.
-//! Friends may request local work; groups receive a separate social capability set.
+//! All peers use engine-owned social workspaces and typed channel delivery.
 pub(crate) mod component;
 pub(crate) mod config;
+mod media;
+mod plain_text;
 mod protocol;
 mod questions;
 pub(crate) mod setup;
@@ -284,10 +286,9 @@ fn text(value: &Value) -> String {
             .iter()
             .filter_map(|part| match part["type"].as_str() {
                 Some("text") => part["data"]["text"].as_str().map(str::to_owned),
-                Some("image") => Some(format!(
-                    "[图片 {}]",
-                    part["data"]["url"].as_str().unwrap_or("")
-                )),
+                Some(kind @ ("image" | "face" | "mface" | "file")) => {
+                    Some(format!("[QQ {kind} {}]", part["data"]))
+                }
                 Some("reply") => Some(format!("[引用 {}]", part["data"]["id"])),
                 Some("at") => Some(format!("@{} ", part["data"]["qq"])),
                 _ => None,
@@ -326,6 +327,27 @@ fn mentions_self(value: &Value, account: &str) -> bool {
 #[cfg(test)]
 mod mention_tests {
     use super::*;
+    #[test]
+    fn incoming_media_keeps_platform_metadata_instead_of_disappearing() {
+        let body = text(&json!({"message":[
+            {"type":"face","data":{"id":14,"name":"微笑"}},
+            {"type":"mface","data":{"emoji_package_id":123,"emoji_id":"actual-id","key":"actual-key"}},
+            {"type":"image","data":{"url":"https://example.com/image.gif","sub_type":1,"summary":"庆祝"}},
+            {"type":"file","data":{"file_id":"actual-file","name":"report.pdf","file_size":1234}}
+        ]}));
+        for value in [
+            "微笑",
+            "actual-id",
+            "actual-key",
+            "image.gif",
+            "庆祝",
+            "actual-file",
+            "report.pdf",
+            "1234",
+        ] {
+            assert!(body.contains(value), "{body}");
+        }
+    }
     #[test]
     fn only_protocol_mentions_to_connected_account_wake_group() {
         for id in [json!(100), json!("100")] {
@@ -579,25 +601,28 @@ async fn tick(app: &tauri::AppHandle, client: &protocol::Client) -> anyhow::Resu
 }
 
 #[derive(Clone, Copy)]
-pub(crate) enum SendSource<'a> {
+enum SendSource<'a> {
     Round(&'a str),
     Question { session: &'a str, id: u64 },
 }
-pub(crate) async fn send(
+fn round_delivery_id(identity: &QqConversation, run: &str) -> String {
+    format!(
+        "{}:{run}",
+        if identity.kind == QqPeerKind::Group {
+            "group-round"
+        } else {
+            "round"
+        }
+    )
+}
+async fn send(
     app: &tauri::AppHandle,
     identity: &QqConversation,
     source: SendSource<'_>,
-    segments: Value,
+    message: media::PreparedMessage,
 ) -> Result<Value, String> {
     let id = match source {
-        SendSource::Round(run) => format!(
-            "{}:{run}",
-            if identity.kind == QqPeerKind::Group {
-                "group-round"
-            } else {
-                "round"
-            }
-        ),
+        SendSource::Round(run) => round_delivery_id(identity, run),
         SendSource::Question { session, id } => format!("ask:{session}:{id}"),
     };
     let qq = app.state::<QqState>();
@@ -683,7 +708,7 @@ pub(crate) async fn send(
             None
         };
         if !db
-            .begin_send(identity, &id, &segments, now())
+            .begin_send(identity, &id, &message.record, now())
             .map_err(|e| e.to_string())?
         {
             return Err("这条发送已有回执，未重复发送；请查看发送记录".into());
@@ -700,7 +725,7 @@ pub(crate) async fn send(
     } else {
         "send_private_msg"
     };
-    let mut params = json!({"message":segments});
+    let mut params = json!({"message":message.wire});
     params[key] = json!(identity
         .peer
         .parse::<u64>()
@@ -760,13 +785,25 @@ pub(crate) async fn round_finished(
     {
         return;
     }
-    let result = send(
-        app,
-        &identity,
-        SendSource::Round(run_id),
-        json!([{"type":"text","data":{"text":summary.text}}]),
-    )
-    .await;
+    // An explicit reply owns this round even if the API rejected it or its
+    // outcome is unknown. Completion text must not become a second delivery.
+    let delivery = {
+        let qq = app.state::<QqState>();
+        let c = qq.control.lock_or_recover();
+        database(&c).and_then(|db| db.delivery(&round_delivery_id(&identity, run_id)))
+    };
+    match delivery {
+        Ok(Some(_)) => return,
+        Ok(None) => {}
+        Err(issue) => {
+            error(app, format!("读取 QQ 发送回执失败：{issue}"));
+            return;
+        }
+    }
+    let Some(message) = media::PreparedMessage::text(&summary.text) else {
+        return;
+    };
+    let result = send(app, &identity, SendSource::Round(run_id), message).await;
     if let Err(message) = result {
         let recorded = (|| -> anyhow::Result<()> {
             let qq = app.state::<QqState>();
@@ -862,7 +899,8 @@ async fn forward_ask(app: &tauri::AppHandle, value: Value) -> anyhow::Result<()>
                 session: &session,
                 id,
             },
-            json!([{"type":"text","data":{"text":text}}]),
+            media::PreparedMessage::text(&text)
+                .ok_or_else(|| anyhow::anyhow!("QQ 问题正文为空"))?,
         )
         .await
         .map_err(anyhow::Error::msg)?;

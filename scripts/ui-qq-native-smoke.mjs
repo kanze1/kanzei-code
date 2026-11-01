@@ -20,6 +20,14 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
   const exe=path.join(run,"kzapp.exe"); await task.copyInput(path.resolve(executable),exe);
   let friends=[{user_id:200,nickname:"测试好友"}], groupEvents=0;
   const workspace=path.join(home,"social-workspaces/personal");
+  const groupWorkspace=path.join(home,"social-workspaces/groups/100/300");
+  const gif=Buffer.from("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7","base64");
+  for(const owned of [workspace,groupWorkspace]){
+    await mkdir(path.join(owned,"stickers"),{recursive:true});
+    await writeFile(path.join(owned,"stickers/happy.gif"),gif);
+    await writeFile(path.join(owned,"stickers/manifest.json"),JSON.stringify({version:1,stickers:[{id:"happy",file:"happy.gif",name:"开心",description:"庆祝成功"}]}));
+    await writeFile(path.join(owned,"screenshot.png"),Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=","base64"));
+  }
   const liveScript='from pathlib import Path\nimport time\nPath("live-started").write_text("started")\nwhile not Path("live-release").exists():\n time.sleep(0.05)\nprint("QQ_LIVE_FINISHED")';
   const server=task.server(http.createServer((req,res)=>{res.statusCode=404;res.end();})), onebot=new WebSocketServer({server});
   onebot.on("connection",(ws,request)=>{
@@ -36,6 +44,11 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
           deliveries.push(call);data={message_id:deliveries.length};break;
         default:errors.push(`Unexpected OneBot action ${call.action}`);ws.close(1002);return;
       }
+      const sentText=(call.params.message||[]).filter(p=>p.type==="text").map(p=>p.data.text).join("");
+      if(sentText==="MEDIA_REJECT"){
+        ws.send(JSON.stringify({status:"failed",retcode:100,echo:call.echo,wording:"fixture media rejected"}));return;
+      }
+      if(sentText==="MEDIA_UNKNOWN"){ws.close();return;}
       ws.send(JSON.stringify({status:"ok",retcode:0,echo:call.echo,data}));
     });
   });
@@ -55,15 +68,29 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     if(req.url?.endsWith("/models")){res.end(JSON.stringify({data:[{id:"test"}]}));return;}
     let body="";for await(const chunk of req)body+=chunk;
     const payload=JSON.parse(body);requests.push(payload);
-    const text=JSON.stringify([...payload.messages].reverse().find(m=>m.role==="user"));
-    const calls=payload.messages.flatMap(m=>m.tool_calls||[]),called=id=>calls.some(c=>c.id===id);
+    const latest=[...payload.messages].reverse().find(m=>m.role==="user");
+    const current=String(latest?.content||"");
+    const text=current.includes("当前消息 JSON：")?current.split("当前消息 JSON：").at(-1):JSON.stringify(latest);
+    const turn=payload.messages.slice(payload.messages.findLastIndex(m=>m.role==="user")+1);
+    const calls=turn.flatMap(m=>m.tool_calls||[]),called=id=>calls.some(c=>c.id===id);
     const call=(id,name,input)=>answer(res,null,{id,name,input});
-    if(text.includes("FRIEND_LIVE")){
+    if(text.includes("FRIEND_MEDIA_REJECT")||text.includes("FRIEND_MEDIA_UNKNOWN")){
+      const marker=text.includes("FRIEND_MEDIA_REJECT")?"MEDIA_REJECT":"MEDIA_UNKNOWN";
+      if(!called("media-outcome"))call("media-outcome","qq_reply",{text:marker,attachments:[{type:"image",path:"/workspace/screenshot.png"}]});
+      else answer(res,"MUST_NOT_RESEND_AFTER_MEDIA_OUTCOME");
+    }else if(text.includes("FRIEND_MEDIA")){
+      if(!called("media-find"))call("media-find","qq_stickers",{query:"庆祝"});
+      else if(!called("media-send"))call("media-send","qq_reply",{text:"**MEDIA_SENT**",attachments:[{type:"sticker",id:"happy"},{type:"file",path:"/workspace/qq-workspace.txt",name:"工作区文件.txt"},{type:"face",id:14}]});
+      else answer(res,"MUST_NOT_DUPLICATE_MEDIA_REPLY");
+    }else if(text.includes("GROUP_MEDIA")){
+      if(!called("group-media"))call("group-media","qq_reply",{text:"## GROUP_MEDIA_SENT",attachments:[{type:"image",path:"screenshot.png"},{type:"sticker",id:"happy"},{type:"market_face",emoji_package_id:123,emoji_id:"platform-id",key:"platform-key",summary:"商城表情"}]});
+      else answer(res,"MUST_NOT_DUPLICATE_GROUP_REPLY");
+    }else if(text.includes("FRIEND_LIVE")){
       if(!called("live-shell"))call("live-shell","sandbox",{command:"python3 -c '"+liveScript+"'",timeout_ms:120000});
       else answer(res,"LIVE_DONE: 实时工具结束。");
     }else if(text.includes("FRIEND_TERMINAL")){
       if(!called("friend-shell"))call("friend-shell","sandbox",{command:"printf QQ_TERMINAL_EXECUTED"});
-      else answer(res,"FRIEND_DONE: 沙箱命令已执行。");
+      else answer(res,"## FRIEND_DONE\n\n**沙箱命令已执行**。见[文档](https://example.com/qq)。");
     }else if(text.includes("FRIEND_APPROVAL")){
       if(!called("friend-write"))call("friend-write","sandbox",{command:"printf QQ_WORKSPACE_FILE > qq-workspace.txt; cat qq-workspace.txt"});
       else answer(res,"APPROVAL_DONE: 已写入独立工作区。");
@@ -87,7 +114,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     const probe=task.server(net.createServer());await new Promise(resolve=>probe.listen(0,"127.0.0.1",resolve));const port=probe.address().port;await new Promise(resolve=>probe.close(resolve));
     app=spawn(exe,[],{cwd:run,windowsHide:true,stdio:"ignore",env:{...process.env,KANZEI_HOME:home,USERPROFILE:profile,HOME:profile,LOCALAPPDATA:path.join(profile,"AppData/Local"),APPDATA:path.join(profile,"AppData/Roaming"),WEBVIEW2_USER_DATA_FOLDER:path.join(run,"webview"),KANZEI_E2E_CDP:String(port)}});
     await until(async()=>{try{browser=await task.browser(chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1500}));return true;}catch{return false;}},"WebView startup");
-    page=browser.contexts()[0].pages()[0];page.on("pageerror",e=>errors.push(String(e)));
+    const context=browser.contexts()[0];
+    page=context.pages()[0]??await context.waitForEvent("page");page.on("pageerror",e=>errors.push(String(e)));
     await until(()=>page.url()!=="about:blank","Document navigation");await page.waitForFunction(()=>document.body.dataset.appReady==="true",{timeout:45000});
     await page.setViewportSize({width:1440,height:900});
     await page.evaluate(async()=>{window.__qqEvents=[];for(const name of ["kz:input-received","kz:turn","kz:tool-start","kz:tool-end","kz:lifecycle"]){await window.__TAURI__.event.listen(name,event=>{window.__qqEvents.push({name,payload:event.payload});});}});
@@ -123,8 +151,10 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(status.peers.length===1&&friend.identity.peer==="200","Only actual friends create assistant sessions");
     const friendLog=await invoke("qq_peer_log",{identity:friend.identity});
     check(friendLog.messages.length===1&&friendLog.deliveries.length===1,"Duplicate events create one task and one delivery");
+    check(deliveries[0].params.message[0].data.text==="FRIEND_DONE\n\n沙箱命令已执行。见文档 (https://example.com/qq)。","QQ receives readable plain text with the Markdown link destination preserved");
     const request=requests.find(r=>JSON.stringify(r).includes("FRIEND_TERMINAL"));
     check(request.tools.some(t=>t.function.name==="sandbox")&&!request.tools.some(t=>["bash","read","write","browser","desktop","task","process"].includes(t.function.name)),"Friend gets isolated workspace tools without host control");
+    check(["qq_reply","qq_stickers"].every(name=>request.tools.some(t=>t.function.name===name))&&JSON.stringify(request.messages).includes("QQ 普通聊天不渲染 Markdown"),"Friends receive media tools and QQ plain-text guidance");
     check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&JSON.stringify(m).includes("QQ_TERMINAL_EXECUTED"))),"Isolated POSIX command actually executes");
     await page.locator("#qq-refresh").click();await page.locator("#social-manager-close").click();
     await page.locator("#social-target").click();await page.getByRole("menuitemcheckbox",{name:"测试好友"}).click();
@@ -223,6 +253,32 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
       const prompt=String([...r.messages].reverse().find(m=>m.role==="user")?.content||"");
       return prompt.startsWith("群聊点名回复")&&prompt.split("当前消息 JSON：").at(-1).includes("GROUP_MENTION")&&!prompt.split("当前消息 JSON：").at(-1).includes("OTHER_AT_MUST_STAY_QUIET");
     }),"Other-account and at-all mentions do not wake rounds during quiet hours");
+    const mediaStart=deliveries.length;
+    incoming("friend",200,"FRIEND_MEDIA: 发庆祝表情和刚才生成的文件",50);
+    await until(()=>deliveries.slice(mediaStart).some(d=>d.params.message.some(p=>p.data.text==="MEDIA_SENT")),"Private media send");
+    await until(async()=>!(await invoke("process_list",{projectDir:friend.root})).some(p=>p.running),"Private media round completes");
+    const mediaDelivery=deliveries[mediaStart];
+    check(deliveries.length===mediaStart+1,"Explicit private media sends once without automatic completion-text duplication");
+    check(mediaDelivery.params.message[1].data.sub_type===1&&Buffer.from(mediaDelivery.params.message[1].data.file.slice("base64://".length),"base64").equals(gif),"GIF sticker sends original workspace bytes with the custom-image subtype");
+    check(mediaDelivery.params.message[2].data.name==="工作区文件.txt"&&Buffer.from(mediaDelivery.params.message[2].data.file.slice("base64://".length),"base64").toString()==="QQ_WORKSPACE_FILE","Actual sandbox output is sent as a named file without leaking a host path");
+    check(requests.some(r=>r.messages.some(m=>m.role==="tool"&&String(m.content).includes("庆祝成功"))),"The Agent can search sticker scene descriptions");
+    for(const marker of ["REJECT","UNKNOWN"]){
+      const first=deliveries.length;
+      incoming("friend",200,`FRIEND_MEDIA_${marker}: 发图片`,marker==="REJECT"?51:52);
+      await until(()=>deliveries.length>first,`Media ${marker} attempted`);
+      await until(async()=>!(await invoke("process_list",{projectDir:friend.root})).some(p=>p.running),`Media ${marker} round completes`);
+      await until(async()=>(await invoke("qq_status")).connected,`Media ${marker} connected`);
+      const rows=(await invoke("qq_peer_log",{identity:friend.identity})).deliveries;
+      check(deliveries.length===first+1&&rows.find(d=>d.body.includes(`MEDIA_${marker}`))?.state===(marker==="REJECT"?"failed":"unknown"),`Media ${marker} records its actual outcome without retry or automatic text fallback`);
+    }
+    const groupMediaStart=deliveries.length;
+    incoming("group",300,"GROUP_MEDIA: 发图片和表情",40,[{type:"at",data:{qq:"100"}},{type:"text",data:{text:"GROUP_MEDIA: 发图片和表情"}}]);
+    await until(()=>deliveries.length>groupMediaStart,"Group media send");
+    await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Group media round completes");
+    const groupParts=deliveries[groupMediaStart].params.message;
+    check(deliveries.length===groupMediaStart+1&&groupParts[0].data.text==="GROUP_MEDIA_SENT"&&groupParts[1].data.sub_type===0&&groupParts[2].data.sub_type===1&&groupParts[3].type==="mface","Group reply uses the same typed media and plain-text pipeline");
+    const mediaLog=await invoke("qq_peer_log",{identity:friend.identity});
+    check(!JSON.stringify(mediaLog.deliveries).includes("base64://")&&mediaLog.deliveries.some(d=>d.body.includes('"asset"')),"Delivery ledger stores asset metadata instead of Base64 blobs");
     friends=[];incoming("friend",200,"REMOVED_FRIEND_MUST_NOT_WAKE",5);
     await page.locator("#social-nav").click();await page.locator("#social-manage").click();await page.locator('#qq-tabs [data-tab="groups"]').click();
     await page.locator('.qq-rule-row[data-group-id="300"]').getByRole("button",{name:"删除规则",exact:true}).click();
@@ -238,8 +294,8 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(recovered.peers.length===2,"QQ peers survive runtime restart");
     check(recovered.settings.groups.length===0,"Deleted rules stay deleted after runtime restart");
     check(!requests.some(r=>r.messages.some(m=>m.role==="user"&&String(m.content).startsWith("继续推进当前任务。"))),"Opening social conversations cannot start project auto-continuation");
-    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===3,"Removed friends cannot append local assistant input");
-    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===4,"Deleted groups cannot append mention input");
+    check((await invoke("qq_peer_log",{identity:friend.identity})).messages.length===6,"Removed friends cannot append local assistant input");
+    check((await invoke("qq_peer_log",{identity:group.identity})).messages.length===5,"Deleted groups cannot append mention input");
     check((await invoke("qq_memories",{identity:group.identity}))[0].body==="CORRECTED","Scoped memory survives restart");
     check(!requests.some(r=>/STRANGER_MUST_NOT_WAKE|REMOVED_FRIEND_MUST_NOT_WAKE|DISABLED_GROUP_MUST_NOT_WAKE/.test(JSON.stringify(r))),"Unauthorized inputs never reach model");
     check(errors.length===0,`No WebView errors: ${errors.join("; ")}`);

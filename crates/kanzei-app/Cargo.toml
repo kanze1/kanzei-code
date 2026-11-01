@@ -46,6 +46,7 @@ chrono = "0.4"
 # UI 自查工具(R-126)在本 crate 定义:它们要访问真实运行中的窗口,天然属于应用层。
 async-trait.workspace = true
 base64.workspace = true
+pulldown-cmark = { version = "0.13", default-features = false }
 calamine = { version = "0.36", features = ["chrono"] }
 png.workspace = true
 schemars.workspace = true
