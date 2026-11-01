@@ -27,6 +27,15 @@ pub struct CommandAdmission<'a> {
 }
 
 impl SessionStore {
+    /// Return the input identity already reserved by a client command without
+    /// admitting, promoting or restarting that input.
+    pub fn command_input_id(
+        &self,
+        session: &str,
+        command: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self.connection.query_row("SELECT json_extract(payload_json,'$.input_id') FROM session_events WHERE session_id=?1 AND event_type='input.command_admitted' AND json_extract(payload_json,'$.command_id')=?2 ORDER BY sequence DESC LIMIT 1",params![session,command],|row|row.get(0)).optional()?)
+    }
     /// Link a committed input to the client command used for optimistic UI.
     pub fn input_command_id(
         &self,
@@ -1322,7 +1331,13 @@ mod command_and_stop_tests {
     fn command_retransmission_preserves_one_input_and_checks_frozen_payload() {
         let store = SessionStore::open_in_memory().unwrap();
         store.create_session("s", "project", None).unwrap();
+        assert_eq!(store.command_input_id("s", "c1").unwrap(), None);
         let input = store.admit_command("s", admission("c1", "hash-a")).unwrap();
+        assert_eq!(
+            store.command_input_id("s", "c1").unwrap(),
+            Some(input.input_id.clone())
+        );
+        assert_eq!(store.command_input_id("other-session", "c1").unwrap(), None);
         let again = store.admit_command("s", admission("c1", "hash-a")).unwrap();
         assert_eq!(input.input_id, again.input_id);
         assert_eq!(

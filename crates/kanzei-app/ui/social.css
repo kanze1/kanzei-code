@@ -67,3 +67,8 @@ body[data-social="true"] #view-chat[data-preview-narrow="preview"] > #social-too
 
 #social-live-state { color: var(--dim); font-size: var(--fs-12); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #social-nav[data-running="true"]::after { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); margin-left: auto; }
+#initiative-error:empty { display: none; }
+#initiative-error { color: var(--err); overflow-wrap: anywhere; }
+#initiative-target { margin: 0 0 var(--sp-6); overflow-wrap: anywhere; }
+#initiative-topics h2, #initiative-reviews h2 { font-size: var(--fs-16); font-weight: 550; margin: 24px 0 var(--sp-4); }
+#initiative-reviews .qq-log-entry > small { display: block; margin-top: var(--sp-2); }

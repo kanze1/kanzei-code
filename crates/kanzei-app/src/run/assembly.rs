@@ -230,13 +230,7 @@ pub(crate) async fn assemble_run(
             topic.clone(),
         ));
     }
-    harness.add(crate::bili::tools::BiliComponent(window.clone()));
-    if let Some(identity) = kanzei_harness::QqConversation::from_root(&project_root) {
-        harness.add(crate::qq::ConversationComponent {
-            app: window.clone(),
-            identity,
-        });
-    }
+    crate::general_chat::add_channel_components(&mut harness, window, &project_root);
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot
         .select_primary_agent(mode.agent_name.as_deref())?
@@ -335,6 +329,13 @@ pub(crate) async fn assemble_run(
     };
     let (session, round) =
         prepare_session(request, &mode, handles, &halt_token, &mut deps, ctx).await?;
+    crate::initiative::service::bind_run(
+        window,
+        &deps.project_root,
+        &session_id,
+        &session.promoted_input_id,
+        &round.run_id,
+    )?;
     let _ = window.emit(
         "kz:input-received",
         with_session_id(session.input_receipt.clone(), &session_id),

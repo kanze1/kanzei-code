@@ -38,6 +38,7 @@ mod files_edit;
 mod files_view;
 mod general_chat;
 mod harness_ext;
+mod initiative;
 /// Rust↔JS 返回值形状契约；命令与参数从 command_registry.json 和 Rust 签名生成。
 /// 历史上部分命令手工拼 JSON,
 /// 而前端冒烟断言的是前端自己写的 fixture,后端改名两侧全绿、界面碎)。
@@ -161,6 +162,7 @@ fn main() {
         .manage(AppState::default())
         .manage(qq::QqState::default())
         .manage(bili::BiliState::default())
+        .manage(initiative::service::InitiativeState::default())
         .manage(voice::VoiceState::default())
         .manage(memory_chat::MemoryChatState::default())
         .manage(preview::PreviewState::default())
@@ -187,6 +189,7 @@ fn main() {
                 runtime_service::install_service(app.handle())?;
                 qq::install(app.handle())?;
                 bili::install(app.handle())?;
+                initiative::service::install(app.handle())?;
                 tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
                 workspace::install_recovery(app.handle());
                 durable_questions::recover_outbox(app.handle().clone());
@@ -204,6 +207,7 @@ fn main() {
             if runtime_service::embedded() {
                 qq::install(app.handle())?;
                 bili::install(app.handle())?;
+                initiative::service::install(app.handle())?;
             }
             let window_config = app
                 .config()

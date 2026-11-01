@@ -915,8 +915,14 @@
     "path": "qq::qq_config_save",
     "host": "service"
   },
-  {"path":"qq::qq_group_save","host":"service"},
-  {"path":"qq::qq_group_delete","host":"service"},
+  {
+    "path": "qq::qq_group_save",
+    "host": "service"
+  },
+  {
+    "path": "qq::qq_group_delete",
+    "host": "service"
+  },
   {
     "path": "qq::qq_directory",
     "host": "service"
@@ -1007,6 +1013,18 @@
   },
   {
     "path": "bili::bili_browse",
+    "host": "service"
+  },
+  {
+    "path": "initiative::service::initiative_status",
+    "host": "service"
+  },
+  {
+    "path": "initiative::service::initiative_settings_save",
+    "host": "service"
+  },
+  {
+    "path": "initiative::service::initiative_topic_close",
     "host": "service"
   }
 ]

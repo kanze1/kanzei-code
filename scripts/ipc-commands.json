@@ -1136,6 +1136,67 @@
     "path": "subagents::idea_split",
     "returns": "-> Result < String , String >"
   },
+  "initiative_settings_save": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "revision": {
+        "required": true,
+        "type": "u64"
+      },
+      "settings": {
+        "required": true,
+        "type": "crate :: initiative :: model :: Settings"
+      }
+    },
+    "path": "initiative::service::initiative_settings_save",
+    "returns": "-> Result < Value , String >"
+  },
+  "initiative_status": {
+    "host": "service",
+    "parameters": {
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "initiative::service::initiative_status",
+    "returns": "-> Result < Value , String >"
+  },
+  "initiative_topic_close": {
+    "host": "service",
+    "parameters": {
+      "id": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "revision": {
+        "required": true,
+        "type": "u64"
+      }
+    },
+    "path": "initiative::service::initiative_topic_close",
+    "returns": "-> Result < Value , String >"
+  },
   "list_pending_inputs": {
     "host": "service",
     "parameters": {

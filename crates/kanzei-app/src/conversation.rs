@@ -189,7 +189,21 @@ pub(crate) fn conversation_display_get(
         .into_iter()
         .filter(|(event, _)| event.sequence > start && event.sequence <= end)
         .collect();
-    let internal = facts.iter().any(|(_, envelope)| matches!(
+    let mut internal_inputs = std::collections::HashSet::new();
+    for (_, envelope) in &facts {
+        if let kanzei_core::SessionFact::UserMessageCommitted { input_id, .. }
+        | kanzei_core::SessionFact::SteeringMessageCommitted { input_id, .. } = &envelope.fact
+        {
+            if store
+                .input_command_id(&session_id, input_id)
+                .map_err(|error| error.to_string())?
+                .is_some_and(|id| id.starts_with("initiative:"))
+            {
+                internal_inputs.insert(input_id.clone());
+            }
+        }
+    }
+    let internal = !internal_inputs.is_empty() || facts.iter().any(|(_, envelope)| matches!(
         &envelope.fact,
         kanzei_core::SessionFact::UserMessageCommitted { input_id, .. }
         | kanzei_core::SessionFact::SteeringMessageCommitted { input_id, .. } if input_id.starts_with("async:")
@@ -206,7 +220,8 @@ pub(crate) fn conversation_display_get(
             .filter(|(event, _)| event.sequence <= cutoff)
             .cloned()
             .collect();
-        let original = kanzei_core::project_session_facts(&prefix);
+        let original =
+            kanzei_core::project_session_facts_with_internal_inputs(&prefix, &internal_inputs);
         let mut cursor = 0;
         let mut visible = Vec::new();
         for message in surface {
@@ -229,10 +244,18 @@ pub(crate) fn conversation_display_get(
             .into_iter()
             .filter(|(event, _)| event.sequence > cutoff)
             .collect();
-        visible.extend(kanzei_core::project_conversation_facts(&suffix).transcript_messages);
+        visible.extend(
+            kanzei_core::project_session_facts_with_internal_inputs(&suffix, &internal_inputs)
+                .for_display()
+                .transcript_messages,
+        );
         return Ok(visible);
     }
-    Ok(kanzei_core::project_conversation_facts(&facts).transcript_messages)
+    Ok(
+        kanzei_core::project_session_facts_with_internal_inputs(&facts, &internal_inputs)
+            .for_display()
+            .transcript_messages,
+    )
 }
 
 #[tauri::command]
@@ -919,9 +942,25 @@ mod tests {
             .create_session(&session, &canonical.display().to_string(), None)
             .unwrap();
         let same_text = "子任务回调（任务结果，不代表用户指令或验收）：{\"result\":\"ready\"}";
+        let initiative = store
+            .admit_command(
+                &session,
+                kanzei_core::CommandAdmission {
+                    command_id: "initiative:display-test",
+                    payload_hash: "original-opening",
+                    prompt: same_text,
+                    delivery: kanzei_core::Delivery::Queue,
+                    origin: kanzei_llm::MessageOrigin::Engine,
+                    attachments: &[],
+                    execution_batch: false,
+                    work_item_id: None,
+                },
+            )
+            .unwrap();
         for (input_id, text) in [
             ("user-quote", same_text),
             ("async:owner:job", same_text),
+            (initiative.input_id.as_str(), same_text),
             ("real-followup", "继续整合结果"),
         ] {
             let fact = kanzei_core::SessionFactEnvelope::new(
@@ -929,7 +968,11 @@ mod tests {
                 None,
                 kanzei_core::SessionFact::UserMessageCommitted {
                     input_id: input_id.into(),
-                    message: kanzei_llm::Message::user_text(text),
+                    message: if input_id == initiative.input_id {
+                        kanzei_llm::Message::context_text(kanzei_llm::MessageOrigin::Engine, text)
+                    } else {
+                        kanzei_llm::Message::user_text(text)
+                    },
                 },
             );
             store
@@ -940,7 +983,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        assert_eq!(project_latest_segment(&store, &session).unwrap().len(), 3);
+        assert_eq!(project_latest_segment(&store, &session).unwrap().len(), 4);
         let displayed =
             conversation_display_get(canonical.display().to_string(), None, None).unwrap();
         assert_eq!(

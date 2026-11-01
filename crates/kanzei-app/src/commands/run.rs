@@ -220,6 +220,8 @@ pub(crate) async fn stop_run(
     let session = process_session_id(&root, Some(process));
     let runtime = runtime_for(&state, &session);
     stop_session(&state, &root, &session)?;
+    crate::initiative::service::cancel_review(&window, &session);
+    crate::initiative::service::changed(&window, &session);
     let stop = runtime.snapshot().stop;
     let _ = window.emit(
         "kz:stopping",
@@ -251,6 +253,7 @@ fn stop_session(state: &AppState, root: &Path, session: &str) -> Result<Option<u
     kanzei_harness::pending_question::cancel_owner(root, session, None)?;
     let runtime = state.runtimes.lock().unwrap().get(session).cloned();
     let Some(runtime) = runtime else {
+        crate::initiative::service::pause(root, session).map_err(|error| error.to_string())?;
         return Ok(None);
     };
     if let Some(team) = kanzei_tools::team::find(root, session) {
@@ -258,9 +261,13 @@ fn stop_session(state: &AppState, root: &Path, session: &str) -> Result<Option<u
     }
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
-    request_runtime_stop(&runtime, &store, &state_path, session)
-        .map(Some)
-        .map_err(|error| error.to_string())
+    let stopped = request_runtime_stop(&runtime, &store, &state_path, session)
+        .map_err(|error| error.to_string());
+    let paused =
+        crate::initiative::service::pause(root, session).map_err(|error| error.to_string());
+    let stopped = stopped?;
+    paused?;
+    Ok(Some(stopped))
 }
 
 /// R-174:单条停止一个运行中的子代理(模型 task 或编排角色)。
@@ -449,6 +456,12 @@ pub(crate) struct RunOptions {
 }
 
 pub(crate) enum Submission {
+    Initiative {
+        prompt: String,
+        review_id: String,
+        generation: u64,
+        async_generation: u64,
+    },
     Automatic {
         prompt: String,
         generation: u64,
@@ -474,7 +487,10 @@ pub(crate) enum Submission {
 /// D-764:哪些枪是引擎放的。`Submission::Automatic` 形态本身就是证据;UI 的自动续跑闸门
 /// 走 `Submission::Prompt`,靠 `auto_round` 声明。用户按键两者都不成立,文本原样进上下文。
 fn is_engine_round(submission: &Submission, auto_round: bool) -> bool {
-    matches!(submission, Submission::Automatic { .. }) || auto_round
+    matches!(
+        submission,
+        Submission::Automatic { .. } | Submission::Initiative { .. }
+    ) || auto_round
 }
 
 pub(crate) fn schedule_run(
@@ -576,6 +592,24 @@ pub(crate) fn schedule_run(
         }
     }
     let runtime = runtime_for(state, &session_id);
+    if !engine_round
+        && matches!(&submission, Submission::Prompt { .. })
+        && kanzei_harness::is_social_conversation(&project_root)
+    {
+        let core = kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))
+            .map_err(|error| error.to_string())?;
+        let new_command = match &command {
+            Some(command) => core
+                .command_input_id(&session_id, &command.id)
+                .map_err(|error| error.to_string())?
+                .is_none(),
+            None => true,
+        };
+        if new_command {
+            crate::initiative::service::before_human_input(&window, &project_root, &session_id)
+                .map_err(|error| error.to_string())?;
+        }
+    }
     let _lifecycle = runtime.lifecycle.lock().unwrap();
     if runtime.snapshot().existence != kanzei_core::session_lifecycle::Existence::Open {
         return Err("对话正在关闭".into());
@@ -592,6 +626,37 @@ pub(crate) fn schedule_run(
         }
     }
     let submission = match submission {
+        Submission::Initiative {
+            prompt,
+            review_id,
+            generation,
+            async_generation,
+        } => {
+            if runtime.is_running()
+                || runtime.stopping()
+                || runtime.generation() != generation
+                || runtime.async_generation.load(Ordering::SeqCst) != async_generation
+                || !crate::initiative::service::selection_valid(&window, &session_id, &review_id)
+                    .map_err(|error| error.to_string())?
+            {
+                return Ok("superseded");
+            }
+            let store =
+                kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&project_root))
+                    .map_err(|error| error.to_string())?;
+            if !store
+                .list_pending_inputs(&session_id)
+                .map_err(|error| error.to_string())?
+                .is_empty()
+            {
+                return Ok("superseded");
+            }
+            Submission::Prompt {
+                prompt,
+                delivery: kanzei_core::Delivery::Queue,
+                attachments: None,
+            }
+        }
         Submission::Automatic {
             prompt,
             generation,
@@ -654,6 +719,10 @@ pub(crate) fn schedule_run(
                 },
             )
             .map_err(|e| e.to_string())?;
+            if !engine_round {
+                crate::initiative::service::observe(&window, &project_root, &process.id)
+                    .map_err(|error| error.to_string())?;
+            }
             if delivery == kanzei_core::Delivery::Steer && !runtime.stopping() {
                 if let Some(mailbox) = runtime.async_mailbox.lock().unwrap().as_ref() {
                     mailbox.request_input();

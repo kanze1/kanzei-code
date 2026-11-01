@@ -68,6 +68,14 @@ pub(crate) struct BiliState {
     stop: CancellationToken,
     task: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
+pub(crate) fn initiative_available(app: &tauri::AppHandle, root: &std::path::Path) -> bool {
+    let state = app.state::<BiliState>();
+    let c = state.control.lock_or_recover();
+    c.stored.account > 0
+        && kanzei_harness::bilibili_conversation_root(&c.stored.account.to_string()).is_ok_and(
+            |owner| crate::normalized_project_root(&owner) == crate::normalized_project_root(root),
+        )
+}
 fn dir() -> Result<PathBuf, String> {
     kanzei_harness::kanzei_home()
         .map(|p| p.join("bilibili"))

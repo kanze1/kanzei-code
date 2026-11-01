@@ -13640,3 +13640,8 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: cargo test -p kanzei-memory; cargo clippy -p kanzei-memory --all-targets -- -D warnings
 - 摘要: 最终发布门禁发现回放测试把实际无命中与 FailureRecallPolicy 的 30ms 超时结果比较，忙时产生时序误判。回放装配复用 RecallPolicy trait 注入测试结果，Oracle/NoMemory 验证不得查询检索策略；Current/CompressionCF/LeaveOneOut 分别验证空命中和显式不可用错误，Candidate 使用真实空 lexical 索引。生产仍使用相同 FailureRecallPolicy，30ms 预算、真实检索和持锁超时回归均保留。记忆单元测试 229 passed、0 failed，文档示例 1 ignored；all-target Clippy 通过。
 - 收尾: 1793492100
+
+## T-1786922727217 原会话主动搭话、B站共用及 QQ 消息边界验收 [passed]
+- 命令: scripts/verify.ps1; cargo clippy -p kanzei-app -p kanzei-core --all-targets -- -D warnings
+- 摘要: 定向统一检查 91 项通过；主动搭话真实 WebView2/Rust/SQLite/运行时原生验收 25 项、领域与模型协议测试 13 项通过；补证 16 并发打开只创建一个会话、内部引擎输入不进入恢复后的显示历史。覆盖个人、好友、群聊和 B站原会话续聊，真实资料工具、silence/defer/speak、新输入和停止取消实际 HTTP、草稿隔离、安静时段、消息预算、未知送达不重放与深浅色/窄窗裁切。OneBot 与 B站为本地协议夹具，未向真实好友或群发送测试内容，真实账号扫码登录未验收。另以当前实际配置的本地 Qwen 模型完成原会话回复和结构化评估：模型选择 silent，原因是刚回复过同一话题，避免重复打扰；修复函数参数根节点 schema 后已通过真实服务，协议夹具增加相同根对象约束。最终干净提交的全量发布门禁另由 dist/verification.json 记录。
+- 收尾: 1793496660

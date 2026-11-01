@@ -13,6 +13,21 @@ pub(crate) fn is_general_root(root: &Path) -> bool {
     kanzei_harness::is_general_conversation_root(root)
 }
 
+pub(crate) fn add_channel_components(
+    harness: &mut kanzei_harness::Harness,
+    app: &tauri::AppHandle,
+    root: &Path,
+) {
+    harness.add(crate::bili::tools::BiliComponent(app.clone()));
+    if let Some(identity) = kanzei_harness::QqConversation::from_root(root) {
+        harness.add(crate::qq::ConversationComponent {
+            app: app.clone(),
+            identity,
+        });
+    }
+    harness.add(crate::initiative::InitiativeComponent);
+}
+
 pub(crate) fn supports_profile(profile: &str) -> bool {
     matches!(profile, "dev-auto" | "dev-pair" | "isolated")
 }

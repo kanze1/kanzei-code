@@ -35,8 +35,9 @@ pub(crate) fn committed_input_payload(
     message: &kanzei_llm::Message,
 ) -> anyhow::Result<serde_json::Value> {
     let store = kanzei_core::SessionStore::open_read_only(state_path)?;
+    let command = store.input_command_id(session_id, input_id)?;
     Ok(
-        json!({"inputId":input_id,"commandId":store.input_command_id(session_id,input_id)?,"message":if input_id.starts_with("async:"){None}else{Some(message)}}),
+        json!({"inputId":input_id,"commandId":command,"message":if input_id.starts_with("async:")||command.as_deref().is_some_and(|id|id.starts_with("initiative:")){None}else{Some(message)}}),
     )
 }
 

@@ -1,6 +1,7 @@
 const EVENTS: &[&str] = &[
     "kz:qq",
     "kz:bili",
+    "kz:initiative",
     "kz:agent-job",
     "kz:annotate-progress",
     "kz:ask",

@@ -148,9 +148,14 @@ pub(crate) async fn run_task(
     let run_id = round.run_id.clone();
 
     let event_window = window.clone();
+    let proactive =
+        crate::initiative::outbound::proactive(&round.ctx.project_root, &session_id, &run_id)?;
     let session_id_for_events = session_id.clone();
     let permission_project_for_events = deps.project_root.display().to_string();
     let emit_event = move |name: &str, mut payload: serde_json::Value| {
+        if proactive && matches!(name, "kz:text" | "kz:reasoning" | "kz:turn") {
+            return Ok(());
+        }
         if name == "kz:permission-resolved" {
             if let Some(fields) = payload.as_object_mut() {
                 fields.insert("projectDir".into(), json!(permission_project_for_events));
@@ -185,7 +190,7 @@ pub(crate) async fn run_task(
     let round_awaiting_user = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // R-253 批8:事件处理器按投影拆四 sink——UI/typed/trace/metrics 各自持有
     // 自己的状态,新增 RunEvent 只碰对应 sink(验收⑤)。
-    let mut on_event = build_event_handler(
+    let mut event_sink = build_event_handler(
         UiEventSink::new(
             emit_event,
             session_id.clone(),
@@ -209,6 +214,30 @@ pub(crate) async fn run_task(
         .with_awaiting_user(round_awaiting_user.clone()),
     );
 
+    let commit_app = window.clone();
+    let commit_root = round.ctx.project_root.clone();
+    let commit_session = session_id.clone();
+    let commit_run = run_id.clone();
+    let mut on_event = move |event: kanzei_core::RunEvent| {
+        if proactive {
+            if let kanzei_core::RunEvent::AssistantMessageCommitted {
+                message, commit, ..
+            } = &event
+            {
+                if let Err(error) = crate::initiative::outbound::validate_commit(
+                    &commit_app,
+                    &commit_root,
+                    &commit_session,
+                    &commit_run,
+                    message,
+                ) {
+                    commit.reject(error.to_string());
+                    return;
+                }
+            }
+        }
+        event_sink(event);
+    };
     let mut ask = build_ask_handler(
         handles.asks.clone(),
         handles.ask_seq.clone(),
@@ -373,6 +402,15 @@ pub(crate) async fn run_task(
     let summary = match run_result {
         Ok(summary) => summary,
         Err(error) => {
+            let error = match crate::initiative::outbound::failed(
+                &ctx.project_root,
+                &session_id,
+                &run_id,
+                &error.to_string(),
+            ) {
+                Ok(()) => error,
+                Err(recording) => error.context(format!("记录主动聊天结局失败：{recording}")),
+            };
             super::persistence::finish_typed_flush(typed_flush_task).await?;
             // D-403:失败轮不再在轮末判定之前提前返回。鞭挞已武装(ctrl.enabled)
             // 时,把失败按瞬态/致命分类送进同一个 auto_run 状态机:瞬态退避重试

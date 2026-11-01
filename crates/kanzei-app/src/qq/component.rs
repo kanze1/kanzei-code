@@ -166,17 +166,28 @@ impl Tool for ReplyTool {
         let Some(run_id) = ctx.run_id.as_deref() else {
             return ToolOutput::error("QQ 发送缺少运行身份");
         };
-        let id = format!("group-round:{run_id}");
         match super::send(
             &self.app,
             &self.identity,
-            &id,
+            super::SendSource::Round(run_id),
             json!([{"type":"text","data":{"text":input.text}}]),
         )
         .await
         {
             Ok(receipt) => ToolOutput::ok(receipt.to_string()),
-            Err(e) => ToolOutput::error(e),
+            Err(e) => {
+                if let Some(session) = ctx.session_id.as_deref() {
+                    if let Err(error) = crate::initiative::outbound::not_sent(
+                        &ctx.project_root,
+                        session,
+                        run_id,
+                        &e,
+                    ) {
+                        return ToolOutput::error(format!("{e}；记录未发送结局失败：{error}"));
+                    }
+                }
+                ToolOutput::error(e)
+            }
         }
     }
 }

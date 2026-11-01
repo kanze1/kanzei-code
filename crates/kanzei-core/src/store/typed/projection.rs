@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use kanzei_llm::{Message, Part};
 use serde::{Deserialize, Serialize};
@@ -55,6 +55,22 @@ pub struct SessionProjection {
     pub diagnostics: Vec<String>,
 }
 
+impl SessionProjection {
+    /// Display hides admitted internal inputs while the model surface preserves them.
+    pub fn for_display(mut self) -> Self {
+        self.transcript_messages = self
+            .transcript_messages
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| !self.internal_user_indexes.contains(index))
+            .map(|(_, message)| message)
+            .collect();
+        self.surface_messages = self.transcript_messages.clone();
+        self.internal_user_indexes.clear();
+        self
+    }
+}
+
 #[derive(Default)]
 struct ProjectedDraft {
     step: u32,
@@ -72,17 +88,16 @@ pub fn project_session_facts(events: &[(StoredEvent, SessionFactEnvelope)]) -> S
 pub fn project_conversation_facts(
     events: &[(StoredEvent, SessionFactEnvelope)],
 ) -> SessionProjection {
-    let mut projection = project_session_facts(events);
-    projection.transcript_messages = projection
-        .transcript_messages
-        .into_iter()
-        .enumerate()
-        .filter(|(index, _)| !projection.internal_user_indexes.contains(index))
-        .map(|(_, message)| message)
-        .collect();
-    projection.surface_messages = projection.transcript_messages.clone();
-    projection.internal_user_indexes.clear();
-    projection
+    project_session_facts(events).for_display()
+}
+
+/// The admission owner supplies additional internal input identities. Their
+/// authored text remains in model context; visibility never depends on text.
+pub fn project_session_facts_with_internal_inputs(
+    events: &[(StoredEvent, SessionFactEnvelope)],
+    internal_inputs: &HashSet<String>,
+) -> SessionProjection {
+    project_facts(events, None, None, internal_inputs)
 }
 
 /// 在完整 transcript 投影上追加已提交的 compaction surface。
@@ -91,6 +106,15 @@ pub fn project_session_facts_with_surface(
     events: &[(StoredEvent, SessionFactEnvelope)],
     surface_sequence: Option<i64>,
     surface_messages: Option<Vec<Message>>,
+) -> SessionProjection {
+    project_facts(events, surface_sequence, surface_messages, &HashSet::new())
+}
+
+fn project_facts(
+    events: &[(StoredEvent, SessionFactEnvelope)],
+    surface_sequence: Option<i64>,
+    surface_messages: Option<Vec<Message>>,
+    internal_inputs: &HashSet<String>,
 ) -> SessionProjection {
     let seed_index = events
         .iter()
@@ -125,8 +149,8 @@ pub fn project_session_facts_with_surface(
                 })
                 .cloned()
                 .collect();
-            if previous.iter().any(|(_, envelope)| matches!(&envelope.fact, SessionFact::UserMessageCommitted { input_id, .. } | SessionFact::SteeringMessageCommitted { input_id, .. } if input_id.starts_with("async:"))) {
-                let original = project_session_facts(&previous);
+            if previous.iter().any(|(_, envelope)| matches!(&envelope.fact, SessionFact::UserMessageCommitted { input_id, .. } | SessionFact::SteeringMessageCommitted { input_id, .. } if input_id.starts_with("async:") || internal_inputs.contains(input_id))) {
+                let original = project_facts(&previous, None, None, internal_inputs);
                 let mut cursor = 0;
                 for (position, message) in messages.iter().enumerate() {
                     if let Some(offset) = original.transcript_messages[cursor..].iter().position(|candidate| candidate == message) {
@@ -159,7 +183,7 @@ pub fn project_session_facts_with_surface(
             SessionFact::LegacySeeded { .. } | SessionFact::TurnStarted { .. } => {}
             SessionFact::UserMessageCommitted { message, input_id }
             | SessionFact::SteeringMessageCommitted { message, input_id } => {
-                if input_id.starts_with("async:") {
+                if input_id.starts_with("async:") || internal_inputs.contains(input_id) {
                     projection
                         .internal_user_indexes
                         .push(projection.transcript_messages.len());

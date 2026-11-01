@@ -293,6 +293,22 @@ export const commandParameters = {
     "id": true,
     "projectDir": true
   },
+  "initiative_settings_save": {
+    "processId": true,
+    "projectDir": true,
+    "revision": true,
+    "settings": true
+  },
+  "initiative_status": {
+    "processId": true,
+    "projectDir": true
+  },
+  "initiative_topic_close": {
+    "id": true,
+    "processId": true,
+    "projectDir": true,
+    "revision": true
+  },
   "list_pending_inputs": {
     "processId": false,
     "projectDir": true

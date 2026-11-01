@@ -78,7 +78,6 @@ function renderGroups(host){
     const id=field(editor,"群号","id",groupDraft.id);id.required=true;id.readOnly=!!editingId;id.inputMode="numeric";
     field(editor,"名称","name",groupDraft.name);field(editor,"参与群聊","enabled",groupDraft.enabled,"checkbox");
     field(editor,"发言间隔（秒）","interval_seconds",groupDraft.interval_seconds,"number").min="1";
-    field(editor,"主动搭话间隔（分钟，0 为关闭）","proactive_minutes",groupDraft.proactive_minutes,"number").min="0";
     for(const [name,label]of[["quiet_start","安静时段开始"],["quiet_end","安静时段结束"]]){const input=field(editor,label,name,groupDraft[name],"number");input.min="0";input.max="23";}
     field(editor,"本群人设","persona",groupDraft.persona,"textarea");
     editor.addEventListener("input",()=>{for(const input of editor.querySelectorAll("[name]"))groupDraft[input.name]=input.type==="checkbox"?input.checked:input.type==="number"?Number(input.value):input.value;});

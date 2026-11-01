@@ -1,6 +1,5 @@
 //! Transport facts and delivery receipts. Agent history remains in SessionStore.
 use kanzei_harness::{QqConversation, QqPeerKind};
-#[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -95,7 +94,14 @@ impl Store {
 
     pub fn recover_deliveries(&self) -> anyhow::Result<()> {
         self.db.execute("UPDATE qq_deliveries SET state='unknown', error='进程在发送期间退出，送达结果未知' WHERE state='sending'", [])?;
+        self.db.execute(
+            "UPDATE qq_jobs SET state='superseded' WHERE state='pending' AND trigger='proactive'",
+            [],
+        )?;
         Ok(())
+    }
+    pub fn latest_sequence(&self, identity: &QqConversation) -> anyhow::Result<i64> {
+        Ok(self.db.query_row("SELECT COALESCE(MAX(sequence),0) FROM qq_messages WHERE account=?1 AND kind=?2 AND peer=?3",params![identity.account,identity.kind.label(),identity.peer],|row|row.get(0))?)
     }
 
     pub fn register(&self, peer: &Peer) -> anyhow::Result<()> {
@@ -198,29 +204,18 @@ impl Store {
         self.messages(identity, first - 1)
     }
 
-    pub fn prepare_job(
-        &self,
-        peer: &Peer,
-        watermark: i64,
-        prompt: &str,
-        automatic: bool,
-    ) -> anyhow::Result<()> {
+    pub fn prepare_job(&self, peer: &Peer, watermark: i64, prompt: &str) -> anyhow::Result<()> {
         let pending:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM qq_jobs WHERE account=?1 AND kind=?2 AND peer=?3 AND state='pending')",params![peer.identity.account,peer.identity.kind.label(),peer.identity.peer],|r|r.get(0))?;
         if pending {
             return Ok(());
         }
-        let suffix = if automatic {
-            format!("wake:{}", peer.last_started)
-        } else {
-            watermark.to_string()
-        };
         let id = format!(
-            "qq:{}:{}:{}:{suffix}",
+            "qq:{}:{}:{}:{watermark}",
             peer.identity.account,
             peer.identity.kind.label(),
             peer.identity.peer
         );
-        self.db.execute("INSERT OR IGNORE INTO qq_jobs(id,account,kind,peer,watermark,prompt,trigger) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![id,peer.identity.account,peer.identity.kind.label(),peer.identity.peer,watermark,prompt,if automatic {Trigger::Proactive}else{Trigger::Ambient}.label()])?;
+        self.db.execute("INSERT OR IGNORE INTO qq_jobs(id,account,kind,peer,watermark,prompt,trigger) VALUES(?1,?2,?3,?4,?5,?6,?7)", params![id,peer.identity.account,peer.identity.kind.label(),peer.identity.peer,watermark,prompt,Trigger::Ambient.label()])?;
         Ok(())
     }
 
@@ -290,7 +285,6 @@ impl Store {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn delivery(&self, id: &str) -> anyhow::Result<Option<String>> {
         Ok(self
             .db
@@ -336,15 +330,9 @@ mod tests {
         };
         db.receive(&identity, &message, None).unwrap();
         let watermark = db.messages(&identity, 0).unwrap()[0].sequence;
-        db.prepare_job(&peer, watermark, "frozen ambient", false)
+        db.prepare_job(&peer, watermark, "frozen ambient").unwrap();
+        db.prepare_job(&peer, watermark + 1, "must not duplicate pending batch")
             .unwrap();
-        db.prepare_job(
-            &peer,
-            watermark + 1,
-            "must not duplicate pending batch",
-            false,
-        )
-        .unwrap();
         assert_eq!(db.pending_jobs().unwrap().len(), 1);
         message.message_id = "8".into();
         message.text = "@1 reply please".into();
@@ -355,7 +343,7 @@ mod tests {
                 Some("frozen direct request and context")
             )
             .unwrap());
-        db.prepare_job(&peer, watermark + 1, "must not duplicate mention", false)
+        db.prepare_job(&peer, watermark + 1, "must not duplicate mention")
             .unwrap();
         drop(db);
         let mut db = Store::open(&path).unwrap();

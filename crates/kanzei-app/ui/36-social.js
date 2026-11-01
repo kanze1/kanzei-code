@@ -12,6 +12,7 @@ import { closePreviewDock } from "./24-preview.js";
 import { refreshQq, qqSnapshot, openQqPeer, showQqSection } from "./33-qq.js";
 import { refreshBili, biliSnapshot, openBiliConversation, showBiliSection, browseBili } from "./35-bili.js";
 import { socialActive, setSocialActive, setSocialManagement } from "./34-social-state.js";
+import { refreshInitiative } from "./37-initiative.js";
 
 let platform = "qq", panelOpen = false, opening = 0;
 const rootKey = root => String(root || "").replaceAll("\\", "/").replace(/\/$/, "").toLowerCase();
@@ -37,7 +38,7 @@ function sync() {
   $("social-qq-status").dataset.connected = String(!!qqSnapshot()?.connected);
   $("social-bili-status").dataset.connected = String(!!biliSnapshot()?.account);
   $("social-browse").hidden = !biliSnapshot()?.account;
-  for (const name of ["qq", "bili"]) {
+  for (const name of ["qq", "bili", "initiative"]) {
     $(`${name}-management`).hidden = platform !== name;
     const button = $(`social-platform-${name}`); button.classList.toggle("active", platform === name); button.setAttribute("aria-selected", String(platform === name));
   }
@@ -62,7 +63,8 @@ async function manage(nextPlatform, section) {
   if ((!socialActive() || document.body.dataset.view !== "chat") && !await openTarget()) return;
   closePreviewDock(); platform = nextPlatform; panelOpen = true; sync();
   if (platform === "qq") { await refreshQq(); showQqSection(section); }
-  else { await refreshBili(); showBiliSection(section); }
+  else if (platform === "bili") { await refreshBili(); showBiliSection(section); }
+  else await refreshInitiative();
   if ($("social-manager").contains(document.activeElement)) return;
   $("social-manager-close").focus({ preventScroll: true });
 }
@@ -84,7 +86,7 @@ defer(() => {
   $("social-manage").addEventListener("click", () => { if (panelOpen) closeManager(); else void manage(selectedBili() ? "bili" : "qq").catch(error => toastError(String(error))); });
   $("social-manager-close").addEventListener("click", closeManager);
   $("social-browse").addEventListener("click", () => { const button=$("social-browse");button.disabled=true;void browseBili().catch(error=>toastError(String(error))).finally(()=>{button.disabled=false;}); });
-  for (const name of ["qq", "bili"]) $(`social-platform-${name}`).addEventListener("click", () => { void manage(name).catch(error => toastError(String(error))); });
+  for (const name of ["qq", "bili", "initiative"]) $(`social-platform-${name}`).addEventListener("click", () => { void manage(name).catch(error => toastError(String(error))); });
   $("social-qq-status").addEventListener("click", () => { void manage("qq", "connection").catch(error => toastError(String(error))); });
   $("social-bili-status").addEventListener("click", () => { void manage("bili", "login").catch(error => toastError(String(error))); });
   $("workbench-general-chat")?.addEventListener("click", () => { setSocialActive(false); panelOpen = false; sync(); }, true);
