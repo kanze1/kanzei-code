@@ -2106,6 +2106,7 @@ export const I18N_EN = {
   "调整活动面板宽度": "Resize the activity panel",
   "没有进行中的活动": "No activity in progress",
   "展开或收起已完成的活动": "Expand or collapse finished activity",
+  "展开或收起需要关注的活动": "Expand or collapse activity needing attention",
   "展开或收起活动详情": "Expand or collapse activity details",
   "旁路提问": "Side question",
   "向对话旁路提一个问题，主任务继续运行": "Ask a side question about the conversation; the main task keeps running",

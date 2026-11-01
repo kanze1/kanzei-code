@@ -1789,9 +1789,10 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
 // 断言全部落空(与上面 TABLE→tbody 同一类缺口)。
 // ── 分区:后台任务侧栏与可调框 ── UI2-0926 #14 起每段多一个委派卡容器,已完成段多一层折叠体。
 byId.get("bg-done-body")?.append(...["tasks-done", "bg-done"].map((id) => byId.get(id)).filter(Boolean));
+byId.get("bg-attention-body")?.append(...["tasks-attention", "bg-attention"].map((id) => byId.get(id)).filter(Boolean));
 for (const [sectionId, bodyIds] of [
   ["bg-section-running", ["tasks-running", "bg-running", "bg-running-empty"]],
-  ["bg-section-attention", ["tasks-attention", "bg-attention"]],
+  ["bg-section-attention", ["bg-attention-body"]],
   ["bg-section-done", ["bg-done-body"]],
 ]) {
   const section = byId.get(sectionId);
@@ -14336,6 +14337,18 @@ const docsB = {
   const failCard = [...byId.get("tasks-attention").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-5"]'));
   assert(failCard, "有失败的一批应在「需要关注」段");
   assert(!byId.get("bg-section-attention").classList.contains("hidden"), "「需要关注」段没有显示");
+  const attentionBody = byId.get("bg-attention-body");
+  const attentionToggle = byId.get("bg-attention-toggle");
+  assert(attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "false", "需要关注默认应收起");
+  assert(byId.get("bg-attention-count").textContent === "1", "收起时仍应显示需要关注的数量");
+  attentionToggle.click();
+  await settleAll();
+  assert(!attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "true", "点击段头应展开需要关注");
+  panelNs.renderTasksList();
+  assert(!attentionBody.classList.contains("hidden"), "列表重画不应改变展开状态");
+  attentionToggle.click();
+  await settleAll();
+  assert(attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "false", "再次点击应收起需要关注");
   panelNs.closeTasksPanel();
   await settleAll();
   assert(!visible() && tasksBadge.classList.contains("hidden"), "关闭侧栏应确认失败、徽标清空");

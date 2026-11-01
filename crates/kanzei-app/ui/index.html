@@ -1481,9 +1481,17 @@
             <div id="bg-running-empty" class="bg-empty" data-i18n-key="没有进行中的活动">没有进行中的活动</div>
           </section>
           <section class="bg-section hidden" id="bg-section-attention">
-            <div class="bg-section-title"><span data-i18n-key="需要关注">需要关注</span> <span id="bg-attention-count" class="dim"></span><span class="spacer"></span><button type="button" id="tasks-ack" class="ghost mini" title="确认这些失败,挪进已完成" data-i18n-title="确认这些失败,挪进已完成"><span data-i18n-key="知道了">知道了</span></button></div>
-            <div id="tasks-attention" class="tp-cards"></div>
-            <div id="bg-attention"></div>
+            <div class="bg-section-title bg-section-header">
+              <button type="button" id="bg-attention-toggle" class="bg-section-toggle" aria-expanded="false" aria-controls="bg-attention-body" title="展开或收起需要关注的活动" data-i18n-title="展开或收起需要关注的活动">
+                <span class="bg-section-caret" aria-hidden="true">▸</span>
+                <span data-i18n-key="需要关注">需要关注</span> <span id="bg-attention-count" class="dim"></span>
+              </button>
+              <button type="button" id="tasks-ack" class="ghost mini" title="确认这些失败,挪进已完成" data-i18n-title="确认这些失败,挪进已完成"><span data-i18n-key="知道了">知道了</span></button>
+            </div>
+            <div id="bg-attention-body" class="hidden">
+              <div id="tasks-attention" class="tp-cards"></div>
+              <div id="bg-attention"></div>
+            </div>
           </section>
           <section class="bg-section hidden" id="bg-section-done">
             <button type="button" id="bg-done-toggle" class="bg-section-title bg-section-toggle" aria-expanded="false" aria-controls="bg-done-body" title="展开或收起已完成的活动" data-i18n-title="展开或收起已完成的活动">

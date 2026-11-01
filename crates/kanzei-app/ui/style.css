@@ -1524,6 +1524,7 @@ button:disabled { opacity: .45; cursor: default; }
    (.k-panel[data-dock] 的底色 = --surface-panel-docked = --sidebar-bg),否则滚动时露出一条色差。 */
 #bg-section-running .bg-section-title { position: sticky; top: -4px; z-index: var(--z-base); background: var(--sidebar-bg); }
 button.bg-section-toggle { width: 100%; border: 0; background: transparent; font: inherit; text-align: left; cursor: pointer; }
+button.bg-section-toggle#bg-attention-toggle { display: flex; align-items: center; gap: var(--sp-3); flex: 1; min-width: 0; padding: 0; color: inherit; }
 button.bg-section-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 #bg-section-attention .bg-section-title { color: var(--warn); border-top-color: var(--warn); }
 .bg-empty { color: var(--dim); font-size: var(--fs-11); padding: var(--sp-1) var(--sp-1) var(--sp-2); }
@@ -3855,7 +3856,7 @@ html[data-kz-motion="paused"] *, html[data-kz-motion="paused"] *::before, html[d
 #tasks-panel #bg-list.hidden { display: none; }
 #tasks-panel .bg-section-title { border-top: 0; padding: var(--sp-1) var(--sp-1) var(--sp-2); font-size: var(--fs-12); }
 #tasks-panel #bg-section-attention .bg-section-title { align-items: center; }
-#bg-done-body { display: flex; flex-direction: column; gap: var(--sp-4); }
+#bg-attention-body, #bg-done-body { display: flex; flex-direction: column; gap: var(--sp-4); }
 .tp-cards { display: flex; flex-direction: column; gap: var(--sp-4); }
 .tp-cards:empty { display: none; }
 #tasks-panel .bg-entry { background: var(--panel); border-radius: var(--r-lg); padding: 10px var(--sp-5); }
