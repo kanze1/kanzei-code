@@ -170,9 +170,8 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
     }
     let root = canonical.as_path();
     restore_processes_from_store_once(state, root)?;
-    let existing = state
-        .processes
-        .lock_or_recover()
+    let mut processes = state.processes.lock_or_recover();
+    let existing = processes
         .values()
         .filter(|p| p.origin_project.0 == root)
         .min_by(|a, b| super::naming::order_key(&a.id).cmp(&super::naming::order_key(&b.id)))
@@ -180,8 +179,8 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
     if let Some(process) = existing {
         return Ok(process);
     }
-    let created = register_process(
-        state,
+    let (created, _) = register_process_locked(
+        &mut processes,
         root,
         &root.display().to_string(),
         None,
@@ -197,12 +196,7 @@ pub(crate) fn ensure_conversation(state: &AppState, root: &Path) -> Result<Proce
             tracker_writes: None,
         },
     )?;
-    state
-        .processes
-        .lock_or_recover()
-        .get(&created.id)
-        .cloned()
-        .ok_or_else(|| "对话创建后已被关闭".into())
+    Ok(created)
 }
 
 /// Channel schedulers own their turns. Opening a channel must not opt it into
@@ -391,6 +385,31 @@ pub(crate) fn register_process(
     planned: Option<(&Path, &str)>,
     settings: ThreadSettings,
 ) -> Result<ProcessInfo, String> {
+    let mut processes = state.processes.lock_or_recover();
+    let (process, naming) = register_process_locked(
+        &mut processes,
+        root,
+        project,
+        worktree_path,
+        branch,
+        planned,
+        settings,
+    )?;
+    drop(processes);
+    Ok(process_info_with(state, &process, &naming))
+}
+
+/// Empty-channel lookup and registration hold the same map guard. Explicit
+/// creation reuses this owner, preserving allocation and persistence invariants.
+fn register_process_locked(
+    processes: &mut HashMap<String, ProcessHandle>,
+    root: &Path,
+    project: &str,
+    worktree_path: Option<WorktreeRoot>,
+    branch: Option<String>,
+    planned: Option<(&Path, &str)>,
+    settings: ThreadSettings,
+) -> Result<(ProcessHandle, super::naming::SessionNaming), String> {
     let ThreadSettings {
         model,
         profile,
@@ -400,7 +419,6 @@ pub(crate) fn register_process(
         subagent_mode,
         tracker_writes,
     } = settings;
-    let mut processes = state.processes.lock_or_recover();
 
     // 二次查重:建树期间内存锁是放开的,`restore_processes_from_store` 可能把库里的
     // 绑定合了进来。
@@ -430,7 +448,7 @@ pub(crate) fn register_process(
             return Err(bound_error(target, &bound));
         }
     }
-    let next = next_process_index(&processes, &stored, &retired, project);
+    let next = next_process_index(processes, &stored, &retired, project);
 
     let process = ProcessHandle {
         id: format!("p{next}|{project}"),
@@ -483,9 +501,8 @@ pub(crate) fn register_process(
     let session_id = crate::process_session_id(root, Some(&process.id));
     let kind = crate::state::process_kind_of(&process);
     let naming = super::naming::load_naming(&store, &session_id, kind);
-    let info = process_info_with(state, &process, &naming);
-    processes.insert(process.id.clone(), process);
-    Ok(info)
+    processes.insert(process.id.clone(), process.clone());
+    Ok((process, naming))
 }
 
 /// 下一个 `p{n}`:内存表与库里同项目的编号一起取最大值再加一。
@@ -514,6 +531,38 @@ fn next_process_index(
 #[cfg(all(test, windows))]
 mod conversation_identity_tests {
     use super::*;
+    #[test]
+    fn concurrent_channel_openers_share_one_registered_conversation() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::normalized_project_root(dir.path());
+        let state = Arc::new(AppState::default());
+        let barrier = Arc::new(std::sync::Barrier::new(16));
+        let workers: Vec<_> = (0..16)
+            .map(|_| {
+                let state = state.clone();
+                let root = root.clone();
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    ensure_channel_conversation(&state, &root).unwrap().id
+                })
+            })
+            .collect();
+        let ids: std::collections::HashSet<_> = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 1);
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        assert_eq!(
+            store
+                .list_processes(&root.display().to_string())
+                .unwrap()
+                .len(),
+            1
+        );
+    }
     #[test]
     fn mixed_separator_registration_keeps_its_process_and_uses_one_session() {
         let dir = tempfile::tempdir().unwrap();
