@@ -19,7 +19,7 @@ const view = { status: "all", query: "", shown: PAGE };
 let lastSnapshot = null;
 let refreshSeq = 0;
 
-const STATUS_FILTERS = ["running", "passed", "failed", "skipped"];
+const STATUS_FILTERS = ["running", "passed", "failed", "skipped", "unknown"];
 const STATUS_ICON = { passed: "✓", failed: "×", running: "●" };
 
 /// 记录编号 T-<epoch 秒> 里带着创建时刻;解析不出来就不显示时间(不猜)。
@@ -58,6 +58,7 @@ function testRow(record) {
   const status = document.createElement("span");
   status.className = "test-status";
   status.textContent = localizedStatusWord(record.status);
+  if (record.evidence_note) status.title = t(record.evidence_note);
   const title = document.createElement("span");
   title.className = "test-title";
   title.textContent = `${record.id} ${record.title}`;
@@ -79,7 +80,14 @@ function testRow(record) {
   const detail = document.createElement("div");
   detail.className = "sv-test-detail hidden";
   head.addEventListener("click", () => {
-    if (!detail.children.length) detail.appendChild(renderTestRecordFields(record.fields ?? []));
+    if (!detail.children.length) {
+      if (record.evidence_note) {
+        const note = document.createElement("p");
+        note.textContent = t(record.evidence_note);
+        detail.appendChild(note);
+      }
+      detail.appendChild(renderTestRecordFields(record.fields ?? []));
+    }
     const closed = detail.classList.toggle("hidden");
     head.setAttribute("aria-expanded", String(!closed));
   });

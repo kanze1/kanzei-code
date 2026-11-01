@@ -38,7 +38,7 @@ pub const TEST_RUNS_ARCHIVE_REL: &str = ".kanzei/project/tests-archive.md";
 /// 当作同一 request 的受管路径，而不是把 archive 误当成 foreign staged file。
 pub const TEST_RUNS_GOVERNANCE_PATHS: &[&str] = &[TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL];
 
-const VALID_STATUS: &[&str] = &["running", "passed", "failed", "skipped"];
+const VALID_STATUS: &[&str] = &["running", "passed", "failed", "skipped", "unknown"];
 
 /// 工具文本的渲染上限(口径照 grep.rs 的 DEFAULT_LIMIT / MAX_LINE_CHARS)。
 ///
@@ -75,7 +75,7 @@ fn lock_test_runs(root: &Path) -> Result<crate::atomic_file::FileLock, String> {
 struct TestRecordInput {
     /// 测试标题(如 "cargo test -p kanzei-llm")
     title: String,
-    /// running | passed | failed | skipped
+    /// running | passed | failed | skipped | unknown
     status: String,
     /// 实际执行的命令(可选)
     #[serde(default)]
@@ -308,6 +308,28 @@ fn read_test_records(path: &Path) -> Vec<(String, serde_json::Value)> {
         .unwrap_or_default()
 }
 
+// Old automatic records only checked the process exit code. Keep the ledger
+// intact, but never present or consume that unproven claim as a test pass.
+fn evidence_view(mut record: serde_json::Value) -> serde_json::Value {
+    let unverified_auto_pass = record["status"] == "passed"
+        && record["fields"].as_array().is_some_and(|fields| {
+            fields.iter().any(|field| {
+                field["key"] == "摘要"
+                    && field["value"].as_str().is_some_and(|summary| {
+                        summary.starts_with("自动执行结果:")
+                            && !summary.contains("验证合同: exit_code;")
+                            && !summary.contains("验证合同: python_unittest;")
+                    })
+            })
+        });
+    if unverified_auto_pass {
+        record["reported_status"] = json!("passed");
+        record["status"] = json!("unknown");
+        record["evidence_note"] = json!("历史自动记录仅依据退出码，测试结果未验证；原始记录保留。");
+    }
+    record
+}
+
 /// 单个 `## T-xxx 标题 [status]` 块的记录 id(取标题行第一个 token)。
 fn block_id(block: &str) -> String {
     block
@@ -327,7 +349,7 @@ fn partition_active(active_path: &Path) -> (Vec<String>, Vec<String>) {
     let mut terminal = Vec::new();
     for (block, record) in read_test_records(active_path) {
         let status = record["status"].as_str().unwrap_or_default();
-        if matches!(status, "passed" | "failed" | "skipped") {
+        if matches!(status, "passed" | "failed" | "skipped" | "unknown") {
             terminal.push(block);
         } else {
             live.push(block);
@@ -423,12 +445,12 @@ pub fn test_runs_snapshot(root: &Path) -> Result<serde_json::Value, String> {
                     record["stale"] = json!(age >= STALE_RUNNING_SECS);
                 }
             }
-            record
+            evidence_view(record)
         })
         .collect::<Vec<_>>();
     let archived = read_test_records(&archive_path)
         .into_iter()
-        .map(|(_, record)| record)
+        .map(|(_, record)| evidence_view(record))
         .collect::<Vec<_>>();
     Ok(json!({
         "active": live,
@@ -987,6 +1009,28 @@ mod tests {
             std::fs::write(scripts.join(name), "// fixture\n").unwrap();
         }
         dir
+    }
+
+    #[test]
+    fn historical_automatic_pass_is_unverified_without_rewriting_the_ledger() {
+        let root = temp_project("legacy-auto-pass");
+        append_test_run(
+            &root,
+            "legacy regression",
+            "passed",
+            Some("cargo test -p example"),
+            Some("自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/old.json; 仅背书该命令的验证范围"),
+            Some(&["R-001".into()]),
+        ).unwrap();
+        let path = root.join(TEST_RUNS_ARCHIVE_REL);
+        let original = std::fs::read_to_string(&path).unwrap();
+        let snapshot = test_runs_snapshot(&root).unwrap();
+        assert_eq!(snapshot["archived"][0]["status"], "unknown");
+        assert_eq!(snapshot["archived"][0]["reported_status"], "passed");
+        assert_eq!(records_for_entry(&root, "R-001")[0]["status"], "unknown");
+        assert!(last_passed(&root).is_none());
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

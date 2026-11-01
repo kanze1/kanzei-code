@@ -163,6 +163,7 @@ fn passed_records(root: &Path) -> Vec<PassedRecord> {
     let mut passed = Vec::new();
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
+            let record = super::evidence_view(record);
             if record["status"].as_str() != Some("passed") {
                 continue;
             }
@@ -280,7 +281,8 @@ pub fn unclosed_running_for(root: &Path, entry_id: &str) -> Vec<(String, String)
 pub fn records_for_entry(root: &Path, entry_id: &str) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
-        for (_, mut record) in read_test_records(&root.join(rel)) {
+        for (_, record) in read_test_records(&root.join(rel)) {
+            let mut record = super::evidence_view(record);
             let refs_hit = record["refs"]
                 .as_array()
                 .map(|refs| refs.iter().any(|r| r.as_str() == Some(entry_id)))
@@ -572,6 +574,7 @@ pub fn frontend_smoke_passed(root: &Path) -> Option<(u64, String)> {
     let mut newest: Option<(u64, String)> = None;
     for rel in [TEST_RUNS_REL, TEST_RUNS_ARCHIVE_REL] {
         for (_, record) in read_test_records(&root.join(rel)) {
+            let record = super::evidence_view(record);
             if record["status"].as_str() != Some("passed") {
                 continue;
             }

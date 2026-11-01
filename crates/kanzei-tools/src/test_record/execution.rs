@@ -14,6 +14,51 @@ pub(crate) struct TestExecution {
     /// Requirement/defect IDs covered by this test, e.g. ["R-001"].
     #[serde(default)]
     refs: Vec<String>,
+    /// `python_unittest` checks the runner summary and test count. Declare `exit_code`
+    /// only when exit 0 guarantees at least one test ran and all tests passed.
+    #[serde(default)]
+    result_contract: Option<TestResultContract>,
+}
+
+#[derive(Clone, Copy, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum TestResultContract {
+    ExitCode,
+    PythonUnittest,
+}
+
+impl TestResultContract {
+    fn name(self) -> &'static str {
+        match self {
+            Self::ExitCode => "exit_code",
+            Self::PythonUnittest => "python_unittest",
+        }
+    }
+}
+
+// Python unittest's text contract: exactly one run summary and one final result.
+// Skips, zero tests, missing or ambiguous output cannot establish a complete pass.
+fn unittest_result(content: &str) -> (&'static str, Option<u64>) {
+    let runs = regex::Regex::new(r"(?m)^Ran (\d+) tests? in [^\r\n]+\r?$").unwrap();
+    let results =
+        regex::Regex::new(r"(?m)^(OK(?: \([^\r\n]*\))?|FAILED \([^\r\n]*\))\r?$").unwrap();
+    let counts: Vec<_> = runs.captures_iter(content).collect();
+    let endings: Vec<_> = results.captures_iter(content).collect();
+    if counts.len() != 1 || endings.len() != 1 {
+        return ("unknown", None);
+    }
+    let count = counts[0][1].parse::<u64>().ok();
+    if count == Some(0) || count.is_none() {
+        return ("unknown", count);
+    }
+    let result = &endings[0][1];
+    if result.starts_with("FAILED (") {
+        ("failed", count)
+    } else if result == "OK" {
+        ("passed", count)
+    } else {
+        ("unknown", count)
+    }
 }
 
 pub(crate) struct TestExecutionGuard {
@@ -24,6 +69,7 @@ pub(crate) struct TestExecutionGuard {
     workdir: std::path::PathBuf,
     recorded_command: String,
     refs: Vec<String>,
+    result_contract: Option<TestResultContract>,
     fingerprint: String,
     execution: kanzei_harness::execution::ExecutionIdentity,
     started: Instant,
@@ -91,6 +137,7 @@ impl TestExecutionGuard {
                 })
                 .unwrap_or_else(|| ctx.cwd.clone()),
             refs: input.refs.clone(),
+            result_contract: input.result_contract,
             fingerprint,
             execution,
             started: Instant::now(),
@@ -141,11 +188,20 @@ impl TestExecutionGuard {
                 .as_ref()
                 .map(|source| &source.fingerprint)
                 != after.source.as_ref().map(|source| &source.fingerprint);
-        let status = if !output.is_error && exit_code == Some(0) && !source_changed {
-            "passed"
-        } else {
-            "failed"
+        let (contract_status, test_count) = match self.result_contract {
+            Some(TestResultContract::PythonUnittest) => unittest_result(&output.content),
+            Some(TestResultContract::ExitCode) => ("passed", None),
+            None => ("unknown", None),
         };
+        let status = if output.is_error || exit_code.is_some_and(|code| code != 0) || source_changed
+        {
+            "failed"
+        } else if exit_code == Some(0) {
+            contract_status
+        } else {
+            "unknown"
+        };
+        let contract = self.result_contract.map(TestResultContract::name);
         let relative = format!(".kanzei/artifacts/test-runs/{}.json", self.id);
         let path = self.ctx.project_root.join(&relative);
         std::fs::create_dir_all(path.parent().ok_or("test artifact parent missing")?)
@@ -155,6 +211,8 @@ impl TestExecutionGuard {
             "controller_cwd": self.ctx.cwd,
             "workdir": self.workdir,
             "status": status, "exit_code": exit_code,
+            "result_contract": contract,
+            "test_count": test_count,
             "duration_secs": self.started.elapsed().as_secs_f64(),
             "source_fingerprint_before": self.execution.source.as_ref().map(|source| &source.fingerprint),
             "commit_source_fingerprint": self.fingerprint,
@@ -173,7 +231,8 @@ impl TestExecutionGuard {
         self.record_terminal(
             status,
             &format!(
-            "自动执行结果: {status}; exit={exit_code:?}; 日志: {relative}; 仅背书该命令的验证范围"
+            "自动执行结果: {status}; exit={exit_code:?}; 验证合同: {}; 日志: {relative}; 仅背书该命令的验证范围",
+            contract.unwrap_or("未声明")
         ),
         )?;
         self.finished = true;
@@ -184,6 +243,14 @@ impl TestExecutionGuard {
             output.content.push_str(
                 "\nSource changed during verification; exit 0 cannot endorse the starting inputs.",
             );
+        }
+        if status == "failed" && contract_status == "failed" && !output.is_error {
+            output.is_error = true;
+            output.outcome = kanzei_harness::ToolOutcome::Failed;
+            output.code = Some("TESTS_FAILED".into());
+        }
+        if status == "unknown" {
+            output.content.push_str("\n命令结束，但测试结果无法判定；退出码为 0 不证明测试通过。请检查日志和测试结果合同。");
         }
         output.content.push_str(&format!(
             "\n自动测试记录: {} [{status}]，日志: {relative}。无需再次调用 test_record。",
@@ -222,15 +289,43 @@ mod tests {
         ToolCtx::new(root.clone(), root)
     }
 
+    #[test]
+    fn unittest_contract_requires_one_nonempty_unskipped_run_and_a_result() {
+        for (text, expected) in [
+            ("Ran 2 tests in 0.01s\n\nOK\n", ("passed", Some(2))),
+            (
+                "Ran 1 test in 0.01s\n\nFAILED (failures=1)\n",
+                ("failed", Some(1)),
+            ),
+            ("Ran 0 tests in 0.01s\n\nOK\n", ("unknown", Some(0))),
+            (
+                "Ran 1 test in 0.01s\n\nOK (skipped=1)\n",
+                ("unknown", Some(1)),
+            ),
+            ("Tests are disabled", ("unknown", None)),
+            ("Ran 1 test in 0.01s\n", ("unknown", None)),
+            (
+                "Ran 1 test in 0.01s\nOK\nRan 1 test in 0.01s\nOK\n",
+                ("unknown", None),
+            ),
+        ] {
+            assert_eq!(unittest_result(text), expected, "{text}");
+        }
+    }
+
     #[tokio::test]
-    async fn command_exit_records_pass_or_fail_without_manual_calls() {
+    async fn command_exit_requires_a_declared_test_contract_for_pass() {
         let ctx = fixture();
-        for (code, status) in [(0, "passed"), (7, "failed")] {
+        for (code, contract, status) in [
+            (0, None, "unknown"),
+            (0, Some("exit_code"), "passed"),
+            (7, Some("exit_code"), "failed"),
+        ] {
             let output = crate::bash::BashTool::default()
                 .execute(
                     json!({
                         "command": format!("exit {code}"),
-                        "test": {"title": format!("exit-{code}"), "refs": ["R-001"]}
+                        "test": {"title": format!("exit-{code}-{status}"), "refs": ["R-001"], "result_contract": contract}
                     }),
                     &ctx,
                 )
@@ -245,11 +340,86 @@ mod tests {
         let records = super::super::read_test_records(
             &ctx.project_root.join(super::super::TEST_RUNS_ARCHIVE_REL),
         );
-        assert_eq!(records.len(), 2);
+        assert_eq!(records.len(), 3);
         assert!(super::super::read_test_records(
             &ctx.project_root.join(super::super::TEST_RUNS_REL)
         )
         .is_empty());
+        std::fs::remove_dir_all(ctx.project_root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_test_output_with_zero_exit_is_not_a_pass() {
+        let ctx = fixture();
+        let command = if matches!(crate::shell::detected_shell().name, "pwsh" | "powershell") {
+            "Write-Output 'FAILED (failures=1)'; exit 0"
+        } else {
+            "echo 'FAILED (failures=1)'; exit 0"
+        };
+        let output = crate::bash::BashTool::default()
+            .execute(
+                json!({"command": command, "test": {"title": "zero exit failure"}}),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(output.content.contains("[unknown]"), "{}", output.content);
+        let records = super::super::read_test_records(
+            &ctx.project_root.join(super::super::TEST_RUNS_ARCHIVE_REL),
+        );
+        assert_eq!(records[0].1["status"], "unknown");
+        assert!(super::super::last_passed(&ctx.project_root).is_none());
+        std::fs::remove_dir_all(ctx.project_root).unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the isolated kanzei-erpnext-eval backend and its intentional Frappe failure fixture"]
+    async fn frappe_failure_with_zero_exit_is_not_recorded_as_passed() {
+        let ctx = fixture();
+        let output = crate::bash::BashTool::default()
+            .execute(
+                json!({
+                    "command": "docker exec kanzei-erpnext-eval-backend-1 bench --site frontend run-tests --module frappe.kanzei_audit_exit_contract",
+                    "test": {"title": "Frappe exit contract"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!output.is_error, "{}", output.content);
+        assert!(
+            output.content.contains("FAILED (failures=1)"),
+            "{}",
+            output.content
+        );
+        assert!(output.content.contains("[unknown]"), "{}", output.content);
+        assert!(super::super::last_passed(&ctx.project_root).is_none());
+        let classified = crate::bash::BashTool::default()
+            .execute(
+                json!({
+                    "command": "docker exec kanzei-erpnext-eval-backend-1 bench --site frontend run-tests --module frappe.kanzei_audit_exit_contract",
+                    "test": {"title": "Frappe unittest result", "result_contract": "python_unittest"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(classified.is_error, "{}", classified.content);
+        assert_eq!(classified.code.as_deref(), Some("TESTS_FAILED"));
+        assert!(
+            classified.content.contains("[failed]"),
+            "{}",
+            classified.content
+        );
+        let passed = crate::bash::BashTool::default()
+            .execute(
+                json!({
+                    "command": "docker exec -e CI=1 kanzei-erpnext-eval-backend-1 bench --site frontend run-tests --module erpnext.stock.doctype.delivery_note.test_delivery_note --test test_sales_invoice_qty_after_return",
+                    "test": {"title": "Frappe real passing test", "result_contract": "python_unittest"}
+                }),
+                &ctx,
+            )
+            .await;
+        assert!(!passed.is_error, "{}", passed.content);
+        assert!(passed.content.contains("[passed]"), "{}", passed.content);
         std::fs::remove_dir_all(ctx.project_root).unwrap();
     }
 

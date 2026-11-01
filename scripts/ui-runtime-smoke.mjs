@@ -1789,9 +1789,10 @@ for (const match of html.matchAll(/<(\w+)((?:[^<>"]|"[^"]*")*?)(?<![-\w])id="([\
 // 断言全部落空(与上面 TABLE→tbody 同一类缺口)。
 // ── 分区:后台任务侧栏与可调框 ── UI2-0926 #14 起每段多一个委派卡容器,已完成段多一层折叠体。
 byId.get("bg-done-body")?.append(...["tasks-done", "bg-done"].map((id) => byId.get(id)).filter(Boolean));
+byId.get("bg-attention-body")?.append(...["tasks-attention", "bg-attention"].map((id) => byId.get(id)).filter(Boolean));
 for (const [sectionId, bodyIds] of [
   ["bg-section-running", ["tasks-running", "bg-running", "bg-running-empty"]],
-  ["bg-section-attention", ["tasks-attention", "bg-attention"]],
+  ["bg-section-attention", ["bg-attention-body"]],
   ["bg-section-done", ["bg-done-body"]],
 ]) {
   const section = byId.get(sectionId);
@@ -12308,6 +12309,15 @@ const docsB = {
         assert(finished && finished.textContent !== "1788804121" && finished.title === "1788804121", "收尾时间戳未转成本地时间");
         assert(detail?.querySelector(".sv-path")?.dataset.path === "crates/kanzei-core/src/a.rs", "源码指纹未拆成路径 chip");
         assert(entry?.querySelector(".test-ref-chip")?.textContent === "R-001", "测试记录的关联徽标丢了");
+        esmModuleCache.get("12-docs-tests.js").namespace.renderTestRuns({ active: [], archived: [{
+          id: "T-1793157783", title: "历史自动记录", status: "unknown", reported_status: "passed",
+          evidence_note: "历史自动记录仅依据退出码，测试结果未验证；原始记录保留。", fields: [], refs: [],
+        }] });
+        const unknownEntry = document.querySelector("#test-list .test-entry");
+        assert(unknownEntry?.querySelector(".test-status")?.textContent === "无法判定", "历史自动通过记录应展示为无法判定");
+        unknownEntry?.querySelector(".sv-test-head")?.click();
+        assert(unknownEntry?.querySelector(".sv-test-detail")?.textContent.includes("原始记录保留"), "历史记录应解释证据不足并保留原文");
+        assert([...byId.get("tests-status-filter").options].some((option) => option.value === "unknown"), "测试状态筛选应包含无法判定");
         esmModuleCache.get("12-docs-tests.js").namespace.renderTestRuns(payloads.test_runs_snapshot);
       }
       // ---------- 压缩纪要 / 对话总结 / 研究运行卡(架构索引原文已不在页内,进查看器看) ----------
@@ -14338,6 +14348,18 @@ const docsB = {
   const failCard = [...byId.get("tasks-attention").querySelectorAll(".tp-card")].find((card) => card.querySelector('[data-sa-key="sess-tp|tp-5"]'));
   assert(failCard, "有失败的一批应在「需要关注」段");
   assert(!byId.get("bg-section-attention").classList.contains("hidden"), "「需要关注」段没有显示");
+  const attentionBody = byId.get("bg-attention-body");
+  const attentionToggle = byId.get("bg-attention-toggle");
+  assert(attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "false", "需要关注默认应收起");
+  assert(byId.get("bg-attention-count").textContent === "1", "收起时仍应显示需要关注的数量");
+  attentionToggle.click();
+  await settleAll();
+  assert(!attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "true", "点击段头应展开需要关注");
+  panelNs.renderTasksList();
+  assert(!attentionBody.classList.contains("hidden"), "列表重画不应改变展开状态");
+  attentionToggle.click();
+  await settleAll();
+  assert(attentionBody.classList.contains("hidden") && attentionToggle.getAttribute("aria-expanded") === "false", "再次点击应收起需要关注");
   panelNs.closeTasksPanel();
   await settleAll();
   assert(!visible() && tasksBadge.classList.contains("hidden"), "关闭侧栏应确认失败、徽标清空");

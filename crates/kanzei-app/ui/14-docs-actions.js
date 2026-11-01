@@ -6,7 +6,7 @@ import { invoke } from "./00-ipc.js";
 import "./01-runtime-events.js";
 import { t } from "./02-i18n.js";
 import { currentProject, toast, toastError } from "./03-shell.js";
-import { applyBgFilters, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgDoneOpen } from "./06-activity.js";
+import { applyBgFilters, bgAttentionOpen, bgDoneOpen, bgEntries, bgFilters, bgSync, renderBgSections, setBgAttentionOpen, setBgDoneOpen } from "./06-activity.js";
 import { refreshWorktrees } from "./09-sessions.js";
 import { saveDocFilters } from "./10-docs-core.js";
 import { applyBatch, batchSelection, clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
@@ -200,7 +200,14 @@ defer(() => {
     renderBgSections();
   });
 });
-// 已完成段的折叠:记住用户的选择,别每次刷新都弹回收起。
+// 折叠段记住用户的选择,刷新时保持不变。
+defer(() => {
+  $("bg-attention-toggle").addEventListener("click", () => {
+    setBgAttentionOpen(!bgAttentionOpen);
+    localStorage.setItem("kz-bg-attention-open", bgAttentionOpen ? "1" : "0");
+    renderBgSections();
+  });
+});
 defer(() => {
   $("bg-done-toggle").addEventListener("click", () => {
     setBgDoneOpen(!bgDoneOpen);

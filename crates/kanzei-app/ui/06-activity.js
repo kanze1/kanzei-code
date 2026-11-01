@@ -215,6 +215,7 @@ export function bgIsTerminal(name) {
 }
 
 export function setBgDoneOpen(value) { bgDoneOpen = Boolean(value); }
+export function setBgAttentionOpen(value) { bgAttentionOpen = Boolean(value); }
 export const bgFilters = {
   type: localStorage.getItem("kz-bg-type") || "all",
   status: localStorage.getItem("kz-bg-status") || "all",
@@ -240,6 +241,7 @@ export function applyBgFilters() {
 
 export const BG_SECTION_BODY = { running: "bg-running", attention: "bg-attention", done: "bg-done" };
 export let bgDoneOpen = localStorage.getItem("kz-bg-done-open") === "1";
+export let bgAttentionOpen = localStorage.getItem("kz-bg-attention-open") === "1";
 // 条目该落哪一段。成功判据只认 ToolEnd 的机器可读 outcome(经 activityOutcomeView
 // 折算成 cls),不看文案、不反推 DOM:成功与 noop 收进已完成;其余(失败/需确认/需修正/超时)
 // 在用户确认之前留在「需要关注」——关掉侧栏、点「知道了」或发下一条消息都算确认(entry.acked),

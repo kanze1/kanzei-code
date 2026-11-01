@@ -13645,3 +13645,26 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 命令: scripts/verify.ps1; cargo clippy -p kanzei-app -p kanzei-core --all-targets -- -D warnings
 - 摘要: 定向统一检查 91 项通过；主动搭话真实 WebView2/Rust/SQLite/运行时原生验收 25 项、领域与模型协议测试 13 项通过；补证 16 并发打开只创建一个会话、内部引擎输入不进入恢复后的显示历史。覆盖个人、好友、群聊和 B站原会话续聊，真实资料工具、silence/defer/speak、新输入和停止取消实际 HTTP、草稿隔离、安静时段、消息预算、未知送达不重放与深浅色/窄窗裁切。OneBot 与 B站为本地协议夹具，未向真实好友或群发送测试内容，真实账号扫码登录未验收。另以当前实际配置的本地 Qwen 模型完成原会话回复和结构化评估：模型选择 silent，原因是刚回复过同一话题，避免重复打扰；修复函数参数根节点 schema 后已通过真实服务，协议夹具增加相同根对象约束。最终干净提交的全量发布门禁另由 dist/verification.json 记录。
 - 收尾: 1793496660
+
+## T-1786922727218 拆分前 memory store 测试清单 [failed]
+- 汇整来源: kanzei/pending-test-evidence-20261101; source 805b14d2; original T-1786922727211 in .kanzei/project/tests-archive.md. Historical result preserved; not current release evidence.
+- 命令: Get-Command cargo,rustc | Select-Object Name,Source; git status --short; & ./scripts/dev.ps1 test -p kanzei-memory memory::store::tests -- --list
+- 时长: 13.9s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727211.json; 仅背书该命令的验证范围
+- 收尾: 1793058574
+
+## T-1786922727219 tracker inline tests after themed split [passed]
+- 汇整来源: kanzei/pending-test-evidence-20261101; source 805b14d2; original T-1786922727213 in .kanzei/project/tests-archive.md. Historical result preserved; not current release evidence.
+- 命令: cargo test -p kanzei-tools tracker::tests::
+- 时长: 7.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727213.json; 仅背书该命令的验证范围
+- 收尾: 1793058623
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@65ac957d13dd,crates/kanzei-tools/src/tracker/tests.rs@10e6fa8f4764,crates/kanzei-tools/src/tracker/tests/archive_and_maintenance.rs@3230c43e3ee8,crates/kanzei-tools/src/tracker/tests/close_and_reopen.rs@04ec96c4ed8a,crates/kanzei-tools/src/tracker/tests/integrity_and_receipts.rs@fd057146170e,crates/kanzei-tools/src/tracker/tests/requirements_and_ideas.rs@b3509fe2908d,crates/kanzei-tools/src/tracker/tests/scheduling.rs@bec0f71a2ca0,crates/kanzei-tools/src/tracker/tests/schema_and_research.rs@863f02c27107,crates/kanzei-tools/src/tracker/tests/writes_and_validation.rs@ca235ec02277
+
+## T-1786922727220 memory store test modules [failed]
+- 汇整来源: kanzei/pending-test-evidence-20261101; source 805b14d2; original T-1786922727212 in .kanzei/project/tests-archive.md. Historical result preserved; not current release evidence.
+- 命令: cargo fmt --all; cargo test -p kanzei-memory memory::store::tests -- --test-threads=1
+- 时长: 69.4s
+- 摘要: 自动执行结果: failed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727212.json; 仅背书该命令的验证范围
+- 收尾: 1793058643
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@d713145b9514,crates/kanzei-memory/src/memory/store/tests/admission.rs@a49154ca3e30,crates/kanzei-memory/src/memory/store/tests/derived_index.rs@6ce3a6eeeea1,crates/kanzei-memory/src/memory/store/tests/inbox.rs@b50e1700d73c,crates/kanzei-memory/src/memory/store/tests/integrity.rs@5329a3490330,crates/kanzei-memory/src/memory/store/tests/lifecycle.rs@210bba685e20,crates/kanzei-memory/src/memory/store/tests/merge_reconcile.rs@a2a3e26236af,crates/kanzei-memory/src/memory/store/tests/migration_refs.rs@d6e321ab8fb0,crates/kanzei-memory/src/memory/store/tests/mod.rs@537487bb8533,crates/kanzei-memory/src/memory/store/tests/search_recall.rs@e1ca84ff251a

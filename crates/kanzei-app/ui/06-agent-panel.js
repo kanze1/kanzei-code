@@ -44,7 +44,7 @@ import {
   subagentStop,
   subagentUsageTokens,
 } from "./05-subagents.js";
-import { bgAck, bgDoneOpen, bgRunningCount, bgSectionCounts, fastStatusText, onBgChange, orchPhaseLabel, setBgDoneOpen } from "./06-activity.js";
+import { bgAck, bgAttentionOpen, bgDoneOpen, bgRunningCount, bgSectionCounts, fastStatusText, onBgChange, orchPhaseLabel, setBgAttentionOpen, setBgDoneOpen } from "./06-activity.js";
 import {
   SIDE_AUTO_CLOSE_MS,
   SIDE_WIDTH_MIN,
@@ -667,6 +667,13 @@ function renderChrome() {
   $("bg-section-attention")?.classList.toggle("hidden", attention === 0);
   const attentionCount = $("bg-attention-count");
   if (attentionCount) attentionCount.textContent = attention ? String(attention) : "";
+  $("bg-attention-body")?.classList.toggle("hidden", !bgAttentionOpen);
+  const attentionToggle = $("bg-attention-toggle");
+  if (attentionToggle) {
+    attentionToggle.setAttribute("aria-expanded", String(bgAttentionOpen));
+    const caret = attentionToggle.querySelector(".bg-section-caret");
+    if (caret) caret.textContent = bgAttentionOpen ? "▾" : "▸";
+  }
   $("bg-section-done")?.classList.toggle("hidden", done === 0);
   const doneCount = $("bg-done-count");
   if (doneCount) doneCount.textContent = done ? String(done) : "";
@@ -713,10 +720,18 @@ function revealBatch(batch) {
     record = cards.get(key);
   }
   if (!record) return;
+  if (record.section === "attention" && !bgAttentionOpen) {
+    setBgAttentionOpen(true);
+    renderChrome();
+  }
   record.el.scrollIntoView?.({ block: "nearest" });
   flash(record.el);
 }
 function revealNode(node) {
+  if (isInside(node, $("bg-attention-body")) && !bgAttentionOpen) {
+    setBgAttentionOpen(true);
+    renderChrome();
+  }
   if (isInside(node, $("bg-done-body")) && !bgDoneOpen) {
     setBgDoneOpen(true);
     renderTasksList();

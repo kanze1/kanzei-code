@@ -91,7 +91,9 @@ struct BashInput {
     #[serde(default)]
     persistent: bool,
     /// Foreground test command: automatically records running/result/duration/log in one call.
-    /// Foreground only. Example: {"title":"unit tests","refs":["R-001"]}.
+    /// Foreground only. Without a result contract, exit 0 is recorded as unknown.
+    /// Use result_contract=python_unittest for a single Python unittest text summary, or
+    /// exit_code only if zero guarantees one or more tests ran and all passed.
     #[serde(default)]
     test: Option<crate::test_record::execution::TestExecution>,
     /// 冻结源码并异步验证 Work Unit，释放开发 WIP；与 test/background/persistent 互斥。
