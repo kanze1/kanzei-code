@@ -12307,6 +12307,15 @@ const docsB = {
         assert(finished && finished.textContent !== "1788804121" && finished.title === "1788804121", "收尾时间戳未转成本地时间");
         assert(detail?.querySelector(".sv-path")?.dataset.path === "crates/kanzei-core/src/a.rs", "源码指纹未拆成路径 chip");
         assert(entry?.querySelector(".test-ref-chip")?.textContent === "R-001", "测试记录的关联徽标丢了");
+        esmModuleCache.get("12-docs-tests.js").namespace.renderTestRuns({ active: [], archived: [{
+          id: "T-1793157783", title: "历史自动记录", status: "unknown", reported_status: "passed",
+          evidence_note: "历史自动记录仅依据退出码，测试结果未验证；原始记录保留。", fields: [], refs: [],
+        }] });
+        const unknownEntry = document.querySelector("#test-list .test-entry");
+        assert(unknownEntry?.querySelector(".test-status")?.textContent === "无法判定", "历史自动通过记录应展示为无法判定");
+        unknownEntry?.querySelector(".sv-test-head")?.click();
+        assert(unknownEntry?.querySelector(".sv-test-detail")?.textContent.includes("原始记录保留"), "历史记录应解释证据不足并保留原文");
+        assert([...byId.get("tests-status-filter").options].some((option) => option.value === "unknown"), "测试状态筛选应包含无法判定");
         esmModuleCache.get("12-docs-tests.js").namespace.renderTestRuns(payloads.test_runs_snapshot);
       }
       // ---------- 压缩纪要 / 对话总结 / 研究运行卡(架构索引原文已不在页内,进查看器看) ----------

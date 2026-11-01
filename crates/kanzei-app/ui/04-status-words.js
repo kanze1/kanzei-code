@@ -43,6 +43,7 @@ export const STATUS_WORDS_ZH = Object.freeze({
   failed: "失败",
   running: "运行中",
   skipped: "已跳过",
+  unknown: "无法判定",
 });
 
 export const STATUS_WORDS_EN = Object.freeze({
@@ -74,6 +75,7 @@ export const STATUS_WORDS_EN = Object.freeze({
   failed: "Failed",
   running: "Running",
   skipped: "Skipped",
+  unknown: "Unknown",
 });
 
 // 作用域覆盖:同一个枚举在别的语境里是另一个意思。目前只有执行单元(work unit)用。

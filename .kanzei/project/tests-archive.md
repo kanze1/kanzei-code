@@ -13610,3 +13610,23 @@ print(json.dumps({'total': total, 'linked': linked, 'orphaned': total - linked},
 - 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727210.json; 仅背书该命令的验证范围
 - 收尾: 1792907637
 - 源码指纹: v2 scripts/check-readme-crates.mjs@ebebd2b9db28
+
+## T-1786922727211 拆分前 memory store 测试清单 [failed]
+- 命令: Get-Command cargo,rustc | Select-Object Name,Source; git status --short; & ./scripts/dev.ps1 test -p kanzei-memory memory::store::tests -- --list
+- 时长: 13.9s
+- 摘要: 自动执行结果: failed; exit=Some(1); 日志: .kanzei/artifacts/test-runs/T-1786922727211.json; 仅背书该命令的验证范围
+- 收尾: 1793058574
+
+## T-1786922727213 tracker inline tests after themed split [passed]
+- 命令: cargo test -p kanzei-tools tracker::tests::
+- 时长: 7.6s
+- 摘要: 自动执行结果: passed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727213.json; 仅背书该命令的验证范围
+- 收尾: 1793058623
+- 源码指纹: v2 crates/kanzei-tools/src/tracker.rs@65ac957d13dd,crates/kanzei-tools/src/tracker/tests.rs@10e6fa8f4764,crates/kanzei-tools/src/tracker/tests/archive_and_maintenance.rs@3230c43e3ee8,crates/kanzei-tools/src/tracker/tests/close_and_reopen.rs@04ec96c4ed8a,crates/kanzei-tools/src/tracker/tests/integrity_and_receipts.rs@fd057146170e,crates/kanzei-tools/src/tracker/tests/requirements_and_ideas.rs@b3509fe2908d,crates/kanzei-tools/src/tracker/tests/scheduling.rs@bec0f71a2ca0,crates/kanzei-tools/src/tracker/tests/schema_and_research.rs@863f02c27107,crates/kanzei-tools/src/tracker/tests/writes_and_validation.rs@ca235ec02277
+
+## T-1786922727212 memory store test modules [failed]
+- 命令: cargo fmt --all; cargo test -p kanzei-memory memory::store::tests -- --test-threads=1
+- 时长: 69.4s
+- 摘要: 自动执行结果: failed; exit=Some(0); 日志: .kanzei/artifacts/test-runs/T-1786922727212.json; 仅背书该命令的验证范围
+- 收尾: 1793058643
+- 源码指纹: v2 crates/kanzei-memory/src/memory/store.rs@d713145b9514,crates/kanzei-memory/src/memory/store/tests/admission.rs@a49154ca3e30,crates/kanzei-memory/src/memory/store/tests/derived_index.rs@6ce3a6eeeea1,crates/kanzei-memory/src/memory/store/tests/inbox.rs@b50e1700d73c,crates/kanzei-memory/src/memory/store/tests/integrity.rs@5329a3490330,crates/kanzei-memory/src/memory/store/tests/lifecycle.rs@210bba685e20,crates/kanzei-memory/src/memory/store/tests/merge_reconcile.rs@a2a3e26236af,crates/kanzei-memory/src/memory/store/tests/migration_refs.rs@d6e321ab8fb0,crates/kanzei-memory/src/memory/store/tests/mod.rs@537487bb8533,crates/kanzei-memory/src/memory/store/tests/search_recall.rs@e1ca84ff251a
