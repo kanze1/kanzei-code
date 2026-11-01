@@ -58,6 +58,16 @@ pub(super) struct PreparedMessage {
 }
 
 impl PreparedMessage {
+    pub fn body_text(&self) -> String {
+        self.wire
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|part| part["type"] == "text")
+            .filter_map(|part| part["data"]["text"].as_str())
+            .collect()
+    }
+
     pub fn text(text: &str) -> Option<Self> {
         let text = super::plain_text::render(text);
         if text.trim().is_empty() {

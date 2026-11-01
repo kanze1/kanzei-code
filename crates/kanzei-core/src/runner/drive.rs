@@ -165,6 +165,17 @@ pub fn run_once_with_parts<'a>(
                 _ => {}
             }
             let pending_round = match &event {
+                RunEvent::ToolResponseCommitted {
+                    step,
+                    call_id,
+                    message,
+                    commit,
+                } => Some(RunEvent::ToolResponseCommitted {
+                    step: *step,
+                    call_id: call_id.clone(),
+                    message: message.clone(),
+                    commit: commit.clone(),
+                }),
                 RunEvent::AssistantMessageCommitted {
                     step,
                     message,
@@ -507,6 +518,35 @@ pub fn run_once_with_parts<'a>(
             )
             .await?;
             let (mut results, pending_images) = match tool_outcome {
+                ToolRunOutcome::FinalResponse { call_id, text } => {
+                    let message = Message::assistant(vec![Part::Text { text: text.clone() }]);
+                    let commit = MessageCommitReceipt::default();
+                    on_event(RunEvent::ToolResponseCommitted {
+                        step,
+                        call_id,
+                        message: message.clone(),
+                        commit: commit.clone(),
+                    });
+                    commit.check().map_err(anyhow::Error::msg)?;
+                    messages.push(message);
+                    if !text.is_empty() {
+                        on_event(RunEvent::Text(text.clone()));
+                    }
+                    recall.finish(RecallRunOutcome::Completed);
+                    return Ok(RunSummary {
+                        text,
+                        usage: total_usage,
+                        last_input_tokens,
+                        steps: step,
+                        halted_by_user: false,
+                        step_limit_reached: false,
+                        finish_reason: last_finish_reason.clone(),
+                        messages,
+                        context_report: context_report.clone(),
+                        overflow_traces: overflow_traces.clone(),
+                        round_messages: round_messages.lock().unwrap().clone(),
+                    });
+                }
                 ToolRunOutcome::Results {
                     results,
                     pending_images,
@@ -1228,6 +1268,10 @@ async fn run_subagent_calls(
 }
 /// R-202 批5:普通工具执行段的产物。
 enum ToolRunOutcome {
+    FinalResponse {
+        call_id: String,
+        text: String,
+    },
     /// 正常完成:results 与 calls 按下标对齐,pending_images 在 commit_tool_results
     /// 合流(R-249)。
     Results {
@@ -1965,6 +2009,16 @@ mod commit_ack_tests {
                             }
                         }
                         RunEvent::Text(text) => writer.push_text(&text),
+                        RunEvent::ToolResponseCommitted {
+                            step,
+                            call_id,
+                            message,
+                            commit,
+                        } => {
+                            if !writer.tool_response_committed(step, &call_id, message) {
+                                commit.reject(writer.errors().last().cloned().unwrap());
+                            }
+                        }
                         RunEvent::AssistantMessageCommitted {
                             step,
                             message,

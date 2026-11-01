@@ -47,6 +47,7 @@ impl SessionStore {
 
 mod projection;
 mod writer_owner;
+mod writer_response;
 pub use projection::{
     compare_shadow, compare_shadow_for_turn, project_conversation_facts, project_session_facts,
     project_session_facts_with_internal_inputs, project_session_facts_with_surface,

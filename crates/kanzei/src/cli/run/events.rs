@@ -35,6 +35,23 @@ pub(crate) fn make_event_handler(
             typed_writer.lock().unwrap().stream_restarted();
             let _ = writeln!(stdout, "\n收到新消息，正在接续回答");
         }
+        kanzei_core::RunEvent::ToolResponseCommitted {
+            step,
+            call_id,
+            message,
+            commit,
+        } => {
+            let mut writer = typed_writer.lock().unwrap();
+            if !writer.tool_response_committed(step, &call_id, message) {
+                commit.reject(
+                    writer
+                        .errors()
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| "durable tool response commit rejected".into()),
+                );
+            }
+        }
         kanzei_core::RunEvent::AssistantMessageCommitted {
             step,
             message,

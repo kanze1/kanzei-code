@@ -101,6 +101,18 @@ pub(super) async fn execute_serial_tool_calls(
             input: input.clone(),
         });
 
+        let final_response =
+            tool.response_mode() == kanzei_harness::tool::ToolResponseMode::FinalResponse;
+        if final_response && calls.len() != 1 {
+            let output = kanzei_harness::ToolOutput::needs_correction(
+                "FINAL_RESPONSE_MUST_BE_ALONE",
+                "Complete all observations first, then call the final response tool on its own with the complete reply.",
+            );
+            on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
+            results.push(tool_result_part(id, output));
+            continue;
+        }
+
         // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
         if name == "question" {
             let output = execute_question(config.ask_policy, ctx, &id, &input, ask).await;
@@ -126,6 +138,7 @@ pub(super) async fn execute_serial_tool_calls(
             };
             resolve_permission_gate(&mut permission_request).await
         };
+        let mut response = None;
         let output = match gate_result {
             // D-173:拒绝理由必须由实际注册的托管族推导,不能固定说
             // "use the dedicated tool"——那个工具可能根本不存在。
@@ -205,6 +218,12 @@ pub(super) async fn execute_serial_tool_calls(
                     while let Ok((pid, chunk)) = progress_rx.try_recv() {
                         on_event(RunEvent::ToolProgress { id: pid, chunk });
                     }
+                    if final_response
+                        && !output.is_error
+                        && output.outcome == kanzei_harness::ToolOutcome::Success
+                    {
+                        response = Some(output.content.clone());
+                    }
                     materialize_tool_output(&mut output, ctx, &name);
                     output
                 }
@@ -212,9 +231,19 @@ pub(super) async fn execute_serial_tool_calls(
         };
         record_tool_failure(ctx, &id, &name, &output);
         on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
-        let (result, images) = tool_result_part_with_images(id, output, images_supported);
+        let (result, images) = tool_result_part_with_images(id.clone(), output, images_supported);
         pending_images.extend(images);
         results.push(result);
+        if let Some(text) = response {
+            commit_tool_results(
+                messages,
+                results,
+                std::mem::take(pending_images),
+                step,
+                on_event,
+            )?;
+            return Ok(super::ToolRunOutcome::FinalResponse { call_id: id, text });
+        }
     }
     Ok(super::ToolRunOutcome::Results {
         results,

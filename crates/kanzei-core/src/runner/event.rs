@@ -112,6 +112,14 @@ pub enum RunEvent {
         message: Message,
         commit: MessageCommitReceipt,
     },
+    /// A successful response tool supplied the actual delivered answer. This is
+    /// a distinct message from the provider's preceding tool-call message.
+    ToolResponseCommitted {
+        step: u32,
+        call_id: String,
+        message: Message,
+        commit: MessageCommitReceipt,
+    },
     ToolStart {
         /// 工具调用 id:并行工具(task)结束顺序不定,UI 靠它配对 start/end。
         id: String,

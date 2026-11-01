@@ -746,6 +746,13 @@ pub(crate) fn build_event_handler(
                     Err(error) => ui.emit("kz:error", json!({"message":format!("输入显示同步失败: {error}"),"terminal":false})),
                 }
             }
+            RunEvent::ToolResponseCommitted { step, call_id, message, commit } => {
+                let mut writer = typed.writer.lock().unwrap();
+                if !writer.tool_response_committed(step, &call_id, message) {
+                    commit.reject(writer.errors().last().cloned().unwrap_or_else(|| "typed tool response commit rejected".into()));
+                }
+                Ok(())
+            }
             RunEvent::AssistantMessageCommitted { step, message, commit } => {
                 if let Err(error) = typed.assistant_committed(step, message) {
                     commit.reject(error);

@@ -41,7 +41,7 @@ impl Component for ConversationComponent {
         };
         for name in ["general", "dev-auto", "dev-pair", "isolated"] {
             if let Some(mut agent) = draft.agents.get(name).cloned() {
-                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 按关键词联网检索并查看实际图像，按返回 ID 选择；source=workspace 只检索已收藏素材，空收藏不表示无法联网找图。需要发图或表情时先选好素材，再用一次 qq_reply 发送完整回复，不提前发送占位文字。", super::plain_text::STYLE, super::image::STYLE));
+                agent.system.push_str(&format!("\n{role}\n{}\n{}\n表情包通过 qq_stickers 按关键词联网检索并查看实际图像，按返回 ID 选择；source=workspace 只检索已收藏素材，空收藏不表示无法联网找图。对方要求图片或表情时，必须在本轮实际查询并选择素材，不能沿用旧历史中的空库或失败结论。先完成读图、检索和素材选择，再单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。", super::plain_text::STYLE, super::image::STYLE));
                 draft.agents.insert(name, agent);
             }
         }
@@ -146,11 +146,14 @@ struct ReplyTool {
 }
 #[async_trait::async_trait]
 impl Tool for ReplyTool {
+    fn response_mode(&self) -> kanzei_harness::tool::ToolResponseMode {
+        kanzei_harness::tool::ToolResponseMode::FinalResponse
+    }
     fn name(&self) -> &'static str {
         "qq_reply"
     }
     fn description(&self) -> String {
-        "向当前 QQ 会话发送完整回复，每轮最多一次。text 使用纯文本，可与 attachments 一起发送，也可只发附件。image/file 使用 /workspace 内文件；sticker 使用 qq_stickers 返回的 ID；face 是 QQ 内置表情；market_face 使用真实平台元数据。最多 16 个附件、原文件合计 16 MiB，GIF 保留原字节。发送失败或结果未知均保留回执，不自动重发。".into()
+        "向当前 QQ 会话发送最终完整回复，每轮最多一次。先完成所需读取和检索，再单独调用；成功即结束本轮，本地显示实际发送正文。text 使用纯文本，可与 attachments 一起发送，也可只发附件。image/file 使用 /workspace 内文件；sticker 使用 qq_stickers 返回的 ID；face 是 QQ 内置表情；market_face 使用真实平台元数据。最多 16 个附件、原文件合计 16 MiB，GIF 保留原字节。发送失败或结果未知均保留回执，不自动重发。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(ReplyInput)).unwrap()
@@ -193,6 +196,8 @@ impl Tool for ReplyTool {
         if halt.is_some_and(|token| token.is_cancelled()) {
             return ToolOutput::error("QQ 回复已取消，未发送");
         }
+        let text = message.body_text();
+        let record = message.record.clone();
         match super::send(
             &self.app,
             &self.identity,
@@ -201,7 +206,9 @@ impl Tool for ReplyTool {
         )
         .await
         {
-            Ok(receipt) => ToolOutput::ok(receipt.to_string()),
+            Ok(receipt) => ToolOutput::ok(text).with_display(serde_json::json!({
+                "kind": "channel_response", "channel": "qq", "receipt": receipt, "message": record,
+            })),
             Err(e) => {
                 if let Some(session) = ctx.session_id.as_deref() {
                     if let Err(error) = crate::initiative::outbound::not_sent(

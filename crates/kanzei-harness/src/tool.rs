@@ -459,6 +459,12 @@ pub enum ReadOnlySupport {
 // async_trait generates must_use on the already-must-use boxed Future.
 #[allow(clippy::double_must_use)]
 pub trait Tool: Send + Sync {
+    /// A successful final response owns the answer: content is the delivered
+    /// user-facing text, while display retains the transport receipt. It must
+    /// execute alone, after observations, and ends the run without another model call.
+    fn response_mode(&self) -> ToolResponseMode {
+        ToolResponseMode::Observation
+    }
     fn read_only_support(&self) -> ReadOnlySupport {
         ReadOnlySupport::Unsupported
     }
@@ -513,6 +519,12 @@ pub trait Tool: Send + Sync {
             None => self.execute(input, ctx).await,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolResponseMode {
+    Observation,
+    FinalResponse,
 }
 
 /// Return the parser's diagnosis; the request already contains the tool schema and call input.

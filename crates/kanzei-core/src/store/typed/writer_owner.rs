@@ -117,6 +117,15 @@ impl TypedSessionWriter {
     pub fn assistant_committed(&mut self, source_step: u32, message: Message) -> bool {
         self.execute(move |state| state.assistant_committed(source_step, message))
     }
+    pub fn tool_response_committed(
+        &mut self,
+        source_step: u32,
+        call_id: &str,
+        message: Message,
+    ) -> bool {
+        let call_id = call_id.to_owned();
+        self.execute(move |state| state.tool_response_committed(source_step, &call_id, message))
+    }
     pub fn tool_results_committed(&mut self, source_step: u32, message: Message) -> bool {
         self.execute(move |state| state.tool_results_committed(source_step, message))
     }

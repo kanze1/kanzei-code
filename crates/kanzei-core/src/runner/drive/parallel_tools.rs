@@ -53,6 +53,9 @@ pub(super) fn prepare_parallel_tool_calls(request: ParallelPreflight<'_>) -> Opt
             return None;
         }
         let tool = tools.iter().find(|tool| tool.name() == name)?;
+        if tool.response_mode() == kanzei_harness::tool::ToolResponseMode::FinalResponse {
+            return None;
+        }
         let mut plan = permission_plan(snapshot, tool.as_ref(), input, ctx, execution_policy);
         plan.resolve_session(session_approved, session_rules);
         if !plan.pending_ask.is_empty() {

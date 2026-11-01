@@ -57,6 +57,9 @@ pub(super) fn record_round_message(round_messages: &mut Vec<Message>, event: &Ru
         RunEvent::AssistantMessageCommitted {
             message, commit, ..
         }
+        | RunEvent::ToolResponseCommitted {
+            message, commit, ..
+        }
         | RunEvent::ToolResultsCommitted {
             message, commit, ..
         } if commit.check().is_ok() => round_messages.push(message.clone()),
