@@ -67,7 +67,7 @@ pub(super) fn text(value: &Value) -> String {
 pub(super) fn images(value: &Value) -> Vec<ImageSource> {
     segments(value)
         .iter()
-        .filter(|part| part["type"] == "image")
+        .filter(|part| matches!(part["type"].as_str(), Some("image" | "mface")))
         .map(|part| ImageSource {
             url: part["data"]["url"]
                 .as_str()
@@ -86,6 +86,28 @@ pub(super) fn mentions_self(value: &Value, account: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_and_market_stickers_share_the_visual_source_order() {
+        let structured = json!({"message":[
+            {"type":"image","data":{"sub_type":1,"summary":"[动画表情]","url":"https://example.com/custom.gif"}},
+            {"type":"mface","data":{"emoji_id":"market-id","emoji_package_id":"7","url":"https://example.com/market.png"}},
+            {"type":"mface","data":{"emoji_id":"unresolved","emoji_package_id":"7"}},
+            {"type":"face","data":{"id":"14"}}
+        ]});
+        let cq = json!({"message":"[CQ:image,sub_type=1,summary=&#91;动画表情&#93;,url=https://example.com/custom.gif][CQ:mface,emoji_id=market-id,emoji_package_id=7,url=https://example.com/market.png][CQ:mface,emoji_id=unresolved,emoji_package_id=7][CQ:face,id=14]"});
+        let expected = vec![
+            ImageSource {
+                url: Some("https://example.com/custom.gif".into()),
+            },
+            ImageSource {
+                url: Some("https://example.com/market.png".into()),
+            },
+            ImageSource { url: None },
+        ];
+        assert_eq!(images(&structured), expected);
+        assert_eq!(images(&cq), expected);
+    }
 
     #[test]
     fn structured_and_cq_messages_have_the_same_image_and_mention_projection() {

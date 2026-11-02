@@ -326,7 +326,7 @@ await withTask({ suite: "ui-qq-native-smoke" }, async task => {
     check(imagePrompt.includes('"message_id":"70"')&&imagePrompt.includes('"images":[{"url":')&&imagePrompt.split("当前请求消息 JSON（按发送顺序整体阅读）：").at(-1).includes('"message_id":"71"'),"The bare mention retains the earlier photo's identity and typed image source");
     check(imageRequests.some(r=>r.messages.some(m=>m.role==="tool"&&String(m.content).includes("未能读取这张 QQ 图片，尚未获得图像")&&String(m.content).includes("WEBFETCH_ADDRESS_BLOCKED"))),"QQ image reading uses the existing public-address guard and reports failure without claiming pixels");
     const eagerStart=requests.length;
-    incoming("group",300,"",72,[{type:"image",data:{url:`http://8.8.8.8:${server.address().port}/image`}}]);
+    incoming("group",300,"",72,[{type:"image",data:{sub_type:1,summary:"[动画表情]",url:`http://8.8.8.8:${server.address().port}/image`}}]);
     incoming("group",300,"",73,[{type:"at",data:{qq:"100"}}]);
     await until(()=>deliveries.some(d=>JSON.stringify(d).includes("IMAGE_PIXELS_RECEIVED")),"A bare mention gets prior pixels before model selection");
     await until(async()=>!(await invoke("process_list",{projectDir:group.root})).some(p=>p.running),"Eager image round completes");
