@@ -50,7 +50,7 @@ pub(crate) async fn fetch(
         .await?
     };
     let target = validate_addresses(&addresses)?;
-    pinned_request(url, target, &proxy, cap).await
+    pinned_request(url, target, &proxy, "*/*", cap).await
 }
 
 fn validate_addresses(addresses: &[SocketAddr]) -> Result<SocketAddr, String> {
@@ -128,6 +128,7 @@ async fn pinned_request(
     url: &reqwest::Url,
     target: SocketAddr,
     proxy: &kanzei_llm::ProxyConfig,
+    accept: &str,
     cap: usize,
 ) -> Result<Response, String> {
     let host = url.host_str().ok_or("web URL has no host")?;
@@ -164,6 +165,8 @@ async fn pinned_request(
         "--proxytunnel",
         "--user-agent",
         "kanzei/0.1",
+        "--header",
+        &format!("Accept: {accept}"),
         "--url",
         url.as_str(),
     ]);
@@ -373,9 +376,9 @@ mod tests {
                 socket.read_exact(&mut byte).await.unwrap();
                 request.push(byte[0]);
             }
-            assert!(String::from_utf8(request)
-                .unwrap()
-                .contains(&format!("Host: original-host.invalid:{port}")));
+            let request = String::from_utf8(request).unwrap();
+            assert!(request.contains(&format!("Host: original-host.invalid:{port}")));
+            assert!(request.contains("Accept: application/dns-json"));
             socket
                 .write_all(
                     b"HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\npinned",
@@ -391,6 +394,7 @@ mod tests {
                 &url,
                 SocketAddr::new("8.8.8.8".parse().unwrap(), port),
                 &proxy,
+                "application/dns-json",
                 4096,
             )
             .await

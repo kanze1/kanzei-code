@@ -64,9 +64,15 @@ async fn query(
     url.query_pairs_mut()
         .append_pair("name", host)
         .append_pair("type", &record_type.to_string());
-    let response = pinned_request(&url, bootstrap, proxy, MAX_DNS_BYTES)
-        .await
-        .map_err(|error| format!("PUBLIC_DNS_QUERY: {host} type {record_type}: {error}"))?;
+    let response = pinned_request(
+        &url,
+        bootstrap,
+        proxy,
+        "application/dns-json",
+        MAX_DNS_BYTES,
+    )
+    .await
+    .map_err(|error| format!("PUBLIC_DNS_QUERY: {host} type {record_type}: {error}"))?;
     parse_response(response, host, record_type)
         .map_err(|error| format!("PUBLIC_DNS_RESPONSE: {host} type {record_type}: {error}"))
 }
