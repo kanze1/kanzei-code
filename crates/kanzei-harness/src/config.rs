@@ -9,8 +9,8 @@ mod embeddings;
 pub use embeddings::EmbeddingsSection;
 pub(crate) use embeddings::EMBEDDINGS_KEYS;
 mod web;
-pub(crate) use web::WEB_KEYS;
-pub use web::{SearchBackend, WebSection};
+pub use web::{PublicDns, SearchBackend, WebSection};
+pub(crate) use web::{PUBLIC_DNS_KEYS, WEB_KEYS};
 
 mod limits;
 pub use limits::Limits;
@@ -508,6 +508,9 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
     }
     if let Some(web) = value.get("web") {
         check(web, "web", WEB_KEYS, &mut out);
+        if let Some(dns) = web.get("public_dns") {
+            check(dns, "web.public_dns", PUBLIC_DNS_KEYS, &mut out);
+        }
     }
     if let Some(limits) = value.get("limits") {
         check(limits, "limits", LIMITS_KEYS, &mut out);
@@ -655,8 +658,9 @@ pub fn config_reference() -> String {
                 " = <工具版本>  Claude P3 通过后使用(默认 web_search_20260209)"
             }
             "search_backend" => {
-                " = auto | duckduckgo | codex | responses  websearch 后端(订阅与 API 分开,仅 auto 允许回退)"
+                " = auto | bing | duckduckgo | codex | responses  websearch 后端(auto 按模型能力选择)"
             }
+            "public_dns" => " = { endpoint = \"https://dns.alidns.com/resolve\", bootstrap = \"223.5.5.5\" }  公网下载的 JSON DoH 服务及固定引导 IP(不使用系统 Fake-IP)",
             _ => "",
         }
     };
@@ -674,6 +678,18 @@ pub fn config_reference() -> String {
     out.push_str("#\n");
     emit_section(&mut out, "embeddings", EMBEDDINGS_KEYS, &embeddings_desc);
     emit_section(&mut out, "web", WEB_KEYS, &web_desc);
+    emit_section(
+        &mut out,
+        "web.public_dns",
+        PUBLIC_DNS_KEYS,
+        &|key| match key {
+            "endpoint" => {
+                " = \"https://dns.alidns.com/resolve\"  JSON DoH HTTPS URL(Question 对象或数组格式)"
+            }
+            "bootstrap" => " = \"223.5.5.5\"  该服务的公网引导 IP(保留原域名的 TLS 校验)",
+            _ => "",
+        },
+    );
 
     out
 }
@@ -776,6 +792,9 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     }
     if layer.web.search_backend.is_some() {
         base.web.search_backend = layer.web.search_backend;
+    }
+    if layer.web.public_dns.is_some() {
+        base.web.public_dns = layer.web.public_dns;
     }
 }
 
@@ -1130,6 +1149,30 @@ mod tests {
     }
 
     #[test]
+    fn public_dns_configuration_is_atomic_documented_and_checked() {
+        let mut base = KanzeiConfig::default();
+        let layer: KanzeiConfig = toml::from_str(
+            "[web.public_dns]\nendpoint = 'https://dns.example/resolve'\nbootstrap = '8.8.8.8'",
+        )
+        .unwrap();
+        let expected = layer.web.public_dns.clone();
+        merge(&mut base, layer);
+        merge(&mut base, KanzeiConfig::default());
+        assert_eq!(base.web.public_dns, expected);
+        assert!(
+            toml::from_str::<KanzeiConfig>(
+                "[web.public_dns]\nendpoint = 'https://dns.example/resolve'"
+            )
+            .is_err(),
+            "endpoint and bootstrap must be supplied together"
+        );
+        let value: toml::Value = toml::from_str(
+            "[web.public_dns]\nendpoint = 'https://dns.example/resolve'\nbootstrap = '8.8.8.8'\nbootstarp = '1.1.1.1'",
+        ).unwrap();
+        assert_eq!(unknown_keys(&value), vec!["web.public_dns.bootstarp"]);
+    }
+
+    #[test]
     fn config_reference_covers_all_known_keys() {
         let reference = config_reference();
         let mut section = String::new();
@@ -1160,6 +1203,7 @@ mod tests {
             ("permissions.rules", PERMISSION_RULE_KEYS),
             ("embeddings", EMBEDDINGS_KEYS),
             ("web", WEB_KEYS),
+            ("web.public_dns", PUBLIC_DNS_KEYS),
         ] {
             assert_eq!(
                 documented.remove(section).unwrap(),

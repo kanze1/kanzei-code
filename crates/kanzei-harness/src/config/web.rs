@@ -1,6 +1,29 @@
 //! Web/native-search settings (R-365 B2b).
 
 use serde::{Deserialize, Serialize};
+use std::net::{IpAddr, Ipv4Addr};
+
+/// Trusted JSON DNS-over-HTTPS service for untrusted public web downloads.
+/// Endpoint and bootstrap address are one configuration unit: bootstrap never
+/// uses the operating system resolver, which may return proxy-owned Fake-IPs.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct PublicDns {
+    pub endpoint: String,
+    pub bootstrap: IpAddr,
+}
+
+impl Default for PublicDns {
+    fn default() -> Self {
+        // AliDNS publishes this HTTPS endpoint and bootstrap address together:
+        // https://alidns.com/articles/6018321800a44d0e45e90d71
+        Self {
+            endpoint: "https://dns.alidns.com/resolve".into(),
+            bootstrap: IpAddr::V4(Ipv4Addr::new(223, 5, 5, 5)),
+        }
+    }
+}
+
+pub(crate) const PUBLIC_DNS_KEYS: &[&str] = &["endpoint", "bootstrap"];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -27,6 +50,11 @@ pub struct WebSection {
     /// auto | bing | duckduckgo | codex | responses. Auto uses Bing for local models.
     #[serde(default)]
     pub search_backend: Option<SearchBackend>,
+    /// Public downloads use this authenticated resolver, independently of OS DNS.
+    /// The default is AliDNS JSON DoH; provider/model and OneBot connections keep
+    /// their own configured endpoint behavior.
+    #[serde(default)]
+    pub public_dns: Option<PublicDns>,
 }
 
 pub(crate) const WEB_KEYS: &[&str] = &[
@@ -34,6 +62,7 @@ pub(crate) const WEB_KEYS: &[&str] = &[
     "native_search_off_profiles",
     "anthropic_search_tool",
     "search_backend",
+    "public_dns",
 ];
 
 impl WebSection {

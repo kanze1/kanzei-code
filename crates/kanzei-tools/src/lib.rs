@@ -229,14 +229,18 @@ fn path_name_distance(left: &str, right: &str) -> usize {
 ///
 /// webfetch 与 websearch 两处原本各写一遍同样的 match,一并收敛到这里。
 pub(crate) fn tool_proxy(ctx: &kanzei_harness::ToolCtx) -> kanzei_llm::proxy::ProxyConfig {
-    use kanzei_llm::proxy::ProxyConfig;
-    match kanzei_harness::KanzeiConfig::load_at_root(&ctx.project_root)
+    let proxy = kanzei_harness::KanzeiConfig::load_at_root(&ctx.project_root)
         .ok()
-        .and_then(|c| c.proxy)
-    {
-        Some(p) if p == "off" => ProxyConfig::Disabled,
-        Some(p) if p == "env" => ProxyConfig::Env,
-        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p),
+        .and_then(|c| c.proxy);
+    configured_proxy(proxy.as_deref())
+}
+
+pub(crate) fn configured_proxy(proxy: Option<&str>) -> kanzei_llm::proxy::ProxyConfig {
+    use kanzei_llm::proxy::ProxyConfig;
+    match proxy {
+        Some("off") => ProxyConfig::Disabled,
+        Some("env") => ProxyConfig::Env,
+        Some(p) if !p.is_empty() => ProxyConfig::Explicit(p.into()),
         _ => ProxyConfig::Env,
     }
 }

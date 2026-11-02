@@ -1,6 +1,8 @@
 //! Public web transport: validate all DNS answers and pin the connection target,
 //! including HTTP proxy CONNECT, while retaining the original TLS server name.
 
+mod dns;
+
 use kanzei_harness::ToolCtx;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -27,26 +29,27 @@ pub(crate) async fn fetch(
     let port = url
         .port_or_known_default()
         .ok_or("web URL has no HTTP(S) port")?;
-    let addresses: Vec<_> = if let Some(ip) = url.host().and_then(|host| match host {
+    let config = kanzei_harness::KanzeiConfig::load_at_root(&ctx.project_root)
+        .map_err(|error| format!("public web configuration: {error}"))?;
+    let proxy = crate::configured_proxy(config.proxy.as_deref());
+    #[cfg(test)]
+    let proxy = TEST_PROXY.try_with(Clone::clone).unwrap_or(proxy);
+    let addresses = if let Some(ip) = url.host().and_then(|host| match host {
         url::Host::Ipv4(ip) => Some(IpAddr::V4(ip)),
         url::Host::Ipv6(ip) => Some(IpAddr::V6(ip)),
         _ => None,
     }) {
         vec![SocketAddr::new(ip, port)]
     } else {
-        tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            tokio::net::lookup_host((host, port)),
+        dns::resolve(
+            host,
+            port,
+            &config.web.public_dns.unwrap_or_default(),
+            &proxy,
         )
-        .await
-        .map_err(|_| "DNS resolution timed out".to_string())?
-        .map_err(|error| format!("DNS resolution failed: {error}"))?
-        .collect()
+        .await?
     };
     let target = validate_addresses(&addresses)?;
-    let proxy = crate::tool_proxy(ctx);
-    #[cfg(test)]
-    let proxy = TEST_PROXY.try_with(Clone::clone).unwrap_or(proxy);
     pinned_request(url, target, &proxy, cap).await
 }
 
@@ -405,6 +408,8 @@ mod tests {
             "169.254.169.254",
             "100.64.0.1",
             "192.168.1.1",
+            "198.18.0.30",
+            "198.19.255.255",
             "0.0.0.0",
             "::1",
             "::",
