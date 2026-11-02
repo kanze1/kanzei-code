@@ -41,7 +41,7 @@ pub(super) async fn search(
         match result {
             Ok((sticker, image, size)) => {
                 remaining -= size;
-                results.push(json!({"sticker":sticker,"preview_index":images.len()}));
+                results.push(json!({"sticker":sticker.offer(),"preview_index":images.len()}));
                 images.push(image);
             }
             Err(error) => errors.push(error),
@@ -68,9 +68,8 @@ mod tests {
         let workspace = root.path().join("workspace");
         let output = search("蹲坑", 3, &workspace, &ctx).await.unwrap();
         let content: serde_json::Value = serde_json::from_str(&output.content).unwrap();
-        let id = content["stickers"][0]["sticker"]["id"].as_str().unwrap();
         let input: super::super::media::ReplyInput =
-            serde_json::from_value(json!({"attachments":[{"type":"sticker","id":id}]})).unwrap();
+            serde_json::from_value(content["stickers"][0]["sticker"]["reply"].clone()).unwrap();
         let message = input.prepare(&workspace).unwrap();
         use base64::Engine;
         let file = content["stickers"][0]["sticker"]["file"].as_str().unwrap();

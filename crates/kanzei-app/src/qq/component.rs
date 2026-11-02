@@ -14,7 +14,7 @@ const REPLY_WORKFLOW: &str = "工具名与参数以本轮工具 schema 为准，
 1. 整体阅读本批消息，先理解问题和已附加图片。群聊记忆用 qq_memory 检索；没有共同记忆不代表对方没说话。
 2. 对具体人物、角色、队伍、产品或事件作评价、比较时，必须先调用 websearch 核对对象身份与依据，再回答。即使觉得认识这个名字，也不能直接套用一个熟悉的解释。名字、缩写或对象不明确时先检索不同含义，再结合上下文消歧；仍不明确时简短确认。其他会变化的事实和近况也先检索。qq_memory 和模型旧知识不能替代网页检索。
 3. 群聊轻松闲聊可主动配一个贴合语气的表情，遵循本群人设约定的频率；qq_stickers 专门联网检索并返回实际图像和可发送 ID，qq_sticker_collection 只查已有收藏。收藏为空或不合适时继续联网找图。严肃话题或对方要求纯文字时用正文。对方要求图片或表情时，必须在本轮实际查询并选择素材，不能沿用旧历史中的空库或失败结论。检索失败按真实结果说明。
-4. 完成读图、检索和素材选择后，单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。";
+4. 完成读图、检索和素材选择后，单独调用一次 qq_reply 发送完整回复，不提前发送占位文字。发送选中的表情时，将该素材的 reply 对象作为 qq_reply 的完整入参；需要配文时修改其中的 text，保留 attachments。只写正文不会发送图片，不能把检索到图当作已经发图。qq_reply 成功即为本轮最终答复，本地显示实际已发送正文。";
 
 pub(crate) struct ConversationComponent {
     pub app: tauri::AppHandle,
@@ -275,7 +275,7 @@ impl Tool for StickerTool {
         "qq_stickers"
     }
     fn description(&self) -> String {
-        "按 query 关键词联网搜索新表情包，下载校验原图并返回实际图像、来源与可发送 ID，limit 默认 3、最多 5。用 qq_reply 的 sticker 附件发送返回 ID。此工具始终联网；只查已有收藏用 qq_sticker_collection。搜索或下载失败明确报错。".into()
+        "按 query 关键词联网搜索新表情包，下载校验原图并返回实际图像、来源与可发送 ID，limit 默认 3、最多 5。每个候选的 sticker.reply 是可直接传给 qq_reply 的完整参数，包含所需 attachments；选中后照此发送，可修改 text 配文，不能省略附件。此工具始终联网；只查已有收藏用 qq_sticker_collection。搜索或下载失败明确报错。".into()
     }
     fn input_schema(&self) -> Value {
         serde_json::to_value(schemars::schema_for!(StickerQuery)).unwrap()
@@ -343,7 +343,7 @@ impl Tool for CollectionTool {
         match tokio::task::spawn_blocking(move || super::media::stickers(&workspace)).await {
             Ok(Ok(stickers)) => {
                 let query = input.query.to_lowercase();
-                ToolOutput::ok(json!({"source":"collection","stickers":stickers.into_iter().filter(|item| [&item.id, &item.name, &item.description].iter().any(|value| value.to_lowercase().contains(&query))).collect::<Vec<_>>(),"manifest":"/workspace/stickers/manifest.json"}).to_string())
+                ToolOutput::ok(json!({"source":"collection","stickers":stickers.into_iter().filter(|item| [&item.id, &item.name, &item.description].iter().any(|value| value.to_lowercase().contains(&query))).map(super::media::Sticker::offer).collect::<Vec<_>>(),"manifest":"/workspace/stickers/manifest.json"}).to_string())
                     .with_external_source(kanzei_harness::ExternalSourceKind::File, "/workspace/stickers/manifest.json")
             }
             Ok(Err(error)) => ToolOutput::error(format!("QQ 表情库读取失败：{error:#}")),

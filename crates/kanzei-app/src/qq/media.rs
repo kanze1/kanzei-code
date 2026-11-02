@@ -13,7 +13,7 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_ATTACHMENTS: usize = 16;
 const MANIFEST: &str = "stickers/manifest.json";
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReplyInput {
     /// Plain QQ text. May be empty when sending only attachments.
@@ -21,11 +21,13 @@ pub(super) struct ReplyInput {
     pub text: String,
     /// At most 16 attachments, 16 MiB of original bytes in total. Paths are
     /// relative to /workspace, or absolute /workspace/... sandbox paths.
+    /// For a sticker use {"type":"sticker","id":"returned ID"}, or copy
+    /// the selected sticker's complete `reply` object as this tool's arguments.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
 }
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum Attachment {
     Image {
@@ -161,7 +163,7 @@ impl ReplyInput {
             wire.push(part);
             record.push(receipt);
         }
-        anyhow::ensure!(!wire.is_empty(), "QQ 回复需要正文或至少一个附件");
+        anyhow::ensure!(!wire.is_empty(), "QQ 回复需要正文或至少一个附件。仅发表情时，将选中素材的 reply 对象作为 qq_reply 完整参数，图片不会随文字自动发送。");
         Ok(PreparedMessage {
             wire: json!(wire),
             record: json!(record),
@@ -240,7 +242,29 @@ pub(super) struct Sticker {
     pub description: String,
 }
 
+/// A verified asset and its typed send arguments share one projection for
+/// live search and collections. This is never persisted in the asset manifest.
+#[derive(Serialize)]
+pub(super) struct StickerOffer {
+    #[serde(flatten)]
+    sticker: Sticker,
+    reply: ReplyInput,
+}
+
 impl Sticker {
+    pub(super) fn offer(self) -> StickerOffer {
+        let reply = ReplyInput {
+            text: String::new(),
+            attachments: vec![Attachment::Sticker {
+                id: self.id.clone(),
+            }],
+        };
+        StickerOffer {
+            sticker: self,
+            reply,
+        }
+    }
+
     fn path(&self) -> String {
         format!("stickers/{}", self.file)
     }

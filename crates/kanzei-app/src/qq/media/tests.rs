@@ -16,9 +16,8 @@ fn searched_original_stickers_are_sendable_and_keep_existing_collection() {
     };
     cache_sticker(root.path(), &other, b"GIF89a-other-animation").unwrap();
     assert_eq!(stickers(root.path()).unwrap().len(), 2);
-    let input: ReplyInput =
-        serde_json::from_value(json!({"attachments":[{"type":"sticker","id":sticker.id}]}))
-            .unwrap();
+    let offered = serde_json::to_value(sticker.offer()).unwrap();
+    let input: ReplyInput = serde_json::from_value(offered["reply"].clone()).unwrap();
     let message = input.prepare(root.path()).unwrap();
     assert_eq!(
         STANDARD
@@ -35,6 +34,9 @@ fn searched_original_stickers_are_sendable_and_keep_existing_collection() {
     assert!(stickers(root.path()).unwrap()[0]
         .description
         .contains("https://example.com/source"));
+    assert!(!std::fs::read_to_string(root.path().join(MANIFEST))
+        .unwrap()
+        .contains("\"reply\""));
     assert!(cache_sticker(root.path(), &other, b"<html>not pixels</html>").is_err());
     let oversize = kanzei_tools::image_search::ImageResult {
         title: "x".repeat(MAX_MANIFEST_BYTES as usize),
