@@ -255,14 +255,13 @@ function showPlaceholder(text) {
   show($("files-diff"), false);
   show($("files-image"), false);
 }
-// 图片类二进制文件显示图片本身(UX-157:原来只有「二进制文件 · 12KB」的占位)。走 delivered_image(项目根内校验、
-// 8MB 上限、只认图片扩展名);读不了或太大就保留占位。没有 SVG:它是文本,在编辑器里打开。
+// 图片类二进制文件显示图片本身：走 file_image（项目根内校验、8MB 上限、只认图片扩展名）。
 const IMAGE_MIME = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon" };
 async function showImageIfAny(doc, isCurrent) {
   const ext = doc.path.slice(doc.path.lastIndexOf(".") + 1).toLowerCase();
   if (!IMAGE_MIME[ext]) return;
   try {
-    const result = await invoke("delivered_image", { projectDir: doc.root, path: doc.path });
+    const result = await invoke("file_image", { projectDir: doc.root, path: doc.path });
     if (!isCurrent() || filesDoc !== doc || typeof result?.png !== "string" || !result.png) return;
     $("files-image-img")?.setAttribute("src", `data:${IMAGE_MIME[ext]};base64,${result.png}`);
     show($("files-image"), true);

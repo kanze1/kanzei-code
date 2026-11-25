@@ -857,44 +857,6 @@ export function renderErrorDetail(message) {
   return box;
 }
 
-// ---------- 局部校验 ----------
-const CHECK_GLYPHS = { passed: "✓", failed: "✗" };
-/// display.local_validation:每个检查一个 chip(✓/✗/○ + kind,title 为命令);失败项下挂
-/// 首个错误(路径可点)与修复上下文。
-export function renderLocalValidation(lv) {
-  const checks = Array.isArray(lv?.checks) ? lv.checks : [];
-  if (!checks.length) return null;
-  const box = el("div", "sv-checks");
-  box.setAttribute("data-i18n-raw", "");
-  const chips = el("div", "sv-check-chips");
-  chips.append(label("span", "sv-k", "局部校验"));
-  const failures = [];
-  for (const check of checks) {
-    const status = String(check?.status ?? "");
-    const chip = el("span", `sv-chip sv-check is-${status || "unknown"}`, `${CHECK_GLYPHS[status] ?? "○"} ${check?.kind ?? ""}`);
-    chip.dataset.status = status;
-    if (check?.command) chip.title = String(check.command);
-    chips.append(chip);
-    if (status === "failed") failures.push(check);
-  }
-  box.append(chips);
-  for (const check of failures) {
-    const fail = el("div", "sv-check-fail");
-    if (check.first_error) {
-      const line = el("div", "sv-check-error");
-      line.append(label("span", "sv-k", "首个错误"), richText(String(check.first_error)));
-      fail.append(line);
-    }
-    if (check.repair_context) {
-      const details = el("details", "sv-check-context");
-      details.append(label("summary", "", "修复上下文"), stringBlock(String(check.repair_context)));
-      fail.append(details);
-    }
-    if (fail.children.length) box.append(fail);
-  }
-  return box;
-}
-
 // ---------- 延迟构建 ----------
 /// 插入占位,首次展开(flushLazy)时再构建:历史回放一窗 120 条,大 JSON 不在首屏构建。
 export function lazyMount(host, build) {

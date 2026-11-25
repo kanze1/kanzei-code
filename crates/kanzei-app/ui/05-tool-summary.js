@@ -179,16 +179,6 @@ function proseLine(lines, roots, { last = false, max = 80, test = null } = {}) {
   }
   return "";
 }
-function validationGroup(s) {
-  const failed = Number(s.display?.local_validation?.counts?.failed)
-    || Number(s.text.match(/局部结构校验发现 (\d+) 个/)?.[1]);
-  return failed > 0 ? fillTemplate(t("校验 {n} 个错误"), { n: formatCount(failed) }) : null;
-}
-function withValidation(s, groups, key) {
-  const check = validationGroup(s);
-  if (!check) return { groups, key };
-  return { groups: [...groups, check], key, tone: "warn" };
-}
 const lineTotal = (value) => (String(value ?? "") ? String(value).split("\n").length : 0);
 
 // ---------- 各工具结果摘要器(成功态) ----------
@@ -328,19 +318,19 @@ function editCounts(s) {
 function summarizeEdit(s) {
   const counts = editCounts(s);
   const replaced = Number(s.text.match(/replaced (\d+) occurrence/)?.[1]);
-  if (counts) return withValidation(s, [[add(counts.additions), txt(" "), del(counts.deletions)]], "edit.diff");
+  if (counts) return { groups: [[add(counts.additions), txt(" "), del(counts.deletions)]], key: "edit.diff" };
   if (s.name === "insert" && typeof s.input.content === "string") {
-    return withValidation(s, [[add(lineTotal(s.input.content.replace(/\n$/, ""))), txt(" "), del(0)]], "edit.insert");
+    return { groups: [[add(lineTotal(s.input.content.replace(/\n$/, ""))), txt(" "), del(0)]], key: "edit.insert" };
   }
   if (typeof s.input.old_string === "string" && typeof s.input.new_string === "string") {
     const times = replaced > 1 ? replaced : 1;
     const diff = lineDiffCounts(s.input.old_string, s.input.new_string);
     const groups = [[add(diff.additions * times), txt(" "), del(diff.deletions * times)]];
     if (times > 1) groups.push(fillTemplate(t("替换 {n} 处"), { n: formatCount(times) }));
-    return withValidation(s, groups, "edit.input");
+    return { groups, key: "edit.input" };
   }
-  if (Number.isFinite(replaced)) return withValidation(s, [fillTemplate(t("已替换 {n} 处"), { n: formatCount(replaced) })], "edit.replaced");
-  if (/^inserted content/m.test(s.text)) return withValidation(s, [t("已插入")], "edit.inserted");
+  if (Number.isFinite(replaced)) return { groups: [fillTemplate(t("已替换 {n} 处"), { n: formatCount(replaced) })], key: "edit.replaced" };
+  if (/^inserted content/m.test(s.text)) return { groups: [t("已插入")], key: "edit.inserted" };
   return null;
 }
 
@@ -349,13 +339,13 @@ function summarizeWrite(s) {
   const lines = content !== null ? lineTotal(content.replace(/\n$/, "")) : null;
   if (s.display?.kind === "create") {
     const size = lines !== null ? fillTemplate(t("{n} 行"), { n: formatCount(lines) }) : formatByteSize(s.display.bytes);
-    return withValidation(s, [t("新建"), size], "write.create");
+    return { groups: [t("新建"), size], key: "write.create" };
   }
   const counts = editCounts(s);
-  if (counts) return withValidation(s, [[add(counts.additions), txt(" "), del(counts.deletions)]], "write.diff");
-  if (lines !== null) return withValidation(s, [fillTemplate(t("写入 {n} 行"), { n: formatCount(lines) })], "write.lines");
+  if (counts) return { groups: [[add(counts.additions), txt(" "), del(counts.deletions)]], key: "write.diff" };
+  if (lines !== null) return { groups: [fillTemplate(t("写入 {n} 行"), { n: formatCount(lines) })], key: "write.lines" };
   const bytes = Number(s.text.match(/^wrote (\d+) bytes/m)?.[1]);
-  if (Number.isFinite(bytes)) return withValidation(s, [fillTemplate(t("写入 {size}"), { size: formatByteSize(bytes) })], "write.bytes");
+  if (Number.isFinite(bytes)) return { groups: [fillTemplate(t("写入 {size}"), { size: formatByteSize(bytes) })], key: "write.bytes" };
   return null;
 }
 

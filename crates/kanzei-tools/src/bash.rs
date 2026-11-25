@@ -12,7 +12,6 @@ use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 use tokio_util::sync::CancellationToken;
 
-use crate::managed::{enforce_managed_files_with_writer_log, managed_scope_exists};
 use crate::shell::{detected_shell, kill_tree};
 
 #[cfg(test)]
@@ -112,9 +111,7 @@ fn permission_fields(input: &serde_json::Value) -> (String, Option<String>) {
 }
 
 #[derive(Clone, Default)]
-pub struct BashTool {
-    snapshots: std::sync::Arc<crate::managed::SnapshotCollector>,
-}
+pub struct BashTool;
 
 #[async_trait]
 impl Tool for BashTool {
@@ -133,7 +130,7 @@ impl Tool for BashTool {
             "Run a host command using {} ({syntax}), with host user privileges. \
              Foreground returns output and exit status; background/interactive returns a process ID for the process tool. \
              stdin is closed by default (EOF); interactive=true accepts pipe input via process action=input, without a PTY. Eligible foreground commands may transfer to the background when steered; explicit deadlines still apply. \
-             Managed background tasks cannot write project/memory state, remain inside the code tree, and stop with their owner session. \
+             Background tasks stop with their owner session unless persistent=true. \
              Test receipts and independent verification jobs are selected by their input fields.", shell.name
         )
     }
@@ -226,7 +223,7 @@ async fn execute_owned(
 
 /// 输入校验通过后的命令执行；围栏、进程和测试记录归本体持有。
 async fn bash_body(
-    tool: &BashTool,
+    _tool: &BashTool,
     input: BashInput,
     ctx: &ToolCtx,
     cancel: &CancellationToken,
@@ -272,7 +269,7 @@ async fn bash_body(
     } else {
         None
     };
-    let mut output = bash_command_body(input, ctx, &tool.snapshots, cancel).await;
+    let mut output = bash_command_body(input, ctx, cancel).await;
     if let Some(test) = test {
         if let Err(error) = test.finish(&mut output) {
             output.is_error = true;
@@ -289,7 +286,6 @@ async fn bash_body(
 async fn bash_command_body(
     input: BashInput,
     ctx: &ToolCtx,
-    snapshots: &std::sync::Arc<crate::managed::SnapshotCollector>,
     cancel: &CancellationToken,
 ) -> ToolOutput {
     let timeout = Duration::from_millis(
@@ -306,28 +302,6 @@ async fn bash_command_body(
     };
     if !workdir.is_dir() {
         return ToolOutput::error(format!("workdir does not exist: {}", workdir.display()));
-    }
-
-    // D-174 静态第一道:托管项目里的后台任务不得把工作目录扎进托管树,
-    // 也不得跑到项目根之外(跑到外面就无从归因,守卫的对账范围也失去意义)。
-    if (input.background || input.interactive) && managed_scope_exists(&ctx.project_root) {
-        if let Some(breach) = background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir) {
-            return ToolOutput::error(breach);
-        }
-    }
-    // R-268:围栏不再贯穿命令窗口持共享档挡写者——「窗口内没有写者」的不变式换成
-    // 「窗口内的变化可归因」:写者自由写 + 留写日志,围栏收口时按日志吸收合法写、
-    // 回滚越界写。写者之间仍由 store.lock()/tree_lock() 的毫秒级排他锁互斥(原子
-    // load→save),不再依赖围栏的跨窗口锁。后台任务不在此列:命令已脱离本 run,由
-    // 后台守卫按自己的生命周期对账(bash_body 的 background 分支)。
-    // R-268:窗口起点(ms)供写日志对账——围栏收口时只认这个时刻之后的专用工具写日志。
-    let fence_window_start_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or_default();
-    let managed_before = snapshots.capture(&ctx.project_root);
-    if !managed_before.is_complete() {
-        return ToolOutput::error("bash refused before execution: managed documents could not be read or their recovery snapshot could not be stored.");
     }
 
     let shell = detected_shell();
@@ -404,16 +378,10 @@ async fn bash_command_body(
             "交互输入只在当前应用进程内有效；去掉 persistent 后启动。",
         );
     }
-    // The same workdir boundary applies to explicit background execution and
-    // foreground handoff. Recorded tests retain their single-call exit contract.
     let handoff_mailbox = ctx
         .async_mailbox
         .as_ref()
-        .filter(|mailbox| !mailbox.is_closed() && input.test.is_none())
-        .filter(|_| {
-            !managed_scope_exists(&ctx.project_root)
-                || background_workdir_breach(&ctx.cwd, &ctx.project_root, &workdir).is_none()
-        });
+        .filter(|mailbox| !mailbox.is_closed() && input.test.is_none());
     let mut background_requests = handoff_mailbox.map(|mailbox| mailbox.background_requests());
     let mut input_requests = kanzei_harness::InputRequests::new(handoff_mailbox);
     if cancel.is_cancelled() {
@@ -426,16 +394,12 @@ async fn bash_command_body(
 
     // 后台模式:交给注册表托管,立刻返回句柄,不等它结束也不受 timeout 约束。
     if input.background || input.interactive {
-        // 归因地基:owner 身份来自 ToolCtx(R-171 双键),托管基线就是本次
-        // spawn 之前刚拍下的 managed_before——后台守卫的对账起点必须是
-        // "进程还没跑起来"的那一刻,晚一点都会把自己的副作用算进基线。
         let process = match crate::background::register_with_mailbox(
             child,
             input.command.clone(),
             &ctx.project_root,
             &workdir,
             background_owner(ctx),
-            managed_before,
             // Persistent services additionally retain restart metadata and logs.
             input.persistent,
             ctx.async_mailbox.clone(),
@@ -532,7 +496,6 @@ async fn bash_command_body(
                 &ctx.project_root,
                 &workdir,
                 background_owner(ctx),
-                managed_before,
                 false,
                 ctx.async_mailbox.clone(),
                 crate::background::CapturedOutput {
@@ -572,17 +535,6 @@ async fn bash_command_body(
             if !tree_stopped {
                 rendered.push_str("\nprocess-tree cleanup failed; termination is not confirmed");
             }
-            // R-268:前台 bash 围栏按写日志对账——窗口内专用工具的合法写入(有日志且
-            // 终态一致)吸收进基线,未命中的越界写照旧隔离回滚。
-            let breach = enforce_managed_files_with_writer_log(
-                &ctx.project_root,
-                managed_before,
-                fence_window_start_ms,
-            );
-            if let Some(report) = &breach {
-                rendered.push('\n');
-                rendered.push_str(report);
-            }
             let display = serde_json::json!({
                 "kind": "terminal",
                 "execution": identity.as_ref(),
@@ -607,7 +559,7 @@ async fn bash_command_body(
                     "SHELL_COMMAND_POLICY",
                     rejection["message"].as_str().unwrap_or(&rendered),
                 )
-            } else if ok && breach.is_none() {
+            } else if ok {
                 ToolOutput::ok(rendered)
             } else {
                 ToolOutput::error(rendered)
@@ -642,16 +594,6 @@ async fn bash_command_body(
                     text.push_str("\n[partial stderr before timeout]\n");
                     text.push_str(&partial_err);
                 }
-            }
-            // 被杀掉的命令一样可能已经改过托管文件,围栏必须照跑(R-268 同口径:
-            // 有写日志解释的合法写入吸收,其余回滚)。
-            if let Some(report) = enforce_managed_files_with_writer_log(
-                &ctx.project_root,
-                managed_before,
-                fence_window_start_ms,
-            ) {
-                text.push('\n');
-                text.push_str(&report);
             }
             let display = serde_json::json!({
                 "kind": "terminal",
@@ -698,73 +640,6 @@ fn background_result(process: &crate::background::BackgroundProcess, ctx: &ToolC
         kanzei_harness::ExternalSourceKind::Process,
         format!("process:{}", process.id),
     )
-}
-
-/// 后台任务的 workdir 结构化围栏(D-174 静态第一道)。
-///
-/// 它校验的是**参数**而不是命令文本——不存在解析歧义,与 D-173 已经证否的
-/// "猜命令文本"是两回事(命令文本层面的路径匹配挡不住 WriteAllText/重定向/
-/// 解释器一行流,那条路本文件顶部已经放弃)。因此它只是第一道:挡掉
-/// "cd 进托管目录再用相对路径写"的一整类,绝对路径写入仍由后台守卫的
-/// 结果侧对账兜住。
-///
-/// # 包含根是**代码树**,不是主根(R-177 内容②)
-///
-/// D-174 的两条语义原样保留:①不得跑出可归因范围;②不得扎进托管树。变的只是
-/// 「可归因范围」的正名——线上线后 agent 的代码树是 worktree,主根只承担
-/// `.kanzei/**`。仍按主根做包含判定的话,线里每一条 `background: true` 的 bash
-/// 都会被无条件拒(worktree 不在主根之下)。
-///
-/// 托管树的排除同时查两处:代码树自己的 `.kanzei`(worktree 里那份是 git checkout
-/// 出来的分支副本,一样不许当工作目录)与主根的 `.kanzei`(真正的托管资产)。
-fn background_workdir_breach(
-    code_root: &Path,
-    project_root: &Path,
-    workdir: &Path,
-) -> Option<String> {
-    let (root, dir) = match (
-        std::fs::canonicalize(code_root),
-        std::fs::canonicalize(workdir),
-    ) {
-        (Ok(root), Ok(dir)) => (root, dir),
-        // 任一侧无法规范化时两侧都用原样路径比,避免单边规范化造成假阳性拒绝。
-        _ => (code_root.to_path_buf(), workdir.to_path_buf()),
-    };
-    let Ok(relative) = dir.strip_prefix(&root) else {
-        return Some(format!(
-            "background workdir must stay inside the code tree: {} is outside {}",
-            workdir.display(),
-            code_root.display()
-        ));
-    };
-    let relative = relative.display().to_string().replace('\\', "/");
-    if relative == ".kanzei" || relative.starts_with(".kanzei/") {
-        return Some(format!(
-            "background workdir must not sit inside `.kanzei/`: {}",
-            workdir.display()
-        ));
-    }
-    if in_managed_dir(project_root, workdir) {
-        return Some(format!(
-            "background workdir must not sit inside `.kanzei/`: {}",
-            workdir.display()
-        ));
-    }
-    None
-}
-
-/// workdir 是否落在 `root/.kanzei` 之下。与上面的相对路径判定同源,单独抽出来
-/// 是为了让「代码树」与「主根」两个根各查一次。
-fn in_managed_dir(root: &Path, workdir: &Path) -> bool {
-    let (root, dir) = match (std::fs::canonicalize(root), std::fs::canonicalize(workdir)) {
-        (Ok(root), Ok(dir)) => (root, dir),
-        _ => (root.to_path_buf(), workdir.to_path_buf()),
-    };
-    let Ok(relative) = dir.strip_prefix(&root) else {
-        return false;
-    };
-    let relative = relative.display().to_string().replace('\\', "/");
-    relative == ".kanzei" || relative.starts_with(".kanzei/")
 }
 
 fn background_owner(ctx: &ToolCtx) -> crate::background::BackgroundOwner {
@@ -823,8 +698,7 @@ async fn read_capped(
 
 #[cfg(test)]
 mod tests {
-    use super::{in_managed_dir, BashTool, CommandLengthGuard};
-    use crate::managed::ManagedSnapshot;
+    use super::{BashTool, CommandLengthGuard};
     use kanzei_harness::{Tool, ToolCtx};
     use serde_json::json;
     use std::path::PathBuf;
@@ -844,7 +718,6 @@ mod tests {
 
     #[cfg(windows)]
     async fn foreground_handoff(timeout_ms: u64, finish: bool, early_input: bool) {
-        let _guard = crate::background::tests::fence_guard();
         let root = temp_project("handoff");
         let (notice_tx, mut notices) = tokio::sync::mpsc::unbounded_channel();
         let mailbox = kanzei_harness::AsyncMailbox::new(move |notice| {
@@ -1017,257 +890,9 @@ mod tests {
         assert_eq!(crate::shell::command_with_utf8_output("sh", "ls"), "ls");
     }
 
-    /// D-173:托管文件的 shell 写入必须被检测、隔离、回滚——不靠匹配命令文本,
-    /// 所以 [System.IO.File]::WriteAllText 这类没人预料到的写法一样拦得住。
     #[tokio::test]
-    async fn shell_writes_to_managed_docs_are_rolled_back() {
-        let root = temp_project("fence");
-        let managed = root.join(".kanzei/project/defects.md");
-        std::fs::write(&managed, "# Defects\n\n## D-001 原始内容 [open]\n").unwrap();
-        let ctx = ToolCtx {
-            cwd: root.clone(),
-            project_root: root.clone(),
-            ..Default::default()
-        };
-        let target = managed.display().to_string().replace('\\', "/");
-        let command = match super::detected_shell().name {
-            "pwsh" | "powershell" => {
-                format!("[System.IO.File]::WriteAllText('{target}', 'BYPASSED')")
-            }
-            "cmd" => format!("echo BYPASSED> \"{target}\""),
-            _ => format!("printf BYPASSED > '{target}'"),
-        };
-
-        let out = BashTool::default()
-            .execute(serde_json::json!({ "command": command }), &ctx)
-            .await;
-        assert!(out.is_error, "越权写入必须按错误回喂: {}", out.content);
-        assert!(out.content.contains("[managed-files]"), "{}", out.content);
-        assert!(out.content.contains("defects.md"), "{}", out.content);
-        assert_eq!(
-            std::fs::read_to_string(&managed).unwrap(),
-            "# Defects\n\n## D-001 原始内容 [open]\n",
-            "文件必须被回滚到执行前内容"
-        );
-        // 改后的版本留在隔离区,万一那其实是用户手改也不丢。
-        let quarantine = root.join(".kanzei/quarantine");
-        assert!(quarantine.is_dir(), "改后的内容必须留证");
-
-        // 非托管路径照常放行,围栏不误伤。
-        let plain = root
-            .join("scratch.txt")
-            .display()
-            .to_string()
-            .replace('\\', "/");
-        let command = match super::detected_shell().name {
-            "pwsh" | "powershell" => format!("[System.IO.File]::WriteAllText('{plain}', 'ok')"),
-            "cmd" => format!("echo ok> \"{plain}\""),
-            _ => format!("printf ok > '{plain}'"),
-        };
-        let out = BashTool::default()
-            .execute(serde_json::json!({ "command": command }), &ctx)
-            .await;
-        assert!(!out.is_error, "{}", out.content);
-        assert!(root.join("scratch.txt").is_file());
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[tokio::test]
-    async fn empty_managed_directory_is_still_fenced() {
-        let root = temp_project("empty-fence");
-        let ctx = ToolCtx {
-            cwd: root.clone(),
-            project_root: root.clone(),
-            ..Default::default()
-        };
-        let target = root
-            .join(".kanzei/project/new.md")
-            .display()
-            .to_string()
-            .replace('\\', "/");
-        let command = match super::detected_shell().name {
-            "pwsh" | "powershell" => format!("[System.IO.File]::WriteAllText('{target}', 'x')"),
-            "cmd" => format!("echo x> \"{target}\""),
-            _ => format!("printf x > '{target}'"),
-        };
-        let out = BashTool::default()
-            .execute(serde_json::json!({"command": command}), &ctx)
-            .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(!root.join(".kanzei/project/new.md").exists());
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    /// D-174 静态第一道:后台 workdir 不得扎进托管树,也不得跑出项目根。
-    #[tokio::test]
-    async fn background_workdir_must_stay_outside_managed_tree_and_inside_project() {
-        let root = temp_project("bg-workdir");
-        let ctx = ToolCtx {
-            cwd: root.clone(),
-            project_root: root.clone(),
-            ..Default::default()
-        };
-        // 扎进 .kanzei/ 内:拒绝,且理由点名 .kanzei 而不是笼统的"后台不可用"。
-        let out = BashTool::default()
-            .execute(
-                serde_json::json!({
-                    "command": "echo ok",
-                    "background": true,
-                    "workdir": ".kanzei/project",
-                }),
-                &ctx,
-            )
-            .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(
-            out.content.contains("must not sit inside `.kanzei/`"),
-            "{}",
-            out.content
-        );
-
-        // 跑出代码树:同样拒绝(跑出去就无从归因,守卫的对账范围也失去意义)。
-        // 主树运行时 cwd == project_root,这一条与改前逐字节同义。
-        let outside = root.parent().unwrap().join(format!(
-            "kz-bash-outside-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&outside).unwrap();
-        let out = BashTool::default()
-            .execute(
-                serde_json::json!({
-                    "command": "echo ok",
-                    "background": true,
-                    "workdir": outside.display().to_string(),
-                }),
-                &ctx,
-            )
-            .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(
-            out.content.contains("must stay inside the code tree"),
-            "{}",
-            out.content
-        );
-        std::fs::remove_dir_all(&outside).ok();
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    /// R-177 内容②:线上运行时 cwd = worktree、project_root = 主根,
-    /// 后台围栏必须以**代码树**为界——否则线里每一条 background bash 都被无条件拒。
-    #[tokio::test]
-    async fn 后台workdir以代码树为界_worktree子目录放行_树外与两处kanzei仍拒() {
-        let main_root = temp_project("bg-main");
-        let worktree = temp_project("bg-worktree");
-        let sub = worktree.join("crates");
-        std::fs::create_dir_all(&sub).unwrap();
-        let ctx = ToolCtx {
-            cwd: worktree.clone(),
-            project_root: main_root.clone(),
-            ..Default::default()
-        };
-        // ① worktree 的子目录:放行(改前会因为「不在主根之下」被拒)。
-        let out = BashTool::default()
-            .execute(
-                serde_json::json!({
-                    "command": "echo ok",
-                    "background": true,
-                    "workdir": "crates",
-                }),
-                &ctx,
-            )
-            .await;
-        assert!(
-            !out.is_error,
-            "worktree 子目录必须放行,实际: {}",
-            out.content
-        );
-        // ② worktree 内的 .kanzei 副本:仍拒。
-        let out = BashTool::default()
-            .execute(
-                serde_json::json!({
-                    "command": "echo ok",
-                    "background": true,
-                    "workdir": ".kanzei/project",
-                }),
-                &ctx,
-            )
-            .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(
-            out.content.contains("must not sit inside `.kanzei/`"),
-            "{}",
-            out.content
-        );
-        // ③ 主根(代码树之外):仍拒。
-        let out = BashTool::default()
-            .execute(
-                serde_json::json!({
-                    "command": "echo ok",
-                    "background": true,
-                    "workdir": main_root.display().to_string(),
-                }),
-                &ctx,
-            )
-            .await;
-        assert!(out.is_error, "{}", out.content);
-        assert!(
-            out.content.contains("must stay inside the code tree"),
-            "{}",
-            out.content
-        );
-        // ④ 主根的托管目录:即使换个走法也拒(两处 .kanzei 都在排除表里)。
-        assert!(
-            in_managed_dir(&main_root, &main_root.join(".kanzei/project")),
-            "主根的 .kanzei 必须仍在排除表里"
-        );
-        std::fs::remove_dir_all(&worktree).ok();
-        std::fs::remove_dir_all(&main_root).ok();
-    }
-
-    /// 固化事实(不是遗漏):托管快照恒取**主根**——托管文档只有主根一份,
-    /// worktree 里的 `.kanzei` 副本不在围栏辖区,由 git 分支自己承担。
-    #[test]
-    fn 托管快照仍取主根_worktree内kanzei副本不在辖区() {
-        let main_root = temp_project("snap-main");
-        let worktree = temp_project("snap-worktree");
-        std::fs::write(main_root.join(".kanzei/project/x.md"), "main").unwrap();
-        std::fs::write(worktree.join(".kanzei/project/x.md"), "worktree").unwrap();
-        let ctx = ToolCtx {
-            cwd: worktree.clone(),
-            project_root: main_root.clone(),
-            ..Default::default()
-        };
-        let snapshot = ManagedSnapshot::capture(&ctx.project_root);
-        assert_eq!(
-            snapshot,
-            ManagedSnapshot::capture(&main_root),
-            "快照必须取主根那一份"
-        );
-        assert_ne!(
-            snapshot,
-            ManagedSnapshot::capture(&worktree),
-            "两棵树的托管副本内容不同,快照不该取到 worktree 那份"
-        );
-        // 改 worktree 里的副本不影响主根快照——它压根不在辖区内。
-        std::fs::write(worktree.join(".kanzei/project/x.md"), "worktree-changed").unwrap();
-        assert_eq!(
-            ManagedSnapshot::capture(&ctx.project_root),
-            snapshot,
-            "worktree 内的 .kanzei 副本改动不得进入托管围栏"
-        );
-        std::fs::remove_dir_all(&worktree).ok();
-        std::fs::remove_dir_all(&main_root).ok();
-    }
-
-    /// D-174:托管项目里的后台启动从"一律拒绝"恢复为"受管启动"。
-    /// R-097 的后台能力因此回来了——边界是单 run 内可用、跨 run 被收尾。
-    #[tokio::test]
-    async fn background_shell_is_managed_not_refused_in_managed_projects() {
-        let root = temp_project("background-fence");
+    async fn background_shell_starts_and_returns_process_id() {
+        let root = temp_project("background-start");
         let ctx = ToolCtx {
             cwd: root.clone(),
             project_root: root.clone(),
@@ -1281,11 +906,7 @@ mod tests {
                 &ctx,
             )
             .await;
-        assert!(
-            !out.is_error,
-            "托管项目里的后台启动不该再被拒绝: {}",
-            out.content
-        );
+        assert!(!out.is_error, "后台启动不应失败: {}", out.content);
         assert!(out.content.contains("process_id:"), "{}", out.content);
         std::fs::remove_dir_all(root).ok();
     }

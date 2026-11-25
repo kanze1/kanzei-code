@@ -571,18 +571,7 @@ impl Tool for EditTool {
                 preview_lines(&dropped)
             ));
         }
-        let validation = crate::local_validation::validate_after_write(
-            &path,
-            &ctx.cwd,
-            Some(&content),
-            &updated,
-        )
-        .await;
-        message.push_str(&format!("\n{}", validation.summary));
-        let mut display = crate::write::diff_display(&input.path, &content, &updated);
-        if let Some(object) = display.as_object_mut() {
-            object.insert("local_validation".into(), validation.display);
-        }
+        let display = crate::write::diff_display(&input.path, &content, &updated);
         ToolOutput::ok(message).with_display(display)
     }
 }
@@ -826,18 +815,7 @@ impl Tool for InsertTool {
         if anchor != input.anchor {
             message.push_str(" (line endings differed and were normalized automatically)");
         }
-        let validation = crate::local_validation::validate_after_write(
-            &path,
-            &ctx.cwd,
-            Some(&original),
-            &updated,
-        )
-        .await;
-        message.push_str(&format!("\n{}", validation.summary));
-        let mut display = crate::write::diff_display(&input.path, &original, &updated);
-        if let Some(object) = display.as_object_mut() {
-            object.insert("local_validation".into(), validation.display);
-        }
+        let display = crate::write::diff_display(&input.path, &original, &updated);
         ToolOutput::ok(message).with_display(display)
     }
 }

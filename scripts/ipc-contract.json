@@ -45,7 +45,7 @@
     "delivery": "nullable",
     "preference_error": "nullable"
   },
-  "delivered_image": {
+  "file_image": {
     "png": "string"
   },
   "docs_snapshot": {

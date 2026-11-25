@@ -369,16 +369,16 @@ pub(crate) mod tests {
             shape(&tool_image),
             "tool_image 的返回形状变了",
         );
-        let delivered = crate::attachments::delivered_image(
+        let file_img = crate::attachments::file_image(
             root.display().to_string(),
-            root.join("chart.png").display().to_string(),
+            "chart.png".into(),
         )
         .await
-        .expect("交付图片应能读取");
+        .expect("项目图片应能读取");
         check_contract(
-            "delivered_image",
-            shape(&delivered),
-            "delivered_image 的返回形状变了",
+            "file_image",
+            shape(&file_img),
+            "file_image 的返回形状变了",
         );
         let _ = std::fs::remove_dir_all(&root);
     }

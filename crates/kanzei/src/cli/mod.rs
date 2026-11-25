@@ -17,10 +17,7 @@ pub mod config;
 pub mod eval;
 pub mod lock;
 pub mod memory;
-pub mod metrics;
-pub mod quarantine;
 pub mod run;
-pub mod shadow;
 pub mod tracker;
 mod trust;
 pub mod work;
@@ -57,10 +54,7 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("artifacts") => artifacts::artifacts_cli(&args[1..]).await,
         Some("config") => config::config_cli(&args[1..]),
         Some("trust") => trust::trust_cli(&args[1..]),
-        Some("metrics") => metrics::metrics_cli(&args[1..]).await,
         Some("memory") => memory::memory_cli(&args[1..]).await,
-        Some("quarantine") => quarantine::quarantine_cli(&args[1..]).await,
-        Some("shadow") => shadow::shadow_cli(&args[1..]).await,
         Some("replay-eval") => eval::replay_eval_cli(&args[1..]).await,
         Some("run") => run::run_cli(&args[1..]).await,
         Some("compact") => compact::compact_cli(&args[1..]).await,
@@ -104,11 +98,8 @@ pub(crate) fn usage_text() -> &'static str {
        kz trust status|approve <fingerprint>|revoke [--project-root <path>] # 审阅并按内容指纹批准项目配置与 Agent\n\
        kz artifacts stats [--json]         # 只读查看 state.db/WAL/freelist/artifact/telemetry 占用(R-245)\n\
        kz artifacts plan --dry-run [--json] # 列出 artifact 引用图与无引用清理候选,不写盘(R-245 B3)\n\
-       kz metrics [--top N]                 # 巨石度量 + 条目关闭收尾链滚动遥测(R-258/R-311)\n\
        kz memory repair-index               # 按 Markdown 真源显式修复项目 INDEX/FTS(D-568/R-308)\n\
        kz memory review-global              # 无模型执行一次真实 project/global memory review(R-308)\n\
-       kz quarantine [--dry-run|--apply]    # 隔离取证按日期/类型盘点或清理(D-566)\n\
-       kz shadow [--mismatches]             # 会话投影 shadow gate 统计:未知差异=0 达标判定(R-242)\n\
        kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\

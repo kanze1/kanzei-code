@@ -235,10 +235,13 @@ pub(crate) fn write_policy(rel: &str) -> Option<&'static str> {
         .find_map(|(index, _)| kanzei_dir_policy(&segments[index..].join("/")))
 }
 
-/// `tail` 以 `.kanzei` 段开头(小写、`/` 分隔)。`MANAGED_ROOTS` 全部以 `.kanzei/` 开头(测试钉住)。
+/// 由应用自身管理的受保护目录，避免用户在文件编辑器中直接改坏结构化存储。
+const MANAGED_ROOTS: &[&str] = &[".kanzei/project", ".kanzei/memory"];
+
+/// `tail` 以 `.kanzei` 段开头(小写、`/` 分隔)。
 fn kanzei_dir_policy(tail: &str) -> Option<&'static str> {
     let under = |prefix: &str| tail == prefix || tail.starts_with(&format!("{prefix}/"));
-    if kanzei_tools::MANAGED_ROOTS
+    if MANAGED_ROOTS
         .iter()
         .any(|root| under(&root.to_ascii_lowercase()))
     {
@@ -1163,10 +1166,6 @@ pub(crate) mod tests {
             std::fs::read(root.join("src/lib.rs")).unwrap(),
             b"user version\n"
         );
-        // 留证目录是清理内核认识的已知类型(不会被当未知证据永久保留)。
-        let entries = kanzei_tools::quarantine::inspect(&root).unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].kind.as_deref(), Some("files-overwrite"));
         // 指纹对不上时不留证(没发生覆盖)。
         let stale = write_at(
             &root,
@@ -1180,7 +1179,6 @@ pub(crate) mod tests {
         )
         .unwrap();
         assert_eq!(stale["status"], "conflict");
-        assert_eq!(kanzei_tools::quarantine::inspect(&root).unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -1241,7 +1239,7 @@ pub(crate) mod tests {
 
     #[test]
     fn 托管根都以kanzei段开头_嵌套项目规则依赖这一点() {
-        for root in kanzei_tools::MANAGED_ROOTS {
+        for root in super::MANAGED_ROOTS {
             assert!(
                 root.to_ascii_lowercase().starts_with(".kanzei/"),
                 "write_policy 只在 .kanzei 段处匹配托管根,{root} 不以 .kanzei/ 开头会漏判"

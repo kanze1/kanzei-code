@@ -6,7 +6,6 @@ import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
 import { workbenchNavigationGuard } from "./12-workbench.js";
 import { segmentTitle, syncHistoryIfOpen } from "./12-session-tree.js";
-import { loadDeliveredFiles } from "./06-deliveries.js";
 import { closeSurface, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./00-dom.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
@@ -794,13 +793,11 @@ export async function loadConversation(sequence = null, switchGeneration = null,
     conversationEpoch(forSessionId) === forEpoch;
   try {
     bgClear();
-    const deliveryRequest = loadDeliveredFiles(forProject, { force: true });
     const history = await invoke("conversation_display_get", {
       projectDir: forProject,
       processId: forProcessId,
       sequence,
     });
-    await deliveryRequest;
     if (!isCurrent()) return;
     renderRecoveredMessages(history);
     document.dispatchEvent(new CustomEvent("kz:conversation-projected", { detail: { sessionId: forSessionId, sequence } }));

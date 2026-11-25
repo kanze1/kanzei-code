@@ -139,22 +139,13 @@ impl Tool for ProcessTool {
                         Some(Some(code)) => format!("exited({code})"),
                         Some(None) => "terminated".to_string(),
                     };
-                    // D-174:owner 与越界计数是这行的重点——没有它们,"谁起的、
-                    // 它动过托管文档没有"就只能靠猜。
-                    let breaches = p.breaches().len();
-                    let fence = if breaches == 0 {
-                        String::new()
-                    } else {
-                        format!(" managed-breaches={breaches}")
-                    };
                     out.push_str(&format!(
-                        "{} [{}] pid={} owner={} cwd={}{} :: {}\n",
+                        "{} [{}] pid={} owner={} cwd={} :: {}\n",
                         p.id,
                         state,
                         p.pid().map_or_else(|| "-".to_string(), |v| v.to_string()),
                         p.owner.run_id,
                         p.workdir,
-                        fence,
                         p.command,
                     ));
                 }
@@ -199,7 +190,7 @@ impl Tool for ProcessTool {
                 } else {
                     format!("state: {state}\n")
                 };
-                let rendered = format!("{head}{body}{log_hint}{}", breach_report(&p));
+                let rendered = format!("{head}{body}{log_hint}");
                 ToolOutput::ok(rendered.clone()).with_display(serde_json::json!({
                     "kind": "terminal",
                     "command": p.command,
@@ -329,40 +320,6 @@ fn managed_process_id(id: &str) -> bool {
             numeric(suffix)
         }
     })
-}
-
-/// 越界写入的归因报告。空 = 该后台任务没碰过托管路径。
-///
-/// 报告必须点名 owner:后台任务的越界是异步发生的,模型看到它时早已不在当初那次
-/// 工具调用的上下文里,不写清"谁在什么时候写了什么、改后的内容留在哪"就没法追。
-fn breach_report(process: &crate::background::BackgroundProcess) -> String {
-    let breaches = process.breaches();
-    if breaches.is_empty() {
-        return String::new();
-    }
-    let mut out = format!(
-        "\n[managed-files] this background task wrote policy-managed paths {} time(s); \
-         every write was quarantined and rolled back, and the process tree was killed. \
-         owner run={} process={}, started at {}ms, command: {}\n",
-        breaches.len(),
-        process.owner.run_id,
-        process.owner.process_id,
-        process.started_at_ms,
-        process.command,
-    );
-    for breach in &breaches {
-        out.push_str(&format!(
-            "  at {}ms touched: {} — restored {} file(s), your versions kept at {}\n",
-            breach.at_ms,
-            breach.touched.join(", "),
-            breach.restored,
-            breach.quarantine,
-        ));
-    }
-    out.push_str(
-        "Managed project/memory files use their owning write tools. Available tools are listed in the current catalog.",
-    );
-    out
 }
 
 /// R-330:等后台进程满足条件,**在工具内部轮询**。

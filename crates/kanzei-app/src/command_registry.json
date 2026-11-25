@@ -168,10 +168,6 @@
     "host": "service"
   },
   {
-    "path": "commands::run::open_delivered_path",
-    "host": "desktop"
-  },
-  {
     "path": "commands::os_open::reveal_path",
     "host": "desktop"
   },
@@ -186,14 +182,6 @@
   {
     "path": "commands::os_open::open_tools_save",
     "host": "desktop"
-  },
-  {
-    "path": "deliveries::delivered_files",
-    "host": "service"
-  },
-  {
-    "path": "deliveries::delivery_manage",
-    "host": "service"
   },
   {
     "path": "skills::skills_list",
@@ -226,14 +214,6 @@
   {
     "path": "skills::skills_generate",
     "host": "service"
-  },
-  {
-    "path": "deliveries::batch_evidence",
-    "host": "service"
-  },
-  {
-    "path": "deliveries::save_delivered_file",
-    "host": "desktop"
   },
   {
     "path": "auto_run::auto_state_update",
@@ -377,18 +357,6 @@
   },
   {
     "path": "memory::memory_note_discard",
-    "host": "service"
-  },
-  {
-    "path": "commands::run::metrics::run_metrics",
-    "host": "service"
-  },
-  {
-    "path": "commands::run::metrics::run_metrics_by_category",
-    "host": "service"
-  },
-  {
-    "path": "commands::run::metrics::run_metrics_by_task",
     "host": "service"
   },
   {
@@ -660,7 +628,7 @@
     "host": "service"
   },
   {
-    "path": "attachments::delivered_image",
+    "path": "attachments::file_image",
     "host": "service"
   },
   {

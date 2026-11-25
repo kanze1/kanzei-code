@@ -35,10 +35,6 @@ mod git;
 pub mod git_batches;
 mod glob;
 mod grep;
-mod local_validation;
-mod managed;
-/// 托管目录清单单源(D-173):桌面文件页据此把托管文档设为只读(UI2-0926 #6)。
-pub use managed::MANAGED_ROOTS;
 mod preferences;
 /// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
 pub mod preview_server;
@@ -46,7 +42,6 @@ mod process;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
 pub mod project_state;
 mod public_http;
-pub mod quarantine;
 mod read;
 #[cfg(test)]
 mod read_receipt_tests;

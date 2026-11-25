@@ -26,9 +26,6 @@ export const commandParameters = {
     "sessionId": true,
     "stopAfterRound": false
   },
-  "batch_evidence": {
-    "projectDir": true
-  },
   "cancel_input": {
     "inputId": true,
     "processId": false,
@@ -117,18 +114,6 @@ export const commandParameters = {
   "defect_review": {
     "projectDir": true
   },
-  "delivered_files": {
-    "projectDir": true
-  },
-  "delivered_image": {
-    "path": true,
-    "projectDir": true
-  },
-  "delivery_manage": {
-    "action": true,
-    "id": true,
-    "projectDir": true
-  },
   "docs_archive_entries": {
     "kind": true,
     "projectDir": true
@@ -184,6 +169,10 @@ export const commandParameters = {
     "projectDir": true
   },
   "file_drafts_load": {
+    "projectDir": true
+  },
+  "file_image": {
+    "path": true,
     "projectDir": true
   },
   "file_preview": {
@@ -352,12 +341,6 @@ export const commandParameters = {
   "models_list": {
     "projectDir": false
   },
-  "open_delivered_path": {
-    "mode": true,
-    "path": true,
-    "processId": false,
-    "projectDir": true
-  },
   "open_tools_list": {},
   "open_tools_save": {
     "tools": true
@@ -499,17 +482,6 @@ export const commandParameters = {
     "processId": false,
     "projectDir": true
   },
-  "run_metrics": {
-    "limit": false,
-    "projectDir": true
-  },
-  "run_metrics_by_category": {
-    "limit": false,
-    "projectDir": true
-  },
-  "run_metrics_by_task": {
-    "projectDir": true
-  },
   "run_prompt": {
     "agent": false,
     "attachments": false,
@@ -539,10 +511,6 @@ export const commandParameters = {
   "save_conversation_export": {
     "content": true,
     "name": true
-  },
-  "save_delivered_file": {
-    "path": true,
-    "projectDir": true
   },
   "settings_get": {
     "projectDir": false

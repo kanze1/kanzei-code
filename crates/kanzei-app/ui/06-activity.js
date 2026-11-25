@@ -1,5 +1,4 @@
 import { defer } from "./00-dom.js";
-import { resourceIcon } from "./04-resource-types.js";
 import { escapeHtml } from "./04-markdown.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
@@ -22,12 +21,12 @@ import { toolCallSummary, toolGroupRelocalize } from "./05-chat-render.js";
 import { isSubagentSpawn, classifySubagentEnd, subagentDescription, subagentRelocalize, subagentReplayDuration, subagentReplayTrace } from "./05-subagents.js";
 import { cleanInline, cleanPaths, formatDuration, looksLikeNoise, parseJsonish, stripAnsi } from "./04-structured-parse.js";
 import { toolArgSummary, toolResultSummary, toolRoots } from "./05-tool-summary.js";
-import { highlightLine, renderLocalValidation, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
+import { highlightLine, renderToolArgs, renderToolResult, structuredNav } from "./04-structured.js";
 import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import "./08-compose.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
-import { decorateFileCard, extractToolImages } from "./04-attachment-preview.js";
+import { extractToolImages } from "./04-attachment-preview.js";
 
 // ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
 // 侧栏的显隐、停靠与徽标归 06-agent-panel.js(reconcileTasksPanel);这里只维护条目,变化经 onBgChange 通知。
@@ -612,9 +611,6 @@ export function appendDisplayBlock(parent, display, { compact = false, name = ""
   if (!display) return;
   if (display.kind === "json" && display.value && typeof display.value === "object") {
     parent.appendChild(renderToolResult(name, display.value));
-  } else if (display.kind === "local_validation") {
-    const checks = renderLocalValidation(display);
-    if (checks) parent.appendChild(checks);
   } else if (display.kind === "diff") {
     parent.appendChild(renderDiff(display, { compact }));
   } else if (display.kind === "terminal") {
@@ -630,19 +626,12 @@ export function appendDisplayBlock(parent, display, { compact = false, name = ""
     block.className = "tool-display term";
     block.textContent = `${t("新建")} ${display.path}(${display.bytes} bytes)\n${stripAnsi(display.preview)}`;
     parent.appendChild(block);
-  } else if (display.kind === "file") {
-    parent.appendChild(renderFileCard(display));
   } else if (display.kind === "truncated" && display.preview) {
     // 原工具没有 display 时后端才发 kind=truncated:没有终端块可保,预览单独成块。
     const block = document.createElement("div");
     block.className = "tool-display term";
     block.textContent = stripAnsi(String(display.preview));
     parent.appendChild(block);
-  }
-  // UI-0926 #10:edit/write 的 display 挂着局部校验结果——逐项 chip,失败项带首个错误与修复上下文。
-  if (display.local_validation && display.kind !== "local_validation") {
-    const checks = renderLocalValidation(display.local_validation);
-    if (checks) parent.appendChild(checks);
   }
   // 配额截断提示追加在原 display 之后:终端块照常保留,提示只补"为什么被截、去哪腾空间"。
   const quota = quotaTruncation(display);
@@ -724,67 +713,6 @@ export function renderQuotaNotice(info) {
     box.appendChild(hint);
   }
   return box;
-}
-
-// R-329:deliver 的交付卡片。与 create 块的区别是「给谁看」——create 是模型刚写了
-// 什么的事实回执,这张卡是给**用户**的:文件名、大小、一句话说明,外加两个真能点的
-// 动作(打开 / 在资源管理器中定位)。路径已由后端校验在工作树内。
-export function renderFileCard(display, { projectDir = display.project_dir || currentProject } = {}) {
-  const card = document.createElement("div");
-  card.className = "tool-display file-card";
-  card.dataset.path = display.path || "";
-  card.dataset.status = display.status || "available";
-  const head = document.createElement("div");
-  head.className = "file-card-head";
-  const name = document.createElement("button");
-  name.type = "button";
-  name.className = "file-card-name";
-  name.textContent = display.name || display.path || "";
-  name.prepend(resourceIcon(display.path || display.name || ""));
-  const revealFirst = /\.(?:apk|exe|msi|bat|cmd|ps1|sh|com)$/i.test(display.path || "");
-  const open = mode => invoke("open_delivered_path", { projectDir, path: display.path, mode }).catch(error => toast(`${t("打开失败")}:${error}`));
-  name.title = `${revealFirst ? t("在资源管理器中显示") : t("打开")}  ${display.path}`;
-  name.disabled = display.status === "unavailable";
-  name.addEventListener("click", () => void open(revealFirst ? "reveal" : "open"));
-  const size = document.createElement("span");
-  size.className = "file-card-size";
-  const bytes = display.current_bytes ?? display.bytes;
-  size.textContent = typeof bytes === "number" ? formatBytes(bytes) : "—";
-  head.append(name, size);
-  card.appendChild(head);
-  if (display.caption) {
-    const caption = document.createElement("div");
-    caption.className = "file-card-caption";
-    caption.textContent = display.caption;
-    card.appendChild(caption);
-  }
-  const actions = document.createElement("div");
-  actions.className = "file-card-actions";
-  for (const [label, mode] of [[t("另存为"), "save"], [t("在资源管理器中显示"), "reveal"]]) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ghost mini";
-    button.textContent = label;
-    button.disabled = display.status === "unavailable";
-    button.addEventListener("click", () => {
-      // 失败要说话:静默失效会让用户以为文件不见了,而多半只是没有默认打开方式。
-      if (mode !== "save") { void open(mode); return; }
-      button.disabled = true;
-      void invoke("save_delivered_file", { projectDir, path: display.path }).then(path => {
-        if (path) toast(t("已保存"), { kind: "ok" });
-      }).catch(error => toast(`${t("保存失败")}:${error}`)).finally(() => { button.disabled = false; });
-    });
-    actions.appendChild(button);
-  }
-  card.appendChild(actions);
-  if (display.status === "unavailable" || display.status === "changed") {
-    const status = document.createElement("span"); status.className = "file-card-status";
-    status.textContent = display.status === "unavailable" ? t("文件已移动或删除") : t("文件在交付后已更新");
-    card.append(status);
-  }
-  // UI2-0926 #8:图片显示缩略图(点开看大图),.html 加「预览」(在网页预览面板打开)。
-  if (display.status !== "unavailable") decorateFileCard(card, actions, display, projectDir);
-  return card;
 }
 
 export function formatBytes(bytes) {

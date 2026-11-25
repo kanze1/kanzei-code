@@ -21,7 +21,6 @@ mod context_view;
 mod conversation;
 mod conversation_actions;
 mod decisions;
-mod deliveries;
 mod desktop_bridge;
 mod docs;
 mod experience_events;

@@ -352,16 +352,8 @@ impl Tool for WriteTool {
         if let Err(e) = file_checkpointed_write(ctx, &path, input.content.as_bytes()).await {
             return write_error(&path, e, "WRITE_FAILED");
         }
-        let mut message = format!("wrote {} bytes to {}", input.content.len(), path.display());
-        let validation = crate::local_validation::validate_after_write(
-            &path,
-            &ctx.cwd,
-            previous.as_deref(),
-            &input.content,
-        )
-        .await;
-        message.push_str(&format!("\n{}", validation.summary));
-        let mut display = match previous {
+        let message = format!("wrote {} bytes to {}", input.content.len(), path.display());
+        let display = match previous {
             Some(old) => diff_display(&input.path, &old, &input.content),
             None => serde_json::json!({
                 "kind": "create",
@@ -370,9 +362,6 @@ impl Tool for WriteTool {
                 "preview": input.content.lines().take(30).collect::<Vec<_>>().join("\n"),
             }),
         };
-        if let Some(object) = display.as_object_mut() {
-            object.insert("local_validation".into(), validation.display);
-        }
         ToolOutput::ok(message).with_display(display)
     }
 }

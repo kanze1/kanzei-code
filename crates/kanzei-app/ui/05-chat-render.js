@@ -5,8 +5,7 @@ import { copyButton } from "./00-clipboard.js";
 import { messagePanes } from "./01-chat-panes.js";
 import { motionOnce } from "./00-ui-primitives.js";
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
-import { appendDisplayBlock, renderFileCard, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
-import { deliveredFileFor, registerDelivery } from "./06-deliveries.js";
+import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncation } from "./06-activity.js";
 import { openTasksPanel } from "./06-agent-panel.js";
 import { $ } from "./00-dom.js";
 import { activePane, promptBox, appendToPane, messages, renderingBackground, trimLivePane } from "./01-chat-panes.js";
@@ -565,9 +564,6 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   const body = typeof content === "string" ? stripToolOutcome(content).body : "";
   const jsonValue = !quota && !contentTruncated && body.length <= 65536 && summary.outcome === "success" ? parseJsonish(body) : null;
   if (jsonValue && typeof jsonValue === "object") rest = "";
-  // 局部校验:display 带结构化结果时由 chips 渲染(appendDisplayBlock),正文里同一份
-  // 「局部校验明细」文本不再重复。
-  if (display?.local_validation && rest) rest = rest.replace(/\n?局部校验明细:[\s\S]*$/, "");
   if (quota) {
     block.result.textContent = `⎿ ⚠ ${quotaNoticeHeadline(quota)}`;
     block.summaryBase = null;
@@ -582,13 +578,7 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
     chip.title = t("错误码");
     block.detail.appendChild(chip);
   }
-  const delivery = view.state === "success" && (display?.kind === "file" ? display
-    : block.name === "deliver" && /^\[delivered\] /.test(body) ? deliveredFileFor(block.sessionId, input?.path) : null);
-  if (delivery) {
-    const currentDelivery = registerDelivery(delivery, block.sessionId) || delivery;
-    block.wrap.querySelector(".file-card")?.remove();
-    block.wrap.append(renderFileCard(currentDelivery));
-  } else appendDisplayBlock(block.detail, display, { compact: true });
+  appendDisplayBlock(block.detail, display, { compact: true });
   if (jsonValue && typeof jsonValue === "object") lazyMount(block.detail, () => renderToolResult(block.name, jsonValue));
   mountToolShots(block, shots.images);
   if (display?.kind === "pending_question" && typeof display.question === "string") {

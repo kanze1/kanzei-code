@@ -17,7 +17,7 @@ import "./08-compose.js";
 import { lastProjectPrefs, switchProcess } from "./09-sessions.js";
 import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
-import { refreshMemory, refreshMetrics } from "./13-memory.js";
+import { refreshMemory } from "./13-memory.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { loadSettings } from "./16-settings.js";
 import { filesViewLeft, showFilesView } from "./17-files.js";
@@ -344,7 +344,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
     viewLoadTimer = setTimeout(() => {
       if (generation !== viewLoadGeneration) return;
       const loaders = { settings: loadSettings, workspace: refreshWorkspace, project: () => renderProjectOverview(lastWorkspaceSnapshot), documents: refreshDocs,
-        memory: refreshMemory, metrics: refreshMetrics,
+        memory: refreshMemory,
         files: showFilesView, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
       const loading = loaders[view]?.();
       restoreScrollAfter(view, loading);

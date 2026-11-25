@@ -19,7 +19,7 @@ let workspace_transition = null;
 export let workspace_preferences = readJson("kz-workspaces", {});
 let workspace_save = Promise.resolve();
 let workspace_restore = null;
-const dev_views = new Set(["project", "documents", "lines", "arch", "metrics"]);
+const dev_views = new Set(["project", "documents", "lines", "arch"]);
 let composer_scope = "";
 const nativeDraftKey = (project, processId) => composerDraftKey({ project, processId, module: "main" });
 

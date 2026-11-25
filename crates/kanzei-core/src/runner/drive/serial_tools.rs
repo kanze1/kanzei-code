@@ -182,26 +182,17 @@ pub(super) async fn execute_serial_tool_calls(
                     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<
                         kanzei_harness::progress::ProgressChunk,
                     >();
-                    // D-174:串行路径同样开合法写入窗口。writer 阶段
-                    // 走的就是这条,漏掉它等于让专用工具的写入没有窗口
-                    // 可归因,后台守卫会把它当成越界回滚掉。
-                    // R-259:执行包装(wrap_execute:progress 注入)收编——
-                    // 串行/并行共用同一 wrapper;halted 前置拦截也在 wrapper。
                     let exec = kanzei_harness::permission::scope(
                         execution_permissions(snapshot, session_approved, session_rules),
-                        kanzei_harness::managed_fence::tool_scope(
-                            &ctx.project_root,
-                            &name,
-                            kanzei_harness::tool_pipeline::wrap_execute(
-                                id.clone(),
-                                Some(progress_tx),
-                                Some(&halted),
-                                kanzei_harness::tool_pipeline::execute_coordinated(
-                                    tool.as_ref(),
-                                    input,
-                                    ctx,
-                                    halt,
-                                ),
+                        kanzei_harness::tool_pipeline::wrap_execute(
+                            id.clone(),
+                            Some(progress_tx),
+                            Some(&halted),
+                            kanzei_harness::tool_pipeline::execute_coordinated(
+                                tool.as_ref(),
+                                input,
+                                ctx,
+                                halt,
                             ),
                         ),
                     );

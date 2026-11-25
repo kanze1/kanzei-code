@@ -10,10 +10,6 @@ import { openRuntimeImage } from "./15-views-misc.js";
 const MAX_BASE64 = Math.ceil(16 * 1024 * 1024 / 3) * 4;
 const TOOL_IMAGE_REL = /^\.kanzei\/artifacts\/tool-images\/[0-9a-f]{64}\.png$/;
 const TOOL_IMAGE_CACHE_MAX = 64;
-const DELIVER_IMAGE_TYPES = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-  gif: "image/gif", webp: "image/webp", bmp: "image/bmp", ico: "image/x-icon",
-};
 
 export function attachmentImageSource(attachment) {
   const mime = String(attachment?.media_type || "").toLowerCase();
@@ -98,14 +94,6 @@ export function loadToolImage(rel, projectDir = currentProject) {
   });
 }
 
-function loadDeliveredImage(path, projectDir = currentProject) {
-  const ext = String(path).toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "png";
-  return cachedImage(`deliver\n${projectDir}\n${path}`, async () => {
-    const result = await invoke("delivered_image", { projectDir, path });
-    return typeof result?.png === "string" && result.png ? `data:${DELIVER_IMAGE_TYPES[ext] ?? "image/png"};base64,${result.png}` : null;
-  });
-}
-
 let lazyObserver = null;
 function whenVisible(node, fn) {
   if (typeof IntersectionObserver !== "function") {
@@ -167,15 +155,4 @@ export function mountToolShots(block, images) {
   else wrap.append(strip);
   wrap.classList.add("has-shot");
   return strip;
-}
-
-export function decorateFileCard(card, actions, display, projectDir = currentProject) {
-  const path = String(display?.path ?? "");
-  const ext = path.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-  if (DELIVER_IMAGE_TYPES[ext]) {
-    const name = display.name || path;
-    const thumb = thumbButton(`${t("查看图片")} ${name}`, () => loadDeliveredImage(path, projectDir), name);
-    thumb.classList.add("file-card-thumb");
-    card.insertBefore(thumb, actions);
-  }
 }

@@ -13,12 +13,9 @@ fn launch_child(root: &Path) -> String {
 }
 
 async fn assert_cancel_cleanup(drop_caller: bool) {
-    let _guard = crate::background::tests::fence_guard();
     let root = super::tests::temp_project("cancel-owner");
-    let protected = root.join(".kanzei/project/requirements.md");
-    std::fs::write(&protected, "# Requirements\n").unwrap();
     std::fs::write(root.join("child.ps1"), "while (-not (Test-Path release.txt)) { Start-Sleep -Milliseconds 20 }; [IO.File]::WriteAllText('late.txt','late write')").unwrap();
-    std::fs::write(root.join("parent.ps1"), format!("{}; [IO.File]::WriteAllText('.kanzei/project/requirements.md','BREACH'); Write-Output OWNER_READY; Start-Sleep -Seconds 300", launch_child(&root))).unwrap();
+    std::fs::write(root.join("parent.ps1"), format!("{}; Write-Output OWNER_READY; Start-Sleep -Seconds 300", launch_child(&root))).unwrap();
     let ctx = ToolCtx::new(root.clone(), root.clone());
     let cancel = CancellationToken::new();
     let stopping = cancel.clone();
@@ -48,7 +45,6 @@ async fn assert_cancel_cleanup(drop_caller: bool) {
         .unwrap()
         .parse()
         .unwrap();
-    assert_eq!(std::fs::read_to_string(&protected).unwrap(), "BREACH");
     if drop_caller {
         running.abort();
         assert!(running.await.unwrap_err().is_cancelled());
@@ -70,10 +66,6 @@ async fn assert_cancel_cleanup(drop_caller: bool) {
     assert!(
         !crate::shell::process_alive(child),
         "owned child survived cancellation"
-    );
-    assert_eq!(
-        std::fs::read_to_string(&protected).unwrap(),
-        "# Requirements\n"
     );
     assert!(!root.join("late.txt").exists());
     std::fs::remove_dir_all(root).unwrap();

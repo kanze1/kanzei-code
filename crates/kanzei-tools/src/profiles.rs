@@ -57,9 +57,8 @@ fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
 mod tests {
     use super::DevelopmentProfile;
     use kanzei_harness::{
-        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
+        rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx,
     };
-    use serde_json::json;
     use std::path::PathBuf;
     use std::sync::Arc;
 

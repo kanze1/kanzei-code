@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use super::{BackgroundOwner, BackgroundProcess, ManagedSnapshot};
+use super::{BackgroundOwner, BackgroundProcess};
 
 /// R-180 B3:跨 run 注册表条目——persistent 服务的持久化登记。
 ///
@@ -113,19 +113,13 @@ pub fn mark_registry_failed(project_root: &Path, id: &str) -> Result<bool, Strin
         if process.is_running() {
             return Ok(false);
         }
-        for completion in [&process.exit_completion, &process.guard_completion] {
-            match completion.completed() {
-                Err(error) => {
-                    super::lifecycle::record_cleanup_error(&process, &error);
-                    return Err(error);
-                }
-                Ok(Err(error)) => super::lifecycle::record_cleanup_error(&process, &error),
-                Ok(Ok(())) => {}
+        match process.exit_completion.completed() {
+            Err(error) => {
+                super::lifecycle::record_cleanup_error(&process, &error);
+                return Err(error);
             }
-        }
-        if let Err(error) = super::lifecycle::finish_restore(&process) {
-            super::lifecycle::record_cleanup_error(&process, &error);
-            return Err(error);
+            Ok(Err(error)) => super::lifecycle::record_cleanup_error(&process, &error),
+            Ok(Ok(())) => {}
         }
     }
     remove_registry_entry(project_root, id)
@@ -171,8 +165,6 @@ pub async fn adopt_persistent(
     let watch_output = output.clone();
     let watch_full = full_output.clone();
     let watch_total = output_total.clone();
-    let baseline = Arc::new(Mutex::new(ManagedSnapshot::capture(project_root)));
-    let guarded = crate::managed::managed_scope_exists(project_root);
     let process = Arc::new(BackgroundProcess {
         stdin: tokio::sync::Mutex::new(None),
         id: entry.id.clone(),
@@ -189,15 +181,11 @@ pub async fn adopt_persistent(
         output_total,
         truncated,
         exit,
-        baseline,
-        breaches: Arc::new(Mutex::new(Vec::new())),
-        guard_completion: super::GuardCompletion::new(guarded),
-        exit_completion: super::GuardCompletion::new(true),
+        exit_completion: super::TaskCompletion::new(true),
     });
     super::registry()
         .lock_or_recover()
         .insert(process.id.clone(), process.clone());
-    let completed = process.clone();
     let watcher = tokio::spawn(async move {
         loop {
             let (size, bytes) = log_snapshot(&watch_log).await;
@@ -209,14 +197,6 @@ pub async fn adopt_persistent(
             *watch_full.lock_or_recover() = super::read_log_tail(&watch_log).await;
             if !crate::shell::process_alive(watch_pid) {
                 *exit_watch.lock_or_recover() = Some(None);
-                let result = match completed.guard_completion.wait().await {
-                    Ok(()) => super::lifecycle::finish_restore(&completed),
-                    Err(error) => Err(error),
-                };
-                if let Err(error) = result {
-                    super::lifecycle::record_cleanup_error(&completed, &error);
-                    return Err(error);
-                }
                 remove_registry_entry(&watch_root, &watch_id)?;
                 super::registry().lock_or_recover().remove(&watch_id);
                 return Ok(());
@@ -225,10 +205,6 @@ pub async fn adopt_persistent(
         }
     });
     process.exit_completion.publish(watcher);
-    if guarded {
-        super::install_window_observer_once();
-        super::spawn_guard(process.clone());
-    }
     Ok(Some(process))
 }
 

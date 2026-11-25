@@ -24,18 +24,36 @@ pub(crate) async fn tool_image(project_dir: String, rel: String) -> Result<Value
     image_payload(&path)
 }
 
-/// 交付卡片的图片缩略图:沿用 open_delivered_path 的根内校验。
+/// 项目内图片文件预览：经 files_edit::resolve_in_root 校验路径不越出项目根。
 #[tauri::command]
-pub(crate) async fn delivered_image(project_dir: String, path: String) -> Result<Value, String> {
-    let target = crate::deliveries::resolve(&project_dir, &path)?;
-    let ext = target
+pub(crate) async fn file_image(project_dir: String, path: String) -> Result<Value, String> {
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    let raw = Path::new(&path);
+    let rel = if raw.is_absolute() {
+        let canon_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+        let canon_raw = std::fs::canonicalize(raw)
+            .map_err(|error| format!("路径不可解析: {error}"))?;
+        canon_raw
+            .strip_prefix(&canon_root)
+            .map_err(|_| format!("拒绝读取项目根之外的文件: {}", canon_raw.display()))?
+            .to_string_lossy()
+            .replace('\\', "/")
+    } else {
+        path
+    };
+    let resolved = crate::files_edit::resolve_in_root(&root, &rel)?;
+    if !resolved.exists {
+        return Err(format!("文件不存在: {}", resolved.rel));
+    }
+    let ext = resolved
+        .abs
         .extension()
         .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
         .unwrap_or_default();
     if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
-        return Err(format!("不是可预览的图片: {}", target.display()));
+        return Err(format!("不是可预览的图片: {}", resolved.abs.display()));
     }
-    image_payload(&target)
+    image_payload(&resolved.abs)
 }
 
 pub(crate) fn tool_image_path(root: &Path, rel: &str) -> Result<PathBuf, String> {

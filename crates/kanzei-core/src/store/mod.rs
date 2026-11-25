@@ -323,7 +323,6 @@ pub struct EpisodeRecord<'a> {
 pub mod artifact_liveness;
 pub mod context_manifest;
 pub mod decisions;
-mod deliveries;
 mod episodes;
 mod eval;
 mod events;

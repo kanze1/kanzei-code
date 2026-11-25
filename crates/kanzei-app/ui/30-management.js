@@ -1,6 +1,5 @@
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { confirmDialog } from "./00-dialogs.js";
 import { openMenu } from "./00-surface.js";
 import { t, localizedDocStatus, languageIsEnglish } from "./02-i18n.js";
 import { observeProjectDocuments, readProjectDocuments, projectDocumentIsClosed, projectDocumentsView } from "./01-project-resources.js";
@@ -11,8 +10,6 @@ import { captureWorkDocumentState, renderWorkDocument } from "./11-docs-list.js"
 import { renderRequirementDocument } from "./26-requirement-contract.js";
 import { needsRequirementResearch } from "./26-requirement-research.js";
 import { renderTrackerFields } from "./04-structured.js";
-import { deliveryState, loadDeliveredFiles, onDeliveriesChanged } from "./06-deliveries.js";
-import { renderFileCard } from "./06-activity.js";
 import { batchCells, dependencyLayers, runtimeSummary } from "./30-workspace-model.js";
 import { renderManagementTree } from "./30-management-tree.js";
 import { renderWorkMap } from "./26-work-map.js";
@@ -69,7 +66,7 @@ export function mountManagement(project, snapshot, error = "") {
     state.root = el("section", null, "management-page"); state.root.id = "management-page";
     state.root.setAttribute("aria-label", t("项目管理"));
     state.nav = el("nav", null, "management-tabs"); state.nav.setAttribute("aria-label", t("管理页面"));
-    for (const [key, label] of [["req", "需求"], ["defect", "缺陷"], ["deliveries", "交付"], ["map", "项目地图"]]) {
+    for (const [key, label] of [["req", "需求"], ["defect", "缺陷"], ["map", "项目地图"]]) {
       const button = action(t(label), () => { state.tab = key; state.detail = null; setLayoutPref("management", project, key); render(state, true); });
       button.dataset.managementTab = key; button.dataset.i18nKey = label; state.nav.append(button);
     }
@@ -96,7 +93,6 @@ async function refresh(state) {
   try {
     await readProjectDocuments(state.project, { force: true });
     if (state.tab === "map") { state.arch = null; state.stats = null; }
-    if (state.tab === "deliveries") await loadDeliveredFiles(state.project, { force: true });
   } catch (error) { toastError(String(error)); }
   finally { state.loading = false; if (live(state)) render(state, true); }
 }
@@ -143,7 +139,6 @@ function render(state, force = false) {
   state.signature = signature; state.fillList = null; state.body.replaceChildren();
   if (state.detail) { renderDetail(state); return; }
   if (state.tab === "map") { renderMapPage(state); return; }
-  if (state.tab === "deliveries") { renderDeliveries(state); return; }
   renderList(state);
 }
 
@@ -286,59 +281,6 @@ function renderArchives(state, host) {
   }
 }
 
-function renderDeliveries(state) {
-  const deliveries = deliveryState(state.project);
-  state.body.append(el("h1", t("交付")), el("p", t("当前项目的交付文件"), "dim"));
-  const tools = el("div", null, "management-tools");
-  const search = el("input"); search.type = "search"; search.placeholder = t("搜索交付文件"); search.setAttribute("aria-label", search.placeholder); search.value = state.deliveryQuery || "";
-  const filter = el("select"); filter.setAttribute("aria-label", t("交付整理"));
-  for (const [key, label] of [["active", "当前交付"], ["archived", "已归档"], ["removed", "已移除记录"], ["all", "全部"]]) { const option = el("option", t(label)); option.value = key; filter.append(option); }
-  filter.value = state.deliveryFilter || "active";
-  const session = el("select"); session.setAttribute("aria-label", t("所属对话")); const all = el("option", t("全部对话")); all.value = ""; session.append(all);
-  for (const id of new Set(deliveries.rows.map(row => row.session_id))) {
-    const label = state.snapshot?.lines?.find(line => line.session_id === id)?.label || id;
-    const option = el("option", label); option.value = id; session.append(option);
-  }
-  session.value = state.deliverySession || "";
-  tools.append(search, filter, session, refreshAction(state)); state.body.append(tools);
-  const list = el("div", null, "management-deliveries");
-  const fill = () => {
-    list.replaceChildren();
-    const query = search.value.toLocaleLowerCase();
-    const rows = deliveries.rows.filter(row => `${row.name || ""} ${row.path || ""} ${row.caption || ""}`.toLocaleLowerCase().includes(query)
-      && (!session.value || row.session_id === session.value)
-      && (filter.value === "all" || filter.value === "removed" ? filter.value === "all" || row.removed : filter.value === "archived" ? row.archived && !row.removed : !row.archived && !row.removed));
-    for (const row of rows) {
-      const item = el("article", null, "management-delivery"); item.dataset.deliveryId = row.id;
-      item.append(renderFileCard(row, { projectDir: state.project }));
-      const more = action(t("整理"), () => openMenu(more, [
-        { label: t(row.archived || row.removed ? "恢复到当前交付" : "归档"), onSelect: () => void manageDelivery(state, row, row.archived || row.removed ? "restore" : "archive") },
-        !row.removed && { label: t("移除记录"), onSelect: () => void manageDelivery(state, row, "remove") },
-        row.status === "trashed" ? { label: t("恢复文件"), onSelect: () => void manageDelivery(state, row, "restore_file") }
-          : row.status === "available" && { label: t("删除文件"), danger: true, onSelect: () => void manageDelivery(state, row, "trash") },
-      ].filter(Boolean)), "ghost mini");
-      item.append(more); list.append(item);
-    }
-    if (!rows.length) list.append(el("p", deliveries.error ? `${t("交付读取失败")}: ${deliveries.error}` : t(deliveries.loaded ? "没有符合条件的交付文件" : "正在读取…"), "management-empty"));
-  };
-  search.addEventListener("input", () => { state.deliveryQuery = search.value; fill(); });
-  filter.addEventListener("change", () => { state.deliveryFilter = filter.value; fill(); });
-  session.addEventListener("change", () => { state.deliverySession = session.value; fill(); });
-  state.fillList = fill; fill();
-  state.body.append(list);
-  if (!deliveries.loaded && !deliveries.request) void loadDeliveredFiles(state.project);
-}
-
-async function manageDelivery(state, row, operation) {
-  if (state.deliveryBusy) return;
-  if (operation === "trash" && !await confirmDialog({ title: t("删除文件"), message: row.path,
-    list: [t("文件移到项目的交付回收区，可以在已归档中恢复。")], okText: t("删除文件"), danger: true })) return;
-  state.deliveryBusy = true;
-  try { await invoke("delivery_manage", { projectDir: state.project, id: row.id, action: operation }); await loadDeliveredFiles(state.project, { force: true }); }
-  catch (error) { toastError(String(error)); }
-  finally { state.deliveryBusy = false; if (live(state)) render(state, true); }
-}
-
 function renderMapPage(state) {
   const head = el("div", null, "management-map-head"); head.append(el("h1", t("项目地图")), action(t("让模型生成项目地图"), async () => {
     const { openProjectSpace } = await import("./12-workbench.js");
@@ -353,7 +295,7 @@ function renderMapPage(state) {
   if (!state.mapRequest && (!state.arch || !state.stats)) {
     state.mapRequest = Promise.allSettled([
       Promise.resolve({ crates: null }),
-      invoke("run_metrics", { projectDir: state.project, limit: 200 }),
+      Promise.resolve({ rounds: [] }),
       invoke("memory_recalls", { projectDir: state.project, limit: 200 }),
     ]).then(([arch, stats, memory]) => {
       state.arch = arch.status === "fulfilled" ? arch.value : { error: String(arch.reason) };
@@ -482,6 +424,5 @@ defer(() => {
     const state = projects.get(event.detail.project);
     if (state) { applyDocumentsSnapshot(state, event.detail.snapshot); render(state); }
   });
-  onDeliveriesChanged(project => { const state = projects.get(project); if (state && live(state) && state.tab === "deliveries") render(state, true); });
   document.addEventListener("kz:management-refresh", event => { const state = projects.get(event.detail?.project || currentProject); if (state) void refresh(state); });
 });

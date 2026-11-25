@@ -741,26 +741,18 @@ pub(crate) async fn execute_prepared_tools(
                         tool,
                         concurrency: _,
                     } = call;
-                    // D-174:专用文档工具的执行区间就是它的合法写入窗口,后台守卫
-                    // 据此把"专用工具改的"和"后台进程偷改的"分开。非写工具零开销。
-                    // R-259:执行包装(wrap_execute:progress 注入)收编——串行/并行
-                    // 共用同一 wrapper,工具 body 不再各自实现 progress 注入。
                     let halted = || halt.is_some_and(|token| token.is_cancelled());
                     let output = kanzei_harness::permission::scope(
                         permissions.clone(),
-                        kanzei_harness::managed_fence::tool_scope(
-                            &ctx.project_root,
-                            &name,
-                            kanzei_harness::tool_pipeline::wrap_execute(
-                                id.clone(),
-                                Some(progress_tx.clone()),
-                                Some(&halted),
-                                kanzei_harness::tool_pipeline::execute_coordinated(
-                                    tool.as_ref(),
-                                    input,
-                                    ctx,
-                                    halt,
-                                ),
+                        kanzei_harness::tool_pipeline::wrap_execute(
+                            id.clone(),
+                            Some(progress_tx.clone()),
+                            Some(&halted),
+                            kanzei_harness::tool_pipeline::execute_coordinated(
+                                tool.as_ref(),
+                                input,
+                                ctx,
+                                halt,
                             ),
                         ),
                     )

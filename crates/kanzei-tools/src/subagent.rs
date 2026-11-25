@@ -101,18 +101,6 @@ pub fn writer_agent() -> AgentDef {
     }
 }
 
-/// 验证角色独立检查候选版本，不继承实现角色的修改目标。
-pub(crate) fn verify_agent() -> AgentDef {
-    AgentDef {
-        name: "verify".into(),
-        profile: ProfileScope::All,
-        model: "primary".into(),
-        mode: AgentMode::Subagent,
-        steps: 0,
-        system: "你是验证子 Agent。独立检查指定候选版本，给出结论和可复现的证据。发现实现问题时先报告，不把修复混入未授权的验证任务。按任务需要选择检查方式，如实说明已验证、未验证和剩余问题。".into(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

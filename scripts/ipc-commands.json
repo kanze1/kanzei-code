@@ -99,17 +99,6 @@
     "path": "auto_run::auto_state_update",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "batch_evidence": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "deliveries::batch_evidence",
-    "returns": "-> Result < Vec < Value > , String >"
-  },
   "cancel_input": {
     "host": "service",
     "parameters": {
@@ -447,51 +436,6 @@
     "path": "subagents::defect_review",
     "returns": "-> Result < DefectReviewResult , String >"
   },
-  "delivered_files": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "deliveries::delivered_files",
-    "returns": "-> Result < Vec < Value > , String >"
-  },
-  "delivered_image": {
-    "host": "service",
-    "parameters": {
-      "path": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "attachments::delivered_image",
-    "returns": "-> Result < Value , String >"
-  },
-  "delivery_manage": {
-    "host": "service",
-    "parameters": {
-      "action": {
-        "required": true,
-        "type": "String"
-      },
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "deliveries::delivery_manage",
-    "returns": "-> Result < Vec < Value > , String >"
-  },
   "docs_archive_entries": {
     "host": "service",
     "parameters": {
@@ -715,6 +659,21 @@
     },
     "path": "files_draft::file_drafts_load",
     "returns": "-> Result < Vec < Value > , String >"
+  },
+  "file_image": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "attachments::file_image",
+    "returns": "-> Result < Value , String >"
   },
   "file_preview": {
     "host": "service",
@@ -1350,29 +1309,6 @@
     "path": "commands::models::models_list",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "open_delivered_path": {
-    "host": "desktop",
-    "parameters": {
-      "mode": {
-        "required": true,
-        "type": "String"
-      },
-      "path": {
-        "required": true,
-        "type": "String"
-      },
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "commands::run::open_delivered_path",
-    "returns": "-> Result < () , String >"
-  },
   "open_tools_list": {
     "host": "desktop",
     "parameters": {},
@@ -1914,47 +1850,6 @@
     "path": "commands::os_open::reveal_path",
     "returns": "-> Result < () , String >"
   },
-  "run_metrics": {
-    "host": "service",
-    "parameters": {
-      "limit": {
-        "required": false,
-        "type": "Option < usize >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "commands::run::metrics::run_metrics",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "run_metrics_by_category": {
-    "host": "service",
-    "parameters": {
-      "limit": {
-        "required": false,
-        "type": "Option < usize >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "commands::run::metrics::run_metrics_by_category",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "run_metrics_by_task": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "commands::run::metrics::run_metrics_by_task",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
   "run_prompt": {
     "host": "service",
     "parameters": {
@@ -2074,21 +1969,6 @@
       }
     },
     "path": "commands::summarize::save_conversation_export",
-    "returns": "-> Result < Option < String > , String >"
-  },
-  "save_delivered_file": {
-    "host": "desktop",
-    "parameters": {
-      "path": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "deliveries::save_delivered_file",
     "returns": "-> Result < Option < String > , String >"
   },
   "settings_get": {
