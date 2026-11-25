@@ -320,43 +320,6 @@ pub struct EpisodeRecord<'a> {
     pub overflow_json: &'a str,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ResearchRunRecord {
-    pub result_id: String,
-    pub exploration_id: String,
-    pub topic: String,
-    pub status: String,
-    pub execution_json: String,
-    pub policy: String,
-    pub lease_id: String,
-    pub max_duration_ms: i64,
-    pub cleanup: String,
-    pub started_at: i64,
-    pub finished_at: Option<i64>,
-    pub exit_code: Option<i64>,
-    pub cancel_reason: Option<String>,
-    pub params_text: String,
-    pub code_ref_json: String,
-    pub environment_snapshot_ref: String,
-    pub artifacts_json: String,
-    pub metrics_last_json: String,
-    pub progress_json: String,
-    pub metrics_series_path: String,
-    pub cost_json: String,
-    pub callback_stats_json: String,
-    pub heartbeat_at: Option<i64>,
-    pub terminal_log_path: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ResearchRunEvent {
-    pub result_id: String,
-    pub sequence: i64,
-    pub event_type: String,
-    pub payload_json: String,
-    pub created_at: i64,
-}
-
 pub mod artifact_liveness;
 pub mod context_manifest;
 pub mod decisions;
@@ -379,7 +342,6 @@ pub use memory_retention::{AvailableMemory, MemoryRetentionCounts};
 mod notifications;
 mod path_migration;
 mod processes;
-mod research_runs;
 mod schema;
 mod session;
 mod task;

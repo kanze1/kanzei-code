@@ -9,8 +9,10 @@ use std::path::{Path, PathBuf};
 
 const MAX_REFERENCES: usize = 500;
 mod evidence;
+#[cfg(test)]
+pub use evidence::acquisition_for_url;
 pub use evidence::{
-    acquisition_for_url, record_acquisition, record_search, AcquisitionMethod, SourceScope,
+    record_acquisition, record_search, AcquisitionMethod, SourceScope,
     WebAcquisition, WebArtifact,
 };
 

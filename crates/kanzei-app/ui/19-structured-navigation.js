@@ -13,14 +13,11 @@ import { filesRoot } from "./17-files-editor.js";
 import { setStructuredNav, structuredNav } from "./04-structured.js";
 import { openMemoryDetailById } from "./13-memory.js";
 import { openCustomDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
-export async function openUrlInApp(url, topic = "") {
+export async function openUrlInApp(url) {
   const target = String(url ?? "");
   if (!target) return;
   try {
-    const isArxiv = Boolean(topic) && /^https?:\/\/(?:export\.)?arxiv\.org\//i.test(target);
-    const page = isArxiv
-      ? await invoke("research_arxiv_preview", { projectDir: currentProject, topic, url: target })
-      : await invoke("webfetch_preview", { url: target });
+    const page = await invoke("webfetch_preview", { url: target });
     const depth = page.depth ? `[${page.depth}]\n` : "";
     openRuntimeMarkdown(page.title || target, `${depth}${page.text || ""}`);
   } catch (error) {

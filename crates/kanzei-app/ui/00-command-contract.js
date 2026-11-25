@@ -570,64 +570,6 @@ export const commandParameters = {
     "kind": false,
     "projectDir": true
   },
-  "research_arxiv_preview": {
-    "projectDir": true,
-    "topic": true,
-    "url": true
-  },
-  "research_latex_compile": {
-    "documentName": true,
-    "projectDir": true,
-    "topic": true
-  },
-  "research_latex_create": {
-    "documentName": false,
-    "projectDir": true,
-    "templateId": true,
-    "title": false,
-    "topic": true
-  },
-  "research_latex_history": {
-    "documentName": false,
-    "projectDir": true,
-    "topic": true
-  },
-  "research_latex_insert_figure": {
-    "caption": false,
-    "documentName": true,
-    "figureName": true,
-    "label": false,
-    "projectDir": true,
-    "topic": true
-  },
-  "research_latex_pdf": {
-    "pdfPath": true,
-    "projectDir": true,
-    "topic": true
-  },
-  "research_latex_templates": {},
-  "research_library_create": {
-    "title": true,
-    "topic": true
-  },
-  "research_library_link_projects": {
-    "id": true,
-    "projects": true
-  },
-  "research_library_list": {},
-  "research_plan_approve": {
-    "projectDir": true,
-    "topic": true
-  },
-  "research_plan_get": {
-    "projectDir": true,
-    "topic": true
-  },
-  "research_topic_create": {
-    "projectDir": true,
-    "title": true,
-    "topic": true
-  },
   "reveal_path": {
     "path": false,
     "processId": false,

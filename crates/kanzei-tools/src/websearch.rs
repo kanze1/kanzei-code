@@ -77,9 +77,6 @@ struct WebSearchInput {
     #[serde(default)]
     #[schemars(range(min = 1, max = 10))]
     max_results: Option<usize>,
-    /// R-248:正在填写 prior-art.md 时必传，对应 topic；每次调用消耗一轮预算。
-    #[serde(default)]
-    prior_art_topic: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -153,7 +150,7 @@ impl Tool for WebSearchTool {
     fn description(&self) -> String {
         "Search the web with query or 1–4 queries; return source refs for webfetch and actual request/filter/attempt status. \
          Domain filters are enforced locally. Explicit backends are retained and unsupported filters rejected; auto may change backend. \
-         Recency and locale support depend on the backend. prior_art_topic binds searches to a prior-art budget.".into()
+         Recency and locale support depend on the backend.".into()
     }
 
     fn input_schema(&self) -> serde_json::Value {
@@ -185,24 +182,8 @@ impl Tool for WebSearchTool {
         search_resources(self, input, ctx, self.profile)
     }
 
-    /// R-323 并发审计:**按入参分流**,不能一刀切成只读。
-    ///
-    /// 检索本身是纯网络读,但带 `prior_art_topic` 时 `execute` 会调
-    /// `prior_art::consume_search_round` **扣减该 topic 的轮次预算**——那是一次
-    /// 读-改-写。两个同 topic 的调用并发扣减会互相吃掉对方的写入,预算形同虚设。
-    ///
-    /// 锁键用 prior-art 专属前缀而不是工作树键:预算落在 `.kanzei/research/`,
-    /// 与代码树写入毫无关系,拿工作树键会让它和 edit/bash 无谓地互斥。
-    fn concurrency(&self, input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
-        match input.get("prior_art_topic").and_then(|v| v.as_str()) {
-            Some(topic) if !topic.trim().is_empty() => ToolConcurrency::ResourceWrite(format!(
-                "prior-art:{}",
-                ctx.project_write_key()
-                    .replace(0x5c as char, "/")
-                    .to_lowercase()
-            )),
-            _ => ToolConcurrency::shared_worktree(ctx),
-        }
+    fn concurrency(&self, _input: &serde_json::Value, ctx: &ToolCtx) -> ToolConcurrency {
+        ToolConcurrency::shared_worktree(ctx)
     }
 
     async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
@@ -246,14 +227,7 @@ impl WebSearchTool {
                 "max_results must be between 1 and 10; nothing was dispatched",
             );
         }
-        let prior_art_budget = if let Some(topic) = input.prior_art_topic.as_deref() {
-            match crate::prior_art::consume_search_round(&ctx.project_root, topic) {
-                Ok((used, limit)) => Some((used, limit)),
-                Err(error) => return ToolOutput::needs_correction("PRIOR_ART_SEARCH_LIMIT", error),
-            }
-        } else {
-            None
-        };
+        let prior_art_budget: Option<(usize, usize)> = None;
         let proxy = crate::tool_proxy(ctx);
         let client = match build_http_client(&proxy) {
             Ok(client) => client,
@@ -759,69 +733,6 @@ fn search_failure_message(error: &str) -> String {
     format!(
         "search failed: {error}. 本次没有取得可验证搜索结果；不要静默重试。已知原始来源可用 webfetch 或 browser 读取；调查任务继续携带原 topic/task_id。"
     )
-}
-
-/// D-571:research profile 专用包装。base/dev 的普通搜索保持原 API；research
-/// 直调必须绑定活动 loop task，不能绕过 begin_search。
-pub struct ResearchWebSearchTool;
-
-#[async_trait]
-impl Tool for ResearchWebSearchTool {
-    fn name(&self) -> &'static str {
-        "websearch"
-    }
-
-    fn description(&self) -> String {
-        "Research websearch：必须提供 topic 与 research_loop begin_search 返回的 task_id；搜索参数继续支持 query/queries、recency、domains、max_results。prior-art 搜索还要传 prior_art_topic 消耗独立轮次预算。".into()
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        let mut schema = WebSearchTool::new(kanzei_harness::ProfileKind::Research).input_schema();
-        schema["properties"]["topic"]["type"] = serde_json::json!("string");
-        schema["properties"]["topic"]["pattern"] = serde_json::json!("^[a-z0-9]+(?:-[a-z0-9]+)*$");
-        schema["properties"]["task_id"]["type"] = serde_json::json!("string");
-        schema["required"] = serde_json::json!(["topic", "task_id"]);
-        schema
-    }
-
-    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        WebSearchTool::new(kanzei_harness::ProfileKind::Research).resources(input)
-    }
-
-    fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        search_resources(
-            &WebSearchTool::new(kanzei_harness::ProfileKind::Research),
-            input,
-            ctx,
-            ProfileKind::Research,
-        )
-    }
-
-    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> ToolOutput {
-        let topic = input
-            .get("topic")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        let task_id = input
-            .get("task_id")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("");
-        if topic.is_empty() || task_id.is_empty() {
-            return ToolOutput::needs_correction(
-                "RESEARCH_LOOP_TASK_REQUIRED",
-                "research websearch 必须提供 topic 与 begin_search 返回的 task_id",
-            );
-        }
-        if let Err(error) =
-            crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)
-        {
-            return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
-        }
-        WebSearchTool::new(kanzei_harness::ProfileKind::Research)
-            .execute_for(input, ctx, ProfileKind::Research)
-            .await
-            .with_external_source(kanzei_harness::ExternalSourceKind::Web, "websearch")
-    }
 }
 
 fn parse_results(document: &dom_query::Document) -> Vec<SearchResult> {
@@ -1622,55 +1533,6 @@ mod tests {
         }
         assert!(observations.iter().all(|value| value["observation"]["backend"]=="codex_search" && value["observation"]["attempts"].as_array().unwrap().len()==1 && !value["observation"]["results"].as_array().unwrap().is_empty()),
             "Each frozen object must have actual subscription results without fallback; preserve missing objects as a failed observation");
-    }
-
-    #[tokio::test]
-    async fn research_websearch缺活动任务在联网前被拒绝() {
-        let root =
-            std::env::temp_dir().join(format!("kz-research-search-gate-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let ctx = ToolCtx::new(root.clone(), root.clone());
-        let output = ResearchWebSearchTool
-            .execute(
-                serde_json::json!({"query": "test", "topic": "topic", "task_id": "forged"}),
-                &ctx,
-            )
-            .await;
-        assert_eq!(output.code.as_deref(), Some("RESEARCH_LOOP_TASK_REQUIRED"));
-        assert!(output.content.contains("尚未启动检索环"));
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[tokio::test]
-    async fn prior_art预算耗尽时websearch本体在联网前拒绝() {
-        let root =
-            std::env::temp_dir().join(format!("kz-prior-art-search-tool-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let start = crate::prior_art::start_scaffold(
-            &root,
-            "prior-art-gate",
-            crate::prior_art::PriorArtTrigger::ExplicitUser,
-            None,
-        )
-        .unwrap();
-        let text = std::fs::read_to_string(&start.absolute_path)
-            .unwrap()
-            .replace("websearch_round_limit: 4", "websearch_round_limit: 1");
-        std::fs::write(&start.absolute_path, text).unwrap();
-        assert_eq!(
-            crate::prior_art::consume_search_round(&root, "prior-art-gate").unwrap(),
-            (1, 1)
-        );
-        let ctx = ToolCtx::new(root.clone(), root.clone());
-        let output = WebSearchTool::new(kanzei_harness::ProfileKind::DevAuto)
-            .execute(
-                serde_json::json!({"query": "must not reach network", "prior_art_topic": "prior-art-gate"}),
-                &ctx,
-            )
-            .await;
-        assert_eq!(output.code.as_deref(), Some("PRIOR_ART_SEARCH_LIMIT"));
-        assert!(output.content.contains("1/1"));
-        std::fs::remove_dir_all(root).ok();
     }
 }
 

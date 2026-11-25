@@ -10,9 +10,7 @@ use serde_json::json;
 
 pub(crate) const CONVENTIONS_REL: &str = ".kanzei/project/conventions.md";
 
-mod research_snapshot;
 pub(crate) mod work_nodes;
-use research_snapshot::research_topics;
 
 use crate::{normalized_project_root, state::hidden_command};
 use kanzei_harness::orchestration::ProjectExecutionCoordinator;
@@ -394,11 +392,7 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                     .iter()
                     .find(|(key, _)| key == "执行模型" || key.eq_ignore_ascii_case("execution_model"))
                     .map(|(_, value)| value.clone());
-                let prior_art = if kind.prefix == "R" {
-                    kanzei_tools::prior_art::entry_status(&root, &e)
-                } else {
-                    None
-                };
+                let prior_art: Option<serde_json::Value> = None;
                 json!({
                     "id": e.id, "title": e.title, "status": e.status, "severity": e.severity,
                     "priority": e.fields.iter().find(|(key, _)| key == "优先级" || key.eq_ignore_ascii_case("priority")).map(|(_, value)| value),
@@ -439,31 +433,9 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
         "work_units": work_units,
         "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
-        "research_topics": research_topics(&root)?,
+        "research_topics": Vec::<serde_json::Value>::new(),
         "archived": { "req": archived_entries(&REQUIREMENTS).len(), "defect": archived_entries(&DEFECTS).len(), "idea": archived_entries(&IDEAS).len(), "source": archived_entries(&SOURCES).len(), "finding": archived_entries(&FINDINGS).len() },
     }))
-}
-
-/// R-277：研究工作台读取并审批计划；审批只接受 agent 已请求审批的状态。
-#[tauri::command]
-pub fn research_plan_get(project_dir: String, topic: String) -> Result<serde_json::Value, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    match kanzei_tools::research_plan::load_plan(&root, &topic)? {
-        Some(plan) => Ok(json!({ "exists": true, "plan": plan })),
-        None => Ok(json!({ "exists": false, "topic": topic })),
-    }
-}
-
-#[tauri::command]
-pub fn research_plan_approve(
-    project_dir: String,
-    topic: String,
-) -> Result<serde_json::Value, String> {
-    let root = kanzei_harness::config::discover_project_root(Path::new(&project_dir))
-        .unwrap_or_else(|| PathBuf::from(&project_dir));
-    let plan = kanzei_tools::research_plan::approve_plan(&root, &topic)?;
-    Ok(json!({ "exists": true, "plan": plan }))
 }
 
 /// D-296:归档只在用户展开历史入口时通过此命令加载,普通快照不把历史正文塞进 IPC。
@@ -673,85 +645,6 @@ fn arxiv_id_from_url(url: &str) -> Result<String, String> {
         return Err(format!("无法从 arXiv URL 提取安全文献 ID: {url}"));
     }
     Ok(id)
-}
-
-fn research_fulltext_path(
-    root: &Path,
-    topic: &str,
-    id: &str,
-    extension: &str,
-) -> Result<PathBuf, String> {
-    kanzei_memory::docstore::DocStore::validate_topic(topic).map_err(|error| error.to_string())?;
-    let safe_id = id.replace(['/', '\\'], "_");
-    let dir = root.join(".kanzei/research").join(topic).join("fulltext");
-    std::fs::create_dir_all(&dir).map_err(|error| format!("创建正文目录失败: {error}"))?;
-    Ok(dir.join(format!("{safe_id}.{extension}")))
-}
-
-/// 批5：arXiv 正文通道。HTML→ar5iv→PDF，成功结果落入 topic/fulltext 并返回正文级证据。
-#[tauri::command]
-pub async fn research_arxiv_preview(
-    project_dir: String,
-    topic: String,
-    url: String,
-) -> Result<serde_json::Value, String> {
-    let id = arxiv_id_from_url(&url)?;
-    let root = normalized_project_root(Path::new(&project_dir));
-    let ctx = kanzei_harness::ToolCtx::default();
-    let candidates = [
-        (format!("https://arxiv.org/html/{id}"), "html"),
-        (format!("https://ar5iv.labs.arxiv.org/html/{id}"), "html"),
-        (format!("https://arxiv.org/pdf/{id}.pdf"), "pdf"),
-    ];
-    let mut failures = Vec::new();
-    for (candidate, kind) in candidates {
-        let fetched =
-            match kanzei_tools::webfetch::fetch_bytes(&candidate, &ctx, 16 * 1024 * 1024).await {
-                Ok(value) => value,
-                Err(error) => {
-                    failures.push(format!("{candidate}: {error}"));
-                    continue;
-                }
-            };
-        if !(200..300).contains(&fetched.status) || fetched.body.is_empty() {
-            failures.push(format!("{candidate}: HTTP {}", fetched.status));
-            continue;
-        }
-        if kind == "html" {
-            let raw = String::from_utf8_lossy(&fetched.body).into_owned();
-            let text = kanzei_tools::webfetch::html_to_text(&raw);
-            if text.trim().len() < 200 {
-                failures.push(format!("{candidate}: 正文为空或过短"));
-                continue;
-            }
-            let path = research_fulltext_path(&root, &topic, &id, "html")?;
-            std::fs::write(&path, raw).map_err(|error| format!("保存 arXiv HTML 失败: {error}"))?;
-            return Ok(json!({
-                "title": format!("arXiv {id}"),
-                "text": text,
-                "depth": "正文级",
-                "source_url": candidate,
-                "path": path.display().to_string(),
-                "fallback": failures,
-            }));
-        }
-        if fetched.body.starts_with(b"%PDF-") {
-            let path = research_fulltext_path(&root, &topic, &id, "pdf")?;
-            std::fs::write(&path, &fetched.body)
-                .map_err(|error| format!("保存 arXiv PDF 失败: {error}"))?;
-            let text = kanzei_tools::pdf_to_text(&path)?;
-            return Ok(json!({
-                "title": format!("arXiv {id}"),
-                "text": text,
-                "depth": "正文级",
-                "source_url": candidate,
-                "path": path.display().to_string(),
-                "fallback": failures,
-            }));
-        }
-        failures.push(format!("{candidate}: 响应不是 PDF"));
-    }
-    Err(format!("arXiv 正文获取失败: {}", failures.join("; ")))
 }
 
 /// D-413:研究工作台「点开参考文献」的后端。抓取与 HTML→文本复用 webfetch 工具

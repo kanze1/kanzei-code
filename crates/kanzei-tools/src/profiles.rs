@@ -22,8 +22,6 @@ pub use isolated::IsolatedProfile;
 mod policy;
 mod project_indexes;
 mod readonly;
-mod research;
-mod research_docs;
 pub use development::{DevelopmentProfile, DEVELOPMENT_DEFERRED_TOOLS};
 pub use general::{GeneralChatProfile, GeneralChatScope};
 pub use readonly::ReadonlyProfile;
@@ -86,38 +84,9 @@ fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
 // 项目概览复用记忆模块的字符预算；已保存偏好由基础组件单独装配。
 use kanzei_memory::memory::MEMORY_CONTEXT_BUDGET;
 
-pub struct ResearchProfile;
-
-impl Component for ResearchProfile {
-    fn contribute(&self, draft: &mut HarnessDraft, ctx: &ResolveCtx) -> anyhow::Result<()> {
-        if ctx.profile != ProfileKind::Research {
-            return Ok(());
-        }
-        research::register_tools(draft);
-        research::configure_permissions(draft);
-
-        research_docs::register(draft);
-        register_project_conventions(draft);
-
-        draft.agents.insert(
-            "research",
-            AgentDef {
-                name: "research".into(),
-                profile: ProfileScope::Research,
-                model: "primary".into(),
-                mode: AgentMode::Primary,
-                // 0 = 无轮数上限(用户定调)。
-                steps: 0,
-                system: include_str!("profiles/research_system.md").into(),
-            },
-        );
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{DevelopmentProfile, ResearchProfile};
+    use super::DevelopmentProfile;
     use kanzei_harness::{
         rule, ConfigComponent, Effect, Harness, KanzeiConfig, ProfileKind, ResolveCtx, ToolCtx,
     };
@@ -396,7 +365,6 @@ mod tests {
         for profile in [
             ProfileKind::DevAuto,
             ProfileKind::DevPair,
-            ProfileKind::Research,
         ] {
             let root = PathBuf::from("C:/kanzei-d195-test");
             let ctx = ResolveCtx {
@@ -411,7 +379,6 @@ mod tests {
             harness
                 .add(crate::BaseComponent)
                 .add(DevelopmentProfile)
-                .add(super::ResearchProfile)
                 .add(ConfigComponent);
             let snapshot = harness.resolve(&ctx).unwrap();
             let resident: Vec<String> = snapshot
@@ -744,336 +711,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn research_context_injects_backlog_conventions_and_restricted_tracker_tools() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-r221-b4-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
-        std::fs::create_dir_all(root.join(".kanzei/research")).unwrap();
-        std::fs::write(
-            root.join(".kanzei/research/memory.md"),
-            "legacy research memory must not be injected\n",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join(".kanzei/project/conventions.md"),
-            "# project conventions\nB4 convention marker\n",
-        )
-        .unwrap();
-        kanzei_memory::docstore::DocStore::open(&root, &kanzei_memory::docstore::SOURCES)
-            .save(&[kanzei_memory::docstore::Entry {
-                id: "S-901".into(),
-                title: "legacy flat source".into(),
-                status: "active".into(),
-                severity: None,
-                fields: vec![],
-            }])
-            .unwrap();
-        kanzei_memory::docstore::DocStore::open_topic(
-            &root,
-            &kanzei_memory::docstore::SOURCES,
-            "r221-chain",
-        )
-        .unwrap()
-        .save(&[kanzei_memory::docstore::Entry {
-            id: "S-001".into(),
-            title: "topic source visible".into(),
-            status: "active".into(),
-            severity: None,
-            fields: vec![],
-        }])
-        .unwrap();
-        kanzei_memory::docstore::DocStore::open_topic(
-            &root,
-            &kanzei_memory::docstore::FINDINGS,
-            "r221-chain",
-        )
-        .unwrap()
-        .save(&[kanzei_memory::docstore::Entry {
-            id: "F-001".into(),
-            title: "topic finding visible".into(),
-            status: "draft".into(),
-            severity: None,
-            fields: vec![],
-        }])
-        .unwrap();
-        kanzei_memory::docstore::DocStore::open(&root, &kanzei_memory::docstore::REQUIREMENTS)
-            .save(&[kanzei_memory::docstore::Entry {
-                id: "R-901".into(),
-                title: "研究回流需求".into(),
-                status: "todo".into(),
-                severity: None,
-                fields: vec![],
-            }])
-            .unwrap();
-        kanzei_memory::docstore::DocStore::open(&root, &kanzei_memory::docstore::DEFECTS)
-            .save(&[kanzei_memory::docstore::Entry {
-                id: "D-901".into(),
-                title: "研究回流缺陷".into(),
-                status: "open".into(),
-                severity: Some("medium".into()),
-                fields: vec![],
-            }])
-            .unwrap();
-
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Research,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(super::ResearchProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let baseline = snapshot.system_baseline().unwrap();
-        for required in [
-            "R-901",
-            "D-901",
-            "B4 convention marker",
-            "非终态记录导航",
-            "revision:",
-            "[r221-chain] S-001",
-            "topic source visible",
-            "[r221-chain] F-001",
-            "topic finding visible",
-        ] {
-            assert!(
-                baseline.contains(required),
-                "research context 缺少 B5 内容: {required}"
-            );
-        }
-        assert!(
-            !baseline.contains("legacy research memory must not be injected"),
-            "research context 不得注入历史 research/memory.md"
-        );
-        assert!(!baseline.contains("legacy flat source") && !baseline.contains("S-901"));
-        assert_eq!(
-            snapshot.evaluate("prior_art", "read:validate"),
-            Effect::Allow
-        );
-        assert_eq!(snapshot.evaluate("prior_art", "write:start"), Effect::Ask);
-        kanzei_memory::docstore::DocStore::open_topic(
-            &root,
-            &kanzei_memory::docstore::SOURCES,
-            "r221-chain",
-        )
-        .unwrap()
-        .save(&[
-            kanzei_memory::docstore::Entry {
-                id: "S-001".into(),
-                title: "topic source visible".into(),
-                status: "active".into(),
-                severity: None,
-                fields: vec![],
-            },
-            kanzei_memory::docstore::Entry {
-                id: "S-002".into(),
-                title: "same session next step source".into(),
-                status: "active".into(),
-                severity: None,
-                fields: vec![],
-            },
-        ])
-        .unwrap();
-        let refreshed = snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap()
-            .0;
-        assert!(
-            refreshed.contains("same session next step source"),
-            "research/docs 必须逐模型步骤刷新，刚写入的 topic 来源要在下一步可见"
-        );
-        for tool_name in ["source", "finding", "req", "defect"] {
-            assert_eq!(
-                snapshot.evaluate(tool_name, "read:get"),
-                Effect::Allow,
-                "research {tool_name} 应允许单条目读取"
-            );
-            assert_eq!(
-                snapshot.evaluate(tool_name, "write:add"),
-                Effect::Allow,
-                "research {tool_name} 应允许新增草稿"
-            );
-            assert_eq!(
-                snapshot.evaluate(tool_name, "write:update"),
-                Effect::Deny,
-                "research {tool_name} 不应允许修改既有条目"
-            );
-        }
-        for resource in [
-            "read:get",
-            "write:create",
-            "write:clarify",
-            "write:request_approval",
-        ] {
-            assert_eq!(
-                snapshot.evaluate("research_plan", resource),
-                Effect::Allow,
-                "research_plan 应允许 {resource}"
-            );
-        }
-        let plan_tool = snapshot
-            .materialize_tools()
-            .into_iter()
-            .find(|tool| tool.name() == "research_plan")
-            .expect("research 档缺少 research_plan tool");
-        let schema = plan_tool.input_schema();
-        let actions = schema
-            .pointer("/properties/action/enum")
-            .and_then(|value| value.as_array())
-            .unwrap();
-        assert_eq!(
-            serde_json::to_value(actions).unwrap(),
-            serde_json::json!(["get", "create", "clarify", "request_approval"])
-        );
-        for name in ["websearch", "webfetch"] {
-            let tool = snapshot
-                .materialize_tools()
-                .into_iter()
-                .find(|tool| tool.name() == name)
-                .unwrap_or_else(|| panic!("research 档缺少 {name} tool"));
-            let required = tool
-                .input_schema()
-                .pointer("/required")
-                .and_then(|value| value.as_array())
-                .cloned()
-                .unwrap_or_default();
-            assert!(required.contains(&serde_json::json!("topic")));
-            assert!(required.contains(&serde_json::json!("task_id")));
-        }
-        assert!(snapshot
-            .materialize_tools()
-            .iter()
-            .any(|tool| tool.name() == "research_plan"));
-        let system = &snapshot
-            .select_primary_agent(Some("research"))
-            .unwrap()
-            .system;
-        assert!(!system.contains("research_plan") && !system.contains("research_workflow"));
-        for name in ["req", "defect"] {
-            let tool = snapshot
-                .materialize_tools()
-                .into_iter()
-                .find(|tool| tool.name() == name)
-                .unwrap_or_else(|| panic!("research 档缺少 {name} tool"));
-            let schema = tool.input_schema();
-            let actions = schema
-                .pointer("/properties/action/enum")
-                .and_then(|value| value.as_array())
-                .unwrap();
-            assert_eq!(
-                actions,
-                &[serde_json::json!("get"), serde_json::json!("add")]
-            );
-        }
-        let tools = snapshot.materialize_tools();
-        let memory_search = tools
-            .iter()
-            .find(|tool| tool.name() == "memory_search")
-            .expect("research 档缺少 memory_search");
-        let memory_note = tools
-            .iter()
-            .find(|tool| tool.name() == "memory_note")
-            .expect("research 档缺少 memory_note");
-        assert_eq!(snapshot.evaluate("memory_search", "*"), Effect::Allow);
-        assert_eq!(snapshot.evaluate("memory_note", "*"), Effect::Allow);
-        let tool_ctx = ToolCtx::new(root.clone(), root.clone());
-        let searched = memory_search
-            .execute(
-                json!({"query": "B5 unified memory", "scope": "project"}),
-                &tool_ctx,
-            )
-            .await;
-        assert!(!searched.is_error, "research memory_search 应可真实调用");
-        let noted = memory_note
-            .execute(
-                json!({
-                    "summary": "B5 research memory note",
-                    "detail": "统一记忆通道回归",
-                    "category_hint": "fact"
-                }),
-                &tool_ctx,
-            )
-            .await;
-        assert!(
-            !noted.is_error,
-            "research memory_note 应可真实投递: {}",
-            noted.content
-        );
-        assert!(noted.content.contains("pending notes"));
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn research_profile_hard_denies_bash_and_git_writes() {
-        let root = PathBuf::from("C:/kanzei-r221-research");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Research,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevelopmentProfile)
-            .add(super::ResearchProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-
-        assert_eq!(snapshot.evaluate("bash", "*"), Effect::Deny);
-        for action in ["write", "edit", "insert"] {
-            for file in ["loop.json", "plan.json", "budget.json"] {
-                assert_eq!(
-                    snapshot.evaluate(action, &format!(".kanzei/research/demo/{file}")),
-                    Effect::Deny
-                );
-                if cfg!(windows) {
-                    assert_eq!(
-                        snapshot.evaluate(
-                            action,
-                            &format!(".kanzei/research/demo/{}", file.to_uppercase())
-                        ),
-                        Effect::Deny
-                    );
-                }
-            }
-            assert_eq!(
-                snapshot.evaluate(action, ".kanzei/research/demo/protocol.md"),
-                Effect::Allow
-            );
-        }
-        let bash_hint = snapshot.denial_hint("bash", "anything");
-        assert!(
-            bash_hint.contains("latex") && bash_hint.contains("plot"),
-            "{bash_hint}"
-        );
-        for subcommand in ["status", "diff", "log"] {
-            assert_eq!(snapshot.evaluate("git", subcommand), Effect::Allow);
-        }
-        // UI2-0926 #13 复核:git 工具新增的 init(建库)同样硬拒绝。
-        for subcommand in ["stage", "commit", "merge_ff", "finalize", "init"] {
-            assert_eq!(
-                snapshot.evaluate("git", subcommand),
-                Effect::Deny,
-                "git {subcommand}"
-            );
-        }
-        for action in ["read", "glob", "grep", "files", "webfetch", "websearch"] {
-            assert_eq!(snapshot.evaluate(action, "*"), Effect::Allow, "{action}");
-        }
-    }
-
     /// Readonly installs its primary definition and exposes observation permissions.
     #[test]
     fn readonly_profile_resolves_readonly_agent() {
@@ -1088,7 +725,6 @@ mod tests {
         harness
             .add(crate::BaseComponent)
             .add(DevelopmentProfile)
-            .add(super::ResearchProfile)
             .add(super::ReadonlyProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
@@ -1128,14 +764,13 @@ mod tests {
         harness
             .add(crate::BaseComponent)
             .add(DevelopmentProfile)
-            .add(super::ResearchProfile)
             .add(super::ReadonlyProfile)
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
         // 写入、命令与专用副作用工具:整体 deny(工具会被摘除,模型看不见)。
         for action in [
-            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser",
         ] {
             assert_eq!(
                 snapshot.evaluate(action, "*"),
@@ -1174,7 +809,7 @@ mod tests {
             .map(|t| t.name())
             .collect();
         for gone in [
-            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser",
         ] {
             assert!(
                 !names.contains(&gone),
@@ -1192,7 +827,7 @@ mod tests {
         };
         // 写入、命令与专用副作用工具:Deny 且 fully_denied(工具整体摘除)。
         for action in [
-            "write", "edit", "insert", "bash", "sandbox", "process", "browser", "latex", "plot",
+            "write", "edit", "insert", "bash", "sandbox", "process", "browser",
         ] {
             let item = by_action(action);
             assert_eq!(item.effect, Effect::Deny, "{action} 快照应为 Deny");
@@ -1208,74 +843,5 @@ mod tests {
         // delegation mode and role eligibility; a wildcard row is not authorization.
         let task = by_action("task");
         assert!(!task.fully_denied, "task 在只读档位不应被摘除");
-    }
-
-    #[test]
-    fn research_docs_context_下一轮读取新topic来源() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-research-context-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let topic = kanzei_memory::docstore::DocStore::open_topic(
-            &root,
-            &kanzei_memory::docstore::SOURCES,
-            "r221-chain",
-        )
-        .unwrap();
-        topic
-            .save(&[kanzei_memory::docstore::Entry {
-                id: "S-001".into(),
-                title: "first topic source".into(),
-                status: "active".into(),
-                severity: None,
-                fields: vec![],
-            }])
-            .unwrap();
-        let ctx = ResolveCtx {
-            profile: ProfileKind::Research,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness.add(ResearchProfile);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let before = snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap()
-            .0;
-        assert!(
-            before.contains("[r221-chain] S-001 [active] first topic source"),
-            "baseline was: {before}"
-        );
-
-        topic
-            .save(&[
-                kanzei_memory::docstore::Entry {
-                    id: "S-001".into(),
-                    title: "first topic source".into(),
-                    status: "active".into(),
-                    severity: None,
-                    fields: vec![],
-                },
-                kanzei_memory::docstore::Entry {
-                    id: "S-002".into(),
-                    title: "new topic source".into(),
-                    status: "active".into(),
-                    severity: None,
-                    fields: vec![],
-                },
-            ])
-            .unwrap();
-        let after = snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap()
-            .0;
-        assert!(after.contains("[r221-chain] S-002 [active] new topic source"));
-        std::fs::remove_dir_all(root).ok();
     }
 }

@@ -89,40 +89,6 @@
           </span>
           <span class="project-switch-caret" aria-hidden="true">▾</span>
         </button>
-        <div data-space-only="research" class="research-identity hidden"><span class="dim" data-i18n-key="研究课题">研究课题</span><strong id="research-switch-name"></strong></div>
-      </div>
-      <section id="research-section" class="research-navigation hidden" data-space-only="research">
-        <button type="button" id="research-topic-new" class="new-chat-btn" data-i18n-key="新建课题">新建课题</button>
-        <label class="research-topic-picker" for="research-topic-select"><span class="sr-only" data-i18n-key="选择研究课题">选择研究课题</span><select id="research-topic-select" aria-label="选择研究课题" data-i18n-aria-label="选择研究课题"></select></label>
-        <p id="research-library-error" class="dim hidden" role="status"></p>
-        <form id="research-topic-form" class="research-topic-form hidden">
-          <label><span data-i18n-key="课题名称">课题名称</span><input id="research-topic-title" required maxlength="200" /></label>
-          <label><span data-i18n-key="课题标识（可选）">课题标识（可选）</span><input id="research-topic-slug" pattern="[a-z0-9]+(-[a-z0-9]+)*" placeholder="留空则按课题名称自动生成" data-i18n-placeholder="留空则按课题名称自动生成" /></label>
-          <p class="dim" data-i18n-key="标识使用小写字母、数字和连字符">标识使用小写字母、数字和连字符</p>
-          <div><button type="submit" id="research-topic-submit" class="primary mini" data-i18n-key="创建课题">创建课题</button><button type="button" id="research-topic-cancel" class="ghost mini" data-i18n-key="取消">取消</button></div>
-          <p id="research-topic-error" class="dim" role="status"></p>
-        </form>
-        <nav class="research-page-nav" aria-label="课题页面" data-i18n-aria-label="课题页面">
-          <button type="button" data-research-page="overview" class="active" data-i18n-key="概览">概览</button>
-          <button type="button" data-research-page="chat" data-i18n-key="对话">对话</button>
-          <button type="button" data-research-page="literature" data-i18n-key="文献与发现">文献与发现</button>
-          <button type="button" data-research-page="experiments" data-i18n-key="实验">实验</button>
-          <button type="button" data-research-page="report" data-i18n-key="成果">成果</button>
-          <button type="button" data-research-page="writing" data-i18n-key="论文写作">论文写作</button>
-        </nav>
-      </section>
-      <!-- 研究空间的会话列表(课题的对话与其历史)。开发空间的会话在上面「项目」树里(12-session-tree.js),这一段不属于它——
-           以前它在开发档里永远 display:none、却每次轮询照样重建(UX-069 / B5),现在 data-space-only="research"。 -->
-      <div class="sidebar-section" data-space-only="research" data-collapse-key="live" id="live-section">
-        <div class="section-title">
-          <span><span data-i18n-key="任务与对话">任务与对话</span> <em id="parallel-task-count"></em></span>
-          <button id="process-add" class="icon-btn" title="新对话" data-i18n-title="新对话" aria-label="新对话" data-i18n-aria-label="新对话">＋</button>
-        </div>
-        <div id="live-status">
-          <div id="parallel-task-status" class="parallel-task-status" role="list" aria-label="对话状态" data-i18n-aria-label="对话状态"></div>
-          <div id="live-turn" class="live-row" role="status" aria-live="polite"></div>
-          <div id="live-action" class="live-row hidden" role="status" aria-live="polite"></div>
-        </div>
       </div>
     </aside>
 
@@ -206,7 +172,6 @@
             <span id="ctx-branch" class="ctx-branch" data-i18n-raw></span>
             <!-- UI2-0926 #13:项目不是(独立的)Git 仓库时的灰色芯片;点开说明不可用的功能并可「初始化 Git」。 -->
             <button type="button" id="ctx-git" class="kz-ctl ctx-git hidden" aria-haspopup="menu" aria-expanded="false" data-i18n-raw></button>
-            <span id="research-chat-context" class="ctx-chip hidden" data-space-only="research"></span>
             <span class="spacer"></span>
             <div id="change-bar" class="change-bar hidden">
               <button type="button" id="change-bar-toggle" class="kz-ctl change-bar-head" aria-expanded="false" aria-controls="change-bar-files" title="展开或收起本轮改动的文件清单" data-i18n-title="展开或收起本轮改动的文件清单">
@@ -598,96 +563,6 @@
         </div>
       </div>
 
-      <div id="view-research" class="view">
-        <header class="research-context-head"><div><p class="dim" id="research-scope-label"></p><h1 id="research-heading"></h1></div><span id="research-page-label" class="dim"></span></header>
-        <p id="research-load-error" class="research-load-error hidden" role="alert"></p>
-        <div class="research-workspace" data-page="overview">
-          <section id="research-overview" class="research-overview"></section>
-          <div class="research-side">
-            <div class="research-tabs" role="tablist" aria-label="研究工件" data-i18n-aria-label="研究工件">
-              <button type="button" id="research-tab-sources" class="research-tab active" role="tab" aria-selected="true"><span data-i18n-key="来源">来源</span> <em id="research-sources-count"></em></button>
-              <button type="button" id="research-tab-findings" class="research-tab" role="tab" aria-selected="false"><span data-i18n-key="发现">发现</span> <em id="research-findings-count"></em></button>
-            </div>
-            <div id="research-filters" class="research-filters" role="search" aria-label="筛选研究工件" data-i18n-aria-label="筛选研究工件">
-              <input id="research-filter-query" type="search" placeholder="检索标题、要点或作者" data-i18n-placeholder="检索标题、要点或作者" aria-label="检索标题、要点或作者" data-i18n-aria-label="检索标题、要点或作者" />
-              <div class="research-filter-row">
-                <select id="research-filter-type" aria-label="全部类型" data-i18n-aria-label="全部类型"></select>
-                <select id="research-filter-level" aria-label="全部等级" data-i18n-aria-label="全部等级"></select>
-                <select id="research-filter-year" aria-label="全部年份" data-i18n-aria-label="全部年份"></select>
-                <select id="research-filter-sort" aria-label="排序" data-i18n-aria-label="排序">
-                  <option value="" data-i18n-key="默认排序">默认排序</option>
-                  <option value="year" data-i18n-key="按年份">按年份</option>
-                  <option value="cited" data-i18n-key="按被引次数">按被引次数</option>
-                </select>
-              </div>
-              <div class="research-filter-meta"><span id="research-filter-count"></span><span id="research-citation-count"></span></div>
-            </div>
-            <div id="research-cards" class="research-cards"></div>
-          </div>
-          <div class="research-main">
-            <div class="research-main-head">
-              <h1 data-i18n-key="研究报告">研究报告</h1>
-              <button type="button" id="research-report-refresh" class="ghost mini" title="重新读取 report.md" data-i18n-title="重新读取 report.md"><span data-i18n-key="刷新">刷新</span></button>
-            </div>
-            <section class="research-latex" id="research-latex" aria-label="LaTeX 文档" data-i18n-aria-label="LaTeX 文档">
-              <div class="research-latex-head">
-                <strong data-i18n-key="LaTeX 文档">LaTeX 文档</strong>
-                <span class="dim" data-i18n-key="内置模板">内置模板</span>
-              </div>
-              <div class="research-latex-form">
-                <label><span data-i18n-key="模板">模板</span><select id="research-latex-template"></select></label>
-                <label><span data-i18n-key="文档名">文档名</span><input id="research-latex-document-name" value="main" placeholder="main" /></label>
-                <label><span data-i18n-key="标题">标题</span><input id="research-latex-title" placeholder="Research document" /></label>
-                <button type="button" id="research-latex-create" class="primary mini" data-i18n-key="从模板新建">从模板新建</button>
-              </div>
-              <div id="research-latex-status" class="research-latex-status" role="status"></div>
-              <div class="research-latex-figure-form">
-                <label><span data-i18n-key="图表文件">图表文件</span><input id="research-latex-figure-name" placeholder="result.png" /></label>
-                <label><span data-i18n-key="图注">图注</span><input id="research-latex-figure-caption" placeholder="实验结果图" data-i18n-placeholder="实验结果图" /></label>
-                <label><span data-i18n-key="图表标签">图表标签</span><input id="research-latex-figure-label" placeholder="fig:result" /></label>
-                <button type="button" id="research-latex-insert-figure" class="ghost mini" data-i18n-key="插入实验图表引用">插入实验图表引用</button>
-              </div>
-              <div class="research-latex-actions">
-                <button type="button" id="research-latex-compile" class="primary mini" data-i18n-key="编译 PDF">编译 PDF</button>
-                <button type="button" id="research-latex-history-refresh" class="ghost mini" data-i18n-key="读取编译历史">读取编译历史</button>
-              </div>
-              <pre id="research-latex-diagnostics" class="research-latex-diagnostics" hidden></pre>
-              <div id="research-latex-history" class="research-latex-history" aria-live="polite"></div>
-              <iframe id="research-latex-pdf" class="research-latex-pdf" title="PDF 预览" data-i18n-title="PDF 预览" hidden></iframe>
-            </section>
-            <section class="research-roadmap" id="research-roadmap" aria-label="路线图" data-i18n-aria-label="路线图">
-              <div class="research-roadmap-head">
-                <strong data-i18n-key="实验路线图">实验路线图</strong>
-                <span id="research-roadmap-count" class="dim"></span>
-              </div>
-              <div id="research-roadmap-diagnostics" class="research-roadmap-diagnostics" hidden></div>
-              <div class="research-roadmap-canvas">
-                <svg id="research-roadmap-graph" role="img" aria-label="实验路线图" data-i18n-aria-label="实验路线图"></svg>
-              </div>
-            </section>
-            <section class="research-exploration-detail" id="research-exploration-detail" hidden aria-live="polite">
-              <div class="research-exploration-detail-head">
-                <strong data-i18n-key="探索详情">探索详情</strong>
-                <button id="research-exploration-close" class="ghost mini" type="button" data-i18n-key="关闭">关闭</button>
-              </div>
-              <div id="research-exploration-detail-body"></div>
-            </section>
-            <div class="research-plan-panel" id="research-plan-panel" hidden>
-              <div class="research-plan-head">
-                <strong data-i18n-key="研究计划">研究计划</strong>
-                <span id="research-plan-status" class="research-badge"></span>
-                <button type="button" id="research-plan-approve" class="primary mini" hidden data-i18n-key="批准计划">批准计划</button>
-              </div>
-              <ol id="research-plan-tree" class="research-plan-tree" aria-label="研究计划树" data-i18n-aria-label="研究计划树"></ol>
-            </div>
-            <section id="research-runs" class="research-runs" aria-label="实验运行记录" data-i18n-aria-label="实验运行记录">
-              <div class="research-runs-head"><strong data-i18n-key="实验运行记录">实验运行记录</strong><span id="research-runs-count" class="dim"></span></div>
-              <div id="research-run-cards" class="research-run-cards"></div>
-            </section>
-            <div id="research-report" class="md research-report"></div>
-          </div>
-        </div>
-      </div>
       <div id="view-skills" class="view">
         <div id="skills-scroll">
           <header class="skills-page-header">

@@ -26,7 +26,6 @@ impl Fixture {
         harness
             .add(crate::BaseComponent)
             .add(DevelopmentProfile)
-            .add(ResearchProfile)
             .add(ReadonlyProfile);
         harness
             .resolve(&ResolveCtx {

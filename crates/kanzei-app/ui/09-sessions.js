@@ -76,7 +76,7 @@ import { active_space, adopt_process_workspace, create_workspace_process, prefer
 
 import { sync_composer_scope } from "./03-workspaces.js";
 import { workspace_switch_pending } from "./03-workspaces.js";
-import { reset_research_project } from "./03-research-view.js";
+// research view removed
 import { remember_development_project, switch_workspace } from "./03-workspaces.js";
 import { reset_files_scope } from "./17-files.js";
 // UI-0926 #10:测试记录行展开后的结构化字段。
@@ -893,7 +893,7 @@ export function activate_execution_root(root) {
     clearAutoNotices();
     sync_composer_scope();
     reset_files_scope();
-    reset_research_project();
+    // research project reset removed
   }
 }
 

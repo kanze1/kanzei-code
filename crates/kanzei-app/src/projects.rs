@@ -30,7 +30,6 @@ fn initialize_kanzei_space(dir: &Path) -> Result<bool, String> {
     std::fs::create_dir_all(dir.join(".kanzei"))
         .map_err(|e| format!("创建项目配置目录失败: {e}"))?;
     if first_init {
-        kanzei_tools::prior_art::start_project_init(dir)?;
         kanzei_tools::project_state::ensure_kanzei_gitignore(dir)
             .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
     }
@@ -997,24 +996,6 @@ mod prior_art_init_tests {
         std::fs::remove_dir_all(parent).unwrap();
     }
 
-    #[test]
-    fn 首次初始化创建prior_art骨架且重复进入不覆盖() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-project-prior-art-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).unwrap();
-        assert!(initialize_kanzei_space(&root).unwrap());
-        let path = root.join(".kanzei/research/project-init/prior-art.md");
-        assert!(path.is_file());
-        std::fs::write(&path, "用户已填写").unwrap();
-        assert!(!initialize_kanzei_space(&root).unwrap());
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "用户已填写");
-    }
 }
 
 /// 工作区 = **跨项目的运行现场**:一眼看出哪个项目在跑、跑的是哪条线、卡在哪。

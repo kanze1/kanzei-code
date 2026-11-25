@@ -14,7 +14,7 @@ use kanzei_harness::orchestration::ProjectExecutionCoordinator;
 use kanzei_harness::{ConfigComponent, Harness, MarkdownComponent, ResolveCtx};
 use kanzei_llm::{ProxyConfig, Route};
 
-use kanzei_tools::{BaseComponent, DevelopmentProfile, ResearchProfile};
+use kanzei_tools::{BaseComponent, DevelopmentProfile};
 
 /// Shared capability composition. Built-in Agent templates precede custom
 /// Markdown definitions; config contributes permission rules. The final
@@ -34,7 +34,6 @@ pub fn build_harness(
     harness
         .add(BaseComponent)
         .add(DevelopmentProfile)
-        .add(ResearchProfile)
         .add(kanzei_tools::ReadonlyProfile)
         .add(kanzei_tools::GeneralChatProfile);
     middle(&mut harness);

@@ -8,8 +8,6 @@ import { activate_execution_root, processSwitchGeneration, refreshProcesses, ren
 import { workbenchNavigationGuard } from "./12-workbench.js";
 import { attachments, setAttachments } from "./03-shell.js";
 import { renderAttachments } from "./08-compose-runtime.js";
-import { sync_research_process_context } from "./03-research-view.js";
-import { enter_research_library, research_topic_label } from "./03-research-library.js";
 import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { composerDraftKey, composerDraftGet, composerDraftSet, composerDraftDelete, composerDraftStatus, onComposerDraftChange, loadComposerDrafts, flushComposerDrafts } from "./00-composer-drafts.js";
 
@@ -230,7 +228,6 @@ export function adopt_process_workspace(item) {
     else if (scope.category === "unbound") scope.category = "research";
   }
   save_workspace({ space: active_space, [active_space]: scope });
-  if (active_space === "research") sync_research_process_context(item);
   sync_workspace_visibility();
 }
 
@@ -248,11 +245,6 @@ export function sync_workspace_visibility() {
   }
   for (const button of document.querySelectorAll(".activity-item[data-view]")) {
     button.classList.toggle("hidden", !view_allowed(button.dataset.view));
-  }
-  const context = $("research-chat-context");
-  if (context) {
-    const item = processItems.find((item) => item.id === activeProcessId);
-    context.textContent = item?.research_topic ? `${t("研究课题")}: ${research_topic_label(item.research_topic)}` : t("未绑定课题的研究对话");
   }
   const active_view = document.querySelector(".view.active")?.id.slice(5);
   if (active_view && !view_allowed(active_view)) navigate_view(active_space === "research" ? "research" : "chat");
@@ -345,8 +337,7 @@ export async function switch_workspace(space, { isCurrent = () => true } = {}) {
   try {
     active_space = space;
     save_workspace({ space, research: saved_research });
-    if (space === "research") await enter_research_library(development_project, { isCurrent });
-    else { activate_execution_root(development_project); await refreshProcesses(); }
+    activate_execution_root(development_project); await refreshProcesses();
     if (await cancelled()) return false;
     const target = preferred_workspace_process(processItems, space);
     if (target) await switchProcess(target.id, true);

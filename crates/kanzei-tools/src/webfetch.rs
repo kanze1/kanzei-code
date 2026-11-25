@@ -383,13 +383,8 @@ impl Tool for ResearchWebFetchTool {
         if topic.is_empty() || task_id.is_empty() {
             return ToolOutput::needs_correction(
                 "RESEARCH_LOOP_TASK_REQUIRED",
-                "research webfetch 必须提供 topic 与 begin_search 返回的 task_id",
+                "research webfetch 必须提供 topic 与 task_id",
             );
-        }
-        if let Err(error) =
-            crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)
-        {
-            return ToolOutput::needs_correction("RESEARCH_LOOP_TASK_REQUIRED", error);
         }
         WebFetchTool.execute(input, ctx).await
     }

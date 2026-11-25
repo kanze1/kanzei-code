@@ -441,22 +441,7 @@ pub(crate) fn update_close(
     // observed_worktree_hash)是引擎维护的仓库指纹,不属于用户可见变更,
     // 同值 update 连锚点都不刷新(文件零写入,验收①)。
     let before = entries[pos].clone();
-    let prior_art_update = if tool.kind.prefix == "R" {
-        if let Err(error) = crate::prior_art::check_input_fields(&input.fields) {
-            return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error);
-        }
-        match crate::prior_art::update_audit(
-            &ctx.project_root,
-            &before,
-            input.prior_art.as_deref(),
-            input.prior_art_waiver.as_deref(),
-        ) {
-            Ok(update) => update,
-            Err(error) => return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error),
-        }
-    } else {
-        None
-    };
+    let prior_art_update: Option<(String, String)> = None;
     if let Some((key, value)) = &prior_art_update {
         input.fields.insert(key.clone(), value.clone());
     }
@@ -800,9 +785,6 @@ pub(crate) fn update_close(
                 Some((_, slot)) => *slot = value.clone(),
                 None => lifecycle_probe.fields.push((key.clone(), value.clone())),
             }
-        }
-        if let Err(error) = crate::prior_art::check_start(&ctx.project_root, &lifecycle_probe) {
-            return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error);
         }
         if before.status != "doing" {
             if let Err(error) = super::TrackerTool::check_requirement_start(&lifecycle_probe) {

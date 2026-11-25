@@ -187,7 +187,7 @@ mod tests {
         use kanzei_harness::{Component, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx};
         let root = PathBuf::from("C:/kanzei-tool-areas-test");
         let mut names = std::collections::BTreeSet::new();
-        for profile in [ProfileKind::DevAuto, ProfileKind::Research] {
+        for profile in [ProfileKind::DevAuto] {
             let ctx = ResolveCtx {
                 profile,
                 cwd: root.clone(),
@@ -199,7 +199,6 @@ mod tests {
             crate::DevelopmentProfile
                 .contribute(&mut draft, &ctx)
                 .unwrap();
-            crate::ResearchProfile.contribute(&mut draft, &ctx).unwrap();
             kanzei_memory::memory::MemoryManagerComponent
                 .contribute(&mut draft, &ctx)
                 .unwrap();

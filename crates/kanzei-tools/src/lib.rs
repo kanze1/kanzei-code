@@ -51,17 +51,13 @@ pub mod git_batches;
 mod glob;
 mod grep;
 pub mod incident;
-pub mod latex_tool;
 mod local_validation;
 mod managed;
 /// 托管目录清单单源(D-173):桌面文件页据此把托管文档设为只读(UI2-0926 #6)。
 pub use managed::MANAGED_ROOTS;
-pub mod palette;
-mod plot_tool;
 mod preferences;
 /// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
 pub mod preview_server;
-pub mod prior_art;
 mod process;
 pub mod project_knowledge;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
@@ -74,15 +70,6 @@ mod read;
 mod read_receipt_tests;
 /// 记忆知识图谱与引用抽取的纯函数(R-368 B1 子集;docs/design/memory_knowledge_graph.md)。
 pub mod refgraph;
-pub mod research_budget;
-pub mod research_environment;
-pub mod research_index;
-pub mod research_loop;
-pub mod research_plan;
-pub mod research_runner;
-pub mod research_topic;
-pub mod research_verify;
-pub mod research_write;
 mod search_walk;
 mod web_content;
 pub use read::pdf_to_text;
@@ -117,7 +104,7 @@ pub use git::observe as git_observe;
 pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
     DevelopmentProfile, GeneralChatProfile, GeneralChatScope, IsolatedProfile, ReadonlyProfile,
-    ResearchProfile, DEVELOPMENT_DEFERRED_TOOLS,
+    DEVELOPMENT_DEFERRED_TOOLS,
 };
 pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
@@ -245,54 +232,6 @@ pub(crate) fn configured_proxy(proxy: Option<&str>) -> kanzei_llm::proxy::ProxyC
 
 /// D-393:latex/plot 等写盘工具的 workdir 路径边界校验。
 ///
-/// 输入 workdir 必须是**相对路径**(绝对路径直接拒绝,防 `cwd.join` 替换基底)、
-/// 不含 `..` 段(防穿越);canonicalize 后必须落在**研究工件目录**白名单
-/// (`<cwd>/.kanzei/research` 或 `<cwd>/research` 子树)内——R-273/R-274 条目
-/// 边界「限研究工件目录与显式指定目录」此前只存在于 schema 描述文本,这里落码。
-///
-/// 返回 canonicalize 后的路径(后续写盘基于它,白名单边界生效)。
-pub(crate) fn resolve_research_workdir(
-    cwd: &std::path::Path,
-    workdir: &str,
-) -> Result<std::path::PathBuf, String> {
-    let workdir = workdir.trim();
-    if workdir.is_empty() {
-        return Err("workdir 不能为空".into());
-    }
-    let raw = std::path::Path::new(workdir);
-    // 绝对路径拒绝:Windows 盘符/UNC 与 POSIX 根会让 join 替换基底;
-    // has_root 兜底 Windows 的 root-relative(`/etc`、`\etc` 无盘符前缀也替换基底)。
-    if raw.is_absolute() || raw.has_root() || workdir.contains(':') {
-        return Err(format!(
-            "workdir 必须是相对路径(绝对/根路径会让 join 替换项目基底): {workdir:?}"
-        ));
-    }
-    // `..` 穿越拒绝(任意层级)。
-    if workdir.split(['/', '\\']).any(|seg| seg == "..") {
-        return Err(format!("workdir 不得含 `..` 路径段(防穿越): {workdir:?}"));
-    }
-    let joined = cwd.join(workdir);
-    let canonical = joined
-        .canonicalize()
-        .map_err(|e| format!("工作目录不存在或不可访问 {}: {e}", joined.display()))?;
-    let cwd_canon = cwd
-        .canonicalize()
-        .map_err(|e| format!("cwd 不可解析: {e}"))?;
-    let research_root = cwd_canon.join(".kanzei").join("research");
-    let research_root_alt = cwd_canon.join("research");
-    if !canonical.starts_with(&research_root) && !canonical.starts_with(&research_root_alt) {
-        return Err(format!(
-            "workdir 必须在研究工件目录内: {workdir:?} 解析为 {};\
-             允许范围: {} 或 {}。\
-             研究产物的 tex/spec/图统一放研究工件目录;确需其它目录请让用户手动处理。",
-            canonical.display(),
-            research_root.display(),
-            research_root_alt.display()
-        ));
-    }
-    Ok(canonical)
-}
-
 /// D-398:写者工具统一记写日志(路径+写后指纹+身份)——围栏收口对账的归因凭据。
 /// 专用写者(写者工具)成功落盘后调用;先写文档再记日志(「写后」凭据,
 /// write_log 模块头契约)。所有专用写者必须接线:test_record/conventions/
@@ -351,64 +290,3 @@ pub(crate) fn hide_console_async(command: &mut tokio::process::Command) {
 
 #[cfg(not(windows))]
 pub(crate) fn hide_console_async(_command: &mut tokio::process::Command) {}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    fn temp_root(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "kz-research-workdir-{tag}-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    /// D-393:研究工件目录(.kanzei/research 与 research)内的相对路径放行,返回 canonical。
-    #[test]
-    fn workdir白名单_研究目录内放行() {
-        let root = temp_root("ok");
-        std::fs::create_dir_all(root.join(".kanzei").join("research").join("topic-a")).unwrap();
-        std::fs::create_dir_all(root.join("research")).unwrap();
-        let p = resolve_research_workdir(&root, ".kanzei/research/topic-a").unwrap();
-        assert!(p.is_absolute(), "返回 canonical 绝对路径: {}", p.display());
-        assert!(
-            p.ends_with(".kanzei\\research\\topic-a") || p.ends_with(".kanzei/research/topic-a")
-        );
-        let p2 = resolve_research_workdir(&root, "research").unwrap();
-        assert!(p2.ends_with("research"));
-        // 目录不存在 → 明确报错。
-        let err = resolve_research_workdir(&root, ".kanzei/research/missing").unwrap_err();
-        assert!(err.contains("不存在"), "{err}");
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    /// D-393:绝对路径 / `..` / 研究目录之外的相对路径一律拒绝(任意路径可写收口)。
-    #[test]
-    fn workdir白名单_绝对路径与穿越拒绝() {
-        let root = temp_root("reject");
-        std::fs::create_dir_all(root.join(".kanzei").join("research")).unwrap();
-        // 绝对路径(Windows 盘符)。
-        let abs = resolve_research_workdir(&root, "C:\\Users\\public").unwrap_err();
-        assert!(abs.contains("相对路径"), "绝对路径拒绝: {abs}");
-        // 绝对路径(POSIX 根)。
-        let abs2 = resolve_research_workdir(&root, "/etc").unwrap_err();
-        assert!(abs2.contains("相对路径"), "{abs2}");
-        // `..` 穿越。
-        let dotdot = resolve_research_workdir(&root, ".kanzei/research/../..").unwrap_err();
-        assert!(dotdot.contains(".."), "穿越拒绝: {dotdot}");
-        // 研究目录之外(cwd 自身)。
-        let outside = resolve_research_workdir(&root, ".").unwrap_err();
-        assert!(outside.contains("研究工件目录"), "目录外拒绝: {outside}");
-        // 空 workdir。
-        let empty = resolve_research_workdir(&root, "  ").unwrap_err();
-        assert!(empty.contains("不能为空"), "{empty}");
-        std::fs::remove_dir_all(&root).ok();
-    }
-}

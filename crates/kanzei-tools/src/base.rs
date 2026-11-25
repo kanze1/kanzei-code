@@ -68,24 +68,11 @@ impl Component for BaseComponent {
             "websearch",
             Arc::new(crate::websearch::WebSearchTool::new(ctx.profile)),
         );
-        // R-248:先行调研是 dev 的默认能力。start 写受控骨架、validate 只读核验；
-        // 真实研究仍复用 research plan/loop/source/finding，不在这里分叉。
-        draft
-            .tools
-            .insert("prior_art", Arc::new(crate::prior_art::PriorArtTool));
         // R-269:浏览器工具(playwright-core 辅进程 headless 自检)。UI2-0926 #8 起权限分级:
         // 本机地址 / 本地文件 / 内联片段放行,外网仍 Ask(见下方 permissions)。
         draft
             .tools
             .insert("browser", Arc::new(crate::browser_tool::BrowserTool));
-        // R-273:LaTeX 编译工具(输出 PDF+诊断;系统发行优先/回落 Tectonic)。
-        draft
-            .tools
-            .insert("latex", Arc::new(crate::latex_tool::LatexTool));
-        // R-274:科研绘图工具(Vega-Lite spec → PNG,经 images 通道回模型)。
-        draft
-            .tools
-            .insert("plot", Arc::new(crate::plot_tool::PlotTool));
 
         // 默认权限:读/检索全放行;写/改/命令/联网走 ask(用户可在 kanzei.toml 覆盖,后注册者胜)。
         draft.permissions.extend([
@@ -104,8 +91,6 @@ impl Component for BaseComponent {
             rule("bash", "*", Effect::Ask),
             rule("webfetch", "*", Effect::Ask),
             rule("websearch", "*", Effect::Ask),
-            rule("prior_art", "read:*", Effect::Allow),
-            rule("prior_art", "write:*", Effect::Ask),
             rule("browser", "*", Effect::Ask),
             // UI2-0926 #8:浏览器分级(资源形态见 browser_tool::resources_for,按解析后的 host 取)。
             // 本机回环、沙箱内联片段与「还没打开页面」放行;文件由结构化文件权限判定。
@@ -121,8 +106,6 @@ impl Component for BaseComponent {
             rule("browser", "url:[::1]/*", Effect::Allow),
             rule("browser", "html:*", Effect::Allow),
             rule("browser", "page:none", Effect::Allow),
-            rule("latex", "*", Effect::Ask),
-            rule("plot", "*", Effect::Ask),
         ]);
 
         draft.context.insert(

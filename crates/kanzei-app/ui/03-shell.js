@@ -22,10 +22,8 @@ import { refreshDocs } from "./14-docs-actions.js";
 import { loadSettings } from "./16-settings.js";
 import { filesViewLeft, showFilesView } from "./17-files.js";
 import { refreshArch } from "./19-arch.js";
-import { refreshResearch } from "./03-research-view.js";
 import { refreshLines } from "./20-lines.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
-import { open_research_chat } from "./03-research-view.js";
 import { cancelProjectNavigation, openProjectSpace, reconcileWorkbenchView, renderProjectOverview, renderProjectActivity, setBrowsingProject, workbenchProject } from "./12-workbench.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { layoutPref, onLayoutChange, prefObject, setLayoutPref, setPrefObject } from "./03-layout.js";
@@ -348,7 +346,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
     viewLoadTimer = setTimeout(() => {
       if (generation !== viewLoadGeneration) return;
       const loaders = { settings: loadSettings, workspace: refreshWorkspace, project: () => renderProjectOverview(lastWorkspaceSnapshot), documents: refreshDocs,
-        research: refreshResearch, memory: refreshMemory, metrics: refreshMetrics,
+        memory: refreshMemory, metrics: refreshMetrics,
         files: showFilesView, arch: refreshArch, lines: refreshLines, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
       const loading = loaders[view]?.();
       if (view === "lines") void refreshWorktrees();
@@ -361,8 +359,7 @@ defer(() => {
     item.addEventListener("click", (event) => {
       // 再点 ⚙ 返回(D10)。只认真人点击:别处用 `.click()` 程序化点它是「确保在设置页」,不能当成返回。
       if (item.dataset.view === "settings" && event.isTrusted && document.body.dataset.view === "settings") { void navigate_back(); return; }
-      if (active_space === "research" && item.dataset.view === "chat") void open_research_chat();
-      else navigate_view(item.dataset.view);
+      navigate_view(item.dataset.view);
     });
   });
 });

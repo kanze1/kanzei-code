@@ -432,9 +432,6 @@ fn execute_work_unit_action(
         ) {
             tracing::warn!(%error, "execution binding observation could not be recorded");
         }
-        if let Err(error) = crate::prior_art::check_start(&ctx.project_root, outcome) {
-            return Some(ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error));
-        }
         if resuming_current {
             return Some(pretty(current));
         }
@@ -1024,12 +1021,6 @@ impl Tool for WorkTool {
             Ok(execution) => execution,
             Err(error) => return ToolOutput::needs_correction("EXECUTION_INPUTS_NOT_READY", error),
         };
-        if kind.prefix == "R" {
-            if let Err(error) = crate::prior_art::check_start(&ctx.project_root, &entries[position])
-            {
-                return ToolOutput::needs_correction("PRIOR_ART_REQUIRED", error);
-            }
-        }
         // R-313:旧 work claim 是进入 doing/fixing 的真实消费者；需求 claim 不能绕过
         // Discovery Record、核心语义确认和限定词一致性门禁。
         if kind.prefix == "R"

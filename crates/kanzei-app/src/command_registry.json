@@ -148,30 +148,6 @@
     "host": "service"
   },
   {
-    "path": "research_topics::research_topic_create",
-    "host": "service"
-  },
-  {
-    "path": "research_library::research_library_list",
-    "host": "service"
-  },
-  {
-    "path": "research_library::research_library_create",
-    "host": "service"
-  },
-  {
-    "path": "research_library::research_library_link_projects",
-    "host": "service"
-  },
-  {
-    "path": "docs::research_plan_get",
-    "host": "service"
-  },
-  {
-    "path": "docs::research_plan_approve",
-    "host": "service"
-  },
-  {
     "path": "docs::docs_archive_entries",
     "host": "service"
   },
@@ -517,34 +493,6 @@
   },
   {
     "path": "docs::webfetch_preview",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_templates",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_create",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_insert_figure",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_compile",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_history",
-    "host": "service"
-  },
-  {
-    "path": "research_latex::research_latex_pdf",
-    "host": "service"
-  },
-  {
-    "path": "docs::research_arxiv_preview",
     "host": "service"
   },
   {

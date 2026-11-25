@@ -906,23 +906,12 @@ impl TrackerTool {
     /// refs 继续只承载追踪编号。
     fn check_prior_art(
         &self,
-        input: &TrackerInput,
-        ctx: &ToolCtx,
-        id: &str,
-        title: &str,
+        _input: &TrackerInput,
+        _ctx: &ToolCtx,
+        _id: &str,
+        _title: &str,
     ) -> Result<Option<(String, String)>, String> {
-        crate::prior_art::check_registration(
-            ctx,
-            crate::prior_art::RegistrationCheck {
-                requirement: self.kind.prefix == "R",
-                fields: &input.fields,
-                refs_empty: input.refs.is_empty(),
-                artifact: input.prior_art.as_deref(),
-                waiver: input.prior_art_waiver.as_deref(),
-                id,
-                title,
-            },
-        )
+        Ok(None)
     }
 
     /// R-191 登记硬约束:新建条目缺关键登记字段直接拒绝,并提示补什么,不静默放行。

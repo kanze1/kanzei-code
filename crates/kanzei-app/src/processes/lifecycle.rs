@@ -501,12 +501,6 @@ pub(crate) async fn create_process_with_tracker(
         profile
     };
     let tracker_writes = if general { Some(false) } else { tracker_writes };
-    crate::research_topics::validate_run_topic(
-        &root,
-        profile.as_deref(),
-        research_topic.as_deref(),
-        research_topic.as_deref(),
-    )?;
     if research_topic.is_some() && worktree_name.is_some() {
         return Err("研究对话不能创建开发工作树".into());
     }

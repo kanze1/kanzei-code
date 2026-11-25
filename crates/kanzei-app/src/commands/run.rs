@@ -495,7 +495,7 @@ pub(crate) fn schedule_run(
         agent,
         model,
         work_priority,
-        research_topic,
+        research_topic: _,
         autonomous,
         auto_allow,
         auto_round,
@@ -552,12 +552,7 @@ pub(crate) fn schedule_run(
         && agent.as_deref() != Some("dev-pair")
         && execution_batch;
     let autonomous = !general && !discussion && autonomous;
-    let research_topic = crate::research_topics::validate_run_topic(
-        &project_root,
-        profile.as_deref(),
-        process.research_topic.lock().unwrap().as_deref(),
-        research_topic.as_deref(),
-    )?;
+    let research_topic: Option<String> = None;
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
     let block_tracker_writes =

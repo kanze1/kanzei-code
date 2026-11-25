@@ -225,11 +225,6 @@ pub(crate) async fn assemble_run(
             crate::auto_run::work_priority_enum(work_priority),
         ));
     }
-    if let Some(topic) = &mode.research_topic {
-        harness.add(kanzei_tools::research_topic::ResearchTopicContext(
-            topic.clone(),
-        ));
-    }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot
         .select_primary_agent(mode.agent_name.as_deref())?

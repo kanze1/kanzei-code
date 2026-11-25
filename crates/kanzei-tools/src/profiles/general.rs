@@ -50,7 +50,6 @@ impl Component for GeneralChatScope {
             "incident",
             "architecture",
             "conventions",
-            "prior_art",
         ] {
             draft.tools.remove(name);
             draft.deferred_tools.remove(name);

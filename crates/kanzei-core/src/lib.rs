@@ -7,24 +7,12 @@ pub mod history;
 pub mod notification;
 pub mod orchestration;
 pub mod replay;
-pub mod research;
-pub mod research_callback;
 pub mod runner;
 mod store;
 
 pub use assemble::build_route;
 pub use history::filter_message_history;
 pub use notification::AgentNotification;
-pub use research::{
-    ensure_result_artifact_skeleton, load_research_topic, parse_exploration_markdown,
-    ExperimentResult, ExperimentResultStatus, ExplorationDocument, ExplorationFrontmatter,
-    ExplorationStatus, ParsedExploration, ResearchDiagnostic, ResearchError, ResearchTopic,
-    ResultArtifactSkeleton,
-};
-pub use research_callback::{
-    encode_callback_line, parse_callback_line, CallbackEncodeError, CallbackMessage, CallbackStats,
-    ParsedCallbackLine, ResearchCallbackEvent, CALLBACK_PREFIX, MAX_CALLBACK_LINE_BYTES,
-};
 pub use runner::{
     compact_conversation, compact_conversation_with_model, compaction_budget, completed_entry,
     estimate_conversation_tokens, is_usable_failure_kind, mask_volatile_payload,
@@ -45,7 +33,7 @@ pub use store::{
     AdmittedInput, ArtifactCleanupPlan, ArtifactFileReport, AvailableMemory, Delivery,
     EpisodeRecord, FunnelCounts, MemoryFeedbackKind, MemoryRecallObservation,
     MemoryRetentionCounts, MemorySourceEvidence, MemoryUsageCounts, RecallEvent, RecallLinkStats,
-    RecallMetrics, ResearchRunEvent, ResearchRunRecord, Session, SessionArtifactReport,
+    RecallMetrics, Session, SessionArtifactReport,
     SessionDeletionPlan, SessionDeletionResult, SessionFact, SessionFactEnvelope, SessionFactError,
     SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
     ShadowVerdictStats, StorageBackupReport, StorageCleanupPlan, StorageCleanupResult,

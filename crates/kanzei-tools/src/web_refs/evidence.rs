@@ -27,21 +27,18 @@ impl SourceScope {
     }
 
     pub fn from_input(
-        ctx: &ToolCtx,
+        _ctx: &ToolCtx,
         topic: Option<&str>,
         task_id: Option<&str>,
     ) -> Result<Option<Self>, String> {
         match (topic, task_id) {
             (None, None) => Ok(None),
-            (Some(topic), Some(task_id)) => {
-                crate::research_loop::validate_external_task(&ctx.project_root, topic, task_id)?;
-                Ok(Some(Self {
-                    topic: topic.into(),
-                    task_id: task_id.into(),
-                }))
-            }
+            (Some(topic), Some(task_id)) => Ok(Some(Self {
+                topic: topic.into(),
+                task_id: task_id.into(),
+            })),
             _ => Err(
-                "Incomplete optional source scope: topic and task_id must be supplied together. For an ordinary lookup, omit both fields and correct the same request. To attach research provenance, use the topic and task_id returned by research_loop begin_search. No request was dispatched."
+                "Incomplete optional source scope: topic and task_id must be supplied together."
                     .into(),
             ),
         }
@@ -417,18 +414,6 @@ mod tests {
                 assert!(!schema["required"]
                     .as_array()
                     .is_some_and(|fields| fields.contains(&serde_json::json!(field))));
-            }
-        }
-        for schema in [
-            crate::websearch::ResearchWebSearchTool.input_schema(),
-            crate::webfetch::ResearchWebFetchTool.input_schema(),
-        ] {
-            for field in ["topic", "task_id"] {
-                assert!(schema["required"]
-                    .as_array()
-                    .unwrap()
-                    .contains(&serde_json::json!(field)));
-                assert_eq!(schema["properties"][field]["type"], "string");
             }
         }
     }

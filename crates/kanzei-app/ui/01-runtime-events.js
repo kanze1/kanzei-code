@@ -20,7 +20,6 @@ import "./08-compose.js";
 import { refreshParallelTaskProjection, refreshProcesses } from "./09-sessions.js";
 import { refreshMemory } from "./13-memory.js";
 import { refreshConversationLists } from "./15-views-misc.js";
-import { refreshResearch } from "./03-research-view.js";
 import { subagentSettle } from "./05-subagents.js";
 import { updateSessionStage } from "./03-session-stage.js";
 
@@ -178,11 +177,7 @@ export function refreshExperienceWorkbench(event) {
   const refreshKey = `${event.project_id || currentProject}:${event.event_type}`;
   if (pendingExperienceRefreshes.has(refreshKey)) return;
   pendingExperienceRefreshes.add(refreshKey);
-  const refresh = event.event_type.startsWith("memory_")
-    ? refreshMemory
-    : event.event_type.startsWith("research_") && document.body.dataset.view === "research"
-      ? refreshResearch
-      : null;
+  const refresh = event.event_type.startsWith("memory_") ? refreshMemory : null;
   if (!refresh) {
     pendingExperienceRefreshes.delete(refreshKey);
     return;
