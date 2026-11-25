@@ -738,7 +738,6 @@ fn d506_hot_path_mutex_locks_use_poison_recovery() {
         "src/processes/registry.rs",
         "src/run/coordinator.rs",
         "src/run/persistence.rs",
-        "src/mobile.rs",
     ];
     for file in files {
         let source =

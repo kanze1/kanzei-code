@@ -33,7 +33,6 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "mobile-pwa": "mobile-pwa",
       "../../THIRD-PARTY-NOTICES.md": "THIRD-PARTY-NOTICES.md",
       "../../scripts/browser-helper.mjs": "scripts/browser-helper.mjs",
       "../../scripts/browser-dom-walker.mjs": "scripts/browser-dom-walker.mjs"

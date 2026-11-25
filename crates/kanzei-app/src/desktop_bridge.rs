@@ -13,13 +13,6 @@ use std::{
 use tauri::Manager;
 
 static DESKTOP: LazyLock<Mutex<Option<Endpoint>>> = LazyLock::new(Mutex::default);
-#[derive(Clone)]
-struct NativeOwner {
-    endpoint: Endpoint,
-    run: Option<String>,
-    window: String,
-}
-static NATIVE_OWNERS: LazyLock<Mutex<HashMap<String, NativeOwner>>> = LazyLock::new(Mutex::default);
 struct DesktopPlan {
     endpoint: Option<Endpoint>,
     backend: Option<kanzei_tools::browser::Backend>,
@@ -28,84 +21,6 @@ struct DesktopPlan {
 static PLANS: LazyLock<Mutex<HashMap<String, Result<DesktopPlan, String>>>> =
     LazyLock::new(Mutex::default);
 
-async fn connected_native_action(
-    stream: &tokio::net::TcpStream,
-    action: impl std::future::Future<Output = ToolOutput>,
-    cancel: tokio_util::sync::CancellationToken,
-) -> ToolOutput {
-    let mut disconnected = [0u8; 1];
-    tokio::pin!(action);
-    tokio::select! {
-        biased;
-        _ = stream.peek(&mut disconnected) => {
-            cancel.cancel();
-            action.await;
-            ToolOutput::failed("NATIVE_CLIENT_DISCONNECTED", "调用方已断开；原生输入进程已收尾")
-        },
-        output = &mut action => output,
-    }
-}
-pub(crate) fn native_target(ctx: &ToolCtx) -> Option<String> {
-    let endpoint = DESKTOP.lock_or_recover().clone()?;
-    let meta = read_meta(&endpoint, ctx.process_id.as_deref())?;
-    meta["nativeTarget"]["id"].as_str().map(str::to_owned)
-}
-pub(crate) async fn native_action(
-    input: Value,
-    ctx: &ToolCtx,
-    planned: Option<String>,
-) -> ToolOutput {
-    let Some(planned) = planned else {
-        return ToolOutput::needs_correction(
-            "NATIVE_WINDOW_REQUIRED",
-            "请先在更多菜单为当前对话选择原生窗口",
-        );
-    };
-    let endpoint = DESKTOP.lock_or_recover().clone();
-    let Some(endpoint) = endpoint else {
-        return ToolOutput::error("桌面窗口未连接");
-    };
-    let Some(process) = ctx.process_id.as_ref() else {
-        return ToolOutput::error("原生控制缺少对话归属");
-    };
-    NATIVE_OWNERS.lock_or_recover().insert(
-        process.clone(),
-        NativeOwner {
-            endpoint: endpoint.clone(),
-            run: ctx.run_id.clone(),
-            window: planned.clone(),
-        },
-    );
-    let mut call = tool_request("desktop", input, ctx, None);
-    call["nativeTarget"] = json!(planned);
-    match request(&endpoint, call).await {
-        Ok(value) => serde_json::from_value(value)
-            .unwrap_or_else(|error| ToolOutput::error(format!("原生窗口回执无效: {error}"))),
-        Err(error) => ToolOutput::failed(
-            "NATIVE_ACTION_UNVERIFIED",
-            format!("原生动作未验证，未重试: {error}"),
-        ),
-    }
-}
-pub(crate) async fn release_native(process: &str) -> Result<(), String> {
-    let owner = NATIVE_OWNERS.lock_or_recover().get(process).cloned();
-    if let Some(owner) = owner {
-        request(
-            &owner.endpoint,
-            json!({"action":"native_release","processId":process,"runId":owner.run,"windowId":owner.window}),
-        )
-        .await?;
-        let mut owners = NATIVE_OWNERS.lock_or_recover();
-        if owners.get(process).is_some_and(|current| {
-            current.run == owner.run
-                && current.endpoint.addr == owner.endpoint.addr
-                && current.window == owner.window
-        }) {
-            owners.remove(process);
-        }
-    }
-    Ok(())
-}
 pub(crate) fn attach(value: &Value) {
     if let Ok(endpoint) = serde_json::from_value::<Endpoint>(value.clone()) {
         if endpoint
@@ -269,13 +184,6 @@ pub(crate) async fn browser(input: Value, ctx: &ToolCtx) -> ToolOutput {
         Err(output) => *output,
     }
 }
-pub(crate) async fn screenshot(ctx: &ToolCtx) -> ToolOutput {
-    let endpoint = DESKTOP.lock_or_recover().clone();
-    match endpoint {
-        Some(endpoint) => tool_call(&endpoint, "ui_screenshot", json!({}), ctx, None).await,
-        None => ToolOutput::error("桌面窗口未连接，无法截图；后台任务仍可继续"),
-    }
-}
 pub(crate) async fn probe(kind: &str, arg: &str) -> Result<Value, String> {
     let endpoint = DESKTOP
         .lock_or_recover()
@@ -339,16 +247,12 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                         return Err("桌面认证失败".into());
                     }
                     if value["action"] == "meta" {
-                        return Ok(json!({"target":crate::preview::page_target(value["processId"].as_str()),"nativeTarget":crate::native_desktop::selected(value["processId"].as_str())}));
+                        return Ok(json!({"target":crate::preview::page_target(value["processId"].as_str())}));
                     }
                     if value["action"] == "ui_probe" {
                         let kind = value["kind"].as_str().ok_or("缺少探针类型")?;
                         let arg = value["arg"].as_str().ok_or("缺少探针参数")?;
                         return crate::ui_probe(kind, arg).await;
-                    }
-                    if value["action"] == "native_release" {
-                        crate::native_desktop::release(value["processId"].as_str().ok_or("缺少原生控制归属")?, value["runId"].as_str(), Some(value["windowId"].as_str().ok_or("缺少原生窗口归属")?)).await?;
-                        return Ok(json!({"released":true}));
                     }
                     if value["action"] != "tool" {
                         return Err("未知桌面请求".into());
@@ -364,15 +268,6 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                     .unwrap_or_default();
                     let out = kanzei_harness::permission::scope(rules, async {
                         let result = match value["tool"].as_str() {
-                            Some("desktop") => {
-                                let cancel = tokio_util::sync::CancellationToken::new();
-                                let output = connected_native_action(&stream,
-                                    crate::native_desktop::execute(value["input"].clone(), &ctx, value["nativeTarget"].as_str().unwrap_or(""), &cancel), cancel.clone()).await;
-                                if cancel.is_cancelled() {
-                                    crate::native_desktop::release(ctx.process_id.as_deref().ok_or("原生取消缺少对话归属")?, ctx.run_id.as_deref(), value["nativeTarget"].as_str()).await?;
-                                }
-                                output
-                            },
                             Some("browser") => {
                                 let input = match kanzei_tools::browser::parse_browser_input(
                                     value["input"].clone(),
@@ -394,9 +289,6 @@ pub(crate) fn install(app: &tauri::AppHandle) -> Result<Endpoint, String> {
                                     .await
                                     .unwrap_or_else(|| ToolOutput::error("预览窗口已关闭"))
                                 }
-                            }
-                            Some("ui_screenshot") => {
-                                crate::harness_ext::capture_desktop(&ctx).await
                             }
                             _ => return Err("不支持的桌面工具".into()),
                         };
@@ -446,63 +338,6 @@ fn tool_context(value: &Value) -> Result<ToolCtx, String> {
 
 #[cfg(test)]
 mod tests {
-    #[tokio::test]
-    async fn native_client_eof_waits_for_the_pending_action_cleanup() {
-        use std::sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc,
-        };
-        struct Cancelled(Arc<AtomicBool>);
-        impl Drop for Cancelled {
-            fn drop(&mut self) {
-                self.0.store(true, Ordering::SeqCst);
-            }
-        }
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let client = tokio::net::TcpStream::connect(listener.local_addr().unwrap())
-            .await
-            .unwrap();
-        let (server, _) = listener.accept().await.unwrap();
-        let cancelled = Arc::new(AtomicBool::new(false));
-        let guard = Cancelled(cancelled.clone());
-        let (started, receiving) = tokio::sync::oneshot::channel();
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let action_cancel = cancel.clone();
-        let (observed, cancellation) = tokio::sync::oneshot::channel();
-        let (allow_cleanup, cleanup) = tokio::sync::oneshot::channel();
-        let task = tokio::spawn(async move {
-            super::connected_native_action(
-                &server,
-                async move {
-                    let _guard = guard;
-                    started.send(()).unwrap();
-                    action_cancel.cancelled().await;
-                    observed.send(()).unwrap();
-                    cleanup.await.unwrap();
-                    kanzei_harness::ToolOutput::failed("CANCELLED", "executor reaped")
-                },
-                cancel,
-            )
-            .await
-        });
-        receiving.await.unwrap();
-        drop(client);
-        cancellation.await.unwrap();
-        assert!(
-            !task.is_finished(),
-            "EOF cannot acknowledge stop before the executor finishes cleanup"
-        );
-        allow_cleanup.send(()).unwrap();
-        let output = tokio::time::timeout(std::time::Duration::from_secs(2), task)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(output.code.as_deref(), Some("NATIVE_CLIENT_DISCONNECTED"));
-        assert!(
-            cancelled.load(Ordering::SeqCst),
-            "Disconnect must cancel the action future, including its owned helper child"
-        );
-    }
     use super::*;
 
     #[test]

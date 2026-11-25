@@ -1,4 +1,3 @@
-import { showSchedules } from "./24-schedules.js";
 import { views } from "./00-views.js";
 import { isGeneralChat, openGeneralChat, setConversationRoot } from "./03-general-scope.js";
 import { onEscapeFallthrough, surfaceElements, toast as surfaceToast } from "./00-surface.js";
@@ -1216,5 +1215,3 @@ defer(() => {
 defer(() => {
   Object.assign(globalThis, { log });
 });
-
-document.getElementById("workbench-schedules")?.addEventListener("click", () => { void showSchedules().catch(error => toastError(String(error))); });

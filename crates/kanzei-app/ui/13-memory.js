@@ -8,7 +8,6 @@ import { uiConsoleLog } from "./00-console.js";
 import { invoke } from "./00-ipc.js";
 import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toast, toastError } from "./03-shell.js";
-import { neuralFlowEmit } from "./22-neural-flow.js";
 import { richText } from "./04-structured.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import { switchProcess } from "./09-sessions.js";
@@ -255,7 +254,6 @@ export async function refreshMemory({ force = false } = {}) {
     renderMemoryArch(overview);
     // 待整理笔记数与整理失败提示不挂在「使用记录」页签后面:列表一出来就取,顶栏与页签角标才不必等用户去翻。
     void loadMemoryPending();
-    neuralFlowEmit?.("memory_snapshot", { memory_count: memoryListEntries.length });
     if (!$("memory-insights")?.classList.contains("hidden")) void loadMemoryDiagnostics();
   } catch (err) {
     if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
@@ -1003,15 +1001,12 @@ export function renderMemoryCandidates(list) {
       const project = memoryProject;
       adopt.disabled = true;
       drop.disabled = true;
-      neuralFlowEmit?.("memory_consolidation_started", { fingerprint: item.fingerprint });
       try {
         const result = await invoke("memory_consolidate_note", { projectDir: project, scope, summary: key, requestId: crypto.randomUUID() });
         const failure = memoryConsolidationFailure(result?.report);
         if (failure) throw new Error(failure);
-        neuralFlowEmit?.("memory_consolidation_completed", { fingerprint: item.fingerprint });
         toast(memoryConsolidationMessage(result?.report, t("这一条已整理")));
       } catch (err) {
-        neuralFlowEmit?.("memory_consolidation_failed", { fingerprint: item.fingerprint });
         adopt.disabled = false;
         drop.disabled = false;
         toastError(`${t("提炼失败")}:${err?.message ?? err}`);
@@ -1023,7 +1018,6 @@ export function renderMemoryCandidates(list) {
       const project = memoryProject;
       try {
         await invoke("memory_note_discard", { projectDir: project, scope, fingerprint: key });
-        neuralFlowEmit?.("memory_candidate_discarded", { fingerprint: item.fingerprint });
         toast(t("已丢弃"));
         if (project === memoryProject) void refreshMemory({ force: true });
       } catch (err) {
@@ -1821,18 +1815,15 @@ defer(() => {
     if (query === memorySearchQuery) return;
     const generation = ++memoryListGeneration;
     clear.hidden = false;
-    neuralFlowEmit?.("memory_search_started", { query_length: query.length });
     try {
       const hits = await invoke("memory_search_page", { projectDir: project, query, limit: MEMORY_SEARCH_LIMIT });
       if (project !== memoryProject || generation !== memoryListGeneration) return;
-      neuralFlowEmit?.("memory_search_completed", { hit_count: hits.length });
       // 搜索只换结果列表,不碰已经打开的详情(里面可能有没保存的修改)。
       memorySearchQuery = query;
       renderMemoryList(hits.map((hit) => ({ ...hit, scope: hit.scope || "project" })), { search: true, truncated: hits.length >= MEMORY_SEARCH_LIMIT });
       document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project, ids: hits.map((hit) => hit.id), query } }));
     } catch (err) {
       if (project !== memoryProject || generation !== memoryListGeneration) return;
-      neuralFlowEmit?.("memory_search_failed");
       toastError(`${t("记忆检索失败")}:${err}`);
     }
   };
@@ -1878,16 +1869,13 @@ defer(() => {
     if (!project || memoryConsolidating) return;
     memoryConsolidating = true;
     renderMemoryPendingState();
-    neuralFlowEmit?.("memory_consolidation_started");
     try {
       const result = await invoke("memory_consolidate", { projectDir: project, requestId: crypto.randomUUID() });
       // 整理失败(模型不可用、批次没进展)后端仍返回报告而不是报错:把原因说出来并给重试,不再只说「尚有草稿」。
       const failure = memoryConsolidationFailure(result?.report);
-      neuralFlowEmit?.(failure ? "memory_consolidation_failed" : result?.pending ? "memory_consolidation_partial" : "memory_consolidation_completed", { pending: Boolean(result?.pending) });
       if (failure) toastError(`${t("整理失败")}:${failure}`, { retry: consolidate });
       else toast(memoryConsolidationMessage(result?.report, result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理")));
     } catch (err) {
-      neuralFlowEmit?.("memory_consolidation_failed");
       toastError(`${t("整理失败")}:${err}`, { retry: consolidate });
     } finally {
       memoryConsolidating = false;

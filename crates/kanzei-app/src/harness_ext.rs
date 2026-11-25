@@ -115,53 +115,6 @@ impl kanzei_harness::Tool for UiStyleTool {
     }
 }
 
-/// 读取当前 Kanzei 窗口区域的屏幕像素；窗口遮挡也会进入截图。
-struct UiScreenshotTool;
-pub(crate) async fn capture_desktop(ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
-    use kanzei_harness::Tool;
-    UiScreenshotTool.execute(serde_json::json!({}), ctx).await
-}
-#[async_trait::async_trait]
-impl kanzei_harness::Tool for UiScreenshotTool {
-    fn name(&self) -> &'static str {
-        "ui_screenshot"
-    }
-    fn description(&self) -> String {
-        "截取当前运行中 Kanzei 窗口区域的屏幕像素并返回图片，用于检查布局、配色与实际画面。遮挡窗口也会入画；整幅空白会报错，部分遮挡需结合画面判断。只读。"
-            .into()
-    }
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({"type": "object", "properties": {}})
-    }
-    async fn execute(
-        &self,
-        _input: serde_json::Value,
-        _ctx: &ToolCtx,
-    ) -> kanzei_harness::ToolOutput {
-        if crate::runtime_service::is_service() {
-            return crate::desktop_bridge::screenshot(_ctx).await;
-        }
-        // 抓图是同步的 GDI 调用,挪到阻塞线程池——别占着 async 执行器。
-        let captured = tokio::task::spawn_blocking(crate::state::ui_screenshot_png).await;
-        match captured {
-            Ok(Ok(png)) => {
-                use base64::Engine;
-                let bytes = png.len();
-                let data = base64::engine::general_purpose::STANDARD.encode(&png);
-                kanzei_harness::ToolOutput::ok(format!(
-                    "[screenshot] 当前窗口画面 (image/png, {bytes} bytes) — 已作为图片附在本次结果里。"
-                ))
-                .with_images(vec![kanzei_harness::ToolImage {
-                    media_type: "image/png".into(),
-                    data,
-                }])
-            }
-            Ok(Err(e)) => kanzei_harness::ToolOutput::error(e),
-            Err(e) => kanzei_harness::ToolOutput::error(format!("截图任务异常: {e}")),
-        }
-    }
-}
-
 /// R-329:`deliver` 的入参。
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct DeliverInput {
@@ -395,11 +348,9 @@ impl kanzei_harness::Tool for DesktopBrowserTool {
 }
 
 pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &[
-    "desktop",
     "ui_dom",
     "ui_console",
     "ui_style",
-    "ui_screenshot",
     "frontend_locate",
     "frontend_check",
     "deliver",
@@ -417,9 +368,6 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
         draft.tools.insert("ui_style", Arc::new(UiStyleTool));
-        draft
-            .tools
-            .insert("ui_screenshot", Arc::new(UiScreenshotTool));
         draft.tools.insert(
             "frontend_locate",
             Arc::new(kanzei_tools::frontend::FrontendLocateTool),
@@ -434,8 +382,6 @@ impl kanzei_harness::Component for FrontendToolsComponent {
             "ui_dom",
             "ui_console",
             "ui_style",
-            // 截图是纯读:不改任何文件、不动窗口状态,与其余 UI 自查同档放行。
-            "ui_screenshot",
             "frontend_locate",
             "frontend_check",
         ] {
@@ -446,10 +392,6 @@ impl kanzei_harness::Component for FrontendToolsComponent {
             ));
         }
         if ctx.profile.is_development() {
-            draft.tools.insert(
-                "desktop",
-                Arc::new(crate::native_desktop::DesktopTool::default()),
-            );
             draft
                 .deferred_tools
                 .extend(DESKTOP_DEFERRED_TOOLS.iter().map(|name| (*name).to_owned()));

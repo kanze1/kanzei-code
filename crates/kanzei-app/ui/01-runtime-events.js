@@ -7,24 +7,20 @@ import {
   activeSessionId,
   currentProject,
   log,
-  navigate_view,
-  processItems,
   sessionState,
   sessionStates,
   setRunning,
   setStopping,
-  toast,
   transitionSession,
   trackRunElapsed,
 } from "./03-shell.js";
 import { autoContinueTimers, cancelAutoContinueTimer, releaseAutoContinue, takeAwaitingUser, autoStopReason, setAutoStopReason } from "./08-auto.js";
 import { handleBackgroundAutoFail, handleBackgroundSessionDone } from "./08-compose-runtime.js";
 import "./08-compose.js";
-import { refreshParallelTaskProjection, refreshProcesses, switchProcess } from "./09-sessions.js";
+import { refreshParallelTaskProjection, refreshProcesses } from "./09-sessions.js";
 import { refreshMemory } from "./13-memory.js";
 import { refreshConversationLists } from "./15-views-misc.js";
 import { refreshResearch } from "./03-research-view.js";
-import { neuralFlowEmit } from "./22-neural-flow.js";
 import { subagentSettle } from "./05-subagents.js";
 import { updateSessionStage } from "./03-session-stage.js";
 
@@ -67,8 +63,6 @@ export const SESSIONLESS_EVENTS = new Set([
   "kz:initiative", // Scoped management refreshes do not change the active run.
   "kz:bili",
   "kz:qq", // Connection, peer directory and scoped memory refresh span QQ sessions.
-  "kz:native-control", // Desktop ownership spans conversations and auxiliary windows.
-  "kz:schedule-run",
   "kz:ask",
   "kz:ask-resolved",
   "kz:fast-setup",
@@ -76,7 +70,6 @@ export const SESSIONLESS_EVENTS = new Set([
   "kz:annotate-progress",
   "kz:workspace-invalidated", // 项目摘要失效通知不属于某条会话。
   "kz:runtime-resync", // Native transport connection belongs to the desktop window.
-  "kz:mobile-message", // D-387:手机消息注入桌面后刷新会话列表(全局,无运行会话)。
   // UI2-0926 #8 网页预览面板:面板状态、控制台批量、批注点选都属于窗口里那一个面板,不归哪条运行会话。
   "kz:preview-state",
   "kz:preview-console",
@@ -143,15 +136,6 @@ export function flushExperienceDeltas(sessionId = null) {
   }
   for (const event of queued) {
     if (event.session_id !== activeSessionId || renderingBackground) continue;
-    if (typeof neuralFlowEmit === "function") {
-      neuralFlowEmit(event.neural_event, {
-        session_id: event.session_id,
-        event_id: event.event_id,
-        event_type: event.event_type,
-        delta_count: event.delta_count,
-        ...(event.payload || {}),
-      });
-    }
   }
 }
 export function scheduleExperienceDeltaFlush() {
@@ -239,14 +223,6 @@ export function handleExperienceEvent(payload) {
   // 会话的 Canvas/音频；动画是表现投影，不是业务状态来源。
   if (event.session_id !== activeSessionId || renderingBackground) return;
   flushExperienceDeltas(event.session_id);
-  if (typeof neuralFlowEmit === "function") {
-    neuralFlowEmit(neuralEvent, {
-      session_id: event.session_id,
-      event_id: event.event_id,
-      event_type: event.event_type,
-      ...(event.payload || {}),
-    });
-  }
 }
 
 export function on(event, handler) {
@@ -336,8 +312,7 @@ export function on(event, handler) {
       event === "kz:error" ||
       event === "kz:stopped" ||
       event === "kz:stopping" ||
-      event === "kz:idle" ||
-      event === "kz:mobile-message";
+      event === "kz:idle";
     // R-267:后台会话的渲染事件不再丢弃,改为渲染进**它自己**的 pane。
     //
     // 丢弃是「全局唯一容器」时代的必然:渲染进去就串线。有了 per-session pane
@@ -410,13 +385,6 @@ export function on(event, handler) {
       if (sessionId && (event === "kz:stopped" || idleStopped || event === "kz:done" || terminalError)) {
         subagentSettle(sessionId, event === "kz:stopped" || idleStopped ? "cancelled" : "interrupted");
       }
-      // D-387:手机消息注入桌面——刷新会话列表(消息已由后端持久化,打开会话可见)。
-      if (event === "kz:mobile-message") {
-        void refreshConversationLists();
-        refreshProcesses();
-        handleMobileMessage(eventPayload.payload);
-        return;
-      }
       // kz:ask 不走路由分支:它必须始终进 handler,按 sessionId 入队
       // (handler 内只在活动会话时弹窗),否则后台 ask 会被丢弃挂死(D-055 根因)。
       if (event !== "kz:ask" && event !== "kz:ask-resolved" && sessionId !== activeSessionId) {        // 控制事件的 UI 副作用不能串到活动线路，但所属线路的历史与自主推进必须执行。
@@ -440,38 +408,6 @@ export function on(event, handler) {
   });
 }
 
-// D-387:手机消息到达桌面——打开会话即见持久化消息;会话列表已由 kz:mobile-message 刷新。
-// UX-138:此前只写默认收起的日志面板,桌面上完全看不出手机发来了东西。现在弹一条 toast
-// (带「打开」直达该对话);不抢焦点、不切视图。
-function mobileMessageTarget(sessionId) {
-  const line = processItems.find((item) => item.session_id === sessionId);
-  if (!line) return { line: null, where: "" };
-  const named = typeof line.title === "string" ? line.title.trim() : "";
-  const kind = t("对话");
-  return { line, where: named || `${kind}${line.ordinal ? ` ${line.ordinal}` : ""}` };
-}
-export function handleMobileMessage(payload) {
-  const sessionId = payload?.session_id;
-  if (!sessionId) return;
-  const text = String(payload?.text || "").trim();
-  const { line, where } = mobileMessageTarget(sessionId);
-  log(`${t("手机消息")} → ${where || sessionId}: ${text}`, "info");
-  const preview = text.length > 60 ? `${text.slice(0, 60)}…` : text;
-  toast(`${t("手机消息")}${where ? `  ${where}` : ""}:${preview}`, {
-    action: line ? {
-      label: t("打开"),
-      onClick: () => {
-        navigate_view("chat");
-        void switchProcess(line.id);
-      },
-    } : undefined,
-  });
-}
-
-// D-387:订阅手机消息事件(与 SESSIONLESS_EVENTS 手动同源,冒烟校验要求 on() 调用)。
-on("kz:mobile-message", (eventPayload) => {
-  handleMobileMessage(eventPayload.payload);
-});
 // R-284 B1:结构化事件统一进入归并层；未知事件只记诊断，不得让 UI 崩溃。
 on("kz:experience", (eventPayload) => {
   handleExperienceEvent(eventPayload.payload);

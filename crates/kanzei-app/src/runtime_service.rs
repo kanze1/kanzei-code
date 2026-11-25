@@ -45,31 +45,6 @@ pub(crate) async fn process_roots(process_id: Option<&str>) -> Result<Vec<PathBu
     )
     .map_err(|e| e.to_string())
 }
-pub(crate) async fn stop_owned(
-    app: &tauri::AppHandle,
-    project: PathBuf,
-    process: String,
-) -> Result<(), String> {
-    if embedded() || is_service() {
-        crate::commands::run::stop_run(
-            app.clone(),
-            app.state(),
-            project.to_string_lossy().into_owned(),
-            Some(process),
-        )
-        .await
-    } else {
-        CLIENT
-            .get()
-            .ok_or("后台未就绪")?
-            .invoke(
-                "stop_run",
-                json!({"projectDir":project,"processId":process}),
-            )
-            .await
-            .map(|_| ())
-    }
-}
 pub(crate) fn directory() -> PathBuf {
     // Separate portable builds/profiles cannot silently borrow another version's runtime.
     let exe = std::env::current_exe().unwrap_or_default();

@@ -426,19 +426,6 @@ export const commandParameters = {
   "memory_value_flags": {
     "projectDir": true
   },
-  "mobile_device_list": {},
-  "mobile_device_revoke": {
-    "deviceId": true
-  },
-  "mobile_pair_code_regenerate": {},
-  "mobile_push_status": {},
-  "mobile_service_start": {
-    "lan": false,
-    "notifications": false,
-    "port": false,
-    "projectDir": true
-  },
-  "mobile_service_stop": {},
   "model_effective": {
     "agent": false,
     "model": false,
@@ -450,22 +437,6 @@ export const commandParameters = {
   "models_list": {
     "projectDir": false
   },
-  "native_desktop_dismiss": {
-    "controlId": true
-  },
-  "native_desktop_get": {
-    "processId": true
-  },
-  "native_desktop_select": {
-    "candidateId": false,
-    "processId": true
-  },
-  "native_desktop_status": {},
-  "native_desktop_stop": {
-    "controlId": true
-  },
-  "native_desktop_surface_ready": {},
-  "native_desktop_windows": {},
   "open_delivered_path": {
     "mode": true,
     "path": true,
@@ -809,14 +780,6 @@ export const commandParameters = {
     "path": true,
     "projectDir": true
   },
-  "schedule_action": {
-    "action": true,
-    "definition": false,
-    "enabled": false,
-    "expectedHash": false,
-    "name": false,
-    "projectDir": true
-  },
   "settings_get": {
     "projectDir": false
   },
@@ -923,26 +886,6 @@ export const commandParameters = {
   "verification_cancel": {
     "jobId": true,
     "projectDir": true
-  },
-  "voice_cancel": {
-    "sessionId": true
-  },
-  "voice_settings_get": {},
-  "voice_settings_set": {
-    "settings": true
-  },
-  "voice_speak": {
-    "onChunk": true,
-    "requestId": true,
-    "sessionId": true,
-    "text": true
-  },
-  "voice_start": {},
-  "voice_status": {},
-  "voice_transcribe": {
-    "requestId": true,
-    "sessionId": true,
-    "wav": true
   },
   "webfetch_preview": {
     "url": true

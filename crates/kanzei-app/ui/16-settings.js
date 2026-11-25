@@ -1355,7 +1355,7 @@ defer(() => {
 // ---------- 功能分区与固定浏览大纲 ----------
 const SETTINGS_SECTIONS = [
   { id: "settings-interface", title: "界面与交互", groups: ["sg-general", "sg-sound", "sg-tasks-panel", "sg-appearance", "sg-open-tools"] },
-  { id: "settings-connections", title: "模型与连接", groups: ["settings-models-group", "sg-providers", "sg-network", "sg-mobile"] },
+  { id: "settings-connections", title: "模型与连接", groups: ["settings-models-group", "sg-providers", "sg-network"] },
   { id: "settings-execution", title: "运行与权限", groups: ["sg-cadence", "sg-permissions", "sg-agents", "sg-limits"] },
   { id: "settings-data", title: "项目与数据", groups: ["sg-project-tools", "sg-export", "sg-storage"] },
   { id: "settings-about", title: "关于与更新", groups: ["sg-update"] },

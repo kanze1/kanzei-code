@@ -20,7 +20,6 @@ pub mod memory;
 pub mod metrics;
 pub mod quarantine;
 pub mod run;
-pub mod schedule;
 pub mod shadow;
 pub mod tracker;
 mod trust;
@@ -65,7 +64,6 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
         Some("replay-eval") => eval::replay_eval_cli(&args[1..]).await,
         Some("run") => run::run_cli(&args[1..]).await,
         Some("compact") => compact::compact_cli(&args[1..]).await,
-        Some("schedule") => schedule::schedule_cli(&args[1..]).await,
         Some(_) => run::run_cli(args).await,
         None => {
             usage();
@@ -89,8 +87,6 @@ pub(crate) fn usage_text() -> &'static str {
        kz run --autonomous \"<prompt>\"  # 普通选择自主决定并记账，沿用已有工具权限\n\
        kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz compact [--focus <text>]  # 手动压缩当前上下文\n\
-       kz schedule run <name> [--project-root <path>] # 执行独立定时任务\n\
-       kz schedule list|history [name] # 定义与运行历史\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
        kz work next [--requirement-first] [--detail]  # 当前裁决；detail 显示完整状态\n\
        kz work claim <id> [--reason <text>] # 原子占用 Requirement/Defect/Work Unit\n\

@@ -1639,64 +1639,6 @@
     "path": "memory::memory_value_flags",
     "returns": "-> serde_json :: Value"
   },
-  "mobile_device_list": {
-    "host": "service",
-    "parameters": {},
-    "path": "mobile::mobile_device_list",
-    "returns": "-> Result < Vec < MobileDeviceInfo > , String >"
-  },
-  "mobile_device_revoke": {
-    "host": "service",
-    "parameters": {
-      "deviceId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "mobile::mobile_device_revoke",
-    "returns": "-> Result < () , String >"
-  },
-  "mobile_pair_code_regenerate": {
-    "host": "service",
-    "parameters": {},
-    "path": "mobile::mobile_pair_code_regenerate",
-    "returns": "-> Result < String , String >"
-  },
-  "mobile_push_status": {
-    "host": "service",
-    "parameters": {},
-    "path": "mobile_notify::mobile_push_status",
-    "returns": "-> Result < PushBridgeStatus , String >"
-  },
-  "mobile_service_start": {
-    "host": "service",
-    "parameters": {
-      "lan": {
-        "required": false,
-        "type": "Option < bool >"
-      },
-      "notifications": {
-        "required": false,
-        "type": "Option < bool >"
-      },
-      "port": {
-        "required": false,
-        "type": "Option < u16 >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "mobile::mobile_service_start",
-    "returns": "-> Result < MobileServiceInfo , String >"
-  },
-  "mobile_service_stop": {
-    "host": "service",
-    "parameters": {},
-    "path": "mobile::mobile_service_stop",
-    "returns": "-> Result < () , String >"
-  },
   "model_effective": {
     "host": "service",
     "parameters": {
@@ -1738,72 +1680,6 @@
     },
     "path": "commands::models::models_list",
     "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "native_desktop_dismiss": {
-    "host": "desktop",
-    "parameters": {
-      "controlId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "native_control::native_desktop_dismiss",
-    "returns": "-> Result < () , String >"
-  },
-  "native_desktop_get": {
-    "host": "desktop",
-    "parameters": {
-      "processId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "native_desktop::native_desktop_get",
-    "returns": "-> Option < Value >"
-  },
-  "native_desktop_select": {
-    "host": "desktop",
-    "parameters": {
-      "candidateId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "processId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "native_desktop::native_desktop_select",
-    "returns": "-> Result < Option < Value > , String >"
-  },
-  "native_desktop_status": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "native_control::native_desktop_status",
-    "returns": "-> Value"
-  },
-  "native_desktop_stop": {
-    "host": "desktop",
-    "parameters": {
-      "controlId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "native_control::native_desktop_stop",
-    "returns": "-> Result < Value , String >"
-  },
-  "native_desktop_surface_ready": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "native_control::native_desktop_surface_ready",
-    "returns": "-> Result < () , String >"
-  },
-  "native_desktop_windows": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "native_desktop::native_desktop_windows",
-    "returns": "-> Result < Value , String >"
   },
   "open_delivered_path": {
     "host": "desktop",
@@ -3138,37 +3014,6 @@
     "path": "deliveries::save_delivered_file",
     "returns": "-> Result < Option < String > , String >"
   },
-  "schedule_action": {
-    "host": "service",
-    "parameters": {
-      "action": {
-        "required": true,
-        "type": "String"
-      },
-      "definition": {
-        "required": false,
-        "type": "Option < kanzei_tools :: schedules :: ScheduleDef >"
-      },
-      "enabled": {
-        "required": false,
-        "type": "Option < bool >"
-      },
-      "expectedHash": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "name": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "schedules::schedule_action",
-    "returns": "-> Result < Value , String >"
-  },
   "settings_get": {
     "host": "service",
     "parameters": {
@@ -3588,88 +3433,6 @@
     },
     "path": "decisions::verification_cancel",
     "returns": "-> Result < () , String >"
-  },
-  "voice_cancel": {
-    "host": "desktop",
-    "parameters": {
-      "sessionId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "voice::voice_cancel",
-    "returns": "-> Result < () , String >"
-  },
-  "voice_settings_get": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "voice::voice_settings_get",
-    "returns": "-> Result < VoiceSettings , String >"
-  },
-  "voice_settings_set": {
-    "host": "desktop",
-    "parameters": {
-      "settings": {
-        "required": true,
-        "type": "crate :: voice :: VoiceSettings"
-      }
-    },
-    "path": "voice::voice_settings_set",
-    "returns": "-> Result < () , String >"
-  },
-  "voice_speak": {
-    "host": "desktop",
-    "parameters": {
-      "onChunk": {
-        "required": true,
-        "type": "tauri :: ipc :: Channel < crate :: voice :: VoiceChunk >"
-      },
-      "requestId": {
-        "required": true,
-        "type": "String"
-      },
-      "sessionId": {
-        "required": true,
-        "type": "String"
-      },
-      "text": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "voice::voice_speak",
-    "returns": "-> Result < () , String >"
-  },
-  "voice_start": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "voice::voice_start",
-    "returns": "-> Result < Value , String >"
-  },
-  "voice_status": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "voice::voice_status",
-    "returns": "-> Result < Value , String >"
-  },
-  "voice_transcribe": {
-    "host": "desktop",
-    "parameters": {
-      "requestId": {
-        "required": true,
-        "type": "String"
-      },
-      "sessionId": {
-        "required": true,
-        "type": "String"
-      },
-      "wav": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "voice::voice_transcribe",
-    "returns": "-> Result < Value , String >"
   },
   "webfetch_preview": {
     "host": "service",

@@ -139,7 +139,6 @@ import {
 import { markRuntimeFocusStale, setRuntimeFocus } from "./12-docs-pages.js";
 import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
-import { neuralFlowEmit } from "./22-neural-flow.js";
 import { autoAllowEnabled, onLayoutChange, setAutoAllowEnabled } from "./03-layout.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
 import { renderMarkdownInto } from "./04-markdown.js";
@@ -197,7 +196,6 @@ defer(() => {
     setCtxPending(true);
     renderTokens();
     if (p.step === 1) agentAuditBegin(p.sessionId);
-    neuralFlowEmit?.("run_started", { session_id: p.sessionId, step: p.step });
     // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
     // 每轮开头一段"未绑定条目"空窗;新证据到达时自然覆盖。
     if (p.step === 1) markRuntimeFocusStale(p.sessionId);
@@ -215,7 +213,6 @@ defer(() => {
 defer(() => {
   on("kz:text", (e) => {
     markFirstSignal();
-    neuralFlowEmit?.("assistant_streaming", { session_id: e.payload.sessionId, text_length: e.payload.text?.length ?? 0 });
     // 文本开始后,后续思考属于新的思考段。
     endReasoningLive();
     setTurnPhase("generating");
@@ -228,7 +225,6 @@ defer(() => {
 defer(() => {
   on("kz:reasoning", (e) => {
     markFirstSignal();
-    neuralFlowEmit?.("reasoning_active", { session_id: e.payload.sessionId });
     setTurnPhase("thinking");
     if (running) setStatus("思考中", true);
     appendReasoning(e.payload.text);
@@ -344,11 +340,6 @@ defer(() => {
 });
 on("kz:tool-start", (e) => {
   markFirstSignal();
-  neuralFlowEmit?.("tool_started", {
-    session_id: e.payload.sessionId,
-    tool_call_id: e.payload.id,
-    tool_name: e.payload.name,
-  });
   // 后端 summarize_input 把整坨入参 JSON 截到 160 字,对所有工具一视同仁——直接拼进
   // 运行日志与「当前动作」行,edit/write 就显示成 `{"new_string":"…","old_strin…`。
   // 与活动栏标题、主对话工具块用同一个 toolCallSummary 挑字段,挑不出来再回落后端摘要。
@@ -449,12 +440,7 @@ defer(() => {
   on("kz:tool-end", (e) => {
     const p = e.payload;
     agentAuditTaskEnd(p.sessionId, p);
-    neuralFlowEmit?.("tool_completed", {
-      session_id: p.sessionId,
-      tool_call_id: p.id,
-      tool_name: p.name,
-      ok: p.ok,
-    });
+    // tool_completed
     const outcome = p.outcome || (p.ok ? "success" : "failed");
     const outcomeLabel = outcome === "noop" ? t("无需修改")
       : outcome === "needs_confirmation" ? t("需要确认")
@@ -605,7 +591,6 @@ defer(() => {
     // 持久化告警等非终态错误不能把仍在运行的会话投影成空闲；真正运行失败由
     // 后端明确携带 terminal=true，并随后发 kz:idle 收口。
     if (terminal) {
-      neuralFlowEmit?.("run_failed", { session_id: payload.sessionId, message });
       agentAuditFinish(payload.sessionId || activeSessionId, "failed");
       const failedSession = payload.sessionId || activeSessionId;
       releaseAutoContinue(failedSession);
@@ -660,7 +645,6 @@ defer(() => {
 });
 defer(() => {
   on("kz:compacted", (e) => {
-    neuralFlowEmit?.("context_compacted", { session_id: e.payload?.sessionId });
     setCtxPending(false);
     lastCompactionSummary = e.payload?.summary ?? "";
     addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
@@ -671,7 +655,6 @@ defer(() => {
   });
 });
 function finishStoppedRun(e) {
-    neuralFlowEmit?.("run_stopped", { session_id: e.payload?.sessionId });
     setCtxPending(false);
     renderTokens();
     agentAuditFinish(e.payload?.sessionId, "stopped");
@@ -757,7 +740,6 @@ defer(() => {
     setCtxPending(false);
     renderTokens();
     agentAuditFinish(p.sessionId, endState);
-    neuralFlowEmit?.(outcome === "incomplete" ? "run_failed" : outcome === "halted" ? "run_stopped" : "run_completed", { session_id: p.sessionId, outcome, halted: Boolean(p.halted) });
     releaseAutoContinue(p.sessionId);
     // R-267:轮末不再需要「原子回灌」。那套是为了修补「切走期间缺一段」——而缺口
     // 本身已经不存在了:后台会话的渲染事件全程进它自己的 pane,轮末 pane 里就是完整的。

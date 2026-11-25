@@ -63,26 +63,6 @@ pub(crate) static UI_PROBES: std::sync::LazyLock<
 pub(crate) static UI_PROBE_SEQ: AtomicU64 = AtomicU64::new(1);
 pub(crate) static UI_PROBE_EMIT: std::sync::OnceLock<Box<dyn Fn(serde_json::Value) + Send + Sync>> =
     std::sync::OnceLock::new();
-/// D-387:手机消息注入桌面后的 UI 通知出口。桌面端装配时注入 window.emit("kz:mobile-message"),
-/// mobile.rs 收到 POST /v1/messages 后经此通知 UI 刷新会话列表(消费方)。
-pub(crate) static MOBILE_MESSAGE_EMIT: std::sync::OnceLock<
-    Box<dyn Fn(String, String) + Send + Sync>,
-> = std::sync::OnceLock::new();
-/// R-249 批2:主窗口的原生句柄。与 UI_PROBE_EMIT 同一手法——建窗口时装一次,
-/// 工具侧只认这个静态,不依赖 tauri 类型,截图模块因此可以纯 Win32 无 tauri 依赖。
-pub(crate) static UI_WINDOW_HANDLE: std::sync::OnceLock<isize> = std::sync::OnceLock::new();
-
-/// R-249 批2:抓当前窗口画面,返回 PNG 字节。
-///
-/// 与 ui_dom/ui_style 是**互补**关系而非替代:那两个给结构与数值(为什么没显示、
-/// 盒模型多大),这个给「实际长什么样」。对齐、遮挡、观感一类问题只有像素能回答。
-pub(crate) fn ui_screenshot_png() -> Result<Vec<u8>, String> {
-    let Some(&handle) = UI_WINDOW_HANDLE.get() else {
-        return Err("窗口截图不可用:桌面窗口未就绪(CLI 环境下没有可截的界面)".into());
-    };
-    let (rgba, width, height) = crate::screenshot::capture_window(handle)?;
-    crate::screenshot::encode_png(&rgba, width, height)
-}
 
 pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value, String> {
     if crate::runtime_service::is_service() {
@@ -615,35 +595,6 @@ pub(crate) struct ProcessInfo {
     /// 会话最近活动时间(毫秒,`sessions.updated_at`);会话行还没建出来为 None。
     pub(crate) updated_at: Option<i64>,
 }
-pub(crate) struct MobileService {
-    pub(crate) active: Arc<AtomicBool>,
-    pub(crate) listener_thread: Option<std::thread::JoinHandle<()>>,
-    /// R-270 批1:已配对设备表(device_id → device_token)。撤销 = 从表移除,
-    /// 移除后该 token 立即 401,其它设备不受影响(替换原单一共享 token)。
-    pub(crate) devices: Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>,
-    /// R-270 批1:当前有效的一次性配对码(桌面端生成,配对成功后清空)。
-    pub(crate) pair_code: Arc<std::sync::Mutex<Option<String>>>,
-    /// R-270 批1:服务监听是否在 LAN(0.0.0.0)。默认回环(127.0.0.1)行为不变。
-    pub(crate) lan: bool,
-    /// D-386:项目根(state.db 所在,设备表持久化定位)。
-    pub(crate) project_root: std::path::PathBuf,
-}
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct MobileServiceInfo {
-    pub(crate) address: String,
-    /// 手机浏览器能直接打开的地址(LAN 模式是本机局域网 IP;`address` 是监听地址,不能给人看)。
-    pub(crate) url: String,
-    /// 单一共享 token(旧行为)或当前配对码(R-270 批1:配对码用于换取设备 token)。
-    pub(crate) token: String,
-    pub(crate) lan: bool,
-    pub(crate) devices: Vec<MobileDeviceInfo>,
-}
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct MobileDeviceInfo {
-    pub(crate) device_id: String,
-    pub(crate) name: String,
-    pub(crate) paired_at_ms: u128,
-}
 /// Worktree 信息类型下沉 kanzei-tools(R-207),这里 re-export 保持引用点零改动。
 pub(crate) use kanzei_tools::worktree::WorktreeInfo;
 
@@ -686,7 +637,6 @@ pub(crate) struct AppState {
     /// 已完成 state.db 进程注册恢复的项目。恢复是项目进入时的一次性动作；
     /// 后续 process_list/collaboration_snapshot 只读取运行态，不能重复用旧库值覆盖内存设置。
     pub(crate) restored_projects: Arc<Mutex<HashSet<String>>>,
-    pub(crate) mobile_service: Arc<Mutex<Option<MobileService>>>,
     /// 自主推进(鞭挞)状态按会话隔离：控件输入经 auto_state_update 同步，
     /// 轮末由 run.rs 只消费所属会话的控制器，不能串扰后台进程。
     pub(crate) auto_runs: Arc<Mutex<HashMap<String, crate::auto_run::AutoRunController>>>,
@@ -708,7 +658,6 @@ impl Default for AppState {
             ask_seq: Arc::new(AtomicU64::new(crate::run::now_ms() as u64 * 1024)),
             processes: Arc::new(Mutex::new(HashMap::new())),
             restored_projects: Arc::new(Mutex::new(HashSet::new())),
-            mobile_service: Arc::new(Mutex::new(None)),
             auto_runs: Arc::new(Mutex::new(HashMap::new())),
             coordinator: Arc::new(kanzei_core::orchestration::MemoryCoordinator::new()),
             worktree_ops: Arc::new(AsyncMutex::new(())),

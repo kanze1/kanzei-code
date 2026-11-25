@@ -20,34 +20,6 @@
     "host": "desktop"
   },
   {
-    "path": "voice::voice_settings_get",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_settings_set",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_status",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_start",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_speak",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_transcribe",
-    "host": "desktop"
-  },
-  {
-    "path": "voice::voice_cancel",
-    "host": "desktop"
-  },
-  {
     "path": "state::ui_probe_result",
     "host": "desktop"
   },
@@ -612,10 +584,6 @@
     "host": "service"
   },
   {
-    "path": "schedules::schedule_action",
-    "host": "service"
-  },
-  {
     "path": "conversation_actions::conversation_action",
     "host": "service"
   },
@@ -776,30 +744,6 @@
     "host": "service"
   },
   {
-    "path": "mobile::mobile_service_start",
-    "host": "service"
-  },
-  {
-    "path": "mobile::mobile_service_stop",
-    "host": "service"
-  },
-  {
-    "path": "mobile::mobile_device_revoke",
-    "host": "service"
-  },
-  {
-    "path": "mobile::mobile_device_list",
-    "host": "service"
-  },
-  {
-    "path": "mobile::mobile_pair_code_regenerate",
-    "host": "service"
-  },
-  {
-    "path": "mobile_notify::mobile_push_status",
-    "host": "service"
-  },
-  {
     "path": "agent_directory::agent_directory_get",
     "host": "service"
   },
@@ -874,34 +818,6 @@
   {
     "path": "preview::commands::delivered_image",
     "host": "service"
-  },
-  {
-    "path": "native_desktop::native_desktop_windows",
-    "host": "desktop"
-  },
-  {
-    "path": "native_desktop::native_desktop_select",
-    "host": "desktop"
-  },
-  {
-    "path": "native_desktop::native_desktop_get",
-    "host": "desktop"
-  },
-  {
-    "path": "native_control::native_desktop_status",
-    "host": "desktop"
-  },
-  {
-    "path": "native_control::native_desktop_stop",
-    "host": "desktop"
-  },
-  {
-    "path": "native_control::native_desktop_dismiss",
-    "host": "desktop"
-  },
-  {
-    "path": "native_control::native_desktop_surface_ready",
-    "host": "desktop"
   },
   {
     "path": "commands::summarize::save_conversation_export",

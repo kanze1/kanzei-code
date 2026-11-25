@@ -56,7 +56,7 @@ pub(crate) async fn settle_resources(
     {
         kanzei_tools::background::stop_result(&terminal.id).await?;
     }
-    crate::desktop_bridge::release_native(process).await
+    Ok(())
 }
 
 static EVENTS: std::sync::OnceLock<crate::app_events::AppEvents> = std::sync::OnceLock::new();

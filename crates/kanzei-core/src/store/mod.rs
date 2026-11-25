@@ -376,7 +376,6 @@ pub use inbox::StoredInput;
 mod memory_observations;
 mod memory_retention;
 pub use memory_retention::{AvailableMemory, MemoryRetentionCounts};
-mod mobile_devices;
 mod notifications;
 mod path_migration;
 mod processes;

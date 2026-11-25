@@ -44,12 +44,6 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         poll.tick().await;
     }
     let state = app.state::<AppState>();
-    let mobile_active = state.mobile_service.lock_or_recover().is_some();
-    if mobile_active {
-        // HTTP writes do not enter the desktop RPC admission counter.
-        // Its owned connections must settle before snapshotting database owners.
-        crate::mobile::stop_service(&state)?;
-    }
     let processes = state
         .processes
         .lock_or_recover()

@@ -1104,17 +1104,6 @@ pub(crate) fn build_ask_handler(
             return Box::pin(async { kanzei_core::AskResponse::Cancelled });
         }
         let payload = crate::pending_ask_payload(id, &pending);
-        // D-388:approval 建立时发手机系统通知(验收⑥「息屏收到 approval 通知」)。
-        // 尽力而为:无推送桥只记诊断不阻塞。
-        let (notify_title, notify_body) = match &pending.request {
-            kanzei_core::AskRequest::Permission { action, resource } => (
-                "kanzei 需要批准".to_string(),
-                format!("{action}: {resource}"),
-            ),
-            kanzei_core::AskRequest::Question { question, .. } => {
-                ("kanzei 询问".to_string(), question.clone())
-            }
-        };
         asks.lock().unwrap().insert(id, pending);
         let guard = PendingAskGuard {
             asks: asks.clone(),
@@ -1123,9 +1112,6 @@ pub(crate) fn build_ask_handler(
             owner: ask_session_id.clone(),
         };
         let _ = ask_window.emit("kz:ask", payload);
-        if let Ok(message) = crate::mobile_notify::notify_mobile(&notify_title, &notify_body) {
-            tracing::debug!("{message}");
-        }
         Box::pin(async move {
             let _guard = guard;
             receiver

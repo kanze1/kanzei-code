@@ -14,8 +14,6 @@ export function loadOptional(name, load) {
 }
 const chat = () => loadOptional("memory-chat", () => import("./13-memory-chat.js"));
 const graph = () => loadOptional("memory-graph", () => import("./24-memory-graph.js"));
-const voice = () => loadOptional("voice", () => import("./23-voice.js"));
-const mobile = () => loadOptional("mobile", () => import("./16-mobile.js"));
 
 defer(() => {
   let selection = null;
@@ -45,10 +43,4 @@ defer(() => {
     }, true);
   }
   firstClick("memory-view-graph", "memory-graph", graph);
-  firstClick("voice-toggle", "voice", voice);
-  firstClick("voice-check", "voice", voice);
-  firstClick("mobile-service-start", "mobile", mobile);
-  $("mobile-settings")?.addEventListener("toggle", event => {
-    if (event.target.open) void mobile().catch(error => toastError(String(error)));
-  });
 });

@@ -2,7 +2,6 @@
 //! Capability crates do not construct runners or depend on this crate.
 #[cfg(test)]
 mod memory_tests;
-pub mod schedules;
 
 use std::sync::Arc;
 

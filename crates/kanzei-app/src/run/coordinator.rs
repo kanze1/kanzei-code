@@ -469,18 +469,6 @@ pub(crate) async fn run_task(
             // UI2-0926 #13 复核:手机通知(网络)与 Nudge 事实(tracker + git)在锁外做。
             // 判定和计数在锁内取快照，提示与通知在锁外生成。
             let auto_payload = auto_payload.map(|(action, rounds)| {
-                if let kanzei_harness::auto_run::AutoRunAction::Stop(
-                    kanzei_harness::auto_run::AutoStopReason::RepeatedFailure(n),
-                ) = action
-                {
-                    // 过夜停摆必须让人知道:经 LAN 推送桥发手机通知(尽力而为)。
-                    if let Ok(message) = crate::mobile_notify::notify_mobile(
-                        "kanzei 自动运行停摆",
-                        &format!("连续 {n} 轮运行失败,鞭挞已停止。最后错误: {error}"),
-                    ) {
-                        tracing::debug!("{message}");
-                    }
-                }
                 let mut payload = crate::auto_run::serialize_action(action, || {
                     crate::auto_run::nudge_facts(
                         &ctx_cwd,
@@ -671,22 +659,6 @@ pub(crate) async fn run_task(
             &session_id,
             &progress_signature,
         );
-        // 验收①「点名阻塞清单」:诊断里直接带上卡住的条目,别让人再去翻文档找。
-        let blocked = crate::auto_run::blocked_wip_summary(&deps.project_root);
-        let blocked_line = if blocked.is_empty() {
-            "没有条目标记阻塞——卡点不在外部阻塞,需要人工复核最近几轮进展。".to_string()
-        } else {
-            format!("卡住的条目:{}", blocked.join(" | "))
-        };
-        if let Ok(message) = crate::mobile_notify::notify_mobile(
-            "kanzei 自动运行熔断",
-            &format!(
-                "连续 {} 轮真实状态未变化(文件/提交/需求记录均无实质改动),鞭挞已停止。{blocked_line}",
-                kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
-            ),
-        ) {
-            tracing::debug!("{message}");
-        }
     }
     // R-202 批2:轮末收尾段后半(对话落库/轮末压缩/kz:done/租约释放/令牌回收)收敛。
     // R-253 批7b:参数按生命周期分组(FinalizeSession/FinalizeRound/FinalizeOutcome/

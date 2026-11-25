@@ -49,12 +49,8 @@ mod login_qr;
 mod manual_compact;
 mod memory;
 mod memory_chat;
-mod mobile;
-mod mobile_notify;
 /// UI-0926 #3:模型配置的展示真源(model_effective)与项目级模型覆盖的逐键编辑。
 mod model_config;
-mod native_control;
-mod native_desktop;
 mod native_dispatch;
 mod orchestration_trace;
 mod prefs;
@@ -70,8 +66,6 @@ mod research_topics;
 mod run;
 mod runtime_continuation;
 mod runtime_service;
-mod schedules;
-mod screenshot;
 mod session_supervisor;
 mod settings;
 mod skills;
@@ -83,8 +77,6 @@ mod tracker_capture;
 mod typed_events;
 mod update;
 mod verification_monitor;
-mod voice;
-mod voice_service;
 mod workspace;
 
 #[cfg(test)]
@@ -163,7 +155,6 @@ fn main() {
         .manage(qq::QqState::default())
         .manage(bili::BiliState::default())
         .manage(initiative::service::InitiativeState::default())
-        .manage(voice::VoiceState::default())
         .manage(memory_chat::MemoryChatState::default())
         .manage(preview::PreviewState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
@@ -173,15 +164,6 @@ fn main() {
             let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
                 let _ = handle.emit("kz:ui-probe", payload);
             }));
-            // D-387:手机消息注入桌面后的 UI 通知出口——kz:mobile-message 事件驱动
-            // 前端刷新会话列表(消费方闭环:手机发→桌面可见)。
-            let msg_handle = app.handle().clone();
-            let _ = crate::state::MOBILE_MESSAGE_EMIT.set(Box::new(move |session_id, text| {
-                let _ = msg_handle.emit(
-                    "kz:mobile-message",
-                    serde_json::json!({ "session_id": session_id, "text": text }),
-                );
-            }));
             if service {
                 // The execution owner has no graphical surface. Native command
                 // dispatch, application events and managed state work without
@@ -190,7 +172,6 @@ fn main() {
                 qq::install(app.handle())?;
                 bili::install(app.handle())?;
                 initiative::service::install(app.handle())?;
-                tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
                 workspace::install_recovery(app.handle());
                 durable_questions::recover_outbox(app.handle().clone());
                 verification_monitor::start(app.handle().clone(), app.handle().clone());
@@ -241,8 +222,6 @@ fn main() {
                 preview::on_main_page_load(&page_app, window.label(), payload.event())
             });
             let main_window = builder.build()?;
-            native_control::install(app.handle(), &main_window);
-            tauri::async_runtime::spawn(schedules::scheduler(app.handle().clone()));
             // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
             preview::install(app.handle(), &main_window);
             if runtime_service::embedded() {
@@ -250,15 +229,6 @@ fn main() {
             }
 
             verification_monitor::start(app.handle().clone(), app.handle().clone());
-            // R-249 批2:窗口句柄装进静态,截图工具据此抓真实画面。取不到句柄
-            // (非 Windows / 平台不支持)时不装——工具会如实报「窗口未就绪」,
-            // 而不是拿一个假句柄去抓出别人的窗口。
-            #[cfg(windows)]
-            if let Ok(hwnd) = main_window.hwnd() {
-                let _ = state::UI_WINDOW_HANDLE.set(hwnd.0 as isize);
-            }
-            #[cfg(not(windows))]
-            let _ = &main_window;
             // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
             // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
             tauri::async_runtime::spawn(async move {

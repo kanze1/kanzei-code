@@ -108,7 +108,6 @@ fn record_transaction_budget_result(
 /// Optional reporting and memory work runs only after the durable outcome.
 struct OutcomeEffects<'a> {
     report: &'a dyn Fn(&str, String),
-    mobile: &'a dyn Fn(&str, &str),
     harvest: &'a dyn Fn(&[kanzei_llm::Message]),
     after_success: &'a dyn Fn(Option<i64>),
 }
@@ -177,11 +176,6 @@ pub(crate) fn persist_round_outcome(
     let report = |operation: &str, error: String| {
         report_persistence_failure(window, session_id, operation, error);
     };
-    let mobile = |title: &str, body: &str| {
-        if let Ok(message) = crate::mobile_notify::notify_mobile(title, body) {
-            tracing::debug!("{message}");
-        }
-    };
     let harvest = |messages: &[kanzei_llm::Message]| {
         kanzei_memory::memory::harvest_end_of_run(&ctx.project_root, prompt, messages);
     };
@@ -220,7 +214,6 @@ pub(crate) fn persist_round_outcome(
         live,
         &OutcomeEffects {
             report: &report,
-            mobile: &mobile,
             harvest: &harvest,
             after_success: &after_success,
         },
@@ -365,7 +358,6 @@ fn persist_round_outcome_with_effects(
         {
             (effects.report)("写入失败通知", notification_error.to_string());
         }
-        (effects.mobile)("kanzei 任务失败", &format!("运行失败: {error}"));
         // Preserve the original provider error and its typed classification in
         // coordinator; this success only acknowledges the durable Failed outcome.
         if run_result.is_err() {
@@ -439,20 +431,17 @@ fn persist_round_outcome_with_effects(
         {
             (effects.report)("写入停止通知", error.to_string());
         }
-        (effects.mobile)("kanzei 任务已停止", "运行已按停止/拒绝收尾");
     } else if let Some(reason) = summary.incomplete_reason() {
         if let Err(error) = append_run_notification(&store, session_id, "incomplete", reason, false)
         {
             (effects.report)("写入未完成通知", error.to_string());
         }
-        (effects.mobile)("kanzei 本轮未完成", reason);
     } else {
         if let Err(error) =
             append_run_notification(&store, session_id, "succeeded", "任务完成", false)
         {
             (effects.report)("写入完成通知", error.to_string());
         }
-        (effects.mobile)("kanzei 任务完成", "运行已成功结束");
         (effects.after_success)(current_episode_id);
     }
     Ok(PersistedRoundOutcome {
@@ -1089,7 +1078,6 @@ mod tests {
         let (root, store, writer, mut summary) = completed_outcome_fixture().await;
         summary.finish_reason = Some(kanzei_llm::FinishReason::MaxTokens);
         let runtime = crate::SessionRuntime::default();
-        let mobile = Mutex::new(Vec::new());
         let resolved = kanzei_harness::config::ResolvedModel {
             provider_name: "mock".into(),
             model: "mock".into(),
@@ -1121,17 +1109,6 @@ mod tests {
             &Arc::new(Mutex::new(LiveRun::default())),
             &OutcomeEffects {
                 report: &|operation, error| panic!("{operation}: {error}"),
-                mobile: &|title, _| {
-                    assert_eq!(
-                        store
-                            .list_events_by_type("ses", 0, "run.failed")
-                            .unwrap()
-                            .len(),
-                        1,
-                        "the incomplete outcome must be durable before publication"
-                    );
-                    mobile.lock_or_recover().push(title.to_string());
-                },
                 harvest: &|_| {},
                 after_success: &|_| panic!("incomplete output cannot publish success"),
             },
@@ -1157,7 +1134,6 @@ mod tests {
             ["incomplete"]
         );
         assert_eq!(store.list_episodes("ses", 20).unwrap()[0].2, "incomplete");
-        assert_eq!(*mobile.lock_or_recover(), ["kanzei 本轮未完成"]);
         drop(persisted);
         drop(writer);
         drop(store);
@@ -1213,8 +1189,6 @@ mod tests {
             sql.execute_batch("CREATE TRIGGER reject_failed BEFORE INSERT ON session_events WHEN NEW.event_type='session.turn_failed' BEGIN SELECT RAISE(ABORT, 'reject failed'); END").unwrap();
         }
         let reports = Mutex::new(Vec::new());
-        let mobile_messages = Mutex::new(Vec::new());
-        let mobile_bodies = Mutex::new(Vec::new());
         let post_success = Mutex::new(Vec::new());
         let harvests = Mutex::new(Vec::new());
         let report = |op: &str, error: String| {
@@ -1223,24 +1197,6 @@ mod tests {
                 "report holds lifecycle"
             );
             reports.lock_or_recover().push((op.to_owned(), error));
-        };
-        let mobile = |title: &str, body: &str| {
-            assert!(
-                runtime.lifecycle.try_lock().is_ok(),
-                "notify holds lifecycle"
-            );
-            // External publication must observe the already committed outcome.
-            let expected = if title.ends_with("失败") {
-                "run.failed"
-            } else {
-                "run.completed"
-            };
-            assert_eq!(
-                store.list_events_by_type("ses", 0, expected).unwrap().len(),
-                1
-            );
-            mobile_messages.lock_or_recover().push(title.to_owned());
-            mobile_bodies.lock_or_recover().push(body.to_owned());
         };
         let harvest = |messages: &[kanzei_llm::Message]| {
             assert!(
@@ -1291,7 +1247,6 @@ mod tests {
             &live,
             &OutcomeEffects {
                 report: &report,
-                mobile: &mobile,
                 harvest: &harvest,
                 after_success: &after_success,
             },
@@ -1356,7 +1311,6 @@ mod tests {
                 assert_eq!(store.get_session("ses").unwrap().unwrap().status, "running");
                 assert!(notifications.is_empty());
                 assert!(episodes.is_empty());
-                assert!(mobile_messages.lock_or_recover().is_empty());
             } else {
                 assert!(writer.lock_or_recover().is_terminal());
                 assert_eq!(
@@ -1389,7 +1343,6 @@ mod tests {
                     episodes.iter().map(|x| x.2.as_str()).collect::<Vec<_>>(),
                     ["failed"]
                 );
-                assert_eq!(*mobile_messages.lock_or_recover(), ["kanzei 任务失败"]);
             }
         } else {
             assert!(result.is_ok());
@@ -1443,14 +1396,6 @@ mod tests {
             );
             assert_eq!(post_success.lock_or_recover().len(), usize::from(!stopped));
             assert_eq!(harvests.lock_or_recover().len(), 1);
-            assert_eq!(
-                *mobile_messages.lock_or_recover(),
-                [if stopped {
-                    "kanzei 任务已停止"
-                } else {
-                    "kanzei 任务完成"
-                }]
-            );
             if stopped {
                 assert!(notifications
                     .iter()
@@ -1458,7 +1403,6 @@ mod tests {
                 assert!(!notifications
                     .iter()
                     .any(|notice| notice.status == "succeeded"));
-                assert_eq!(*mobile_bodies.lock_or_recover(), ["运行已按停止/拒绝收尾"]);
             }
             assert!(reports.lock_or_recover().is_empty());
         }
@@ -1498,12 +1442,6 @@ mod tests {
             },
         };
         let report = |_: &str, _: String| {};
-        let mobile = |_: &str, _: &str| {
-            assert!(
-                !stopped,
-                "a stopped provider error must not publish success/failure"
-            );
-        };
         let harvest =
             |_: &[kanzei_llm::Message]| panic!("failed round must not harvest success memory");
         let after_success = |_| panic!("failed round must not schedule success work");
@@ -1544,7 +1482,6 @@ mod tests {
             &live,
             &OutcomeEffects {
                 report: &report,
-                mobile: &mobile,
                 harvest: &harvest,
                 after_success: &after_success,
             },

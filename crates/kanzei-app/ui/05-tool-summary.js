@@ -789,7 +789,6 @@ function summarizeCollaboration(s) {
   return { groups: [countText(s.display.conversations.length, t("{n} 个对话"), t("1 个对话")),
     countText(s.display.worktrees.length, t("{n} 个工作树"), t("1 个工作树"))], key: "collaboration_status" };
 }
-const summarizeScreenshot = () => ({ groups: [t("截图")], key: "ui_screenshot" });
 
 const TRACKER_TOOLS = ["req", "defect", "idea", "decision", "source", "finding"];
 /// 成功态摘要器注册表:覆盖全部已注册工具。表里没有的工具(latex/plot/incident/prior_art/
@@ -830,7 +829,6 @@ export const TOOL_RESULT_SUMMARIZERS = {
   browser: summarizeBrowser,
   frontend_locate: summarizeFrontend,
   frontend_check: summarizeFrontend,
-  ui_screenshot: summarizeScreenshot,
   deliver: summarizeDeliver,
   collaboration_status: summarizeCollaboration,
 };
