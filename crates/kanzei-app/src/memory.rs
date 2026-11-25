@@ -104,8 +104,7 @@ pub(crate) fn memory_overview(project_dir: String) -> serde_json::Value {
         }
         scopes.push(json!({"scope": store.scope.selector(), "root": store.root.display().to_string(), "total": entries.len(), "hitsTotal": hits.values().sum::<u64>(), "categories": categories, "inboxPending": store.pending_notes(), "archived": store.archived_count(), "integrity": store.integrity_issues()}));
     }
-    let root = crate::normalized_project_root(std::path::Path::new(&project_dir));
-    json!({"scopes": scopes, "knowledge": kanzei_tools::project_knowledge::snapshot(&root, &root)})
+    json!({"scopes": scopes})
 }
 
 #[tauri::command(async)]

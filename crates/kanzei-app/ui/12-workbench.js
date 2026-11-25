@@ -7,9 +7,7 @@ import { currentProject, processItems, sessionStates, navigate_view, syncBackBar
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
 import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
 import { lastWorkspaceSnapshot, refreshWorkspace } from "./12-docs-pages.js";
-import { setWorkspaceConsoleState } from "./12-decision-console.js";
-import { openConventions } from "./15-conventions.js";
-import { executionActivity, activityLabels, sameProject } from "./25-softwire-model.js";
+import { executionActivity, activityLabels, sameProject } from "./00-project-identity.js";
 import { awaitingUserSessions } from "./08-auto.js";
 import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, sidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
 
@@ -230,9 +228,6 @@ export async function openProjectResource(path, view) {
     if (await openProjectSpace(path, "chat")) openSessionHistory($("workbench-chat-history"), path);
     return;
   }
-  if (view === "conventions") {
-    return openConventions(path);
-  }
   if (view !== "research") return openProjectSpace(path, view);
   return openWorkbenchSpace("research");
 }
@@ -255,12 +250,12 @@ defer(() => {
   document.addEventListener("kz:workspace-navigation", event => {
     event.preventDefault(); void openWorkbenchSpace(event.detail.space);
   });
-  $("workbench-home")?.addEventListener("click", () => { setWorkspaceConsoleState({ tab: "projects", projectFilter: "" }); navigate_view("workspace"); });
+  $("workbench-home")?.addEventListener("click", () => { navigate_view("workspace"); });
   $("workbench-attention")?.addEventListener("click", () => {
     const event = new CustomEvent("kz:open-work-inbox", { cancelable: true });
     document.dispatchEvent(event);
     if (event.defaultPrevented) return;
-    setWorkspaceConsoleState({ tab: "decisions", projectFilter: "" }); navigate_view("workspace");
+    navigate_view("workspace");
   });
   // 品牌栏的搜索图标打开全局对话历史;弹层本体在 12-session-tree.js,走 openPopover 的唯一写法(UX-003)。
   $("workbench-chat-history")?.addEventListener("click", (event) => openSessionHistory(event.currentTarget, null));

@@ -51,14 +51,7 @@ impl Component for BaseComponent {
         draft
             .tools
             .insert("files", Arc::new(crate::files::FilesTool));
-        // R-234 B1:符号级视图——files(行数)与 read(全文)之间的粒度空白。
-        draft
-            .tools
-            .insert("symbols", Arc::new(crate::symbols::SymbolsTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
-        draft
-            .tools
-            .insert("question", Arc::new(crate::question::QuestionTool));
         draft
             .tools
             .insert("webfetch", Arc::new(crate::webfetch::WebFetchTool));
@@ -80,11 +73,9 @@ impl Component for BaseComponent {
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
             rule("files", "*", Effect::Allow),
-            rule("symbols", "*", Effect::Allow),
             rule("git", "status", Effect::Allow),
             rule("git", "diff", Effect::Allow),
             rule("git", "log", Effect::Allow),
-            rule("question", "*", Effect::Allow),
             rule("write", "*", Effect::Ask),
             rule("edit", "*", Effect::Ask),
             rule("insert", "*", Effect::Ask),

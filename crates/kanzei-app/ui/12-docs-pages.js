@@ -26,8 +26,6 @@ import {
 import { batchSelection, consumePendingJump, renderDocList, syncBatchBar } from "./11-docs-list.js";
 import { renderIncidentMetrics } from "./13-memory.js";
 import { applyDocFilter, clearDocFilters } from "./14-docs-actions.js";
-import { syncConventionsEntry } from "./15-conventions.js";
-import { renderDecisionConsole, workspaceConsoleBusy, workspaceConsoleState } from "./12-decision-console.js";
 
 export function formatWorkspaceTime(value) {
   if (!value) return t("暂无时间");
@@ -125,10 +123,6 @@ export function renderWorkspace(snapshot) {
     card.append(head, path, renderCurrentItems(project), activity, meta);
   }
   for (const [path, card] of existing) if (!keep.has(path)) card.remove();
-  renderDecisionConsole(snapshot, {
-    refresh: refreshWorkspace, openProject: (path) => openProjectSpace(path),
-    beforeMutation: () => { workspaceRefreshEpoch += 1; },
-  });
   renderProjectOverview(snapshot);
 }
 
@@ -140,21 +134,8 @@ export async function refreshWorkspace() {
   try {
     const overview = await invoke("workspace_overview");
     if (epoch !== workspaceRefreshEpoch) return;
-    const consoleState = workspaceConsoleState();
-    const inConsole = $("view-workspace")?.classList.contains("active");
-    let detail = null;
-    if (inConsole && consoleState.tab !== "projects") {
-      detail = await invoke("workspace_snapshot", { projectDir: consoleState.projectFilter || null });
-      if (epoch !== workspaceRefreshEpoch) return;
-    }
     const previous = new Map((lastWorkspaceSnapshot?.projects ?? []).map((p) => [p.path, p]));
-    const detailed = new Map((detail?.projects ?? []).map((p) => [p.path, p]));
-    const snapshot = { ...overview, projects: (overview?.projects ?? []).map((p) => {
-      const detailProject = detailed.get(p.path);
-      const merged = { ...previous.get(p.path), ...detailProject, ...p };
-      if (detailProject?.error) { merged.error = detailProject.error; merged.freshness = "stale"; }
-      return merged;
-    }) };
+    const snapshot = { ...overview, projects: (overview?.projects ?? []).map((p) => ({ ...previous.get(p.path), ...p })) };
     renderWorkspace(snapshot);
   } catch (error) {
     if (epoch === workspaceRefreshEpoch) {
@@ -180,7 +161,7 @@ defer(() => {
   document.addEventListener("kz:workspace-console-changed", () => {
     if ($("view-workspace")?.classList.contains("active")) void refreshWorkspace();
   });
-  subscribeRefresh({ interval: 8000, active: () => document.body.dataset.view === "workspace" && !workspaceRequests && !workspaceConsoleBusy(), refresh: refreshWorkspace, onError: toastError });
+  subscribeRefresh({ interval: 8000, active: () => document.body.dataset.view === "workspace" && !workspaceRequests, refresh: refreshWorkspace, onError: toastError });
 });
 // 需求页的四个页签:req 进行中 / defect 缺陷 / tests 测试 / ideas 想法。
 // (「对照」页签已移除:两列无列标题、筛选置灰,真正的交叉引用是依赖视图,见 B12。)
@@ -707,7 +688,6 @@ export function renderDocsSnapshot(snapshot) {
   $("req-count").textContent = `${snapshot.requirements.filter((r) => !r.closed).length}`;
   $("defect-count").textContent = `${snapshot.defects.filter((d) => !d.closed).length}`;
   $("idea-count").textContent = `${(snapshot.ideas ?? []).filter((g) => g.status === "inbox").length}`;
-  syncConventionsEntry(snapshot.conventions);
   applyLanguage();
   // 重绘换掉了节点:跨视图跳转挂起的高亮在这里落地,它等的就是这次刷新。
   consumePendingJump();

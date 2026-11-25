@@ -15,7 +15,6 @@ import { lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
 import { generalChatRoot } from "./03-general-scope.js";
 import { memoryProject, setMemoryProject } from "./03-memory-scope.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
-import { renderProjectKnowledge } from "./24-project-knowledge.js";
 import { memoryJobActive, refreshMemoryJobStatus } from "./13-memory-jobs.js";
 
 // ---------- 记忆页(R-107/R-332):管理工作区 + 透明化诊断 ----------
@@ -240,7 +239,6 @@ export async function refreshMemory({ force = false } = {}) {
     document.dispatchEvent(new CustomEvent("kz:memory-project", { detail: { project } }));
     for (const id of ["memory-recalls", "memory-list", "memory-candidates", "memory-value-flags", "memory-arch"]) $(id)?.replaceChildren();
     renderMemoryPendingState();
-    renderProjectKnowledge($("memory-arch"), null);
   }
   syncMemoryNoProject();
   if (!memoryProject) return;
@@ -1183,17 +1181,12 @@ export function renderMemoryRecalls(data) {
   }
 }
 
-export function renderMemoryArch(overview) {
-  const project = memoryProject;
-  renderProjectKnowledge($("memory-arch"), overview.knowledge, {
-    onMemory: async memory => {
-      if (project !== memoryProject || !(await confirmLeaveMemoryDetail())) return;
-      try {
-        const entry = await invoke("memory_entry_get", { projectDir: project, scope: "project", id: memory.id });
-        if (project === memoryProject) showMemoryDetail("project", entry, { readOnly: Boolean(entry.archived) });
-      } catch (error) { toastError(`${t("打开失败")}: ${error}`); }
-    },
-  });
+export function renderMemoryArch() {
+  const host = $("memory-arch");
+  if (host) {
+    host.replaceChildren();
+    host.classList.add("hidden");
+  }
 }
 
 // 已归档视图的条目缓存(同 getMemoryEntries:15 秒内复用,写操作后 refreshMemory({ force }) 会清掉)。

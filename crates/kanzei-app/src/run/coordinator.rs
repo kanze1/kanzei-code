@@ -270,9 +270,6 @@ pub(crate) async fn run_task(
         )
         .await?
     } else {
-        if let Some(team) = kanzei_tools::team::find(&round.ctx.project_root, &session_id) {
-            team.set_policy(subagent_mode, &deps.config.limits);
-        }
         None
     };
 
@@ -296,28 +293,6 @@ pub(crate) async fn run_task(
             );
             ask(request)
         }));
-        let events_window = window.clone();
-        let team = kanzei_tools::team::AgentTeam::attach(
-            deps.rctx.clone(),
-            round.ctx.clone(),
-            runtime.clone(),
-            deps.client.clone(),
-            Some(Arc::new(move |job| {
-                let _ = events_window.emit(
-                    "kz:agent-job",
-                    serde_json::json!({"sessionId":job.owner,"job":job}),
-                );
-            })),
-        )?;
-        team.set_parent(&prior);
-        team.set_ask_router(super::events::build_team_ask_router(
-            handles.asks.clone(),
-            handles.ask_seq.clone(),
-            window,
-            round.ctx.project_root.clone(),
-            session_id.clone(),
-        ));
-        runtime.options.host = Some(Arc::new(team));
     }
 
     // R-202 批2:事件循环段——附件提示 → 记忆预检索 → 勘察 → 主循环

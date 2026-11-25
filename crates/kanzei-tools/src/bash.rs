@@ -330,18 +330,6 @@ async fn bash_command_body(
         return ToolOutput::error("bash refused before execution: managed documents could not be read or their recovery snapshot could not be stored.");
     }
 
-    // R-186 跨树保护:命令窗口内不得改动**其它线的工作树**(串台防护——A 线的命令
-    // 跑进 B 线的树、把人家未提交的活覆盖了)。前台 bash 执行前拍其它线树镜像,
-    // 执行后对账、归因并隔离留证，不自动回滚；非 git 目录无跨树快照。后台任务不在此列：命令已脱离
-    // 本 run,由后台守卫按自己的生命周期对账(bash_body 的 background 分支)。
-    let other_trees_before = crate::cross_tree::capture_other_trees_for_owner(
-        &ctx.project_root,
-        &ctx.cwd,
-        ctx.run_id.as_deref(),
-        ctx.process_id.as_deref(),
-    )
-    .unwrap_or_default();
-
     let shell = detected_shell();
     let execution_source =
         match crate::shell::execution_source(shell.name, &input.command, input.test.is_some()) {
@@ -595,21 +583,6 @@ async fn bash_command_body(
                 rendered.push('\n');
                 rendered.push_str(report);
             }
-            // R-186:跨树越界(改了其它线工作树)与托管文档越界同样按错误回喂。
-            // 归因身份来自 ToolCtx:run_id/process_id 是这条命令的 owner(R-171 双键)。
-            let cross_tree = crate::cross_tree::enforce_other_trees_with_command(
-                &ctx.project_root,
-                &ctx.cwd,
-                &other_trees_before,
-                ctx.run_id.as_deref(),
-                ctx.process_id.as_deref(),
-                fence_window_start_ms,
-                Some(&input.command),
-            );
-            if let Some(report) = &cross_tree {
-                rendered.push('\n');
-                rendered.push_str(report);
-            }
             let display = serde_json::json!({
                 "kind": "terminal",
                 "execution": identity.as_ref(),
@@ -634,7 +607,7 @@ async fn bash_command_body(
                     "SHELL_COMMAND_POLICY",
                     rejection["message"].as_str().unwrap_or(&rendered),
                 )
-            } else if ok && breach.is_none() && cross_tree.is_none() {
+            } else if ok && breach.is_none() {
                 ToolOutput::ok(rendered)
             } else {
                 ToolOutput::error(rendered)
@@ -676,19 +649,6 @@ async fn bash_command_body(
                 &ctx.project_root,
                 managed_before,
                 fence_window_start_ms,
-            ) {
-                text.push('\n');
-                text.push_str(&report);
-            }
-            // R-186:跨树越界对账同样在超时路径照跑(命令被杀前可能已改了别的树)。
-            if let Some(report) = crate::cross_tree::enforce_other_trees_with_command(
-                &ctx.project_root,
-                &ctx.cwd,
-                &other_trees_before,
-                ctx.run_id.as_deref(),
-                ctx.process_id.as_deref(),
-                fence_window_start_ms,
-                Some(&input.command),
             ) {
                 text.push('\n');
                 text.push_str(&report);

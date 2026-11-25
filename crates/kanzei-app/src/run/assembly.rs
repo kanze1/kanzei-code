@@ -102,7 +102,6 @@ pub(crate) struct RuntimeHandles {
     pub(crate) lifecycle: Arc<Mutex<()>>,
     pub(crate) asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     pub(crate) ask_seq: Arc<AtomicU64>,
-    pub(crate) collaboration_probe: crate::collaboration::CollaborationProbe,
     pub(crate) current_stage: Arc<Mutex<String>>,
     pub(crate) conversation: Arc<Mutex<HashMap<String, Vec<kanzei_llm::Message>>>>,
     pub(crate) live_run: Arc<Mutex<LiveRun>>,
@@ -214,11 +213,7 @@ pub(crate) async fn assemble_run(
     };
 
     let work_priority = normalize_work_priority(mode.work_priority.as_deref());
-    let mut harness = build_run_harness(
-        profile,
-        mode.block_tracker_writes,
-        Some(handles.collaboration_probe.clone()),
-    );
+    let mut harness = build_run_harness(profile, mode.block_tracker_writes);
     let project_workflow = !general && mode.uses_project_workflow();
     if project_workflow {
         harness.add(kanzei_tools::work::WorkControlContext(
@@ -800,7 +795,6 @@ pub(crate) fn run_meta_payload(
 pub(crate) fn build_run_harness(
     profile: kanzei_harness::ProfileKind,
     block_tracker_writes: bool,
-    collaboration_probe: Option<crate::collaboration::CollaborationProbe>,
 ) -> kanzei_harness::Harness {
     // Runtime owns Agent precedence and the final projectless projection.
     // Desktop tools precede user sources; application execution policy follows config.
@@ -813,11 +807,6 @@ pub(crate) fn build_run_harness(
             harness.add(TrackerWritePolicyComponent {
                 block: block_tracker_writes,
             });
-            if let Some(probe) = collaboration_probe.as_ref() {
-                harness.add(crate::collaboration::CollaborationComponent {
-                    probe: probe.clone(),
-                });
-            }
         },
     )
 }
@@ -898,12 +887,6 @@ mod startup_tests {
                 lifecycle: runtime.lifecycle.clone(),
                 asks: runtime.asks.clone(),
                 ask_seq: Arc::new(AtomicU64::new(1)),
-                collaboration_probe: crate::collaboration::CollaborationProbe::new(
-                    Arc::new(Mutex::new(HashMap::new())),
-                    Arc::new(Mutex::new(HashMap::new())),
-                    root.clone(),
-                    "fixture".into(),
-                ),
                 current_stage: runtime.stage.clone(),
                 conversation: runtime.conversation.clone(),
                 live_run: runtime.live.clone(),
@@ -1644,7 +1627,7 @@ mod tests {
             project_root: root,
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
-        let snapshot = build_run_harness(ctx.profile, false, None)
+        let snapshot = build_run_harness(ctx.profile, false)
             .resolve(&ctx)
             .unwrap();
         let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();

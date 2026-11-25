@@ -84,10 +84,6 @@
     "host": "service"
   },
   {
-    "path": "projects::project_knowledge_configure",
-    "host": "service"
-  },
-  {
     "path": "projects::project_git_init",
     "host": "service"
   },
@@ -124,14 +120,6 @@
     "host": "service"
   },
   {
-    "path": "softwire::softwire_questions",
-    "host": "service"
-  },
-  {
-    "path": "softwire::softwire_answer_question",
-    "host": "service"
-  },
-  {
     "path": "decisions::decision_review",
     "host": "service"
   },
@@ -165,10 +153,6 @@
   },
   {
     "path": "commands::run::stop_task",
-    "host": "service"
-  },
-  {
-    "path": "agent_team::agent_team_command",
     "host": "service"
   },
   {
@@ -508,22 +492,6 @@
     "host": "service"
   },
   {
-    "path": "docs::conventions_init",
-    "host": "service"
-  },
-  {
-    "path": "docs::conventions_read",
-    "host": "service"
-  },
-  {
-    "path": "docs::conventions_save",
-    "host": "service"
-  },
-  {
-    "path": "docs::conventions_discard",
-    "host": "service"
-  },
-  {
     "path": "conversation::conversation_clear",
     "host": "service"
   },
@@ -549,10 +517,6 @@
   },
   {
     "path": "docs::docs_read_custom",
-    "host": "service"
-  },
-  {
-    "path": "docs::architecture_snapshot",
     "host": "service"
   },
   {
@@ -629,10 +593,6 @@
   },
   {
     "path": "processes::lifecycle::process_closed_list",
-    "host": "service"
-  },
-  {
-    "path": "collaboration::collaboration_snapshot",
     "host": "service"
   },
   {

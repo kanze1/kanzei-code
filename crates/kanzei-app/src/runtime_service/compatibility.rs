@@ -66,12 +66,19 @@ fn busy_snapshot(value: &Value) -> bool {
 }
 
 fn roots() -> Vec<std::path::PathBuf> {
-    let mut roots = crate::durable_questions::roots();
+    let mut roots: Vec<std::path::PathBuf> = crate::prefs::load_prefs()
+        .projects
+        .into_iter()
+        .map(|p| crate::normalized_project_root(std::path::Path::new(&p)))
+        .filter(|p| p.is_dir())
+        .collect();
     if let Ok(general) = crate::general_chat::storage_root() {
         if general.is_dir() {
             roots.push(general);
         }
     }
+    roots.sort();
+    roots.dedup();
     roots
 }
 
@@ -111,12 +118,6 @@ pub(super) async fn accept(endpoint: &Endpoint) -> Result<bool, String> {
             if busy_snapshot(&processes) {
                 return Err(BUSY.into());
             }
-            for process in processes.as_array().into_iter().flatten() {
-                let jobs = rpc(endpoint, json!({"action":"invoke","command":"agent_team_command","args":{"projectDir":root,"processId":process["id"],"input":{"action":"list"}}})).await?;
-                if busy_snapshot(&jobs) {
-                    return Err(BUSY.into());
-                }
-            }
             let terminals = rpc(endpoint, json!({"action":"invoke","command":"terminal_monitor","args":{"projectDir":root,"action":"list"}})).await?;
             if busy_snapshot(&terminals) {
                 return Err(BUSY.into());
@@ -142,9 +143,6 @@ pub(super) async fn retire_if_idle(app: &tauri::AppHandle) -> Result<Value, Stri
             .lock_or_recover()
             .values()
             .any(|r| !super::shutdown::owners_quiescent(r))
-        || kanzei_tools::team::registered_teams()
-            .iter()
-            .any(|(_, team)| !team.is_quiescent())
         || roots().iter().any(|root| {
             kanzei_tools::background::list(root)
                 .iter()

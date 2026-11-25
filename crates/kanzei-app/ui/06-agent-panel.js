@@ -58,7 +58,6 @@ import {
   sideEvent,
   sideMaxWidth,
 } from "./06-side-policy.js";
-import { mountAgentControls } from "./27-agent-team.js";
 
 // 需要查看的实时终态:失败/超时/中断/未启动/旧步数上限。用户自己停的(cancelled)不算。
 const HOLD_STATES = new Set(["failed", "timeout", "interrupted", "rejected", "limited"]);
@@ -805,7 +804,6 @@ function buildDetail(run) {
   host.append(heading, scroll);
   detailUi = { glyph, agent, desc, word, meta, stop };
   detailView = createSubagentView(body, run, { inline: false });
-  mountAgentControls(host, run);
   renderDetail(run);
 }
 function renderDetailMeta(run) {
@@ -832,8 +830,7 @@ function renderDetail(run) {
   const host = $("agent-detail");
   if (host) {
     host.dataset.saState = run.state;
-    if (run.managed && !host.querySelector(".team-controls")) mountAgentControls(host, run);
-  }
+    }
   renderDetailMeta(run);
   renderSubagentTimeline(detailView);
 }

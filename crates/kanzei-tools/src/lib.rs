@@ -1,7 +1,5 @@
 //! kanzei-tools: 内置工具 + 双模式 profile 组件。
 
-pub mod arch_diagram;
-pub mod architecture;
 pub mod memory_consolidation;
 pub mod memory_dream;
 /// 原子写、文件锁和字节指纹由 kanzei-base 提供,各工具共用同一套实现。
@@ -9,12 +7,6 @@ pub use kanzei_base::atomic_file;
 pub use kanzei_base::content_hash;
 pub use kanzei_base::path_form;
 pub use kanzei_base::write_log;
-
-/// 架构索引与项目规范按文本内容比较版本,忽略 CRLF/LF 差异。
-/// 换行规则留在工具层;指纹算法和格式仍由 kanzei-base 唯一实现。
-pub(crate) fn normalized_text_hash(content: &str) -> String {
-    content_hash(content.replace("\r\n", "\n").as_bytes())
-}
 
 pub mod background;
 mod base;
@@ -36,8 +28,6 @@ pub mod browser {
 }
 /// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
 pub mod close_telemetry;
-pub mod conventions;
-mod cross_tree;
 mod edit;
 mod file_access;
 pub mod files;
@@ -45,7 +35,6 @@ mod git;
 pub mod git_batches;
 mod glob;
 mod grep;
-pub mod incident;
 mod local_validation;
 mod managed;
 /// 托管目录清单单源(D-173):桌面文件页据此把托管文档设为只读(UI2-0926 #6)。
@@ -54,12 +43,10 @@ mod preferences;
 /// UI2-0926 #8:网页预览静态服务(127.0.0.1 随机端口 + token,登记根与内存片段)。
 pub mod preview_server;
 mod process;
-pub mod project_knowledge;
 /// UI2-0926 #13:项目状态事实(空项目/Git 三态/技术栈/工具链),agent 上下文与桌面端共用。
 pub mod project_state;
 mod public_http;
 pub mod quarantine;
-mod question;
 mod read;
 #[cfg(test)]
 mod read_receipt_tests;
@@ -70,7 +57,6 @@ mod web_content;
 pub use read::pdf_to_text;
 pub mod image;
 mod shell;
-pub mod team;
 pub mod test_record;
 pub mod tracker;
 mod web_refs;
@@ -87,7 +73,6 @@ mod write;
 
 pub mod profiles;
 pub mod subagent;
-pub mod symbols;
 
 pub use background::kill_process as kill_background_processes_for_process;
 /// 运行停止时回收本项目的后台进程,避免留下孤儿 dev server(R-097)。

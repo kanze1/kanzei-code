@@ -162,122 +162,10 @@ fn accepted_decision_index_refreshes_status_and_source_revision_without_creating
 }
 
 #[test]
-fn design_navigation_is_a_project_file_pointer_without_repository_specific_body_loading() {
-    let fixture = Fixture::new("design-pointer");
-    fixture.write("notes/Architecture Notes.md", "PROJECT_DESIGN_BODY");
-    let index = "# Design navigation\n[Architecture Notes](../../../notes/Architecture Notes.md)\nPRIVATE_INDEX_CONTENT\n";
-    fixture.write(crate::architecture::ARCHITECTURE_REL, index);
-    for profile in [ProfileKind::DevAuto, ProfileKind::DevPair] {
-        let (baseline, reports) = fixture
-            .snapshot(profile)
-            .stable_system_baseline_with_report()
-            .unwrap();
-        assert_eq!(
-            reports
-                .iter()
-                .find(|report| report.key == "development/design-index")
-                .unwrap()
-                .status,
-            ContextSourceStatus::Loaded
-        );
-        assert!(baseline.contains(
-            &fixture
-                .0
-                .join(crate::architecture::ARCHITECTURE_REL)
-                .display()
-                .to_string()
-        ));
-        assert!(baseline.contains(&crate::normalized_text_hash(index)));
-        for body in [
-            "PRIVATE_INDEX_CONTENT",
-            "PROJECT_DESIGN_BODY",
-            "Architecture Notes.md",
-            "docs/design/",
-        ] {
-            assert!(
-                !baseline.contains(body),
-                "project navigation cannot preload {body}"
-            );
-        }
-    }
-}
-
-#[test]
-fn project_overview_resolves_nested_cwd_to_code_root_and_separates_worktree_assets() {
-    let project = Fixture::new("overview-assets");
-    let worktree = Fixture::new("overview-code");
-    project.write(".kanzei/project-knowledge.json", "{\"enabled\":true}");
-    project.write(
-        "Cargo.toml",
-        "[package]\nname='main_product'\nversion='0.1.0'\n",
-    );
-    project.write("src/lib.rs", "// main\n");
-    worktree.write(
-        "Cargo.toml",
-        "[package]\nname='worktree_product'\nversion='0.1.0'\n",
-    );
-    worktree.write("src/lib.rs", "// worktree\n");
-    for (cwd, expected_root) in [
-        (project.0.join("src"), project.0.clone()),
-        (worktree.0.clone(), worktree.0.clone()),
-    ] {
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevPair,
-            cwd,
-            project_root: project.0.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut draft = HarnessDraft::default();
-        DevelopmentProfile.contribute(&mut draft, &ctx).unwrap();
-        let source = draft.context.get("development/project-knowledge").unwrap();
-        assert!(
-            !source.refresh_each_step(),
-            "the run overview remains a labeled assembly snapshot"
-        );
-        let text = source.baseline(&ctx).unwrap().unwrap();
-        assert!(text.contains(&format!("code_root: {}\n", expected_root.display())));
-        assert!(text.contains(&format!("project_root: {}\n", project.0.display())));
-        assert!(text.contains("采样概览"));
-        assert!(!text.contains("修改前用") && !text.contains("新经验用 memory_note"));
-    }
-}
-
-#[test]
-fn required_conventions_fail_on_initial_and_refreshed_read_for_all_profiles() {
-    for profile in [
-        ProfileKind::DevAuto,
-        ProfileKind::DevPair,
-        ProfileKind::Research,
-    ] {
-        let fixture = Fixture::new("required");
-        let snapshot = fixture.snapshot(profile);
-        assert!(
-            snapshot.system_baseline().is_ok(),
-            "missing conventions are valid"
-        );
-        fixture.write(".kanzei/project/conventions.md", "完整规则");
-        assert!(snapshot.system_baseline().unwrap().contains("完整规则"));
-        fixture.write(".kanzei/project/conventions.md", [0xff, 0xfe]);
-        let error = snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap_err();
-        assert!(error.to_string().contains("conventions.md"));
-        assert!(error
-            .sources
-            .iter()
-            .any(|report| report.key.ends_with("/conventions")
-                && report.status == ContextSourceStatus::Failed
-                && report.requirement == ContextRequirement::Required));
-        assert!(fixture.snapshot(profile).system_baseline().is_err());
-    }
-}
-
-#[test]
 fn saved_preferences_refresh_for_normal_profiles_and_fail_explicitly_on_read_error() {
     for profile in [
         ProfileKind::DevAuto,
         ProfileKind::DevPair,
-        ProfileKind::Research,
         ProfileKind::Readonly,
     ] {
         let fixture = Fixture::new("preferences");
@@ -318,38 +206,7 @@ fn saved_preferences_refresh_for_normal_profiles_and_fail_explicitly_on_read_err
             .iter()
             .any(|report| report.key == "core/preferences"
                 && report.status == ContextSourceStatus::Failed
-                && report.requirement == ContextRequirement::Required));
+                && report.requirement == kanzei_harness::ContextRequirement::Required));
         assert!(fixture.snapshot(profile).system_baseline().is_err());
     }
-}
-
-#[test]
-fn research_conventions_are_complete_even_when_optional_topic_read_fails() {
-    let fixture = Fixture::new("research");
-    let rules = format!(
-        "{}\n末尾必须遵守的验收约定",
-        "必须保留来源与验证证据。\n".repeat(900)
-    );
-    assert!(rules.chars().count() > 8000);
-    fixture.write(".kanzei/project/conventions.md", &rules);
-    fixture.write(".kanzei/research/fixture-topic/sources.md", [0xff, 0xfe]);
-    let (baseline, reports) = fixture
-        .snapshot(ProfileKind::Research)
-        .system_baseline_with_report()
-        .unwrap();
-    assert!(baseline.contains(&rules));
-    let report = reports
-        .iter()
-        .find(|report| report.key == "research/docs")
-        .unwrap();
-    assert_eq!(report.status, ContextSourceStatus::Failed);
-    assert!(report.error.as_deref().unwrap().contains("fixture-topic"));
-    assert_eq!(
-        reports
-            .iter()
-            .find(|report| report.key == "project/conventions")
-            .unwrap()
-            .status,
-        ContextSourceStatus::Loaded
-    );
 }

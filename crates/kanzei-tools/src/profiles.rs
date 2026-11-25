@@ -1,12 +1,11 @@
 //! 开发与研究 Profile 组件；开发包含 dev-auto 与 dev-pair 两种模式。
 //! 组件按当前 profile 决定贡献什么;权限规则是硬门禁的落点。
 
-use anyhow::Context as _;
 use std::sync::Arc;
 
 use kanzei_harness::{
-    fallible_source, refreshing_fallible_source, rule, source, AgentDef, AgentMode, Component,
-    ContextRequirement, Effect, HarnessDraft, ProfileKind, ProfileScope, ResolveCtx,
+    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
+    ResolveCtx,
 };
 
 use crate::tracker::TrackerTool;
@@ -25,33 +24,6 @@ mod readonly;
 pub use development::{DevelopmentProfile, DEVELOPMENT_DEFERRED_TOOLS};
 pub use general::{GeneralChatProfile, GeneralChatScope};
 pub use readonly::ReadonlyProfile;
-
-/// Missing project documents are valid; unreadable or invalid UTF-8 documents are not empty.
-fn read_optional_context_file(path: &std::path::Path) -> anyhow::Result<Option<String>> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => Ok(Some(text)),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| format!("读取上下文文件 {}", path.display())),
-    }
-}
-
-/// User-owned project rules are a separate, refreshable context source.
-fn register_project_conventions(draft: &mut HarnessDraft) {
-    draft.context.insert(
-        "project/conventions",
-        refreshing_fallible_source(
-            "project/conventions",
-            ContextRequirement::Required,
-            |ctx: &ResolveCtx| {
-                Ok(read_optional_context_file(
-                    &ctx.project_root.join(crate::conventions::CONVENTIONS_REL),
-                )?
-                .filter(|text| !text.trim().is_empty())
-                .map(|text| format!("<project-rules source=\".kanzei/project/conventions.md\">\n{text}\n</project-rules>")))
-            },
-        ),
-    );
-}
 
 /// 提示词里被反引号点名的工具候选:取每段反引号内的第一个词。
 ///
@@ -80,9 +52,6 @@ fn prompt_tool_mentions(prompt: &str) -> Vec<String> {
 
     out
 }
-
-// 项目概览复用记忆模块的字符预算；已保存偏好由基础组件单独装配。
-use kanzei_memory::memory::MEMORY_CONTEXT_BUDGET;
 
 #[cfg(test)]
 mod tests {
@@ -222,56 +191,6 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    #[tokio::test]
-    async fn user_saved_rules_refresh_and_proposals_stay_out_of_context() {
-        use kanzei_harness::Tool;
-        let root =
-            std::env::temp_dir().join(format!("kz-conventions-refresh-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevAuto,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let tools_ctx = ToolCtx::new(root.clone(), root.clone());
-        let tool = crate::conventions::ConventionsTool;
-        assert!(
-            !tool
-                .execute(
-                    json!({"action":"create", "content":"user-rule-v1"}),
-                    &tools_ctx
-                )
-                .await
-                .is_error
-        );
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevelopmentProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        assert!(snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap()
-            .0
-            .contains("user-rule-v1"));
-        let first_hash = crate::normalized_text_hash("user-rule-v1");
-        assert!(!tool.execute(json!({"action":"propose", "content":"unaccepted-draft", "expected_hash":first_hash}), &tools_ctx).await.is_error);
-        assert!(!snapshot
-            .system_baseline()
-            .unwrap()
-            .contains("unaccepted-draft"));
-        crate::conventions::drafts::save_user(&root, "user-rule-v2", &first_hash, None).unwrap();
-        let refreshed = snapshot
-            .refreshable_system_baseline_with_report()
-            .unwrap()
-            .0;
-        assert!(refreshed.contains("user-rule-v2"));
-        assert!(!refreshed.contains("user-rule-v1"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     /// R-217:dev 档注册 websearch 且默认 Ask(自主轮 NonInteractive 下即拒,
     /// 交互轮可放行);域名白名单规则可精确放行 webfetch/websearch。
     #[test]
@@ -294,10 +213,6 @@ mod tests {
         assert!(
             names.contains(&"websearch"),
             "dev 档必须有 websearch: {names:?}"
-        );
-        assert!(
-            names.contains(&"prior_art"),
-            "dev 档必须有 prior_art: {names:?}"
         );
         assert_eq!(
             snapshot.evaluate("websearch", "*"),

@@ -29,25 +29,6 @@
     "path": "agent_directory::agent_directory_open",
     "returns": "-> Result < () , String >"
   },
-  "agent_team_command": {
-    "host": "service",
-    "parameters": {
-      "input": {
-        "required": true,
-        "type": "serde_json :: Value"
-      },
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "agent_team::agent_team_command",
-    "returns": "-> Result < Value , String >"
-  },
   "answer_ask": {
     "host": "service",
     "parameters": {
@@ -68,17 +49,6 @@
     "parameters": {},
     "path": "run::app_info",
     "returns": "-> serde_json :: Value"
-  },
-  "architecture_snapshot": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::architecture_snapshot",
-    "returns": "-> Result < serde_json :: Value , String >"
   },
   "auto_state_get": {
     "host": "service",
@@ -159,17 +129,6 @@
     "path": "processes::lifecycle::cancel_input",
     "returns": "-> Result < bool , String >"
   },
-  "collaboration_snapshot": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "collaboration::collaboration_snapshot",
-    "returns": "-> Result < Vec < CollaborationConversation > , String >"
-  },
   "composer_draft_save": {
     "host": "service",
     "parameters": {
@@ -232,66 +191,6 @@
     },
     "path": "context_view::context_snapshot",
     "returns": "-> Result < Value , String >"
-  },
-  "conventions_discard": {
-    "host": "service",
-    "parameters": {
-      "expectedHash": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::conventions_discard",
-    "returns": "-> Result < () , String >"
-  },
-  "conventions_init": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::conventions_init",
-    "returns": "-> Result < String , String >"
-  },
-  "conventions_read": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::conventions_read",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "conventions_save": {
-    "host": "service",
-    "parameters": {
-      "content": {
-        "required": true,
-        "type": "String"
-      },
-      "expectedHash": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "proposalHash": {
-        "required": false,
-        "type": "Option < String >"
-      }
-    },
-    "path": "docs::conventions_save",
-    "returns": "-> Result < String , String >"
   },
   "conversation_action": {
     "host": "service",
@@ -1786,25 +1685,6 @@
     "path": "projects::project_git_init",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "project_knowledge_configure": {
-    "host": "service",
-    "parameters": {
-      "codeDir": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "enabled": {
-        "required": true,
-        "type": "bool"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "projects::project_knowledge_configure",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
   "project_models_get": {
     "host": "service",
     "parameters": {
@@ -2336,47 +2216,6 @@
       }
     },
     "path": "skills::skills_set_enabled",
-    "returns": "-> Result < Vec < Value > , String >"
-  },
-  "softwire_answer_question": {
-    "host": "service",
-    "parameters": {
-      "attachments": {
-        "required": false,
-        "type": "Option < Vec < crate :: PromptAttachment > >"
-      },
-      "expectedRevision": {
-        "required": true,
-        "type": "String"
-      },
-      "id": {
-        "required": true,
-        "type": "u64"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "reply": {
-        "required": true,
-        "type": "String"
-      },
-      "requestId": {
-        "required": true,
-        "type": "String"
-      },
-      "sessionId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "softwire::softwire_answer_question",
-    "returns": "-> Result < Value , String >"
-  },
-  "softwire_questions": {
-    "host": "service",
-    "parameters": {},
-    "path": "softwire::softwire_questions",
     "returns": "-> Result < Vec < Value > , String >"
   },
   "stop_run": {

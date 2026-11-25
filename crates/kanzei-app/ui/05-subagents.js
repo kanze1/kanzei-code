@@ -1138,8 +1138,7 @@ export async function subagentStop(run) {
   notify(run);
   try {
     // R-174:单条停止通道——只停这一条,不停整轮(不调 stop_run)。
-    if (run.managed) await invoke("agent_team_command", { projectDir: run.managed.project_dir, processId: run.managed.process_id, input: { action: "stop", id: run.id } });
-    else await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(run.id) });
+    await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(run.id) });
     toast(t("已请求停止该子代理"));
   } catch (error) {
     if (run.state === "stopping") run.state = previous;

@@ -49,8 +49,6 @@ pub async fn files_snapshot(
     };
     let dirs = aggregate_dirs(&entries);
     let annotations = load_annotations(&knowledge_root);
-    let registry = kanzei_tools::project_knowledge::enabled(&knowledge_root)
-        .then(|| kanzei_harness::areas::AreaRegistry::scan(&root));
     let files: Vec<serde_json::Value> = entries
         .iter()
         .map(|entry| {
@@ -67,7 +65,6 @@ pub async fn files_snapshot(
                 "chars": entry.chars,
                 "oversized": entry.oversized,
                 "note": note,
-                "area": registry.as_ref().and_then(|registry| registry.resolve_token(&entry.path)),
             })
         })
         .collect();
@@ -90,7 +87,6 @@ pub async fn files_snapshot(
         "files": files,
         "dirs": dirs,
         "dirNotes": valid_directory_notes(&root, &annotations),
-        "knowledge": kanzei_tools::project_knowledge::snapshot(&knowledge_root, &root),
         "annotated": annotated,
         "annotatable": annotatable.len(),
         "unannotated": annotatable.len() - annotated,

@@ -142,10 +142,7 @@ pub(crate) fn create_project_dir(
         std::fs::create_dir(&dir).map_err(|e| format!("创建项目目录失败: {e}"))?;
     }
     initialize_kanzei_space(&dir)?;
-    if knowledge_enabled {
-        kanzei_tools::project_knowledge::set_enabled(&dir, true)
-            .map_err(|error| format!("启用项目知识失败: {error}"))?;
-    }
+    let _ = knowledge_enabled;
     // 已有的空 `.kanzei`(比如上次创建到一半)同样补上忽略规则。
     kanzei_tools::project_state::ensure_kanzei_gitignore(&dir)
         .map_err(|e| format!("写 .kanzei/.gitignore 失败: {e}"))?;
@@ -193,33 +190,6 @@ pub async fn projects_create(
             "gitError": git_error,
             "description": description.map(|text| text.trim().to_string()).filter(|text| !text.is_empty()),
         }))
-    })
-    .await
-}
-
-/// 开关写主项目资产，结构扫描当前代码树；关闭保留原始记忆和用途说明。
-#[tauri::command]
-pub async fn project_knowledge_configure(
-    project_dir: String,
-    enabled: bool,
-    code_dir: Option<String>,
-) -> Result<serde_json::Value, String> {
-    blocking(move || {
-        let root = crate::normalized_project_root(Path::new(&project_dir));
-        if !root.is_dir() || crate::general_chat::is_general_root(&root) {
-            return Err("请选择有效的项目目录".into());
-        }
-        let code_root = code_dir
-            .as_deref()
-            .map(PathBuf::from)
-            .unwrap_or_else(|| root.clone());
-        if !code_root.is_dir() {
-            return Err("代码目录不存在".into());
-        }
-        kanzei_tools::project_knowledge::set_enabled(&root, enabled)
-            .map_err(|error| format!("保存项目知识开关失败: {error}"))?;
-        serde_json::to_value(kanzei_tools::project_knowledge::snapshot(&root, &code_root))
-            .map_err(|error| error.to_string())
     })
     .await
 }
@@ -908,10 +878,6 @@ mod prior_art_init_tests {
             create_project_dir(&parent.join("demo").display().to_string(), false, false).unwrap();
         assert!(git.is_none());
         assert!(!dir.join(".git").exists());
-        assert!(!kanzei_tools::project_knowledge::enabled(&dir));
-        let (complex, _, _) =
-            create_project_dir(&parent.join("complex").display().to_string(), false, true).unwrap();
-        assert!(kanzei_tools::project_knowledge::enabled(&complex));
         std::fs::create_dir_all(parent.join("taken")).unwrap();
         std::fs::write(parent.join("taken").join("x.txt"), "x").unwrap();
         let err = create_project_dir(&parent.join("taken").display().to_string(), false, false)

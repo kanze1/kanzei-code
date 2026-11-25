@@ -70,7 +70,6 @@ import {
   renderLineConversationHistory,
   showFreshConversation,
 } from "./15-views-misc.js";
-import { refreshLines } from "./20-lines.js";
 import { active_space, adopt_process_workspace, create_workspace_process, preferred_workspace_process, project_workspace, workspace_processes } from "./03-workspaces.js";
 
 import { sync_composer_scope } from "./03-workspaces.js";
@@ -128,8 +127,7 @@ export async function handleWorktreeAction(item, action) {
         return;
       }
       if (item.bound_process !== activeProcessId) await switchProcess(item.bound_process);
-      navigate_view("lines");
-      await refreshLines();
+      navigate_view("chat");
       [...document.querySelectorAll("#lines-list .line-lane")]
         .find((lane) => lane.dataset.processId === item.bound_process)
         ?.querySelector(".line-harvest-toggle")?.click();
@@ -146,7 +144,7 @@ export async function handleWorktreeAction(item, action) {
     if (action === "discard") {
       // 放弃现在会在后端原子注销绑定进程。三份 UI 投影必须一起刷新；只刷新
       // git 工作树清单会把一个已不存在 cwd 的旧线路页签留在前端。
-      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
+      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshDocs()]);
       if (currentProject !== forProject) return;
       if (discardingActiveLine && !processItems.some((process) => process.id === activeProcessId)) {
         const fallback = preferred_workspace_process(processItems);
@@ -262,7 +260,7 @@ export async function closeParallelProcess(processId) {
       setActiveProcessId(null);
       setActiveSessionId(null);
     }
-    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshLines(), refreshDocs()]);
+    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshDocs()]);
     if (currentProject !== forProject) return;
     // 关掉的线路只是注销了身份,对话记录还在:在搜索与历史中查看。
     dropClosedSessions(forProject);

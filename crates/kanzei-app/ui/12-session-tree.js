@@ -28,7 +28,7 @@ import { conversationRecord, matchesConversation, uniqueConversations } from "./
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { openProjectSpace, workbenchNavigationGuard, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
 import { conversationHistory, loadEarlierConversations, conversationItemsByProcess, openClosedConversation, openConversationForProcess, startNewConversation } from "./15-views-misc.js";
-import { executionActivity, sameProject } from "./25-softwire-model.js";
+import { executionActivity, sameProject } from "./00-project-identity.js";
 
 /// 侧栏每个项目下最多直接列几条(其余进「更多」);当前打开的对话即使排在后面也会补上。
 export const SESSION_VISIBLE = 8;

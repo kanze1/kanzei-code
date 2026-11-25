@@ -31,9 +31,6 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         }
         runtime.asks.lock_or_recover().clear();
     }
-    for (_, team) in kanzei_tools::team::registered_teams() {
-        team.cancel_workers();
-    }
     // Complete every already-admitted dispatch before taking the owner snapshot;
     // otherwise one could create a runtime just after it was enumerated.
     let mut poll = tokio::time::interval(std::time::Duration::from_millis(50));
@@ -48,11 +45,12 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         .cloned()
         .collect::<Vec<_>>();
     let runtimes = state.runtimes.lock_or_recover().clone();
-    let mut roots = crate::durable_questions::roots();
-    for (root, team) in kanzei_tools::team::registered_teams() {
-        roots.push(root);
-        team.stop_all();
-    }
+    let mut roots: Vec<std::path::PathBuf> = crate::prefs::load_prefs()
+        .projects
+        .into_iter()
+        .map(|p| crate::normalized_project_root(std::path::Path::new(&p)))
+        .filter(|p| p.is_dir())
+        .collect();
     for process in &processes {
         let root = &process.origin_project.0;
         roots.push(root.clone());
@@ -80,10 +78,7 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
     stop_terminals(&roots).await?;
     loop {
         let idle = super::compatibility::in_flight() == 0
-            && runtimes.values().all(|runtime| owners_quiescent(runtime))
-            && kanzei_tools::team::registered_teams()
-                .iter()
-                .all(|(_, team)| team.is_quiescent());
+            && runtimes.values().all(|runtime| owners_quiescent(runtime));
         if idle {
             break;
         }

@@ -70,7 +70,6 @@ import { cancelAutoContinueTimer } from "./08-auto.js";
 import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts } from "./09-sessions.js";
 import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
 import "./14-docs-actions.js";
-import "./20-lines.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
 
 // R-053 快速记录(记需求/记缺陷)的表单随入口迁到需求页「＋ 新建」菜单:见 14-docs-quick.js。

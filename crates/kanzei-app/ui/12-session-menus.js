@@ -30,7 +30,7 @@ import {
 import { openProjectSpace, renderWorkbenchNavigation } from "./12-workbench.js";
 import { deleteConversationsForProcess, forgetDeletedSession } from "./15-views-misc.js";
 import { openHandoffForm } from "./26-project-conversations.js";
-import { sameProject } from "./25-softwire-model.js";
+import { sameProject } from "./00-project-identity.js";
 import { conversationMarkdown } from "./31-conversation-export.js";
 
 // ---------- 小工具 ----------

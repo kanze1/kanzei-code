@@ -12,9 +12,7 @@ impl Component for IsolatedProfile {
             Arc::new(crate::glob::GlobTool),
             Arc::new(crate::grep::GrepTool),
             Arc::new(crate::files::FilesTool),
-            Arc::new(crate::symbols::SymbolsTool),
             Arc::new(crate::sandbox::SandboxTool),
-            Arc::new(crate::question::QuestionTool),
             Arc::new(kanzei_harness::ToolSearchTool),
         ] {
             let name = tool.name();
@@ -25,8 +23,6 @@ impl Component for IsolatedProfile {
             "glob",
             "grep",
             "files",
-            "symbols",
-            "question",
             "tool_search",
         ] {
             draft.permissions.push(rule(name, "*", Effect::Allow));

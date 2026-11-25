@@ -7,7 +7,6 @@ import { openDocumentsView } from "./10-docs-core.js";
 import { latestDocsSnapshot, renderDocuments, setDocumentsKind } from "./12-docs-pages.js";
 import { refreshTests } from "./12-docs-tests.js";
 import { refreshDocs } from "./14-docs-actions.js";
-import { openConventions } from "./15-conventions.js";
 
 // ---------- 需求页:切页签 + 新建(记需求/记缺陷/记想法) ----------
 // UX-053 / B7 / B19:原来「记需求/记缺陷」的表单挂在被隐藏的侧栏里(实测 0×0,命令面板点了毫无反应),
@@ -149,6 +148,5 @@ defer(() => {
   $("documents-conventions-open")?.addEventListener("click", () => {
     const more = $("documents-more-menu");
     if (more) closeSurface(more);
-    void openConventions();
   });
 });

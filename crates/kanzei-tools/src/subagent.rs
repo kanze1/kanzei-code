@@ -16,20 +16,15 @@ impl Component for SubagentBase {
         draft.tools.insert("read", Arc::new(crate::read::ReadTool));
         draft.tools.insert("glob", Arc::new(crate::glob::GlobTool));
         draft.tools.insert("grep", Arc::new(crate::grep::GrepTool));
-        // 文件地图、符号和 Git 调查共用只读权限边界。
         draft
             .tools
             .insert("files", Arc::new(crate::files::FilesTool));
-        draft
-            .tools
-            .insert("symbols", Arc::new(crate::symbols::SymbolsTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         draft.permissions.extend([
             rule("read", "*", Effect::Allow),
             rule("glob", "*", Effect::Allow),
             rule("grep", "*", Effect::Allow),
             rule("files", "*", Effect::Allow),
-            rule("symbols", "*", Effect::Allow),
             rule("git", "status", Effect::Allow),
             rule("git", "diff", Effect::Allow),
             rule("git", "log", Effect::Allow),

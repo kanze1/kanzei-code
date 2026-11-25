@@ -39,17 +39,7 @@ pub(crate) async fn settle_resources(
     process: &str,
 ) -> Result<(), String> {
     runtime.task_cancellations.cancel_all();
-    if let Some(team) =
-        kanzei_tools::team::find(root, &crate::process_session_id(root, Some(process)))
-    {
-        team.cancel_workers();
-    }
     runtime.task_cancellations.settled().await;
-    if let Some(team) =
-        kanzei_tools::team::find(root, &crate::process_session_id(root, Some(process)))
-    {
-        team.stop_and_settle().await.map_err(|e| e.to_string())?;
-    }
     for terminal in kanzei_tools::background::list(root)
         .into_iter()
         .filter(|terminal| terminal.owner.process_id == process)

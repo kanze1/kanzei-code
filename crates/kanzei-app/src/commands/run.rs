@@ -95,15 +95,10 @@ pub(crate) fn pending_asks_get(
     let session_id = process_session_id(&root, process_id.as_deref());
     let runtime = runtime_for(&state, &session_id);
     let asks = runtime.asks.lock().unwrap();
-    let mut values: Vec<_> = asks
+    let values: Vec<_> = asks
         .iter()
         .map(|(id, pending)| pending_ask_payload(*id, pending))
         .collect();
-    for item in crate::durable_questions::pending(&root, Some(&session_id))? {
-        if !values.iter().any(|v| v["id"] == item["id"]) {
-            values.push(item);
-        }
-    }
     Ok(values)
 }
 
@@ -141,27 +136,8 @@ pub(crate) async fn answer_ask(
     id: u64,
     reply: String,
 ) -> Result<(), String> {
-    let saved = if let Some((root, _)) = crate::durable_questions::find(id) {
-        Some((
-            root.clone(),
-            kanzei_harness::pending_question::respond(
-                &root,
-                id,
-                &reply,
-                &format!("ask:{id}"),
-                reply.trim().is_empty() || reply == "cancel",
-            )?,
-        ))
-    } else {
-        None
-    };
     let Some(pending) = take_pending_ask(&state, id) else {
-        if let Some((root, value)) = saved {
-            crate::durable_questions::deliver(&window, &state, &root, value).await?;
-            let _ = window.emit("kz:ask-resolved", json!({"id":id}));
-            return Ok(());
-        }
-        return Err("问题已结束，请刷新「待我处理」".into());
+        return Err("请求已结束或不存在".into());
     };
     if matches!(pending.request, kanzei_core::AskRequest::Question { .. }) {
         let response = if reply.trim().is_empty() || reply == "cancel" {
@@ -170,11 +146,7 @@ pub(crate) async fn answer_ask(
             kanzei_core::AskResponse::Answer(reply)
         };
         if pending.sender.send(response).is_err() {
-            if let Some((root, value)) = saved {
-                crate::durable_questions::deliver(&window, &state, &root, value).await?;
-            } else {
-                return Err("发起者已停止".into());
-            }
+            return Err("发起者已停止".into());
         }
         return Ok(());
     }
@@ -248,14 +220,10 @@ fn stop_target<'a>(
 /// A stop command always addresses one conversation. Service-wide shutdown has
 /// its own owner and must never be inferred from a missing command argument.
 fn stop_session(state: &AppState, root: &Path, session: &str) -> Result<Option<usize>, String> {
-    kanzei_harness::pending_question::cancel_owner(root, session, None)?;
     let runtime = state.runtimes.lock().unwrap().get(session).cloned();
     let Some(runtime) = runtime else {
         return Ok(None);
     };
-    if let Some(team) = kanzei_tools::team::find(root, session) {
-        team.stop_all();
-    }
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
     let stopped = request_runtime_stop(&runtime, &store, &state_path, session)
@@ -278,10 +246,6 @@ pub(crate) fn stop_task(
     let runtime = runtime_for(&state, &session_id);
     let hit = runtime.task_cancellations.cancel(&task_id);
     if !hit {
-        if let Some(team) = kanzei_tools::team::find(&root, &session_id) {
-            team.stop(&task_id).map_err(|e| e.to_string())?;
-            return Ok(true);
-        }
         return Err(format!("子代理 {task_id} 不在运行中或已结束"));
     }
     Ok(true)
@@ -732,14 +696,6 @@ pub(crate) fn schedule_run(
     // R-171:项目级协调器与进程身份传给 writer run(写租约申请用)。
     let coordinator = state.coordinator.clone();
     let process_id_for_run = process.id.clone();
-    let collaboration_probe = crate::collaboration::CollaborationProbe::new(
-        state.processes.clone(),
-        state.runtimes.clone(),
-        project_root.clone(),
-        process.id.clone(),
-    )
-    .with_coordinator(Arc::clone(&coordinator)
-        as Arc<dyn kanzei_harness::orchestration::ProjectExecutionCoordinator>);
     let handle = tauri::async_runtime::spawn(async move {
         let mut next_input = initial_input;
         let mut next_prompt = prompt;
@@ -775,7 +731,6 @@ pub(crate) fn schedule_run(
                 let lifecycle = lifecycle.clone();
                 let asks = asks.clone();
                 let ask_seq = ask_seq.clone();
-                let collaboration_probe = collaboration_probe.clone();
                 let current_stage = current_stage.clone();
                 let conversation = conversation.clone();
                 let live_run = live_run.clone();
@@ -831,7 +786,6 @@ pub(crate) fn schedule_run(
                             lifecycle: lifecycle.clone(),
                             asks: asks.clone(),
                             ask_seq: ask_seq.clone(),
-                            collaboration_probe: collaboration_probe.clone(),
                             current_stage: current_stage.clone(),
                             conversation: conversation.clone(),
                             live_run: live_run.clone(),

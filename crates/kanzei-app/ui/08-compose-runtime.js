@@ -84,7 +84,6 @@ import {
 } from "./08-auto.js";
 import "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
-import { collaborationConversations, renderLines } from "./20-lines.js";
 import { sync_workspace_visibility, acknowledge_composer_draft, ensure_workspace_process } from "./03-workspaces.js";
 import { autoAllowEnabled } from "./03-layout.js";
 
@@ -1307,9 +1306,6 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
     armAutoContinue(processId === activeProcessId ? continuePrompt() : DEFAULT_CONTINUE_PROMPT, item.session_id);
   }
   refreshParallelTaskProjection(item.session_id);
-  if (typeof collaborationConversations !== "undefined" && collaborationConversations.length) {
-    renderLines(collaborationConversations);
-  }
   return next;
 }
 

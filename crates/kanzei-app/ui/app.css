@@ -6,9 +6,7 @@
 @import url("vendor/katex/katex.min.css") layer(base);
 @import url("style.css") layer(app);
 @import url("context.css") layer(app);
-@import url("decision-console.css") layer(app);
 @import url("workbench.css") layer(app);
-@import url("softwire.css") layer(app);
 @import url("project-conversations.css") layer(app);
 @import url("resource-types.css") layer(app);
 @import url("conversation-media-time.css") layer(app);
@@ -16,8 +14,6 @@
 @import url("window-chrome.css") layer(app);
 @import url("skills.css") layer(app);
 @import url("surface.css") layer(surface);
-
-@import url("project-knowledge.css") layer(app);
 
 /* hidden 是真隐藏。UA 的 [hidden]{display:none} 是 normal,任何作者规则都盖得住,
    所以过去 26 处 `[hidden]{display:none}` 散在 8 张视图表里当补丁。这条放 base 层:

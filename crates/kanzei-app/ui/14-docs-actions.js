@@ -26,7 +26,6 @@ import {
   refreshWorkspaceSoon,
 } from "./12-docs-pages.js";
 import { openRuntimeMarkdown, refreshConversationList } from "./15-views-misc.js";
-import "./20-lines.js";
 
 // await 前后各认一次项目。这份快照是替 forProject 取的:await 期间用户切走了,它就是
 // **上一个项目**的数据,照旧渲染的后果不止"闪一下上个项目的列表"——syncDocumentFilters

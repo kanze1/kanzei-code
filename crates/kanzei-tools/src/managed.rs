@@ -167,8 +167,6 @@ pub(crate) fn quarantine_and_restore(
 /// 位于 .kanzei/research，不属于此托管范围。`.kanzei/memory/` 下的**动态条目文件**
 /// 创建前无法预锁,由 D-368 的 memory 树锁(见 [`memory_tree_lock_path`])整树罩住。
 fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
-    use crate::architecture::ARCHITECTURE_REL;
-    use crate::conventions::CONVENTIONS_REL;
     use crate::test_record::TEST_RUNS_REL;
     use kanzei_memory::docstore::{DECISIONS, DEFECTS, IDEAS, MEMORY, REQUIREMENTS};
     [
@@ -178,8 +176,6 @@ fn known_active_doc_paths(project_root: &Path) -> Vec<PathBuf> {
         DECISIONS.rel_path,
         MEMORY.rel_path,
         TEST_RUNS_REL,
-        CONVENTIONS_REL,
-        ARCHITECTURE_REL,
     ]
     .into_iter()
     .map(|rel| project_root.join(rel))
@@ -450,36 +446,14 @@ mod tests {
     #[test]
     fn dedicated_writers_keep_document_lock_through_log_publication() {
         use kanzei_harness::{Tool, ToolCtx};
-        for kind in ["conventions", "architecture", "test_record"] {
+        for kind in ["test_record"] {
             let root = temp_project(kind);
-            std::fs::create_dir_all(root.join("docs/design")).unwrap();
-            std::fs::write(root.join("docs/design/harness_m1.md"), "# Design").unwrap();
-            let (tool, relative, old, input): (Box<dyn Tool>, _, _, _) = match kind {
-                "conventions" => {
-                    let old = "# Rules\nold rule\n";
-                    (
-                        Box::new(crate::conventions::ConventionsTool),
-                        crate::conventions::CONVENTIONS_REL,
-                        old,
-                        serde_json::json!({"action":"patch", "old_string":"old rule", "new_string":"new rule", "expected_hash":crate::content_hash(old.as_bytes())}),
-                    )
-                }
-                "architecture" => {
-                    let old = "# Architecture\n\n- [`harness_m1.md`](../../../docs/design/harness_m1.md): old\n";
-                    (
-                        Box::new(crate::architecture::ArchitectureTool),
-                        crate::architecture::ARCHITECTURE_REL,
-                        old,
-                        serde_json::json!({"action":"update", "content":old.replace("old", "new"), "expected_hash":crate::content_hash(old.as_bytes())}),
-                    )
-                }
-                _ => (
-                    Box::new(crate::test_record::TestRecordTool),
-                    crate::test_record::TEST_RUNS_REL,
-                    "",
-                    serde_json::json!({"title":"publication lock test", "status":"running"}),
-                ),
-            };
+            let (tool, relative, old, input): (Box<dyn Tool>, _, _, _) = (
+                Box::new(crate::test_record::TestRecordTool),
+                crate::test_record::TEST_RUNS_REL,
+                "",
+                serde_json::json!({"title":"publication lock test", "status":"running"}),
+            );
             let path = root.join(relative);
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, old).unwrap();

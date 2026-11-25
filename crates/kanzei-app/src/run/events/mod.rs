@@ -1028,29 +1028,6 @@ impl From<&str> for AskSource {
         }
     }
 }
-pub(crate) fn build_team_ask_router(
-    asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
-    seq: Arc<AtomicU64>,
-    window: &crate::app_events::AppEvents,
-    project: PathBuf,
-    owner: String,
-) -> kanzei_tools::team::TeamAsk {
-    let window = window.clone();
-    Arc::new(move |job, request| {
-        let mut ask = build_ask_handler(
-            asks.clone(),
-            seq.clone(),
-            AskSource {
-                label: job.name.clone(),
-                agent_id: Some(job.id.clone()),
-            },
-            &window,
-            project.clone(),
-            owner.clone(),
-        );
-        ask(request)
-    })
-}
 struct PendingAskGuard {
     asks: Arc<Mutex<HashMap<u64, PendingAsk>>>,
     id: u64,
@@ -1099,10 +1076,6 @@ pub(crate) fn build_ask_handler(
             project_root: ask_root.clone(),
             session_id: ask_session_id.clone(),
         };
-        if let Err(error) = crate::durable_questions::persist(&ask_window, id, &pending) {
-            let _ = ask_window.emit("kz:error",json!({"sessionId":ask_session_id,"terminal":false,"message":format!("问题未发送，保存失败：{error}")}));
-            return Box::pin(async { kanzei_core::AskResponse::Cancelled });
-        }
         let payload = crate::pending_ask_payload(id, &pending);
         asks.lock().unwrap().insert(id, pending);
         let guard = PendingAskGuard {

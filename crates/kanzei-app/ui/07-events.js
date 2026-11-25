@@ -147,7 +147,6 @@ import { toolResultSummary } from "./05-tool-summary.js";
 // UI-0926 #8:task 不再走主对话工具块,改由子代理卡片承载(05-subagents.js)。
 import { isSubagentSpawn, subagentByKey, subagentKey, subagentEnd, subagentProgress, subagentRunningCount, subagentStart } from "./05-subagents.js";
 import { openTasksPanel } from "./06-agent-panel.js";
-import { restoreAgent } from "./27-agent-team.js";
 
 // UX-037:交付声明里的范围/目标/验收标准/证据是引擎内部记录(目标常是输入 id),不进用户可见通知;
 // 只露模型自己写的一句人话摘要(summary),且截断。没有摘要就什么都不跟。
@@ -1098,7 +1097,6 @@ export function pumpAsk() {
     const request = askActive;
     source.disabled = true;
     try {
-      if (!await restoreAgent(request.agentId, request.sessionId) || askActive !== request) return;
       collapseAsk();
       openTasksPanel({ key: subagentKey(request.sessionId, request.agentId), invoker: source });
     } catch (error) { reportPersistentError(String(error)); }

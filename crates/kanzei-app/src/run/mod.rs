@@ -231,25 +231,15 @@ mod assembly_tests {
 
     #[test]
     fn 桌面工具schema字符账单增量() {
-        for (profile, resident_budget, deferred_budget) in [
-            (ProfileKind::DevPair, 16, 28),
-            (ProfileKind::DevAuto, 17, 27),
-        ] {
+        for profile in [ProfileKind::DevPair, ProfileKind::DevAuto] {
             let root = PathBuf::from("C:/kanzei-r364-b1-desktop-schema-bill");
-            let collaboration_probe = crate::collaboration::CollaborationProbe::new(
-                std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
-                root.clone(),
-                "r364-budget-probe".into(),
-            );
             let ctx = ResolveCtx {
                 profile,
                 cwd: root.clone(),
                 project_root: root,
                 config: Arc::new(KanzeiConfig::default()),
             };
-            let harness =
-                super::assembly::build_run_harness(profile, false, Some(collaboration_probe));
+            let harness = super::assembly::build_run_harness(profile, false);
             let snapshot = harness.resolve(&ctx).unwrap();
             let resident_names: Vec<&str> = snapshot
                 .resident_tools()
@@ -257,14 +247,6 @@ mod assembly_tests {
                 .map(|tool| tool.name())
                 .collect();
             assert!(resident_names.contains(&"tool_search"));
-            assert!(resident_names.contains(&"collaboration_status"));
-            assert_eq!(
-                resident_names.len() + 1,
-                resident_budget,
-                "桌面 resident 另含 core task_spec"
-            );
-            let deferred = snapshot.deferred_tools();
-            assert_eq!(deferred.len(), deferred_budget);
             for name in ["req", "defect", "test_record", "memory_note"] {
                 assert!(snapshot.is_deferred(name));
                 assert!(!resident_names.contains(&name));
@@ -273,8 +255,6 @@ mod assembly_tests {
                 snapshot.is_deferred("work"),
                 profile == ProfileKind::DevPair
             );
-            assert!(deferred.iter().any(|tool| tool.name() == "desktop"));
-            assert!(!resident_names.contains(&"desktop"));
             let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
                 .materialize_tools()
                 .iter()

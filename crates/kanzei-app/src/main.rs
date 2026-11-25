@@ -11,12 +11,10 @@ pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
 pub(crate) use kanzei_harness::ConfigComponent;
 
 mod agent_directory;
-mod agent_team;
 mod app_events;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
-mod collaboration;
 mod commands;
 mod composer_drafts;
 mod context_view;
@@ -26,7 +24,6 @@ mod decisions;
 mod deliveries;
 mod desktop_bridge;
 mod docs;
-mod durable_questions;
 mod experience_events;
 mod fast_model;
 /// UX-089:文件页未保存草稿的落盘(file_draft_save / file_draft_clear / file_drafts_load)。
@@ -59,7 +56,6 @@ mod runtime_service;
 mod session_supervisor;
 mod settings;
 mod skills;
-mod softwire;
 mod state;
 mod subagents;
 mod terminal_monitor;
@@ -156,7 +152,6 @@ fn main() {
                 // constructing a Window or starting WebView2.
                 runtime_service::install_service(app.handle())?;
                 workspace::install_recovery(app.handle());
-                durable_questions::recover_outbox(app.handle().clone());
                 verification_monitor::start(app.handle().clone(), app.handle().clone());
                 tauri::async_runtime::spawn(async move {
                     let _ = fast_model::fast_model_ensure_running().await;

@@ -14,20 +14,18 @@ import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import "./08-compose-runtime.js";
 import "./08-compose.js";
-import { lastProjectPrefs, refreshWorktrees, switchProcess } from "./09-sessions.js";
+import { lastProjectPrefs, switchProcess } from "./09-sessions.js";
 import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
 import { refreshWorkspace } from "./12-docs-pages.js";
 import { refreshMemory, refreshMetrics } from "./13-memory.js";
 import { refreshDocs } from "./14-docs-actions.js";
 import { loadSettings } from "./16-settings.js";
 import { filesViewLeft, showFilesView } from "./17-files.js";
-import { refreshArch } from "./19-arch.js";
-import { refreshLines } from "./20-lines.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
 import { cancelProjectNavigation, openProjectSpace, reconcileWorkbenchView, renderProjectOverview, renderProjectActivity, setBrowsingProject, workbenchProject } from "./12-workbench.js";
 import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
 import { layoutPref, onLayoutChange, prefObject, setLayoutPref, setPrefObject } from "./03-layout.js";
-import { sameProject } from "./25-softwire-model.js";
+import { sameProject } from "./00-project-identity.js";
 
 // 分隔条共用 00-frame.js 的 installSplit：主布局在 03-layout.js 安装，代理面板与预览控制台各自安装。
 // 尺寸写成 <html> 上的 --kz-split-<id>,不再写元素内联 width(内联宽度压过 #sidebar.collapsed{width:0},
@@ -347,9 +345,8 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
       if (generation !== viewLoadGeneration) return;
       const loaders = { settings: loadSettings, workspace: refreshWorkspace, project: () => renderProjectOverview(lastWorkspaceSnapshot), documents: refreshDocs,
         memory: refreshMemory, metrics: refreshMetrics,
-        files: showFilesView, arch: refreshArch, lines: refreshLines, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
+        files: showFilesView, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
       const loading = loaders[view]?.();
-      if (view === "lines") void refreshWorktrees();
       restoreScrollAfter(view, loading);
     }, 0);
   });

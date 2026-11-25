@@ -4,7 +4,6 @@ import { on } from "./01-runtime-events.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
 import { currentProject, log, processItems, toast, toastError } from "./03-shell.js";
-import { openKnowledgeMemory, renderProjectKnowledge } from "./24-project-knowledge.js";
 import {
   confirmLeaveDirty, filesDirtyPaths, filesDoc, filesTreeRoot, humanSize, hydrateFilesDrafts, initFilesEditor, openFileDoc,
   setFilesTreeRoot, stashFilesDraft, startFilesWatch, stopFilesWatch,
@@ -479,15 +478,8 @@ export async function openFilePreview(file) {
   return openFileDoc({ ...file, path: where.rel });
 }
 
-function renderFileKnowledge(path) {
-  const snapshot = filesSnapshotData;
-  const project = currentProject;
-  const area = snapshot?.files?.find(item => item.path === path)?.area;
-  const visible = Boolean(path && snapshot?.knowledge);
-  renderProjectKnowledge($("files-knowledge"), visible ? snapshot.knowledge : null, {
-    area, onMemory: memory => void openKnowledgeMemory(project, memory).catch(err => toastError(`${t("打开失败")}: ${err}`)),
-  });
-  $("files-knowledge-wrap")?.classList.toggle("hidden", !visible);
+function renderFileKnowledge() {
+  $("files-knowledge-wrap")?.classList.add("hidden");
 }
 
 // ---------- 用途说明(UX-094,原「标注」) ----------

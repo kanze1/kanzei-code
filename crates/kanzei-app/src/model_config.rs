@@ -508,7 +508,7 @@ fn agent_model_for(
             config: std::sync::Arc::new(merged.clone()),
         };
         let snapshot =
-            crate::run::assembly::build_run_harness(ctx.profile, false, None).resolve(&ctx)?;
+            crate::run::assembly::build_run_harness(ctx.profile, false).resolve(&ctx)?;
         let agent = snapshot.select_primary_agent(agent.filter(|a| !a.trim().is_empty()))?;
         Ok((agent.name.clone(), agent.model.clone()))
     };
@@ -1196,7 +1196,7 @@ mod tests {
                                 config: std::sync::Arc::new(config.clone()),
                             };
                             let snapshot =
-                                crate::run::assembly::build_run_harness(ctx.profile, false, None)
+                                crate::run::assembly::build_run_harness(ctx.profile, false)
                                     .resolve(&ctx)
                                     .unwrap();
                             let agent = snapshot.select_primary_agent(None).unwrap().clone();

@@ -442,7 +442,7 @@ mod browser_registration_tests {
 
     #[test]
     fn 桌面与cli共用base_component的外部browser工具() {
-        let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto, false, None);
+        let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto, false);
         assert_eq!(browser_count(desktop), 1, "桌面复用唯一 browser 工具");
 
         let cli = kanzei_runtime::build_harness(ProfileKind::DevAuto, |_| {}, |_| {});

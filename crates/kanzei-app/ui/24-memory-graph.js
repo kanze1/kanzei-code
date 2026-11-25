@@ -14,7 +14,6 @@ import { localizedDocStatus, t } from "./02-i18n.js";
 import { toastError } from "./03-shell.js";
 import { memoryProject as currentProject } from "./03-memory-scope.js";
 import { openWorkbenchItem } from "./12-workbench.js";
-import { openDecisionReview } from "./12-decision-console.js";
 import {
   confirmLeaveMemoryDetail,
   getMemoryEntries,
@@ -25,7 +24,6 @@ import {
   showMemoryTab,
 } from "./13-memory.js";
 import { openDocViewer } from "./15-views-misc.js";
-import { openArchDoc } from "./19-arch.js";
 import { canvasSupported, createGraphView } from "./24-graph-view.js";
 import {
   DEFAULT_LAYERS,
@@ -589,10 +587,7 @@ export function renderGraphNodeDetail(node) {
   if (node.kind === "requirement" || node.kind === "defect") {
     actions.append(button(t("打开条目"), () => void openWorkbenchItem(currentProject, { id: node.id })));
   } else if (node.kind === "decision") {
-    if (node.id.startsWith("dec-")) actions.append(button(t("打开决策复核"), () => openDecisionReview(currentProject, node.id)));
-    else actions.append(button(t("打开决策文档"), () => void openDocViewer("decision")));
-  } else if (node.kind === "doc") {
-    actions.append(button(t("打开设计文档"), () => void openArchDoc(node.id.replace(/^doc:/, ""))));
+    actions.append(button(t("打开决策文档"), () => void openDocViewer("decision")));
   } else if (node.kind === "crate" || node.kind === "module") {
     actions.append(button(t("只看该区域"), () => setAreaFilter(node.id)));
   } else if (node.kind === "fingerprint" || node.kind === "subject") {

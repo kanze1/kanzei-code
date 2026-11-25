@@ -109,51 +109,6 @@ pub async fn git_status(
 }
 
 #[tauri::command]
-pub fn conventions_read(project_dir: String) -> Result<serde_json::Value, String> {
-    kanzei_tools::conventions::drafts::snapshot(&conventions_root(&project_dir))
-}
-
-#[tauri::command]
-pub fn conventions_save(
-    project_dir: String,
-    content: String,
-    expected_hash: String,
-    proposal_hash: Option<String>,
-) -> Result<String, String> {
-    kanzei_tools::conventions::drafts::save_user(
-        &conventions_root(&project_dir),
-        &content,
-        &expected_hash,
-        proposal_hash.as_deref(),
-    )
-}
-
-#[tauri::command]
-pub fn conventions_discard(project_dir: String, expected_hash: String) -> Result<(), String> {
-    kanzei_tools::conventions::drafts::discard(&conventions_root(&project_dir), &expected_hash)
-}
-
-fn conventions_root(project_dir: &str) -> PathBuf {
-    kanzei_harness::config::discover_project_root(Path::new(project_dir))
-        .unwrap_or_else(|| PathBuf::from(project_dir))
-}
-
-/// 兼容旧客户端的新建入口；当前界面通过 Agent 从项目生成。
-#[tauri::command]
-pub fn conventions_init(project_dir: String) -> Result<String, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let path = root.join(CONVENTIONS_REL);
-    if path.is_file() {
-        return Ok(path.display().to_string());
-    }
-    kanzei_tools::conventions::drafts::create(
-        &root,
-        "# 项目约束与规范\n\n待根据项目清单、README、测试和发布配置生成。\n",
-    )?;
-    Ok(path.display().to_string())
-}
-
-#[tauri::command]
 pub fn test_runs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
     let root = normalized_project_root(Path::new(&project_dir));
     kanzei_tools::test_record::test_runs_snapshot(&root)
@@ -414,22 +369,11 @@ pub fn docs_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
                 })
             }).collect())
         };
-    let conventions_path = root.join(CONVENTIONS_REL);
-    let mut conventions = match std::fs::read_to_string(&conventions_path) {
-        Ok(text) => {
-            json!({ "exists": true, "headings": text.lines().filter(|l| l.starts_with('#')).map(|l| l.trim_start_matches('#').trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>() })
-        }
-        Err(_) => json!({ "exists": false, "headings": [] }),
-    };
-    conventions["has_proposal"] = json!(root
-        .join(kanzei_tools::conventions::drafts::PROPOSAL_REL)
-        .is_file());
+    let conventions = json!({ "exists": false, "headings": [], "has_proposal": false });
     Ok(json!({
         "conventions": conventions, "root": root.display().to_string(),
-        // warnings 是新增字段:前端忽略未知键,所以不需要改 .js。它承载"读成功了,
-        // 但顺手做的那次写没做成"这种半程状态——以前这类信息被 `let _ =` 吃掉。
         "warnings": warnings,
-        "incident_metrics": kanzei_tools::incident::metrics(&root),
+        "incident_metrics": json!({}),
         "work_units": work_units,
         "requirements": load(&REQUIREMENTS)?, "defects": load(&DEFECTS)?, "ideas": load(&IDEAS)?,
         "sources": load(&SOURCES)?, "findings": load(&FINDINGS)?,
@@ -769,126 +713,6 @@ pub fn docs_read_custom(
         "name": path.file_name().and_then(|n| n.to_str()).unwrap_or("md"),
         "content": content,
     }))
-}
-
-/// 架构浏览快照(R-122):返回架构索引文本 + docs/design 文档目录清单
-/// (文件名、标题、字节数),供前端渲染「索引 + 设计文档树」的架构浏览视图。
-/// 只读;索引维护仍走 architecture 工具,本命令只做呈现数据源。
-///
-/// 架构索引 README 是可选的(新项目没建过):缺失或读不了都不整页失败——架构图与设计文档树
-/// 不依赖它,照常返回;`index_exists` / `index_error` 让前端说明为什么没有按章节分组。
-#[tauri::command(async)]
-pub fn architecture_snapshot(project_dir: String) -> Result<serde_json::Value, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let index_path = root.join(".kanzei/project/architecture/README.md");
-    let (index, index_exists, index_error) = match std::fs::read_to_string(&index_path) {
-        Ok(text) => (text, true, None),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (String::new(), false, None),
-        Err(error) => (
-            String::new(),
-            false,
-            Some(format!("架构索引读取失败: {error}")),
-        ),
-    };
-    let design_dir = root.join("docs/design");
-    let mut docs: Vec<serde_json::Value> = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(&design_dir) {
-        let mut names: Vec<String> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| e.path().extension().is_some_and(|x| x == "md"))
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
-        names.sort();
-        for name in names {
-            let path = design_dir.join(&name);
-            let meta = path.metadata().ok();
-            let title = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|text| {
-                    text.lines()
-                        .find(|l| l.starts_with('#'))
-                        .map(|l| l.trim_start_matches('#').trim().to_string())
-                })
-                .unwrap_or_default();
-            docs.push(json!({
-                "name": name,
-                "title": title,
-                "bytes": meta.map(|m| m.len()).unwrap_or(0),
-            }));
-        }
-    }
-    Ok(json!({
-        "index_path": index_path.display().to_string(),
-        "index": index,
-        "index_exists": index_exists,
-        "index_error": index_error,
-        "design_docs": docs,
-        // UI2-0926 #7(docs/design/architecture_diagrams.md):docs/architecture/*.md 的手写图
-        // (标题/说明/首个 mermaid 围栏/起始行号/lint 问题)与 crate 依赖图(每次从 Cargo 清单
-        // 生成,直接依赖与全部依赖两份 mermaid 源码)。前端 19-arch.js 用 04-diagram.js 渲染。
-        "diagrams": kanzei_tools::arch_diagram::scan_diagrams(&root),
-        "crates": crates_snapshot(&root),
-        "knowledge": kanzei_tools::project_knowledge::snapshot(&root, &root),
-    }))
-}
-
-/// crate 依赖图快照:成员(包名/描述/分组/入口)、边(normal/dev/build + 是否可由传递得到)、
-/// 两份 mermaid 源码。不是 Cargo 工作区时为 null(前端只显示手写图)。
-fn crates_snapshot(root: &Path) -> serde_json::Value {
-    use kanzei_tools::arch_diagram::{crates_mermaid, workspace_crates};
-    let Some(ws) = workspace_crates(root) else {
-        return serde_json::Value::Null;
-    };
-    json!({
-        "members": ws.members,
-        "edges": ws.edges,
-        "mermaid": {
-            "reduced": crates_mermaid(&ws, false),
-            "full": crates_mermaid(&ws, true),
-        },
-        "hidden_transitive": ws.hidden_transitive(),
-    })
-}
-
-#[cfg(test)]
-mod architecture_snapshot_tests {
-    use super::architecture_snapshot;
-
-    /// UX-096:没有架构索引 README 的项目,快照不整体失败,设计文档树照常给出。
-    #[test]
-    fn 缺架构索引时快照不失败且设计文档树照常() {
-        let root = std::env::temp_dir().join(format!(
-            "kz-arch-snapshot-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join("docs/design")).unwrap();
-        std::fs::write(root.join("docs/design/alpha.md"), "# Alpha 设计\n正文\n").unwrap();
-
-        let snap = architecture_snapshot(root.display().to_string()).unwrap();
-        assert_eq!(snap["index"], "");
-        assert_eq!(snap["index_exists"], false);
-        assert!(
-            snap["index_error"].is_null(),
-            "文件不存在是常态,不算读取错误"
-        );
-        assert_eq!(snap["design_docs"][0]["name"], "alpha.md");
-        assert_eq!(snap["design_docs"][0]["title"], "Alpha 设计");
-
-        std::fs::create_dir_all(root.join(".kanzei/project/architecture")).unwrap();
-        std::fs::write(
-            root.join(".kanzei/project/architecture/README.md"),
-            "## live_design\n",
-        )
-        .unwrap();
-        let snap = architecture_snapshot(root.display().to_string()).unwrap();
-        assert_eq!(snap["index_exists"], true);
-        assert_eq!(snap["index"], "## live_design\n");
-        std::fs::remove_dir_all(root).ok();
-    }
 }
 
 #[cfg(test)]

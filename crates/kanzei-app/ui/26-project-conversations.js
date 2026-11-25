@@ -17,8 +17,9 @@ import "./12-docs-pages.js";
 
 import { sendText, processUpdateQueues } from "./08-compose-runtime.js";
 import { lineAgent, awaitingUserSessions } from "./08-auto.js";
-import { node, button } from "./25-softwire-view.js";
-import { executionActivity, sameProject } from "./25-softwire-model.js";
+import { executionActivity, sameProject } from "./00-project-identity.js";
+const node = (tag, cls, text) => { const el = document.createElement(tag); if (cls) el.className = cls; if (text != null) el.textContent = text; return el; };
+const button = (label, onClick, cls = "ghost mini") => { const el = node("button", cls, label); el.type = "button"; if (onClick) el.addEventListener("click", onClick); return el; };
 import { needsRequirementResearch, requirementResearchAction, requirementStart, requirementResearchRequest, registrationFailureDetails } from "./26-requirement-research.js";
 
 // Project facts and conversation drafts have different lifetimes. A failed read

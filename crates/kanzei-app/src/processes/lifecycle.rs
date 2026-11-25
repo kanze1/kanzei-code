@@ -802,10 +802,6 @@ pub(crate) async fn close_process(
     // D-367:project_dir 恒主根(ProjectRoot),直接取路径。
     let root = &process.project_dir.0;
     let session_id = process_session_id(root, Some(&process_id));
-    kanzei_harness::pending_question::cancel_owner(root, &session_id, None)?;
-    if let Some(team) = kanzei_tools::team::find(root, &session_id) {
-        team.stop_all();
-    }
     // 关闭顺序必须是「停止/注销 → 回收 owner 后台进程 → 处置工作树」。旧顺序先跑
     // git worktree remove，再进 unregister 停运行；运行中的进程仍把该树当 cwd 时，
     // 可能在它脚下删目录。process 已在上面克隆，注销后仍保有处置所需路径。
@@ -870,10 +866,6 @@ pub(crate) fn unregister_parallel_process(
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(root, Some(process_id));
-    kanzei_harness::pending_question::cancel_owner(root, &session_id, None)?;
-    if let Some(team) = kanzei_tools::team::find(root, &session_id) {
-        team.stop_all();
-    }
     let branch = state
         .processes
         .lock()

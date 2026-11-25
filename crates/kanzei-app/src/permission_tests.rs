@@ -166,7 +166,7 @@ fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
         project_root: root.clone(),
         config: Arc::new(config),
     };
-    let snapshot = build_run_harness(ctx.profile, true, None)
+    let snapshot = build_run_harness(ctx.profile, true)
         .resolve(&ctx)
         .unwrap();
     let names = snapshot
@@ -180,7 +180,7 @@ fn branch_tracker_switch_off_keeps_reads_and_rejects_writes_with_reason() {
     let hint = snapshot.denial_hint("req", "write:add");
     assert!(hint.contains("未开启「改主项目需求记录」"), "{hint}");
 
-    let enabled = build_run_harness(ctx.profile, false, None)
+    let enabled = build_run_harness(ctx.profile, false)
         .resolve(&ctx)
         .unwrap();
     assert_eq!(enabled.evaluate("req", "write:add"), Effect::Allow);

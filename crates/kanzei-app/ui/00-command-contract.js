@@ -8,19 +8,11 @@ export const commandParameters = {
     "path": true,
     "projectDir": false
   },
-  "agent_team_command": {
-    "input": true,
-    "processId": false,
-    "projectDir": true
-  },
   "answer_ask": {
     "id": true,
     "reply": true
   },
   "app_info": {},
-  "architecture_snapshot": {
-    "projectDir": true
-  },
   "auto_state_get": {
     "sessionId": true
   },
@@ -42,9 +34,6 @@ export const commandParameters = {
     "processId": false,
     "projectDir": true
   },
-  "collaboration_snapshot": {
-    "projectDir": true
-  },
   "composer_draft_save": {
     "draft": false,
     "key": true
@@ -60,22 +49,6 @@ export const commandParameters = {
     "processId": false,
     "projectDir": true,
     "sequence": false
-  },
-  "conventions_discard": {
-    "expectedHash": true,
-    "projectDir": true
-  },
-  "conventions_init": {
-    "projectDir": true
-  },
-  "conventions_read": {
-    "projectDir": true
-  },
-  "conventions_save": {
-    "content": true,
-    "expectedHash": true,
-    "projectDir": true,
-    "proposalHash": false
   },
   "conversation_action": {
     "action": true,
@@ -467,11 +440,6 @@ export const commandParameters = {
     "initialCommit": false,
     "projectDir": true
   },
-  "project_knowledge_configure": {
-    "codeDir": false,
-    "enabled": true,
-    "projectDir": true
-  },
   "project_models_get": {
     "projectDir": true
   },
@@ -609,16 +577,6 @@ export const commandParameters = {
     "enabled": true,
     "name": true
   },
-  "softwire_answer_question": {
-    "attachments": false,
-    "expectedRevision": true,
-    "id": true,
-    "projectDir": true,
-    "reply": true,
-    "requestId": true,
-    "sessionId": true
-  },
-  "softwire_questions": {},
   "stop_run": {
     "processId": false,
     "projectDir": true

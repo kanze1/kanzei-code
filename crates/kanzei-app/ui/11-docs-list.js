@@ -42,7 +42,6 @@ import { openDocumentsQuick } from "./14-docs-quick.js";
 import { openDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 import { openFilePreview } from "./17-files.js";
 import { project_workspace } from "./03-workspaces.js";
-import { collaborationConversations, lineAgentCodes } from "./20-lines.js";
 import { needsRequirementResearch, requirementResearchAction, requirementResearchStatus, openRequirementResearch } from "./26-requirement-research.js";
 
 // R-054:拖拽重排(手动模式限定)。拖完提交完整 ID 序——注意 order 必须覆盖
@@ -407,15 +406,8 @@ export async function jumpToEntry(ref, { expand = false, quiet = false } = {}) {
 }
 
 // 展示 tracker 登记到的工作树，不把登记关系解释成某个对话正在执行。
-export function registeredWorktreeFor(entry) {
-  const owner = String(entry.claimed_by ?? "").trim() || null;
-  const conversations = collaborationConversations.filter(conversation =>
-    !conversation.tracker_error && conversation.tracker_line === owner &&
-    conversation.tracker_entries.includes(entry.id));
-  const trees = new Map(conversations.map(conversation => [conversation.worktree_path || currentProject, conversation]));
-  if (trees.size !== 1) return null;
-  const [path, conversation] = trees.entries().next().value;
-  return { path, code: lineAgentCodes(collaborationConversations).get(conversation.process_id) };
+export function registeredWorktreeFor() {
+  return null;
 }
 
 // ---------- 条目详情(UI-0926 #4 + #10):只读优先,读起来像一页文档 ----------
