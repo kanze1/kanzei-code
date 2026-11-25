@@ -163,6 +163,7 @@ impl WebAcquisition {
         self.raw_artifact.verify(ctx)?;
         Ok(())
     }
+    #[cfg(test)]
     pub fn readable(&self) -> bool {
         self.http_status.is_none_or(|status| status < 400)
             && (self.http_status.is_some() || self.method == AcquisitionMethod::RenderedDom)
@@ -172,6 +173,7 @@ impl WebAcquisition {
                 AcquisitionMethod::StaticText | AcquisitionMethod::RenderedDom
             )
     }
+    #[cfg(test)]
     pub fn ready_for_finding(&self, ctx: &ToolCtx) -> Result<bool, String> {
         self.verify(ctx)?;
         if self.readable() {
@@ -312,6 +314,7 @@ pub fn record_acquisition(
     Ok(acquisition.id)
 }
 
+#[cfg(test)]
 pub fn acquisition_for_url(
     ctx: &ToolCtx,
     url: &str,

@@ -571,7 +571,7 @@
         "type": "String"
       }
     },
-    "path": "preview::commands::delivered_image",
+    "path": "attachments::delivered_image",
     "returns": "-> Result < Value , String >"
   },
   "delivery_manage": {
@@ -1578,182 +1578,6 @@
     "path": "settings::permission_rules_get",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "preview_capture": {
-    "host": "desktop",
-    "parameters": {
-      "clip": {
-        "required": false,
-        "type": "Option < crate :: preview :: Rect >"
-      },
-      "fullPage": {
-        "required": false,
-        "type": "Option < bool >"
-      }
-    },
-    "path": "preview::commands::preview_capture",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_clear_site_data": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "preview::commands::preview_clear_site_data",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_close": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "preview::commands::preview_close",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_console": {
-    "host": "desktop",
-    "parameters": {
-      "sinceSeq": {
-        "required": false,
-        "type": "Option < u64 >"
-      }
-    },
-    "path": "preview::commands::preview_console",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_console_clear": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "preview::commands::preview_console_clear",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_dev_urls": {
-    "host": "desktop",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "preview::commands::preview_dev_urls",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_device": {
-    "host": "desktop",
-    "parameters": {
-      "preset": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "scheme": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "zoom": {
-        "required": false,
-        "type": "Option < f64 >"
-      }
-    },
-    "path": "preview::commands::preview_device",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_nav": {
-    "host": "desktop",
-    "parameters": {
-      "action": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "preview::commands::preview_nav",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_open": {
-    "host": "desktop",
-    "parameters": {
-      "bounds": {
-        "required": true,
-        "type": "crate :: preview :: Rect"
-      },
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "target": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "preview::commands::preview_open",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_open_devtools": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "preview::commands::preview_open_devtools",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_open_external": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "preview::commands::preview_open_external",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_pick": {
-    "host": "desktop",
-    "parameters": {
-      "on": {
-        "required": true,
-        "type": "bool"
-      }
-    },
-    "path": "preview::commands::preview_pick",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_set_bounds": {
-    "host": "desktop",
-    "parameters": {
-      "h": {
-        "required": true,
-        "type": "f64"
-      },
-      "w": {
-        "required": true,
-        "type": "f64"
-      },
-      "x": {
-        "required": true,
-        "type": "f64"
-      },
-      "y": {
-        "required": true,
-        "type": "f64"
-      }
-    },
-    "path": "preview::commands::preview_set_bounds",
-    "returns": "-> Result < () , String >"
-  },
-  "preview_set_visible": {
-    "host": "desktop",
-    "parameters": {
-      "processId": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "visible": {
-        "required": true,
-        "type": "bool"
-      }
-    },
-    "path": "preview::commands::preview_set_visible",
-    "returns": "-> Result < Value , String >"
-  },
-  "preview_snippet": {
-    "host": "desktop",
-    "parameters": {
-      "html": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "preview::commands::preview_snippet",
-    "returns": "-> Result < Value , String >"
-  },
   "process_close": {
     "host": "service",
     "parameters": {
@@ -2696,7 +2520,7 @@
         "type": "String"
       }
     },
-    "path": "preview::commands::tool_image",
+    "path": "attachments::tool_image",
     "returns": "-> Result < Value , String >"
   },
   "ui_prefs_get": {

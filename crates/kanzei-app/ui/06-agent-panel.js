@@ -58,7 +58,6 @@ import {
   sideEvent,
   sideMaxWidth,
 } from "./06-side-policy.js";
-import { PREVIEW_NARROW, previewColumnWidth } from "./24-preview.js";
 import { mountAgentControls } from "./27-agent-team.js";
 
 // 需要查看的实时终态:失败/超时/中断/未启动/旧步数上限。用户自己停的(cancelled)不算。
@@ -143,13 +142,9 @@ function mainWidth() {
 function panelGeometry(mainW) {
   const stored = splitApi?.value?.() ?? null;
   const docked = sideClampWidth(stored ?? sideDefaultWidth(window.innerWidth || 0), mainW);
-  const previewCol = previewColumnWidth(Math.max(mainW - docked, PREVIEW_NARROW));
-  const dock = sideDockMode({ mainWidth: mainW - previewCol, panelWidth: docked });
+  const dock = sideDockMode({ mainWidth: mainW, panelWidth: docked });
   if (dock !== "drawer") return { dock, width: docked, max: sideMaxWidth(mainW) };
-  // UX-157:抽屉盖在并排的预览栏上时,宽度至少取预览栏宽。原先固定 400,盖不满 482 的预览栏,留下一条半截的预览残边,
-  // 看上去像预览被活动面板挤着;盖满之后活动面板就是「暂时顶替预览栏」,对话列与预览栏的边界不变。
-  const cover = previewColumnWidth(mainW);
-  const drawer = Math.min(sideDrawerMax(mainW), Math.max(sideDrawerWidth(stored, mainW), cover));
+  const drawer = Math.min(sideDrawerMax(mainW), sideDrawerWidth(stored, mainW));
   return { dock, width: drawer, max: sideDrawerMax(mainW) };
 }
 // 活动数的唯一口径(UX-076):运行中的子代理数 + 运行中的终端命令数。侧栏头、rail 徽标与段头「运行中」三处都用它——

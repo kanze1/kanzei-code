@@ -374,26 +374,6 @@ export function addPngAttachment(fileName, png) {
   renderAttachments();
   return true;
 }
-let pickSeq = 0;
-/// 批注模式点选一个元素(kz:preview-pick):局部截图进附件,输入框末尾写上「【网页批注】地址 / 元素 / 修改意见:」,
-/// 光标停在最后,用户补一句就能发。不自动发送。
-export function addPickAttachment({ png, url = "", selector = "", text = "", tag = "" } = {}) {
-  pickSeq += 1;
-  addPngAttachment(`preview-pick-${pickSeq}.png`, png);
-  const snippet = String(text ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
-  const target = String(selector || tag || "").trim();
-  const lines = [
-    `${t("【网页批注】")}${url}`,
-    `${t("元素")}:${target ? `\`${target}\`` : "—"}${snippet ? ` ("${snippet}")` : ""}`,
-    `${t("修改意见")}:`,
-  ];
-  const block = lines.join("\n");
-  const before = promptBox.value.replace(/\s+$/, "");
-  promptBox.value = before ? `${before}\n\n${block}` : block;
-  promptBox.dispatchEvent(new Event("input", { bubbles: true }));
-  promptBox.focus();
-  promptBox.setSelectionRange?.(promptBox.value.length, promptBox.value.length);
-}
 
 defer(() => {
   $("attach").addEventListener("click", () => $("attachment-input").click());
@@ -545,7 +525,6 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   // UI2-0926 #14:用户手动发消息 = 新的一次运行(后台任务侧栏解除本次运行的压制、确认上次的失败);自动推进续轮不算。
   if (!auto) {
     tasksPanelUserRun(activeSessionId);
-    (await import("./24-preview.js")).previewUserRun();
   }
   if (!recipientIsCurrent()) {
     toast(t("对话已切换，请在目标对话中重新发送")); return false;

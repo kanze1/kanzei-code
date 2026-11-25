@@ -21,31 +21,26 @@ mod base;
 pub mod bash;
 mod browser_tool;
 pub mod sandbox;
-/// UI2-0926 #8:browser 工具对桌面端面板后端开放的共用面(输入、schema、目标解析、权限资源、
-/// 输出格式、无头执行)。两个后端的输出格式只在 browser_tool 里写一份。
+/// 浏览器工具公开面（外部 Playwright 无头后端与用户已授权 CDP 连接）。
 pub mod browser {
     pub use crate::browser_tool::{
-        browser_error, connection_resources, current_url, description, dom_walker_expression,
-        execute_headless, form_action_expression, format_console_item, input_schema, out_click,
-        out_console, out_dom, out_eval, out_form, out_open, out_press, out_screenshot, out_scroll,
-        out_wait, owner_key, parse_browser_input, parse_viewport, permission_resources,
-        prepare_source, record_rendered_source, rendered_source_expression, resolve_nav_target,
-        resources_for, screenshot_scope, scroll_scope, set_current_url, url_resource,
-        uses_connection, validate, viewport_label, wait_scope, Backend, BrowserAction,
-        BrowserInput, ConsoleItem, NavTarget, SourceScope, CONSOLE_ALL_LIMIT, HEADLESS_PANE_HINT,
-        MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
+        browser_error, connection_resources, current_url, execute_headless, form_action_expression,
+        format_console_item, input_schema, out_click, out_console, out_dom, out_eval, out_form,
+        out_open, out_press, out_screenshot, out_scroll, out_wait, owner_key, parse_browser_input,
+        parse_viewport, permission_resources, prepare_source, record_rendered_source,
+        rendered_source_expression, resolve_nav_target, resources_for, screenshot_scope,
+        scroll_scope, set_current_url, url_resource, uses_connection, validate, viewport_label,
+        wait_scope, Backend, BrowserAction, BrowserInput, ConsoleItem, NavTarget, SourceScope,
+        CONSOLE_ALL_LIMIT, MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
     };
 }
 /// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
 pub mod close_telemetry;
 pub mod conventions;
 mod cross_tree;
-/// UI2-0926 #8:本地开发服务地址发现(后台进程输出 → 预览面板空态列表)。
-pub mod dev_urls;
 mod edit;
 mod file_access;
 pub mod files;
-pub mod frontend;
 mod git;
 pub mod git_batches;
 mod glob;

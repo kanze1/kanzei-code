@@ -1,11 +1,85 @@
 //! Convert spreadsheet and text attachments into provider-independent text.
 use std::io::Cursor;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use base64::Engine;
 use calamine::{open_workbook_auto_from_rs, Data, Reader};
+use serde_json::{json, Value};
 
 use crate::PromptAttachment;
+
+/// 图片类命令的体积上限。
+pub(crate) const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
+/// 工具截图目录(与 kanzei-core runner/tool_images.rs 同一路径)。
+pub(crate) const TOOL_IMAGES_REL: &str = ".kanzei/artifacts/tool-images";
+const IMAGE_EXTENSIONS: [&str; 7] = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico"];
+
+/// 对话里 `[tool-image]` 标记指向的截图。只收 `.kanzei/artifacts/tool-images/<sha256>.png`
+/// (后端只落 PNG,与契约和前端的 TOOL_IMAGE_REL 一致)。
+#[tauri::command]
+pub(crate) async fn tool_image(project_dir: String, rel: String) -> Result<Value, String> {
+    let root = crate::normalized_project_root(Path::new(&project_dir));
+    let path = tool_image_path(&root, &rel)?;
+    image_payload(&path)
+}
+
+/// 交付卡片的图片缩略图:沿用 open_delivered_path 的根内校验。
+#[tauri::command]
+pub(crate) async fn delivered_image(project_dir: String, path: String) -> Result<Value, String> {
+    let target = crate::deliveries::resolve(&project_dir, &path)?;
+    let ext = target
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!("不是可预览的图片: {}", target.display()));
+    }
+    image_payload(&target)
+}
+
+pub(crate) fn tool_image_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
+    let rel = rel.trim().replace('\\', "/");
+    let name = rel
+        .strip_prefix(TOOL_IMAGES_REL)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .ok_or_else(|| format!("只能读取 {TOOL_IMAGES_REL}/ 下的截图: {rel}"))?;
+    let (stem, ext) = name
+        .rsplit_once('.')
+        .ok_or_else(|| format!("截图文件名不合法: {name}"))?;
+    let valid = stem.len() == 64 && stem.bytes().all(|b| b.is_ascii_hexdigit()) && ext == "png";
+    if !valid {
+        return Err(format!("截图文件名不合法: {name}"));
+    }
+    let dir = root
+        .join(TOOL_IMAGES_REL)
+        .canonicalize()
+        .map_err(|e| format!("截图目录不存在: {e}"))?;
+    let path = dir
+        .join(name)
+        .canonicalize()
+        .map_err(|e| format!("截图不存在: {e}"))?;
+    if !path.starts_with(&dir) {
+        return Err(format!("拒绝读取截图目录之外的文件: {}", path.display()));
+    }
+    Ok(path)
+}
+
+fn image_payload(path: &Path) -> Result<Value, String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("读不到图片: {e}"))?;
+    if !meta.is_file() {
+        return Err(format!("不是文件: {}", path.display()));
+    }
+    if meta.len() > MAX_IMAGE_BYTES {
+        return Err(format!(
+            "图片过大({} 字节 > {} 上限)",
+            meta.len(),
+            MAX_IMAGE_BYTES
+        ));
+    }
+    let bytes = std::fs::read(path).map_err(|e| format!("读不到图片: {e}"))?;
+    Ok(json!({ "png": base64::engine::general_purpose::STANDARD.encode(bytes) }))
+}
 
 const MAX_BYTES: usize = 16 * 1024 * 1024;
 pub(crate) const MAX_TOTAL_BYTES: usize = 18 * 1024 * 1024;
@@ -515,5 +589,40 @@ mod tests {
             .as_str()
             .unwrap()
             .ends_with("[内容过长，已截断；以上不是完整文件。]"));
+    }
+
+    #[test]
+    fn 工具截图路径只收截图目录下的sha文件名() {
+        let root = kanzei_base::test_support::TestDir::new("tool-image");
+        std::fs::create_dir_all(root.join(TOOL_IMAGES_REL)).unwrap();
+        let name = format!("{}.png", "a".repeat(64));
+        std::fs::write(root.join(TOOL_IMAGES_REL).join(&name), b"png").unwrap();
+        std::fs::write(root.join("secret.txt"), b"secret").unwrap();
+        std::fs::write(root.join(TOOL_IMAGES_REL).join("notes.txt"), b"x").unwrap();
+        std::fs::write(root.join(TOOL_IMAGES_REL).join("short.png"), b"x").unwrap();
+        let jpg = format!("{}.jpg", "b".repeat(64));
+        std::fs::write(root.join(TOOL_IMAGES_REL).join(&jpg), b"x").unwrap();
+        for bad_name in ["notes.txt", "short.png", jpg.as_str()] {
+            assert!(
+                tool_image_path(&root, &format!("{TOOL_IMAGES_REL}/{bad_name}")).is_err(),
+                "{bad_name} 必须被文件名规则拒绝"
+            );
+        }
+        let ok = tool_image_path(&root, &format!("{TOOL_IMAGES_REL}/{name}")).unwrap();
+        assert!(ok.ends_with(&name));
+        let backslash = tool_image_path(&root, &format!(".kanzei\\artifacts\\tool-images\\{name}"));
+        assert!(backslash.is_ok(), "Windows 分隔符同样可用");
+        for bad in [
+            "secret.txt".to_string(),
+            format!("{TOOL_IMAGES_REL}/../../secret.txt"),
+            format!("{TOOL_IMAGES_REL}/{}.png", "a".repeat(63)),
+            format!("{TOOL_IMAGES_REL}/{}.txt", "a".repeat(64)),
+            format!("{TOOL_IMAGES_REL}/sub/{name}"),
+        ] {
+            assert!(tool_image_path(&root, &bad).is_err(), "{bad} 必须被拒");
+        }
+        let big = root.join("big.png");
+        std::fs::write(&big, vec![0u8; (MAX_IMAGE_BYTES + 1) as usize]).unwrap();
+        assert!(image_payload(&big).unwrap_err().contains("过大"));
     }
 }

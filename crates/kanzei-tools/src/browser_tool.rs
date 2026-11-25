@@ -1,14 +1,10 @@
-//! 浏览器工具(R-269;UI2-0926 #8 扩展):一个工具名,两个后端。
+//! 浏览器工具（外部 Playwright 无头后端与用户已授权 CDP 连接）。
 //!
-//! - **无头后端**(本 crate,CLI 与桌面兜底):Rust 经 stdio 起 `scripts/browser-helper.mjs`
-//!   (Node 辅进程),playwright-core 以 channel 模式自 launch 本机 Edge/Chrome headless,不碰
-//!   WebView2,天然绕开 D-319。机制见 [`headless`]。
-//! - **面板后端**(kanzei-app `preview::agent`):同名动作经进程内 CDP 驱动内部面板。
-//!   backend 可明确选择 pane/headless；省略时沿用会话事实，隐藏与会话切换不改变页面归属。
-//!
-//! 两个后端共用这里的输入结构、schema、目标解析(本地路径与 HTML 片段一律走
-//! [`crate::preview_server`] 的 127.0.0.1 静态服务)、权限资源与**全部输出格式**——
-//! 结果首行写明 `backend: pane（用户可见）` 或 `backend: headless`,其余逐字同形。
+//! - **无头后端**：Rust 经 stdio 起 `scripts/browser-helper.mjs`
+//!   (Node 辅进程)，playwright-core 以 channel 模式自 launch 本机 Edge/Chrome headless。
+//!   本地 HTML 路径与内联片段一律走 [`crate::preview_server`] 的 127.0.0.1 静态服务，
+//!   使 ES modules 与前端表格/脚本可正常渲染运行。
+//! - **已连接浏览器**：通过 `connect` 附着到用户已授权的本机 CDP Edge/Chrome。
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -27,10 +23,7 @@ pub use forms::{form_action_expression, out_form};
 pub use headless::execute_headless;
 pub use source::{prepare_source, record_rendered_source, rendered_source_expression};
 
-/// DOM walker 唯一源:无头侧 helper `import`,面板侧经 [`dom_walker_expression`] 包进 CDP 表达式。
-const DOM_WALKER_SOURCE: &str = include_str!("../../../scripts/browser-dom-walker.mjs");
-
-/// 单次截图体积上限(与 R-249 截图口径一致,防超大 base64 打爆上下文)。
+/// 单次截图体积上限(防超大 base64 打爆上下文)。
 pub const MAX_SCREENSHOT_BYTES: usize = 4 * 1024 * 1024;
 /// eval 结果回喂上限(字符)。
 pub const MAX_EVAL_CHARS: usize = 8_000;
@@ -39,11 +32,10 @@ pub const MAX_WAIT_MS: u64 = 10_000;
 /// console all=true 时回喂的条数上限。
 pub const CONSOLE_ALL_LIMIT: usize = 200;
 
-/// 结果走了哪个后端。首行必须写明——弱模型分不清两个后端时,至少知道用户看没看见。
+/// 结果走了哪个后端。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Backend {
-    Pane,
     Headless,
     Attached,
 }
@@ -51,7 +43,6 @@ pub enum Backend {
 impl Backend {
     pub fn line(self) -> &'static str {
         match self {
-            Backend::Pane => "backend: pane（用户可见）",
             Backend::Headless => "backend: headless",
             Backend::Attached => "backend: attached（用户已有浏览器）",
         }
@@ -59,18 +50,13 @@ impl Backend {
 
     fn slot(self) -> usize {
         match self {
-            Backend::Pane => 0,
-            Backend::Headless => 1,
-            Backend::Attached => 2,
+            Backend::Headless => 0,
+            Backend::Attached => 1,
         }
     }
 }
 
-/// 桌面端走无头时追加的一行:用户看不到无头画面,卡片上有「在预览中打开」。
-pub const HEADLESS_PANE_HINT: &str = "提示: 用户看不到无头浏览器的画面;需要用户一起看时,请用户点卡片上的「在预览中打开」把它显示在网页预览面板里。";
-
-/// R-269 浏览器工具(无头后端)。CLI 与桌面兜底都注册它;桌面端由 kanzei-app 的
-/// DesktopBrowserTool 以同名覆盖、按面板状态路由。
+/// 外部浏览器工具（Playwright 无头与用户已授权 CDP 连接）。
 pub(crate) struct BrowserTool;
 
 #[async_trait::async_trait]
@@ -82,7 +68,6 @@ impl kanzei_harness::Tool for BrowserTool {
     fn description(&self) -> String {
         "Observe and operate a browser page with screenshots, DOM, console and source receipts. \
      Open a URL, local path or HTML; omit navigation fields to retain the page. Local files grant frontend assets; opening a directory also grants its non-sensitive data files. \
-     Omit backend to keep the conversation's selection; pane/headless explicitly changes it. \
      connect attaches a user-authorized local CDP browser (Node.js 22+). Connected actions use connection_id, page_id and expected_url from pages; frame actions also bind frame identity. \
      source saves rendered article content with source receipts.".into()
     }
@@ -129,35 +114,16 @@ impl kanzei_harness::Tool for BrowserTool {
 
     async fn execute(&self, input: serde_json::Value, ctx: &kanzei_harness::ToolCtx) -> ToolOutput {
         match parse_browser_input(input) {
-            Ok(parsed) => execute_headless(parsed, ctx, false).await,
+            Ok(parsed) => execute_headless(parsed, ctx).await,
             Err(output) => *output,
         }
     }
 }
 
-/// 两个后端共用的工具说明。
-pub fn description() -> String {
-    "Drive a browser page and see it. connect(endpoint) attaches an already running, user-authorized local CDP Edge/Chrome; pages(connection_id) lists targets; frames(connection_id,page_id,expected_url) lists iframe IDs/URLs; disconnect(connection_id) detaches. Connected page actions require connection_id + page_id + expected_url from that list. Existing-browser attachment requires Node.js 22+. Actions: open (navigate to url/path/html, return a \
-     screenshot), screenshot (current page, no reload; full_page or selector), dom, console \
-     (errors/warnings; all=true for every level), click, type (text/date), select (values[]), check (checked), upload (files[]), validate (form selector), press (key), scroll, wait \
-     (selector/text/ms ≤10000), eval (JS expression → JSON), source (save the current rendered \
-     article body and DOM with source receipts; topic + task_id bind a research task). Targets: url (http/https), path \
-     (local HTML, served from a 127.0.0.1 static server so ES modules work) or html (inline \
-     snippet). A local file grants that page and static frontend assets; open a directory \
-     explicitly to grant its non-sensitive data files for local fetch. Stateful: open once, \
-     then omit url/path/html to keep the current page. Optional \
-     viewport (mobile/tablet/desktop presets) and color_scheme (light|dark). In the desktop \
-     app, backend=pane explicitly selects the internal web preview and backend=headless selects \
-     independent Edge/Chrome. Omit backend to retain the conversation's selected browser even \
-     when the pane is hidden or another conversation is selected. Result line 1 names the backend."
-        .into()
-}
-
-/// 工具输入。字段与 [`input_schema`] 对齐;面板后端直接读这些字段。
+/// 工具输入。字段与 [`input_schema`] 对齐。
 #[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct BrowserInput {
-    pub backend: Option<Backend>,
     pub endpoint: Option<String>,
     pub connection_id: Option<String>,
     pub page_id: Option<String>,
@@ -196,7 +162,6 @@ pub struct BrowserInput {
 impl Default for BrowserInput {
     fn default() -> Self {
         BrowserInput {
-            backend: None,
             endpoint: None,
             connection_id: None,
             page_id: None,
@@ -300,17 +265,8 @@ impl BrowserAction {
     }
 }
 
-/// 动作参数的机械校验(两个后端执行前都先过这一道,错误文本一致)。
+/// 动作参数的机械校验。
 pub fn validate(input: &BrowserInput, action: BrowserAction) -> Result<(), String> {
-    if input.backend == Some(Backend::Attached)
-        || (input.backend.is_some()
-            && (input.connection_id.is_some() || action == BrowserAction::Connect))
-    {
-        return Err(
-            "backend 只选择 pane 或 headless；已有浏览器使用 connect 和 connection_id 明确选择"
-                .into(),
-        );
-    }
     if input.frame_id.is_some() != input.expected_frame_url.is_some()
         || ((input.frame_id.is_some() || action == BrowserAction::Frames)
             && input.connection_id.is_none())
@@ -673,13 +629,6 @@ fn clear_current_urls(backend: Backend) {
     }
 }
 
-/// 面板后端用:把 walker 源码包成一条 `Runtime.evaluate` 表达式,返回 JSON 字符串。
-pub fn dom_walker_expression(selector: Option<&str>) -> String {
-    let body = DOM_WALKER_SOURCE.replacen("export function domWalker", "function domWalker", 1);
-    let selector = serde_json::to_string(&selector).unwrap_or_else(|_| "null".into());
-    format!("(() => {{\n{body}\nreturn domWalker({selector});\n}})()")
-}
-
 /// 视口预设;未知名返回 None(无头用默认 1280x720)。
 pub fn parse_viewport(name: Option<&str>) -> Option<(u32, u32)> {
     Some(match name? {
@@ -939,7 +888,6 @@ pub fn input_schema() -> serde_json::Value {
     serde_json::json!({
         "type": "object",
         "properties": {
-            "backend": { "type": "string", "enum": ["pane", "headless"], "description": "显式选择内部面板或独立 Edge/Chrome；省略则保留会话已选后端，切换会话和隐藏面板不改变它" },
             "endpoint": { "type": "string", "description": "connect: 用户已授权且已启用 CDP 的本机 Edge/Chrome HTTP 地址（例如 http://127.0.0.1:9222）；不自动重启或改动用户配置" },
             "connection_id": { "type": "string", "description": "connect 返回的连接身份；仅当前会话可用，pages 查看标签页，disconnect 断开连接" },
             "page_id": { "type": "string", "description": "已连接浏览器的目标标签页 ID；每次页面动作明确提供" },
@@ -1231,10 +1179,10 @@ mod tests {
     fn 当前页按后端分别记录() {
         let ctx = kanzei_harness::ToolCtx::default().with_session_id("urls-a".into());
         let other = kanzei_harness::ToolCtx::default().with_session_id("urls-b".into());
-        set_current_url(Backend::Pane, &ctx, Some("http://localhost:1/p".into()));
+        set_current_url(Backend::Attached, &ctx, Some("http://localhost:1/p".into()));
         set_current_url(Backend::Headless, &ctx, Some("http://localhost:2/h".into()));
         assert_eq!(
-            current_url(Backend::Pane, &ctx).as_deref(),
+            current_url(Backend::Attached, &ctx).as_deref(),
             Some("http://localhost:1/p")
         );
         assert_eq!(
@@ -1242,32 +1190,25 @@ mod tests {
             Some("http://localhost:2/h")
         );
         assert_eq!(current_url(Backend::Headless, &other), None);
-        set_current_url(Backend::Pane, &ctx, None);
-        assert_eq!(current_url(Backend::Pane, &ctx), None);
-    }
-
-    #[test]
-    fn walker表达式由共用源生成() {
-        let expression = dom_walker_expression(Some("#app"));
-        assert!(expression.contains("function domWalker(sel)"));
-        assert!(!expression.contains("export function"), "export 必须去掉");
-        assert!(expression.ends_with("return domWalker(\"#app\");\n})()"));
-        assert!(dom_walker_expression(None).contains("return domWalker(null);"));
+        set_current_url(Backend::Attached, &ctx, None);
+        assert_eq!(current_url(Backend::Attached, &ctx), None);
     }
 
     #[test]
     fn 输出首行标明后端且格式两端同形() {
-        let pane = out_click(Backend::Pane, "#go", "http://localhost/");
+        let attached = out_click(Backend::Attached, "#go", "http://localhost/");
         let headless = out_click(Backend::Headless, "#go", "http://localhost/");
-        assert!(pane.content.starts_with("backend: pane（用户可见）\n"));
+        assert!(attached
+            .content
+            .starts_with("backend: attached（用户已有浏览器）\n"));
         assert!(headless.content.starts_with("backend: headless\n"));
         assert_eq!(
-            pane.content.lines().nth(1),
+            attached.content.lines().nth(1),
             headless.content.lines().nth(1),
             "除首行外逐字同形"
         );
         let big = out_open(
-            Backend::Pane,
+            Backend::Headless,
             "t",
             "u",
             "v",
@@ -1300,7 +1241,7 @@ mod tests {
         assert!(!only_log.is_error && only_log.content.contains("无错误/警告"));
         let all_logs = out_console(Backend::Headless, "u", std::slice::from_ref(&log), true);
         assert!(!all_logs.is_error && all_logs.content.contains("[log] hello"));
-        let mixed = out_console(Backend::Pane, "u", &[log, error], true);
+        let mixed = out_console(Backend::Headless, "u", &[log, error], true);
         assert!(mixed.is_error, "含错误即判工具错误");
         assert!(mixed.content.contains("错误/警告 1 条"));
     }
@@ -1310,8 +1251,8 @@ mod tests {
         let no_open = browser_error(Backend::Headless, "no browser: call open first");
         assert!(no_open.is_error);
         assert!(no_open.content.contains("先调用 browser open"));
-        let refused = browser_error(Backend::Pane, "page.goto: net::ERR_CONNECTION_REFUSED");
-        assert!(refused.content.starts_with("backend: pane"));
+        let refused = browser_error(Backend::Attached, "page.goto: net::ERR_CONNECTION_REFUSED");
+        assert!(refused.content.starts_with("backend: attached"));
         assert!(refused.content.contains("process list/output/wait"));
         assert!(refused.content.contains("Local URL"));
     }

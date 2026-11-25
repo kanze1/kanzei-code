@@ -27,7 +27,7 @@ import { renderContextDetail } from "./07-events.js";
 import { autoStopReason, renderAutoStatus } from "./08-auto.js";
 import "./08-compose.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
-import { decorateFileCard, extractToolImages } from "./24-preview.js";
+import { decorateFileCard, extractToolImages } from "./04-attachment-preview.js";
 
 // ---------- 后台任务侧栏里的终端条目(R-037 → UI2-0926 #14):完整工具活动入列,详情点击展开 ----------
 // 侧栏的显隐、停靠与徽标归 06-agent-panel.js(reconcileTasksPanel);这里只维护条目,变化经 onBgChange 通知。

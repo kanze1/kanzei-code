@@ -66,10 +66,6 @@ export const SESSIONLESS_EVENTS = new Set([
   "kz:annotate-progress",
   "kz:workspace-invalidated", // 项目摘要失效通知不属于某条会话。
   "kz:runtime-resync", // Native transport connection belongs to the desktop window.
-  // UI2-0926 #8 网页预览面板:面板状态、控制台批量、批注点选都属于窗口里那一个面板,不归哪条运行会话。
-  "kz:preview-state",
-  "kz:preview-console",
-  "kz:preview-pick",
 ]);
 // R-284 B3:结构化体验事件的前端归并层。旧 kz:* 事件继续由各现有 handler
 // 消费；kz:experience 先按 session/topic/entity 归并到 store,再分发到表现层和工作台。

@@ -18,7 +18,7 @@ defer(() => {
   if (sidebarToggle) header.prepend(sidebarToggle);
   const switcher = $("project-work-switch"); if (switcher) header.append(switcher);
   const context = $("composer-context"); if (context) header.append(context);
-  for (const id of ["tasks-toggle", "preview-toggle"]) if ($(id)) actions.append($(id));
+  for (const id of ["tasks-toggle"]) if ($(id)) actions.append($(id));
   header.append(actions);
 
   const footer = node("div", "workspace-sidebar-footer"); footer.id = "workspace-sidebar-footer";

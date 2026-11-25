@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
-use tauri::{Emitter, Listener, Manager};
+use tauri::{Emitter, Listener};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -36,14 +36,6 @@ pub(crate) fn is_service() -> bool {
 }
 pub(crate) fn embedded() -> bool {
     std::env::var_os("KANZEI_EMBEDDED_RUNTIME").is_some()
-}
-pub(crate) async fn process_roots(process_id: Option<&str>) -> Result<Vec<PathBuf>, String> {
-    let client = CLIENT.get().ok_or("后台未就绪")?;
-    let endpoint = client.endpoint().await?;
-    serde_json::from_value(
-        request(&endpoint, json!({"action":"process_roots","id":process_id})).await?,
-    )
-    .map_err(|e| e.to_string())
 }
 pub(crate) fn directory() -> PathBuf {
     // Separate portable builds/profiles cannot silently borrow another version's runtime.
@@ -445,14 +437,6 @@ pub(crate) fn install_service(app: &tauri::AppHandle) -> Result<(), String> {
                     match action.as_str() {
                         "ping" => Ok(json!({"pid":endpoint.pid,"protocol":PROTOCOL,"build":env!("KANZEI_RUNTIME_BUILD"),"cursor":journal.lock_or_recover().seq})),
                         "retire_if_idle" => compatibility::retire_if_idle(&app).await,
-                        "process_roots" => {
-                            let state=app.state::<crate::AppState>();
-                            let processes=state.processes.lock_or_recover();
-                            let process=processes.get(input["id"].as_str().unwrap_or("")).ok_or("对话不存在")?;
-                            let mut roots=vec![process.project_dir.0.clone()];
-                            if let Some(worktree)=&process.worktree_path {roots.insert(0,worktree.0.clone());}
-                            Ok(json!(roots))
-                        },
                         "events" => {
                             crate::desktop_bridge::attach(&input["desktop"]);
                             let after = input["after"].as_u64().unwrap_or(0);
@@ -516,14 +500,10 @@ mod tests {
         ));
     }
     #[test]
-    fn detached_journal_keeps_hosted_tools_and_schedule_notifications() {
+    fn detached_journal_keeps_hosted_tool_notifications() {
         let mut journal = Journal::default();
-        // These events have live UI consumers and are emitted by the detached
-        // runner/scheduler. Only registered service listeners reach the journal.
-        for name in ["kz:hosted-tool", "kz:schedule-run"] {
-            if EVENTS.contains(&name) {
-                journal.append(name, json!({"sessionId":"owner","notify":true}));
-            }
+        if EVENTS.contains(&"kz:hosted-tool") {
+            journal.append("kz:hosted-tool", json!({"sessionId":"owner","notify":true}));
         }
         let replay = journal.since(0);
         let names: Vec<_> = replay["events"]
@@ -532,8 +512,8 @@ mod tests {
             .iter()
             .map(|event| event["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["kz:hosted-tool", "kz:schedule-run"]);
-        assert_eq!(replay["cursor"], 2);
+        assert_eq!(names, ["kz:hosted-tool"]);
+        assert_eq!(replay["cursor"], 1);
     }
     #[test]
     fn journal_reports_eviction_and_keeps_monotonic_cursor() {

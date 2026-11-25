@@ -277,82 +277,10 @@ fn deliver_target(
     Ok((path, meta))
 }
 
-/// UI2-0926 #8:桌面端的 `browser`。与 kanzei-tools 的无头版同名、同 schema、同输出格式,
-/// 按 `preview::route` 分流:网页预览面板开着、正显示、且绑定的就是这条线 → 驱动面板
-/// (用户看得见);其余一律无头。注册在 FrontendToolsComponent(装配线 middle 段),
-/// 同名 insert 后注册者胜,覆盖 BaseComponent 里的无头版;CLI 装配线不经过这里。
-struct DesktopBrowserTool;
-
-#[async_trait::async_trait]
-impl kanzei_harness::Tool for DesktopBrowserTool {
-    fn name(&self) -> &'static str {
-        "browser"
-    }
-
-    fn description(&self) -> String {
-        kanzei_tools::browser::description()
-    }
-
-    fn input_schema(&self) -> serde_json::Value {
-        kanzei_tools::browser::input_schema()
-    }
-
-    fn permission_resources(
-        &self,
-        input: &serde_json::Value,
-        ctx: &ToolCtx,
-    ) -> Vec<kanzei_harness::permission::Resource> {
-        kanzei_tools::browser::permission_resources(self.resources_with_ctx(input, ctx))
-    }
-
-    fn resources(&self, input: &serde_json::Value) -> Vec<String> {
-        kanzei_tools::browser::resources_for(input, None, None)
-    }
-
-    /// Contextual actions authorize the same owned page even when it is hidden.
-    fn resources_with_ctx(&self, input: &serde_json::Value, ctx: &ToolCtx) -> Vec<String> {
-        if kanzei_tools::browser::uses_connection(input) {
-            return kanzei_tools::browser::connection_resources(input, ctx);
-        }
-        if ctx.browser_owner.is_some() {
-            let current =
-                kanzei_tools::browser::current_url(kanzei_tools::browser::Backend::Headless, ctx);
-            return kanzei_tools::browser::resources_for(input, Some(&ctx.cwd), current.as_deref());
-        }
-        crate::desktop_bridge::browser_resources(input, ctx)
-    }
-
-    fn concurrency(
-        &self,
-        _input: &serde_json::Value,
-        ctx: &ToolCtx,
-    ) -> kanzei_harness::ToolConcurrency {
-        kanzei_harness::ToolConcurrency::shared_worktree(ctx)
-    }
-
-    async fn execute(&self, input: serde_json::Value, ctx: &ToolCtx) -> kanzei_harness::ToolOutput {
-        if kanzei_tools::browser::uses_connection(&input) {
-            return match kanzei_tools::browser::parse_browser_input(input) {
-                Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, false).await,
-                Err(output) => *output,
-            };
-        }
-        if ctx.browser_owner.is_some() {
-            return match kanzei_tools::browser::parse_browser_input(input) {
-                Ok(input) => kanzei_tools::browser::execute_headless(input, ctx, true).await,
-                Err(output) => *output,
-            };
-        }
-        crate::desktop_bridge::browser(input, ctx).await
-    }
-}
-
 pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &[
     "ui_dom",
     "ui_console",
     "ui_style",
-    "frontend_locate",
-    "frontend_check",
     "deliver",
 ];
 
@@ -363,27 +291,16 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft: &mut kanzei_harness::HarnessDraft,
         ctx: &ResolveCtx,
     ) -> anyhow::Result<()> {
-        draft.tools.insert("browser", Arc::new(DesktopBrowserTool));
         draft.tools.insert("deliver", Arc::new(DeliverTool));
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
         draft.tools.insert("ui_style", Arc::new(UiStyleTool));
-        draft.tools.insert(
-            "frontend_locate",
-            Arc::new(kanzei_tools::frontend::FrontendLocateTool),
-        );
-        draft.tools.insert(
-            "frontend_check",
-            Arc::new(kanzei_tools::frontend::FrontendCheckTool),
-        );
         for name in [
             // deliver 只做一次 stat 并发一张卡片,不改任何文件,与 UI 自查同档放行。
             "deliver",
             "ui_dom",
             "ui_console",
             "ui_style",
-            "frontend_locate",
-            "frontend_check",
         ] {
             draft.permissions.push(kanzei_harness::rule(
                 name,
@@ -523,26 +440,14 @@ mod browser_registration_tests {
             .count()
     }
 
-    // ── 分区:网页预览后端 ──
-    /// UI2-0926 #8:桌面装配线的 browser 由 FrontendToolsComponent 同名覆盖(只一个),
-    /// CLI 装配线(没有 FrontendTools)仍是 kanzei-tools 的无头版。
     #[test]
-    fn 桌面装配线的browser由前端组件覆盖_cli仍是无头版() {
-        let mut only_frontend = Harness::default();
-        only_frontend.add(super::FrontendToolsComponent);
-        assert_eq!(
-            browser_count(only_frontend),
-            1,
-            "FrontendToolsComponent 自己注册 browser"
-        );
-
+    fn 桌面与cli共用base_component的外部browser工具() {
         let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto, false, None);
-        assert_eq!(browser_count(desktop), 1, "同名覆盖,不重复");
+        assert_eq!(browser_count(desktop), 1, "桌面复用唯一 browser 工具");
 
         let cli = kanzei_runtime::build_harness(ProfileKind::DevAuto, |_| {}, |_| {});
-        assert_eq!(browser_count(cli), 1, "CLI 仍有无头 browser");
+        assert_eq!(browser_count(cli), 1, "CLI 共用同一 browser 工具");
 
-        // 权限分级对桌面版同样生效(规则挂在 BaseComponent,按 action 名匹配)。
         let mut harness = Harness::default();
         harness
             .add(kanzei_tools::BaseComponent)

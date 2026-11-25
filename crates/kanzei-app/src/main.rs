@@ -16,7 +16,6 @@ mod app_events;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
-mod browser_selection;
 mod collaboration;
 mod commands;
 mod composer_drafts;
@@ -51,8 +50,6 @@ mod model_config;
 mod native_dispatch;
 mod orchestration_trace;
 mod prefs;
-/// UI2-0926 #8:网页预览面板(子 webview + 进程内 CDP)与 browser 工具的面板后端。
-mod preview;
 mod processes;
 mod projection_gate;
 mod projects;
@@ -146,7 +143,6 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(memory_chat::MemoryChatState::default())
-        .manage(preview::PreviewState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
         .setup(move |app| {
             crate::session_supervisor::install(app.handle());
@@ -197,15 +193,7 @@ fn main() {
             // 前端没有用 tauri://drag-drop 的地方(网页预览子 webview 同样关着)。关掉之后浏览器默认行为是
             // 「文件落在没人处理的地方 = 导航到该文件」,由前端 17-files.js 的全局 dragover/drop 兜底拦下。
             builder = builder.disable_drag_drop_handler();
-            // UI2-0926 #8:主界面开始(重新)加载(F5 / Ctrl+R)时收掉网页预览面板,
-            // 与前端启动时的 preview_close 互为双保险;第一次启动的加载无害(还没有面板)。
-            let page_app = app.handle().clone();
-            builder = builder.on_page_load(move |window, payload| {
-                preview::on_main_page_load(&page_app, window.label(), payload.event())
-            });
-            let main_window = builder.build()?;
-            // UI2-0926 #8:网页预览面板的装配(应用句柄 + DPI 变化重放边界 + 关窗收面板)。
-            preview::install(app.handle(), &main_window);
+            let _main_window = builder.build()?;
             if runtime_service::embedded() {
                 workspace::install_recovery(app.handle());
             }

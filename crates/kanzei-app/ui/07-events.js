@@ -42,7 +42,6 @@ import { setCtxPending, setCtxTokens } from "./03-shell.js";
 import { setCtxLimit } from "./03-shell.js";
 import { showRunMeta } from "./03-shell.js";
 import { effectiveModel, refreshEffectiveModel } from "./08-models.js";
-import { previewNoteToolEnd } from "./24-preview.js";
 import { autoRounds } from "./08-auto.js";
 import { $ } from "./00-dom.js";
 import { activePane, appendToPane, messages, promptBox, trimLivePane } from "./01-chat-panes.js";
@@ -472,8 +471,6 @@ defer(() => {
     if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
     // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
     if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
-    // UI2-0926 #8:网页预览开着本项目的静态页时,写文件成功后防抖刷新(开发服务靠自己的 HMR,不重复刷新)。
-    previewNoteToolEnd(p);
     // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
     const toolEndExtra = {
       content: p.content,

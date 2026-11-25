@@ -41,7 +41,6 @@ import "./19-arch.js";
 import "./20-lines.js";
 import "./19-structured-navigation.js";
 import "./21-palette.js";
-import "./24-preview.js";
 import "./12-workbench.js";
 import "./12-session-tree.js";
 import "./12-session-menus.js";

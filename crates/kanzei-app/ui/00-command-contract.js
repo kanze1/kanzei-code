@@ -412,50 +412,6 @@ export const commandParameters = {
   "permission_rules_get": {
     "projectDir": true
   },
-  "preview_capture": {
-    "clip": false,
-    "fullPage": false
-  },
-  "preview_clear_site_data": {},
-  "preview_close": {},
-  "preview_console": {
-    "sinceSeq": false
-  },
-  "preview_console_clear": {},
-  "preview_dev_urls": {
-    "projectDir": true
-  },
-  "preview_device": {
-    "preset": false,
-    "scheme": false,
-    "zoom": false
-  },
-  "preview_nav": {
-    "action": true
-  },
-  "preview_open": {
-    "bounds": true,
-    "processId": false,
-    "target": true
-  },
-  "preview_open_devtools": {},
-  "preview_open_external": {},
-  "preview_pick": {
-    "on": true
-  },
-  "preview_set_bounds": {
-    "h": true,
-    "w": true,
-    "x": true,
-    "y": true
-  },
-  "preview_set_visible": {
-    "processId": false,
-    "visible": true
-  },
-  "preview_snippet": {
-    "html": true
-  },
   "process_close": {
     "processId": true
   },

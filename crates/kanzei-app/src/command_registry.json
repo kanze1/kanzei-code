@@ -696,71 +696,11 @@
     "host": "desktop"
   },
   {
-    "path": "preview::commands::preview_open",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_set_bounds",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_set_visible",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_nav",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_close",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_capture",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_console",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_console_clear",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_device",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_pick",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_snippet",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_dev_urls",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_clear_site_data",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_open_devtools",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::preview_open_external",
-    "host": "desktop"
-  },
-  {
-    "path": "preview::commands::tool_image",
+    "path": "attachments::tool_image",
     "host": "service"
   },
   {
-    "path": "preview::commands::delivered_image",
+    "path": "attachments::delivered_image",
     "host": "service"
   },
   {

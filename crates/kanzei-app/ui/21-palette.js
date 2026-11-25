@@ -91,9 +91,6 @@ export function collectPaletteEntries() {
   action(t("新建项目…"), "project-init");
   action(t("停止"), "stop");
   action(t("活动"), "tasks-toggle");
-  // UI2-0926 #8:网页预览(rail 开关同一实现:关着就打开,开着就收起)与文件页「在预览中打开」。
-  action(t("网页预览"), "preview-toggle");
-  action(t("在预览中打开当前文件"), "files-open-preview");
   action(t("切换主题"), "theme-toggle");
   // 记需求/记缺陷/记想法(UX-053/B7):点需求页「＋ 新建」菜单里的同名项——它们会打开需求页上**可见**的表单。
   // 原来点的是被隐藏的侧栏里的 #req-quick/#defect-quick,表单进了 0×0 的容器,点了毫无反应。

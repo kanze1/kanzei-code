@@ -211,8 +211,6 @@ export function renderFilesHead() {
   const discard = $("files-discard");
   show(save, !doc.readonly);
   show(discard, dirty && !doc.readonly);
-  // UI2-0926 #8:网页类文件可在对话旁的网页预览里渲染(预览的是磁盘上的版本)。
-  show($("files-open-preview"), /\.(?:html?|xhtml|svg)$/i.test(doc.path));
   save.disabled = !dirty || doc.saving || Boolean(doc.readonly);
   save.setAttribute("aria-busy", doc.saving ? "true" : "false");
   // 只读原因条:为什么只读、去哪改(托管文档给跳转);保存被拒(doc.blocked)也在这里说明,编辑器照样可编辑、可复制。
@@ -605,8 +603,6 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
     syncNote = "";
     toast(result.evidence ? `${t("已保存")}  ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : t("已保存"), { kind: "ok" });
     hooks.onSaved(doc.path);
-    // 网页预览(24-preview.js)据此防抖重载正开着的静态页:保存后不用手点刷新。
-    document.dispatchEvent(new CustomEvent("kz:file-saved", { detail: { root: doc.root, path: doc.path } }));
     return true;
   } catch (error) {
     if (filesDoc !== doc) return false;

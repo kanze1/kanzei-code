@@ -29,7 +29,7 @@ use super::{
     browser_error, out_click, out_console, out_dom, out_eval, out_open, out_press, out_screenshot,
     out_scroll, out_wait, parse_viewport, resolve_nav_target, screenshot_scope, scroll_scope,
     set_current_url, validate, viewport_label, wait_scope, Backend, BrowserAction, BrowserInput,
-    ConsoleItem, HEADLESS_PANE_HINT, MAX_WAIT_MS,
+    ConsoleItem, MAX_WAIT_MS,
 };
 
 /// 辅进程空闲回收预算:超过这个时间没有调用就 shutdown。
@@ -37,17 +37,11 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 /// RPC 调用超时(含 browser launch 首次冷启动)。
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 
-/// 无头后端入口(CLI 的 browser 与桌面端的路由兜底共用)。
-///
-/// `pane_hint`:桌面端传 true,在 open/screenshot 结果里提示用户可以在预览面板里看。
+/// 外部浏览器后端入口（无头 Playwright 与已授权 CDP 连接）。
 pub async fn execute_headless(
     input: BrowserInput,
     ctx: &kanzei_harness::ToolCtx,
-    pane_hint: bool,
 ) -> ToolOutput {
-    if input.backend == Some(Backend::Pane) {
-        return browser_error(Backend::Pane, "内部面板不可用；该动作未转移到独立浏览器");
-    }
     let backend = if input.connection_id.is_some() || input.action == "connect" {
         Backend::Attached
     } else {
@@ -69,10 +63,7 @@ pub async fn execute_headless(
         Err(error) => return browser_error(backend, &error),
     };
     start_idle_reaper();
-    let mut notes: Vec<String> = target.iter().filter_map(|t| t.note.clone()).collect();
-    if pane_hint && backend == Backend::Headless {
-        notes.push(HEADLESS_PANE_HINT.to_string());
-    }
+    let notes: Vec<String> = target.iter().filter_map(|t| t.note.clone()).collect();
     let result = with_helper(|helper| {
         let (output, url) = run_action(helper, ctx, &input, action, target, &notes, source_scope)?;
         if let Some(url) = url.filter(|_| backend == Backend::Headless) {
@@ -732,7 +723,6 @@ mod tests {
                 ..act("dom")
             },
             &ctx,
-            false,
         )
         .await;
         let opened = execute_headless(
@@ -741,7 +731,6 @@ mod tests {
                 ..act("open")
             },
             &ctx,
-            false,
         )
         .await;
         let typed = execute_headless(
@@ -751,7 +740,6 @@ mod tests {
                 ..act("type")
             },
             &ctx,
-            false,
         )
         .await;
         let clicked = execute_headless(
@@ -760,7 +748,6 @@ mod tests {
                 ..act("click")
             },
             &ctx,
-            false,
         )
         .await;
         let dom = execute_headless(
@@ -769,10 +756,9 @@ mod tests {
                 ..act("dom")
             },
             &ctx,
-            false,
         )
         .await;
-        let console = execute_headless(act("console"), &ctx, false).await;
+        let console = execute_headless(act("console"), &ctx).await;
         shutdown_helper();
         std::fs::remove_dir_all(&dir).ok();
 
@@ -820,20 +806,19 @@ mod tests {
                 ..act("open")
             },
             &ctx,
-            false,
         )
         .await;
         assert!(!opened.is_error, "{}", opened.content);
-        let shell = execute_headless(act("source"), &ctx, false).await;
+        let shell = execute_headless(act("source"), &ctx).await;
         assert_eq!(
             shell.code.as_deref(),
             Some("BROWSER_SOURCE_UNVERIFIED"),
             "{}",
             shell.content
         );
-        let changed = execute_headless(BrowserInput { expression: Some("document.querySelector('#app').innerHTML='<article><h1>Advisory</h1><p>Dynamic release fixes the source validation issue.</p></article>'; true".into()), ..act("eval") }, &ctx, false).await;
+        let changed = execute_headless(BrowserInput { expression: Some("document.querySelector('#app').innerHTML='<article><h1>Advisory</h1><p>Dynamic release fixes the source validation issue.</p></article>'; true".into()), ..act("eval") }, &ctx).await;
         assert!(!changed.is_error, "{}", changed.content);
-        let captured = execute_headless(act("source"), &ctx, false).await;
+        let captured = execute_headless(act("source"), &ctx).await;
         assert!(!captured.is_error, "{}", captured.content);
         assert!(captured.content.contains("Dynamic release fixes"));
         assert!(captured.content.contains("HTTP status: unknown"));
@@ -876,7 +861,7 @@ mod tests {
             .unwrap();
         let ctx = ctx(&dir);
         shutdown_helper();
-        let run = |input| execute_headless(input, &ctx, false);
+        let run = |input| execute_headless(input, &ctx);
         let opened = run(BrowserInput {
             path: Some("first.html".into()),
             ..act("open")
@@ -980,7 +965,6 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
                 ..act("open")
             },
             &ctx,
-            false,
         )
         .await;
         let ready = execute_headless(
@@ -990,7 +974,6 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
                 ..act("wait")
             },
             &ctx,
-            false,
         )
         .await;
         let dom = execute_headless(
@@ -999,7 +982,6 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
                 ..act("dom")
             },
             &ctx,
-            false,
         )
         .await;
         shutdown_helper();
@@ -1038,7 +1020,7 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
         .unwrap();
         std::fs::write(dir.join("mod.mjs"), "export const n = 7;\n").unwrap();
         let ctx = ctx(&dir);
-        let run = |input: BrowserInput| execute_headless(input, &ctx, true);
+        let run = |input: BrowserInput| execute_headless(input, &ctx);
 
         shutdown_helper();
         let opened = run(BrowserInput {
@@ -1104,10 +1086,6 @@ document.getElementById('ready').textContent = [label, ...statuses].join(':');
         std::fs::remove_dir_all(&dir).ok();
 
         assert!(!opened.is_error, "{}", opened.content);
-        assert!(
-            opened.content.contains(HEADLESS_PANE_HINT),
-            "桌面端要提示可在面板里看"
-        );
         assert!(!typed.is_error, "{}", typed.content);
         assert!(!shot.is_error, "{}", shot.content);
         assert_eq!(shot.images.len(), 1, "screenshot 必须带图");
