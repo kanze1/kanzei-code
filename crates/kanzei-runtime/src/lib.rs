@@ -28,8 +28,7 @@ pub fn build_harness(
     if profile == kanzei_harness::ProfileKind::Isolated {
         harness
             .add(kanzei_tools::IsolatedProfile)
-            .add(ConfigComponent)
-            .add(kanzei_tools::SocialWorkspaceScope);
+            .add(ConfigComponent);
         return harness;
     }
     harness
@@ -41,9 +40,7 @@ pub fn build_harness(
     middle(&mut harness);
     harness.add(MarkdownComponent).add(ConfigComponent);
     tail(&mut harness);
-    harness
-        .add(kanzei_tools::GeneralChatScope)
-        .add(kanzei_tools::SocialWorkspaceScope);
+    harness.add(kanzei_tools::GeneralChatScope);
     harness
 }
 
@@ -173,9 +170,7 @@ pub async fn build_subagent_runtime(
     transcript_sink: Option<BackgroundEventSink>,
     transcript_provider: Option<SubagentTranscriptProvider>,
 ) -> anyhow::Result<Option<SubagentRuntime>> {
-    if rctx.profile == kanzei_harness::ProfileKind::Isolated
-        || kanzei_harness::is_social_conversation(&rctx.project_root)
-    {
+    if rctx.profile == kanzei_harness::ProfileKind::Isolated {
         return Ok(None);
     }
     let mut sub_harness = Harness::default();

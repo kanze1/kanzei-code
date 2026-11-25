@@ -20,9 +20,6 @@ pub(super) async fn finish_shutdown(app: &tauri::AppHandle) -> Result<Value, Str
 }
 
 async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
-    crate::initiative::service::shutdown(app).await?;
-    crate::bili::shutdown(app).await?;
-    crate::qq::shutdown(app).await?;
     let state = app.state::<AppState>();
     for runtime in state.runtimes.lock_or_recover().values() {
         let _lifecycle = runtime.lifecycle.lock_or_recover();

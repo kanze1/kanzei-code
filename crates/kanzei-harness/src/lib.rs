@@ -70,9 +70,4 @@ pub use tool_search::{ToolSearchTool, TOOL_SEARCH};
 
 pub mod execution;
 pub mod pending_question;
-
-pub mod conversation_scope;
-pub use conversation_scope::{
-    bilibili_conversation_root, is_bilibili_conversation, is_social_conversation,
-    memory_owner_root, social_conversation_root, social_workspace_root, QqConversation, QqPeerKind,
-};
+pub use home::memory_owner_root;

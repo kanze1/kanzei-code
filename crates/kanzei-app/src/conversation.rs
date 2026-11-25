@@ -12,11 +12,10 @@ pub(crate) mod timing;
 #[tauri::command]
 pub(crate) fn conversation_clear(
     state: State<'_, AppState>,
-    qq: State<'_, crate::qq::QqState>,
     project_dir: String,
     process_id: Option<String>,
 ) -> Result<(), String> {
-    crate::qq::clear_context(&qq, &state, &project_dir, process_id.as_deref())
+    clear_conversation(&state, &project_dir, process_id.as_deref())
 }
 
 /// 「新对话」的内核:给该线开一个新段(conversation.reset)。

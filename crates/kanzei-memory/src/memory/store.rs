@@ -156,19 +156,11 @@ impl MemoryStore {
 
     pub fn project(project_root: &Path) -> Self {
         let owner = kanzei_harness::memory_owner_root(project_root);
-        let personal = kanzei_harness::is_general_conversation_root(project_root)
-            && !kanzei_harness::QqConversation::from_root(project_root)
-                .is_some_and(|q| q.kind == kanzei_harness::QqPeerKind::Group);
+        let personal = kanzei_harness::is_general_conversation_root(project_root);
         let scope = if personal {
             MemoryScope::Personal
         } else {
-            match kanzei_harness::QqConversation::from_root(project_root)
-                .map(|identity| identity.kind)
-            {
-                Some(kanzei_harness::QqPeerKind::Friend) => MemoryScope::QqFriend,
-                Some(kanzei_harness::QqPeerKind::Group) => MemoryScope::QqGroup,
-                None => MemoryScope::Project,
-            }
+            MemoryScope::Project
         };
         let store = MemoryStore::open(scope, super::project_memory_root(project_root));
         // 保持路径句柄构造的兼容接口;迁移失败必须显式诊断,原始来源仍保留供重入。
@@ -180,17 +172,11 @@ impl MemoryStore {
                 "旧记忆迁移未完成；源文件已保留，下次打开会重新检查"
             );
         }
-        let result = MemoryStore {
+        MemoryStore {
             scope: store.scope,
             root: store.root,
             project_root: Some(owner),
-        };
-        if personal {
-            if let Err(error) = result.import_personal_namespace(project_root) {
-                tracing::error!(%error,"个人记忆迁移未完成，原始来源已保留");
-            }
         }
-        result
     }
 
     pub fn global() -> Option<Self> {
@@ -201,11 +187,6 @@ impl MemoryStore {
     }
 
     pub fn global_for_project(project_root: &Path) -> Option<Self> {
-        if kanzei_harness::QqConversation::from_root(project_root)
-            .is_some_and(|q| q.kind == kanzei_harness::QqPeerKind::Group)
-        {
-            return None;
-        }
         let mut store = Self::global()?;
         store.project_root = Some(project_root.to_path_buf());
         Some(store)

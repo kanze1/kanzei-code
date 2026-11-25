@@ -60,9 +60,6 @@ export const BACKGROUND_RENDER_EVENTS = new Set([
   "kz:experience",
 ]);
 export const SESSIONLESS_EVENTS = new Set([
-  "kz:initiative", // Scoped management refreshes do not change the active run.
-  "kz:bili",
-  "kz:qq", // Connection, peer directory and scoped memory refresh span QQ sessions.
   "kz:ask",
   "kz:ask-resolved",
   "kz:fast-setup",

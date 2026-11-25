@@ -87,7 +87,6 @@ mod search_walk;
 mod web_content;
 pub use read::pdf_to_text;
 pub mod image;
-pub mod image_search;
 mod shell;
 pub mod team;
 pub mod test_record;
@@ -118,7 +117,7 @@ pub use git::observe as git_observe;
 pub use git::{parse_worktree_list, WorktreeEntry};
 pub use profiles::{
     DevelopmentProfile, GeneralChatProfile, GeneralChatScope, IsolatedProfile, ReadonlyProfile,
-    ResearchProfile, SocialWorkspaceScope, DEVELOPMENT_DEFERRED_TOOLS,
+    ResearchProfile, DEVELOPMENT_DEFERRED_TOOLS,
 };
 pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};

@@ -58,7 +58,3 @@ import "./32-skills.js";
 import "./01-runtime-events.js";
 import { initializeUi } from "./00-dom.js";
 initializeUi();
-
-import "./33-qq.js";
-import "./35-bili.js";
-import "./36-social.js";

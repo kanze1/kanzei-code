@@ -216,14 +216,6 @@ impl Tool for MemoryNoteTool {
             Err(out) => return out,
         };
         let action = input.action.as_deref().unwrap_or("note");
-        if kanzei_harness::QqConversation::from_root(&ctx.project_root).is_some()
-            && input
-                .scope
-                .as_deref()
-                .is_some_and(|scope| scope != "project")
-        {
-            return ToolOutput::error("QQ memory is confined to the current peer namespace");
-        }
         if action == "correct" {
             let scope = input.scope.as_deref().unwrap_or("project");
             let store = match scope {

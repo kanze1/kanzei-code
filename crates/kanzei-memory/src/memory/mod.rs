@@ -12,10 +12,7 @@ mod ledger;
 mod lifecycle;
 mod manager;
 mod migration;
-mod personal_import;
 mod privacy;
-#[cfg(test)]
-mod qq_tests;
 mod recall_search;
 mod relevance;
 mod retention;
@@ -1289,13 +1286,7 @@ pub fn reconcile_candidates(
             .as_millis()
             .try_into()?,
     )?;
-    let global = if kanzei_harness::QqConversation::from_root(project_root)
-        .is_none_or(|q| q.kind != kanzei_harness::QqPeerKind::Group)
-    {
-        reconcile_global_candidates(max_age_days)?
-    } else {
-        CandidateReconcileReport::default()
-    };
+    let global = reconcile_global_candidates(max_age_days)?;
     let mut project = MemoryStore::project(project_root)
         .reconcile_candidates(current_episode_id, max_age_days)?;
     project.global_candidate_files_before = global.global_candidate_files_before;
@@ -1425,11 +1416,7 @@ pub fn mark_memory_file_read(
     }
     let memory_id = format!("{}-{number}", scope_prefix.to_ascii_uppercase());
     let mut stores = vec![MemoryStore::project(project_root)];
-    if kanzei_harness::QqConversation::from_root(project_root)
-        .is_none_or(|q| q.kind != kanzei_harness::QqPeerKind::Group)
-    {
-        stores.extend(MemoryStore::global());
-    }
+    stores.extend(MemoryStore::global());
     for store in stores {
         if !starts_with_ci(path, &store.root) {
             continue;

@@ -16,7 +16,6 @@ mod app_events;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
-mod bili;
 mod browser_selection;
 mod collaboration;
 mod commands;
@@ -38,14 +37,12 @@ mod files_edit;
 mod files_view;
 mod general_chat;
 mod harness_ext;
-mod initiative;
 /// Rust↔JS 返回值形状契约；命令与参数从 command_registry.json 和 Rust 签名生成。
 /// 历史上部分命令手工拼 JSON,
 /// 而前端冒烟断言的是前端自己写的 fixture,后端改名两侧全绿、界面碎)。
 /// 纯判据模块,不参与产品构建。
 #[cfg(test)]
 mod ipc_contract;
-mod login_qr;
 mod manual_compact;
 mod memory;
 mod memory_chat;
@@ -59,7 +56,6 @@ mod preview;
 mod processes;
 mod projection_gate;
 mod projects;
-mod qq;
 mod research_latex;
 mod research_library;
 mod research_topics;
@@ -152,9 +148,6 @@ fn main() {
         .init();
     tauri::Builder::default()
         .manage(AppState::default())
-        .manage(qq::QqState::default())
-        .manage(bili::BiliState::default())
-        .manage(initiative::service::InitiativeState::default())
         .manage(memory_chat::MemoryChatState::default())
         .manage(preview::PreviewState::default())
         // UI 探针的出口:装一次,之后工具侧只认 UI_PROBE_EMIT。
@@ -169,9 +162,6 @@ fn main() {
                 // dispatch, application events and managed state work without
                 // constructing a Window or starting WebView2.
                 runtime_service::install_service(app.handle())?;
-                qq::install(app.handle())?;
-                bili::install(app.handle())?;
-                initiative::service::install(app.handle())?;
                 workspace::install_recovery(app.handle());
                 durable_questions::recover_outbox(app.handle().clone());
                 verification_monitor::start(app.handle().clone(), app.handle().clone());
@@ -185,11 +175,6 @@ fn main() {
             // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
             // 打开 WebView2 DevTools 协议,供 E2 脚本通过 CDP 驱动真实 UI。
             runtime_service::install_client(app.handle());
-            if runtime_service::embedded() {
-                qq::install(app.handle())?;
-                bili::install(app.handle())?;
-                initiative::service::install(app.handle())?;
-            }
             let window_config = app
                 .config()
                 .app

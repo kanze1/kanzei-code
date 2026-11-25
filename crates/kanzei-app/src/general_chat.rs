@@ -13,21 +13,6 @@ pub(crate) fn is_general_root(root: &Path) -> bool {
     kanzei_harness::is_general_conversation_root(root)
 }
 
-pub(crate) fn add_channel_components(
-    harness: &mut kanzei_harness::Harness,
-    app: &tauri::AppHandle,
-    root: &Path,
-) {
-    harness.add(crate::bili::tools::BiliComponent(app.clone()));
-    if let Some(identity) = kanzei_harness::QqConversation::from_root(root) {
-        harness.add(crate::qq::ConversationComponent {
-            app: app.clone(),
-            identity,
-        });
-    }
-    harness.add(crate::initiative::InitiativeComponent);
-}
-
 pub(crate) fn supports_profile(profile: &str) -> bool {
     matches!(profile, "dev-auto" | "dev-pair" | "isolated")
 }
@@ -90,17 +75,6 @@ pub(crate) fn general_chat_location() -> Result<Option<String>, String> {
 #[tauri::command]
 pub(crate) fn general_chat_open(state: State<'_, crate::AppState>) -> Result<String, String> {
     open(&state)
-}
-
-#[tauri::command]
-pub(crate) fn social_conversation_open(
-    state: State<'_, crate::AppState>,
-) -> Result<serde_json::Value, String> {
-    let root = kanzei_harness::social_conversation_root().map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    let root = crate::normalized_project_root(&root);
-    let process = crate::processes::registry::ensure_channel_conversation(&state, &root)?;
-    Ok(serde_json::json!({"root": root, "process_id": process.id}))
 }
 
 struct LinkGuard(std::sync::Arc<crate::SessionRuntime>);

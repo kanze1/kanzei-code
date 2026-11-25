@@ -37,48 +37,6 @@ export const commandParameters = {
   "batch_evidence": {
     "projectDir": true
   },
-  "bili_browse": {},
-  "bili_conversation_open": {},
-  "bili_cookie_save": {
-    "cookie": true
-  },
-  "bili_draft_create": {
-    "body": true,
-    "bvid": true,
-    "parent": false,
-    "root": false
-  },
-  "bili_draft_discard": {
-    "id": true
-  },
-  "bili_draft_edit": {
-    "body": true,
-    "id": true,
-    "revision": true
-  },
-  "bili_login_cancel": {
-    "id": true
-  },
-  "bili_login_poll": {
-    "id": true
-  },
-  "bili_login_start": {},
-  "bili_logout": {},
-  "bili_publish": {
-    "id": true,
-    "revision": true
-  },
-  "bili_read": {
-    "action": true,
-    "bvid": false,
-    "keyword": false,
-    "page": false,
-    "root": false
-  },
-  "bili_settings_save": {
-    "settings": true
-  },
-  "bili_status": {},
   "cancel_input": {
     "inputId": true,
     "processId": false,
@@ -292,22 +250,6 @@ export const commandParameters = {
   "idea_split": {
     "id": true,
     "projectDir": true
-  },
-  "initiative_settings_save": {
-    "processId": true,
-    "projectDir": true,
-    "revision": true,
-    "settings": true
-  },
-  "initiative_status": {
-    "processId": true,
-    "projectDir": true
-  },
-  "initiative_topic_close": {
-    "id": true,
-    "processId": true,
-    "projectDir": true,
-    "revision": true
   },
   "list_pending_inputs": {
     "processId": false,
@@ -623,50 +565,6 @@ export const commandParameters = {
     "protocol": true,
     "proxy": false
   },
-  "qq_config_save": {
-    "settings": true,
-    "token": false
-  },
-  "qq_directory": {},
-  "qq_group_delete": {
-    "id": true
-  },
-  "qq_group_save": {
-    "existingId": false,
-    "group": true
-  },
-  "qq_memories": {
-    "identity": true
-  },
-  "qq_memory_save": {
-    "body": true,
-    "description": true,
-    "expectedHash": false,
-    "id": false,
-    "identity": true,
-    "title": true
-  },
-  "qq_peer_log": {
-    "identity": true
-  },
-  "qq_peer_open": {
-    "identity": true
-  },
-  "qq_setup_apply": {
-    "id": true,
-    "port": true
-  },
-  "qq_setup_connect": {
-    "directory": false,
-    "password": false,
-    "totp": false,
-    "url": false
-  },
-  "qq_setup_pick_directory": {},
-  "qq_setup_status": {
-    "id": true
-  },
-  "qq_status": {},
   "quick_req": {
     "description": true,
     "kind": false,
@@ -813,7 +711,6 @@ export const commandParameters = {
     "enabled": true,
     "name": true
   },
-  "social_conversation_open": {},
   "softwire_answer_question": {
     "attachments": false,
     "expectedRevision": true,
