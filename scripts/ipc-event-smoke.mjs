@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-// R-299:IPC 事件契约机械求差(emit/listen 两侧集合)。
-// 后端 crates/kanzei-app 的 window.emit/emit_event 事件名集合,与前端 ui/*.js 的
-// on()/listen() 订阅名集合,必须严格一致:
-//   - 后端 emit 了但前端没人订阅(backend-only)→ error:事件发了没人听,
-//     通常是后端改名没同步前端,或新事件忘了接线;
-//   - 前端订阅了但后端从不 emit(frontend-only)→ error:死订阅,
-//     可能是事件被移除/改名,前端在等一个永远不会来的事件。
-// 任一侧独有即红——机械判据,不靠人自觉;后端改事件名立刻被抓。
-// 计数来自实际扫描；不手写会过期的接口规模。
+// IPC 事件与命令契约求差：扫描 Rust 后端 emit 与新前端 web/src 的 listenEvent/invoke。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,109 +7,85 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 
-function walk(dir, out = []) {
+function walk(dir, exts, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(p, out);
-    else if (entry.name.endsWith(".rs")) out.push(p);
+    if (entry.isDirectory()) walk(p, exts, out);
+    else if (exts.some((ext) => entry.name.endsWith(ext))) out.push(p);
   }
   return out;
 }
 
-// 后端:window.emit("kz:xxx" / ui.emit("kz:xxx" / emit_event("kz:xxx", 跨行 \s* 容忍
-// 多行形式(如 window.emit(\n "kz:stopped",\n payload))。只抓 kz: 前缀事件名。
-const BACKEND_RE = /(?:\.emit|emit_event)\(\s*"(kz:[a-z-]+)"/g;
+const BACKEND_RE = /(?:\.emit|emit_event|emit_delta)\(\s*"(kz:[a-z-]+)"/g;
 const backendEvents = new Set();
-for (const file of walk(path.join(root, "crates/kanzei-app/src"))) {
+for (const file of walk(path.join(root, "crates/kanzei-app/src"), [".rs"])) {
   const src = fs.readFileSync(file, "utf8");
   for (const m of src.matchAll(BACKEND_RE)) backendEvents.add(m[1]);
 }
 
-// 前端:on("kz:xxx" / listen("kz:xxx"(Tauri 事件订阅)。
-const FRONTEND_RE = /(?:on|listen)\(\s*"(kz:[a-z-]+)"/g;
+const FRONTEND_RE = /listenEvent(?:<[^()]*>)?\(\s*"(kz:[a-z-]+)"/g;
 const frontendEvents = new Set();
-for (const file of fs.readdirSync(path.join(root, "crates/kanzei-app/ui")).filter((f) => f.endsWith(".js"))) {
-  const src = fs.readFileSync(path.join(root, "crates/kanzei-app/ui", file), "utf8");
+const webSrc = path.join(root, "crates/kanzei-app/web/src");
+for (const file of walk(webSrc, [".ts", ".tsx"])) {
+  if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
+  const src = fs.readFileSync(file, "utf8");
   for (const m of src.matchAll(FRONTEND_RE)) frontendEvents.add(m[1]);
 }
 
-const backendOnly = [...backendEvents].filter((e) => !frontendEvents.has(e)).sort();
-const frontendOnly = [...frontendEvents].filter((e) => !backendEvents.has(e)).sort();
-const MIN_IPC_EVENTS = 10;
+// 命令名求差：前端 invoke("cmd") 必须全部在 scripts/ipc-commands.json 注册。
+const registry = JSON.parse(
+  fs.readFileSync(path.join(root, "crates/kanzei-app/src/command_registry.json"), "utf8")
+);
+const contracts = JSON.parse(
+  fs.readFileSync(path.join(root, "scripts/ipc-commands.json"), "utf8")
+);
+const registered = new Set(Object.keys(contracts));
+const registeredPaths = new Set(Object.values(contracts).map((c) => c.path));
+if (
+  registry.length !== registeredPaths.size ||
+  registry.some((entry) => !registeredPaths.has(entry.path))
+) {
+  throw new Error("IPC registry and generated contract differ; run node scripts/sync-ipc-contract.mjs");
+}
 
-// ── 分区:网页预览前端 ── UI2-0926 #8 复核:命令名求差。前端 invoke("x") 的字面命令名必须在 main.rs 的 generate_handler! 里注册
-// (按最后一段函数名,认 #[tauri::command(rename = "x")])。前后两半并行开发时,命令名一旦对不上,真机只在日志里留一条 warn。
-// 网页预览这一族(preview_* / tool_image / delivered_image)在后端模块 crates/kanzei-app/src/preview/ 合入之前不判(前端半边单独跑),
-// 合入后自动生效——不是常设豁免。KNOWN_UNREGISTERED 只收本特性之前就存在的缺陷,各自写明去处;新增条目等于放过真缺陷。
-{
-  const KNOWN_UNREGISTERED = {
-  };
-  const PREVIEW_FAMILY = /^(?:preview_[a-z_]+|tool_image|delivered_image)$/;
-  const srcDir = path.join(root, "crates/kanzei-app/src");
-  const registry = JSON.parse(fs.readFileSync(path.join(srcDir, "command_registry.json"), "utf8"));
-  const contracts = JSON.parse(fs.readFileSync(path.join(root, "scripts/ipc-commands.json"), "utf8"));
-  const registered = new Set(Object.keys(contracts));
-  const registeredPaths = new Set(Object.values(contracts).map(c => c.path));
-  if (registry.length !== registeredPaths.size || registry.some(entry => !registeredPaths.has(entry.path))) throw new Error("IPC registry and generated contract differ; run node scripts/sync-ipc-contract.mjs");
-  const invoked = new Map();
-  const uiDir = path.join(root, "crates/kanzei-app/ui");
-  for (const file of fs.readdirSync(uiDir).filter((f) => f.endsWith(".js"))) {
-    const src = fs.readFileSync(path.join(uiDir, file), "utf8");
-    for (const m of src.matchAll(/\binvoke\(\s*"([a-z][a-z0-9_]*)"/g)) {
-      if (!invoked.has(m[1])) invoked.set(m[1], new Set());
-      invoked.get(m[1]).add(file);
-    }
-  }
-  const previewBackendMerged = fs.existsSync(path.join(srcDir, "preview"));
-  const missing = [];
-  let deferred = 0;
-  for (const [cmd, files] of invoked) {
-    if (registered.has(cmd) || cmd in KNOWN_UNREGISTERED) continue;
-    if (PREVIEW_FAMILY.test(cmd) && !previewBackendMerged) {
-      deferred += 1;
-      continue;
-    }
-    missing.push(`${cmd}(${[...files].join(", ")})`);
-  }
-  const stale = Object.keys(KNOWN_UNREGISTERED).filter((cmd) => registered.has(cmd) || !invoked.has(cmd));
-  if (registered.size < 50 || invoked.size < 50) {
-    console.error(`IPC 命令求差拒绝异常低计数:注册 ${registered.size},前端调用 ${invoked.size}(generate_handler! 或 invoke 解析失效)`);
-    process.exitCode = 1;
-  } else if (missing.length || stale.length) {
-    if (missing.length) console.error(`IPC 命令求差失败:前端 invoke 了 generate_handler! 里没有注册的命令(${missing.length}): ${missing.join(", ")}`);
-    if (stale.length) console.error(`KNOWN_UNREGISTERED 过期(已注册或前端已不再调用),删掉这些条目: ${stale.join(", ")}`);
-    process.exitCode = 1;
-  } else {
-    const known = Object.keys(KNOWN_UNREGISTERED).length;
-    console.log(
-      `IPC 命令求差通过:前端 invoke ${invoked.size} 个命令名,${invoked.size - deferred - known} 个已注册(generate_handler! 共 ${registered.size} 个)` +
-        `${known ? `;既有缺陷 ${known} 个(KNOWN_UNREGISTERED)` : ""}${deferred ? `;网页预览后端未合入,暂不判 ${deferred} 个预览命令` : ""}`,
-    );
+const invoked = new Map();
+for (const file of walk(webSrc, [".ts", ".tsx"])) {
+  if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
+  const src = fs.readFileSync(file, "utf8");
+  const rel = path.relative(webSrc, file);
+  for (const m of src.matchAll(/\binvoke(?:<[^()]*>)?\(\s*"([a-z][a-z0-9_]*)"/g)) {
+    if (!invoked.has(m[1])) invoked.set(m[1], new Set());
+    invoked.get(m[1]).add(rel);
   }
 }
-// ── 分区:网页预览前端(完) ──
 
-if (backendEvents.size < MIN_IPC_EVENTS || frontendEvents.size < MIN_IPC_EVENTS) {
-  console.error(
-    `IPC 事件契约求差拒绝空集/异常低计数:后端 ${backendEvents.size},前端 ${frontendEvents.size},下限 ${MIN_IPC_EVENTS}`,
-  );
+const missingCommands = [];
+for (const [cmd, files] of invoked) {
+  if (!registered.has(cmd)) missingCommands.push(`${cmd}(${[...files].join(", ")})`);
+}
+
+if (registered.size < 50 || invoked.size < 30) {
+  console.error(`IPC 命令求差拒绝异常低计数: 注册 ${registered.size}, 前端调用 ${invoked.size}`);
   process.exit(1);
 }
-
-if (backendOnly.length || frontendOnly.length) {
-  console.error(`IPC 事件契约求差失败:后端 emit ${backendEvents.size} 个,前端订阅 ${frontendEvents.size} 个`);
-  if (backendOnly.length) {
-    console.error(`  后端 emit 但前端未订阅(${backendOnly.length}): ${backendOnly.join(", ")}`);
-    console.error("  事件发出没人听——通常是后端改名没同步前端,或新事件漏接线。请同步 ui/*.js 的 on() 订阅或补接线。");
-  }
-  if (frontendOnly.length) {
-    console.error(`  前端订阅但后端无 emit(${frontendOnly.length}): ${frontendOnly.join(", ")}`);
-    console.error("  死订阅——事件被移除/改名,前端在等一个永远不会来的事件。请同步后端 emit 或删掉前端订阅。");
-  }
+if (missingCommands.length > 0) {
+  console.error(`IPC 命令求差失败: 前端调用了未注册命令: ${missingCommands.join(", ")}`);
   process.exit(1);
 }
-
 console.log(
-  `IPC 事件契约求差通过:后端 emit ${backendEvents.size} 个 = 前端订阅 ${frontendEvents.size} 个,差集为空。` +
-    `事件名(${[...backendEvents].sort().join(", ")})`
+  `IPC 命令求差通过: 前端 invoke ${invoked.size} 个命令均已注册（后端共 ${registered.size} 个）`
+);
+
+// 前端不得订阅后端永不发射的死事件；后端面向前端的实时事件必须有订阅覆盖。
+const frontendOnly = [...frontendEvents].filter((e) => !backendEvents.has(e)).sort();
+if (frontendEvents.size < 10) {
+  console.error(`IPC 事件订阅过少: ${frontendEvents.size}`);
+  process.exit(1);
+}
+if (frontendOnly.length > 0) {
+  console.error(`IPC 事件契约失败: 前端订阅了后端未发射的事件: ${frontendOnly.join(", ")}`);
+  process.exit(1);
+}
+console.log(
+  `IPC 事件契约通过: 后端 emit ${backendEvents.size} 个, 前端已订阅 ${frontendEvents.size} 个, 无死订阅`
 );

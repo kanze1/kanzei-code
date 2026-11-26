@@ -98,7 +98,7 @@ foreach ($line in $commits) {
     $parts = $line -split '\|', 3
     # 标出是否触碰源码:只动 .kanzei/ 文档的提交不影响二进制,但仍然会被发出去。
     $touched = @(git -C $root show --stat --format="" --name-only $parts[0]) | Where-Object { $_ }
-    $code = @($touched | Where-Object { $_ -like "crates/*" -or $_ -like "scripts/*" -or $_ -like "ui/*" }).Count
+    $code = @($touched | Where-Object { $_ -like "crates/*" -or $_ -like "scripts/*" }).Count
     $mark = if ($code -gt 0) { "[源码]" } else { "[文档]" }
     Write-Host "    $mark $($parts[0]) $($parts[2])"
 }

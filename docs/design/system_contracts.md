@@ -16,7 +16,7 @@
 | [kanzei-tools](../../crates/kanzei-tools/src/lib.rs) | 文件、Shell/进程、纯净 Git、worktree、沙箱、公网抓取检索、CDP 浏览器、子代理与记忆整理 |
 | [kanzei-runtime](../../crates/kanzei-runtime/src/lib.rs) | CLI 与桌面端共享装配；组合能力，不被能力 crate 反向依赖 |
 | [kanzei](../../crates/kanzei/src/cli/mod.rs) | kz CLI：参数、项目身份、记忆运维及运行收尾 |
-| [kanzei-app](../../crates/kanzei-app/src/main.rs) | 桌面：Tauri、IPC、窗口、运行协调、自动更新及原生 ESM 中文 UI |
+| [kanzei-app](../../crates/kanzei-app/src/main.rs) | 单进程内嵌桌面端：Tauri、强类型 IPC、聚合引导、流式合帧、自动更新与 Vite + TypeScript + React 18 前端 |
 
 调用方向见[系统边界图](../architecture/00_system_boundaries.md)，一轮执行见[运行图](../architecture/01_runtime_loop.md)。完整 crate 图从 Cargo 清单生成。调用者直接依赖能力拥有者；`kanzei-core::store` 私有，对外通过公开领域服务与类型访问。`kanzei-app` 和 `kanzei-runtime` 负责组合，不吸收能力层的业务所有权。
 
@@ -62,17 +62,21 @@ Skills 目录按模型步骤刷新，仅列出已启用且允许模型选用的�
 
 同一进程内的本地推理调用按服务地址共享准入：交互运行优先，后台维护请求（如记忆整理）主动让路并等待交互结束后继续，不重放已完成工具调用。
 
-## 界面、文件上下文抽屉与资源
+## 界面、单进程生命周期与文件上下文抽屉
 
-前端为纯简体中文原生 ESM（无双语 i18n 运行时层）。IPC 命令注册表（`command_registry.json`）、前端调用参数与 `scripts/ipc-contract.json` 保持机械一致；事件经公共订阅进入状态拥有者再渲染。全应用文字遵循 12 / 14 / 16 / 24px 四档 token 与设计间距 token，弹层由共享 surface/frame 管理。
+桌面端采用**单进程内嵌**架构（无后台独立守护进程与跨进程回环 TCP 桥接）：窗口与应用运行时共享同一进程，通过 `app_bootstrap` 单次聚合返回首屏引导配置，关闭窗口或安装更新前经 `app_lifecycle::app_shutdown` / `shutdown_for_update` 优雅静止全部活跃会话与后台终端后退出。
 
-对话伴生文件上下文抽屉位于对话主视图右侧（`17-context-drawer.js`）：
-- 聚合本轮触及文件与当前工作树 Git 改动文件；
-- 对话内 `path:line` 链接与改动条行点击直接打开抽屉定位原文或 Diff，不切离对话视图；
-- 单文件 Diff 由后端 `file_git_diff` 提供，经 `files_edit::resolve_in_root` 校验路径边界防止目录逃逸；
-- 轻量编辑保存统一复用 `file_write` 通道，强制校验请求路径、物理路径、授权根与磁盘内容哈希（`expectedHash`），外部修改时显式报错不覆盖。
+前端采用 **Vite + TypeScript + React 18**（`crates/kanzei-app/web/`，产物 `crates/kanzei-app/dist-web/`）：
+- 命令签名由 `crates/kanzei-app/build/ipc.rs` 从 `command_registry.json` 与 Rust 函数签名生成，经 `scripts/sync-ipc-contract.mjs` 同步至 `scripts/ipc-commands.json` 与 `crates/kanzei-app/web/src/ipc/generated.ts`，实现编译期与运行期双重参数校验；
+- 对话流使用 `conversation_page_messages` 尾窗分页（默认最近 100 条，触顶向前翻页）与 `@tanstack/react-virtual` 虚拟滚动；后端 `UiEventSink` 对高频 `kz:text` / `kz:reasoning` 做 16ms 合帧并在控制事件与 `Drop` 前强制刷新保序；
+- 工作台总览、记忆管理、Skills 技能库与全局设置四个二级视图均通过 `React.lazy` 按需分包加载，KaTeX、Mermaid、ForceGraph 静态离线资源按需加载；
+- 移除独立整页文件树/Monaco 编辑器视图，所有代码阅读、Diff 对照与轻编辑统一收口至对话右侧伴生抽屉（`ContextDrawer.tsx`）：
+  - 聚合本轮触及文件与当前工作树 Git 改动文件；
+  - 对话内 `path:line` 链接与输入框上下文带改动条点击直接打开抽屉定位原文或 Diff，不切离对话视图；
+  - 单文件 Diff 由后端 `file_git_diff` 提供，经 `files_edit::resolve_in_root` 校验路径边界防止目录逃逸；
+  - 轻量编辑保存统一复用 `file_write` 通道，强制校验磁盘内容哈希（`expectedHash`），外部修改时显式报错不覆盖，复杂重度编辑一键交由外部 IDE 打开（`open_with` / `reveal_path`）。
 
-文件目录树（`files` 工具与 `files_view`）保持纯目录结构浏览，不做全树 AI 用途标注。外部浏览器工具（`browser`）统一通过外部 Playwright CDP 连接执行，页面观察与截图保留实际来源范围。
+外部浏览器工具（`browser`）统一通过外部 Playwright CDP 连接执行，页面观察与截图保留实际来源范围。
 
 ## 记忆与公网传输
 

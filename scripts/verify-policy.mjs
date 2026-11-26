@@ -27,7 +27,7 @@ validateCheckRegistry(VERIFY_CHECKS);
 // D-766:`.kanzei/project` 是需求/缺陷/架构索引本体,规范 §6 要求它随代码一起提交;
 // 把它排除在外,才让「文档提交了、索引行还在工作副本」这种树过得了发版门禁。
 export const BUILD_INPUT_PATHS = [
-  "crates", "scripts", "ui", ".github", ".cargo", "docs", ".kanzei/project", "README.md", "AGENTS.md", "CONTRIBUTING.md",
+  "crates", "scripts", ".github", ".cargo", "docs", ".kanzei/project", "README.md", "AGENTS.md", "CONTRIBUTING.md",
   "Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain", "rust-toolchain.toml",
   "package.json", "package-lock.json", "npm-shrinkwrap.json", ".npmrc",
   "eslint.config.js", ".gitattributes",
@@ -79,14 +79,20 @@ export function matchesInput(file, pattern) {
 // Shared owners can affect every view. Feature styles/modules use the narrower
 // paths declared by their checks; changing a test selects that test directly.
 const SHARED_FRONTEND_INPUTS = [
-  "crates/kanzei-app/ui/00-*.js", "crates/kanzei-app/ui/01-*.js",
-  "crates/kanzei-app/ui/02-*.js", "crates/kanzei-app/ui/03-*.js",
-  "crates/kanzei-app/ui/18-*.js", "crates/kanzei-app/ui/resource-types.css",
-  "crates/kanzei-app/ui/bootstrap.js", "crates/kanzei-app/ui/index.html",
-  "crates/kanzei-app/ui/app.css", "crates/kanzei-app/ui/style.css",
-  "crates/kanzei-app/ui/surface.css", "crates/kanzei-app/ui/tokens.css",
-  "scripts/ui-preview/**", "package.json", "package-lock.json",
-  "npm-shrinkwrap.json", ".npmrc", "eslint.config.js",
+  "crates/kanzei-app/web/index.html",
+  "crates/kanzei-app/web/vite.config.ts",
+  "crates/kanzei-app/web/tsconfig.json",
+  "crates/kanzei-app/web/src/ipc/**",
+  "crates/kanzei-app/web/src/store/**",
+  "crates/kanzei-app/web/src/styles/**",
+  "crates/kanzei-app/web/src/shell/**",
+  "crates/kanzei-app/web/src/App.tsx",
+  "crates/kanzei-app/web/src/main.tsx",
+  "package.json",
+  "package-lock.json",
+  "npm-shrinkwrap.json",
+  ".npmrc",
+  "eslint.config.js",
 ];
 
 function scriptInputs(check) {
@@ -135,7 +141,7 @@ function isArchitectureDiagramDoc(path) {
 
 function isFrontendPath(path) {
   return (
-    path.startsWith("crates/kanzei-app/ui/") ||
+    path.startsWith("crates/kanzei-app/web/") ||
     path.startsWith("crates/kanzei-app/mobile-pwa/") ||
     path.startsWith("crates/kanzei-app/fixtures/") ||
     path === "eslint.config.js" ||
@@ -143,8 +149,6 @@ function isFrontendPath(path) {
     path === "package-lock.json" ||
     path === "npm-shrinkwrap.json" ||
     path === ".npmrc" ||
-    path === "crates/kanzei-app/index.html" ||
-    path === "crates/kanzei-app/style.css" ||
     path.startsWith("scripts/ui-") ||
     path === "scripts/parallel-lines-regression.mjs"
   );

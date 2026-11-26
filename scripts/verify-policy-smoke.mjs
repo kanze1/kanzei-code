@@ -8,29 +8,24 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { VERIFY_CHECKS, VERIFY_STEP_KEYS, assertCleanBuildInputs, inspectBuildInputs, classifyChangedPaths, validateCheckRegistry, validateFullVerification, validateVerificationFiles } from "./verify-policy.mjs";
 
-const frontendOnly = classifyChangedPaths(["crates/kanzei-app/ui/01-core.js"]);
+const frontendOnly = classifyChangedPaths(["crates/kanzei-app/web/src/store/appStore.ts"]);
 assert.equal(frontendOnly.run_frontend, true);
 assert.equal(frontendOnly.run_rust, false);
 assert(VERIFY_CHECKS.filter(check => check.inputs === "frontend").every(check => !frontendOnly.skipped_steps.includes(check.key)), "shared runtime changes select every frontend suite");
 assert(frontendOnly.skipped_steps.includes("artifact_lifecycle"));
 
 const selectedKeys = file => classifyChangedPaths([file]).checks.map(check => check.key);
-assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math"));
-assert(selectedKeys("scripts/ui-math-smoke.mjs").includes("ui_math"), "editing a test always selects itself");
-for (const file of ["state.test", "session-identity.test", "surface.test", "permission.test", "run-control.test"]) {
-  assert(selectedKeys("scripts/tests/ownership/" + file + ".mjs").includes("ui_state_ownership"), "each state domain selects its containing suite");
-}
+assert(selectedKeys("crates/kanzei-app/web/src/App.tsx").includes("ui_typecheck"));
+assert(selectedKeys("scripts/ui-window-chrome-smoke.mjs").includes("ui_e2e_edge"), "editing a test always selects itself");
 assert(selectedKeys("scripts/tests/verification/package-tags.mjs").includes("verify_policy"));
 assert(selectedKeys("scripts/package.ps1").includes("verify_policy"));
-const stateOwnership = VERIFY_CHECKS.find(check => check.key === "ui_state_ownership");
-assert(stateOwnership.args.includes("scripts/ui-state-ownership-smoke.mjs"), "state ownership key must execute state ownership tests");
 assert(!selectedKeys("docs/design/memory_system.md").includes("ipc_signatures"));
 
 const rustOnly = classifyChangedPaths(["crates/kanzei-core/src/lib.rs"]);
 assert.equal(rustOnly.run_frontend, false);
 assert.equal(rustOnly.run_rust, true);
 assert(rustOnly.checks.some(check => check.key === "test"));
-assert(rustOnly.skipped_steps.includes("ui_state_ownership"));
+assert(rustOnly.skipped_steps.includes("ui_unit_tests"));
 for (const input of ["package.json", "package-lock.json", "npm-shrinkwrap.json", ".npmrc"]) {
   assert.equal(classifyChangedPaths([input]).run_frontend, true, `${input} changes frontend execution`);
 }
@@ -83,7 +78,7 @@ for (const invalid of [null, "", "pass 0.1s", "fail 0.1s", {}, { status: "pass",
 }
 assert.match(validateFullVerification({ ...evidence, schema_version: 1 }, "abc123"), /schema_version/);
 const missingChild = structuredClone(evidence);
-delete missingChild.checks.ui_state_ownership;
+delete missingChild.checks.ui_unit_tests;
 assert.match(validateFullVerification(missingChild, "abc123"), /缺少步骤/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, command: ["node", "irrelevant.mjs"] } } }, "abc123"), /执行命令/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, log_path: "../outside.log" } } }, "abc123"), /日志证据/);
