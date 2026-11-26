@@ -1,30 +1,22 @@
 import { $, defer } from "./00-dom.js";
-import { confirmDialog } from "./00-dialogs.js";
-import { on } from "./01-runtime-events.js";
 import { invoke } from "./00-ipc.js";
 import { t } from "./02-i18n.js";
-import { currentProject, log, processItems, toast, toastError } from "./03-shell.js";
+import { currentProject, log, processItems, toastError } from "./03-shell.js";
 import {
   confirmLeaveDirty, filesDirtyPaths, filesDoc, filesTreeRoot, humanSize, hydrateFilesDrafts, initFilesEditor, openFileDoc,
   setFilesTreeRoot, stashFilesDraft, startFilesWatch, stopFilesWatch,
 } from "./17-files-editor.js";
 
-// ---------- 文件(R-148):树 + 度量 + AI 用途说明;编辑器在 17-files-editor.js(UI2-0926 #6) ----------
-// UX-088 树选择器(主项目 / 各独立任务的工作树)、UX-090 路径筛选、UX-092 三态块 + 展开定位 + 焦点保持、
-// UX-094 用途说明的确认 / 停止 / 费用提示都在这里;编辑器那边只认「当前树的根」(filesRoot)。
+// ---------- 文件页:树 + 度量;编辑器在 17-files-editor.js ----------
 export let filesSnapshotData = null;
 export let filesSortByLines = false;
 export const filesExpanded = new Set([""]);
 export let filesActivePath = null;
 export { humanSize };
 
-// 树的三态(UX-092):loading / error 时树区显示说明块(error 带重试),ready 且没有文件显示空态,不再是一片空白。
 let filesLoad = { state: "idle", error: "" };
 let filesFilter = "";
 let filesLoadedAt = 0;
-let annotating = false;
-let annotateStopping = false;
-let annotateProgress = null;
 
 // 编辑器 → 树:活动文件高亮只在真的切过去之后才变(取消切换时留在原文件);脏标记变化时重画树上的点;
 // 保存/新建后静默重扫(行数、大小跟着变),新建的文件展开到可见。
@@ -86,7 +78,7 @@ export async function refreshFiles() {
     renderFilesTree();
   }
   try {
-    const snapshot = await invoke("files_snapshot", { projectDir: root, knowledgeProjectDir: currentProject });
+    const snapshot = await invoke("files_snapshot", { projectDir: root });
     if (root !== currentRoot()) return;
     filesSnapshotData = snapshot;
     filesLoad = { state: "ready", error: "" };
@@ -252,35 +244,10 @@ export function buildFilesTree(snapshot) {
   return root;
 }
 
-// 按钮文字写进带 data-i18n-key 的 span:切语言时 applyDataI18nKeys 就地重算;计数 / 进度放在旁边的 span,不混进译文。
-function setLabel(id, key, text) {
-  const node = $(id);
-  if (!node) return;
-  node.dataset.i18nKey = key;
-  node.textContent = text;
-}
-function renderFilesToolbar(snapshot) {
-  const inWorktree = Boolean(filesTreeRoot());
+function renderFilesToolbar() {
   const sortKey = filesSortByLines ? "排序:行数" : "排序:名称";
-  setLabel("files-sort-label", sortKey, t(sortKey));
-  const annotateBtn = $("files-annotate");
-  if (!annotateBtn) return;
-  annotateBtn.disabled = inWorktree || (!annotating && !snapshot);
-  annotateBtn.title = inWorktree
-    ? t("用途说明按主项目生成,工作树里不生成")
-    : t("用 fast 模型为每个新增或已变化的文件生成一句话用途说明(每个文件一次模型调用,会消耗 token;可随时停止)");
-  const extra = $("files-annotate-count");
-  if (annotating) {
-    const progress = annotateProgress ? ` ${annotateProgress.done + annotateProgress.failed}/${annotateProgress.total}` : "";
-    if (annotateStopping) setLabel("files-annotate-label", "停止中", t("停止中"));
-    else setLabel("files-annotate-label", "停止", t("停止"));
-    if (extra) extra.textContent = annotateStopping ? "…" : progress;
-    annotateBtn.disabled = annotateStopping;
-  } else {
-    const pending = !inWorktree && snapshot?.unannotated > 0 ? snapshot.unannotated : 0;
-    setLabel("files-annotate-label", "用途说明", t("用途说明"));
-    if (extra) extra.textContent = pending ? `(${pending})` : "";
-  }
+  const node = $("files-sort-label");
+  if (node) node.textContent = t(sortKey);
 }
 
 // 树区的说明块:loading / error(带重试)/ 空 / 筛选无命中。
@@ -327,16 +294,11 @@ export function renderFilesTree() {
   const scrollTop = tree.scrollTop;
   tree.innerHTML = "";
   const total = snapshot.dirs?.[""] ?? { files: snapshot.files.length, size: 0, lines: 0 };
-  // 已有用途说明的量/全量(D-213 用户点名):分母只数可标注的(代码/md),不含二进制。工作树里没有用途说明,不显示。
-  const annotatedPart =
-    snapshot.annotatable > 0 && !filesTreeRoot()
-      ? `  ${t("用途说明")} ${snapshot.annotated}/${snapshot.annotatable}`
-      : "";
   const match = filesMatcher(filesFilter);
   const shown = match ? snapshot.files.filter((file) => match(file.path)) : snapshot.files;
   $("files-summary").textContent = match
     ? `${shown.length} ${t("个匹配")} / ${total.files} ${t("个文件")}`
-    : `${total.files} ${t("个文件")}  ${humanSize(total.size)}  ${total.lines} ${t("行")}${annotatedPart}`;
+    : `${total.files} ${t("个文件")}  ${humanSize(total.size)}  ${total.lines} ${t("行")}`;
   if (!shown.length) {
     tree.append(match
       ? filesStateBlock("empty", t("没有匹配的文件"), filesFilter.trim())
@@ -398,14 +360,6 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
     measure.className = "files-measure";
     measure.textContent = `${stat.files}  ${humanSize(stat.size)}  ${stat.lines} ${t("行")}`;
     row.append(arrow, name, measure);
-    const dirNote = snapshot.dirNotes?.[dir.path];
-    if (dirNote) {
-      const note = document.createElement("span");
-      note.className = "files-note";
-      note.textContent = dirNote;
-      note.title = dirNote;
-      row.appendChild(note);
-    }
     const toggleDir = () => {
       if (forceOpen) return; // 筛选中目录一律展开,清掉筛选后恢复各自的展开状态
       if (filesExpanded.has(dir.path)) filesExpanded.delete(dir.path);
@@ -451,13 +405,6 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
           ? `${humanSize(file.size)}  ${file.chars} ${t("字")}`
           : humanSize(file.size);
     row.append(name, measure);
-    if (file.note) {
-      const note = document.createElement("span");
-      note.className = "files-note";
-      note.textContent = file.note;
-      note.title = file.note;
-      row.appendChild(note);
-    }
     if (dirty) row.setAttribute("aria-label", `${row.textContent}  ${t("未保存")}`);
     const openFile = () => openFilePreview(file);
     row.addEventListener("click", openFile);
@@ -482,65 +429,6 @@ function renderFileKnowledge() {
   $("files-knowledge-wrap")?.classList.add("hidden");
 }
 
-// ---------- 用途说明(UX-094,原「标注」) ----------
-// 一键对全部「新增/已变化」文件各调一次 fast 模型:先确认(写清文件数与成本),生成中同一个按钮变「停止」。
-async function onAnnotateClick() {
-  if (annotating) {
-    if (annotateStopping) return;
-    annotateStopping = true;
-    renderFilesToolbar(filesSnapshotData);
-    try {
-      await invoke("files_annotate_cancel");
-    } catch (err) {
-      annotateStopping = false;
-      renderFilesToolbar(filesSnapshotData);
-      toastError(`${t("停止失败")}:${err}`);
-    }
-    return;
-  }
-  if (filesTreeRoot() || !currentProject) return;
-  const pending = filesSnapshotData?.unannotated ?? 0;
-  if (!pending) {
-    toast(t("所有文件的用途说明都是最新的"));
-    return;
-  }
-  const ok = await confirmDialog({
-    title: t("生成用途说明"),
-    message: t("将用 fast 模型为 {n} 个文件各生成一句话用途说明。").replace("{n}", String(pending)),
-    list: [
-      t("每个文件调用一次模型,会消耗 token;文件多时要几分钟"),
-      t("随时可以点「停止」,已经生成的会保留"),
-      t("只处理新增或内容变化的文件,已有的不会重复生成"),
-    ],
-    okText: t("开始生成"),
-  });
-  if (ok !== true) return;
-  const root = currentProject;
-  annotating = true;
-  annotateStopping = false;
-  annotateProgress = { done: 0, failed: 0, total: pending };
-  renderFilesToolbar(filesSnapshotData);
-  try {
-    const result = await invoke("files_annotate", { projectDir: root });
-    const counts = `${result.annotated}/${result.total}`;
-    const failures = result.failed + result.directoryFailed;
-    if (failures && result.firstError) {
-      // 失败原因必须可见:全 failed 只报数字没有原因,排查无从下手(D-213)。
-      toastError(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}  ${failures} ${t("失败")}  ${result.firstError}`);
-    } else {
-      toast(`${result.cancelled ? t("用途说明已停止") : t("用途说明生成完成")}:${counts}${result.failed ? `  ${result.failed} ${t("失败")}` : ""}`);
-    }
-    if (root === currentProject && !filesTreeRoot()) await refreshFiles();
-  } catch (err) {
-    toastError(`${t("用途说明生成失败")}:${err}`);
-  } finally {
-    annotating = false;
-    annotateStopping = false;
-    annotateProgress = null;
-    renderFilesTree();
-  }
-}
-
 defer(() => {
   $("files-refresh").addEventListener("click", refreshFiles);
 });
@@ -549,9 +437,6 @@ defer(() => {
     filesSortByLines = !filesSortByLines;
     renderFilesTree();
   });
-});
-defer(() => {
-  $("files-annotate").addEventListener("click", () => void onAnnotateClick());
 });
 defer(() => {
   $("files-tree-select")?.addEventListener("change", () => void switchFilesTree($("files-tree-select").value || null));
@@ -616,18 +501,5 @@ defer(() => {
   });
   window.addEventListener("drop", (event) => {
     if (!event.defaultPrevented && hasFiles(event)) event.preventDefault();
-  });
-});
-// D-381:走 on() 而不是裸 listen。01-core 的 on() 里那套「没有 sessionId 就丢弃」的
-// 纪律(注释写得很重:「没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实
-// 也不能串线」)只在它自己那条路径上强制;这里绕过去,规则就只覆盖了一半的订阅。
-// 本事件确实没有 session 归属(标注是项目级批处理),已登记进 SESSIONLESS_EVENTS。
-// 附带好处:订阅失败不再是 `.catch(() => {})` 静默,而是走 on() 的可见报错(D-005)。
-defer(() => {
-  on("kz:annotate-progress", (e) => {
-    const p = e.payload;
-    if (!annotating) return;
-    annotateProgress = { done: p.done, failed: p.failed, total: p.total };
-    renderFilesToolbar(filesSnapshotData);
   });
 });

@@ -60,11 +60,7 @@
     "host": "service"
   },
   {
-    "path": "files_view::files_annotate",
-    "host": "service"
-  },
-  {
-    "path": "files_view::files_annotate_cancel",
+    "path": "files_view::file_git_diff",
     "host": "service"
   },
   {

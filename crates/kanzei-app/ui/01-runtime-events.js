@@ -63,7 +63,6 @@ export const SESSIONLESS_EVENTS = new Set([
   "kz:ask-resolved",
   "kz:fast-setup",
   "kz:ui-probe",
-  "kz:annotate-progress",
   "kz:workspace-invalidated", // 项目摘要失效通知不属于某条会话。
   "kz:runtime-resync", // Native transport connection belongs to the desktop window.
 ]);

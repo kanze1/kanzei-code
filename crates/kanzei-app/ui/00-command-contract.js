@@ -125,6 +125,11 @@ export const commandParameters = {
   "file_drafts_load": {
     "projectDir": true
   },
+  "file_git_diff": {
+    "path": true,
+    "projectDir": true,
+    "worktreePath": false
+  },
   "file_image": {
     "path": true,
     "projectDir": true
@@ -145,12 +150,7 @@ export const commandParameters = {
     "path": true,
     "projectDir": true
   },
-  "files_annotate": {
-    "projectDir": true
-  },
-  "files_annotate_cancel": {},
   "files_snapshot": {
-    "knowledgeProjectDir": false,
     "projectDir": true
   },
   "general_chat_link": {

@@ -67,6 +67,7 @@ import { cancelAutoContinueTimer } from "./08-auto.js";
 import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts } from "./09-sessions.js";
 import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
+import { openContextDrawer } from "./17-context-drawer.js";
 
 // ---------- 应用内文档查看器:markdown/代码直接渲染 ----------
 let viewerGeneration = 0;
@@ -156,6 +157,7 @@ defer(() => {
 // 改的文件,而且切会话/重连后归零,给出的数字与工作树对不上。
 export let changeBarOpen = false;
 export function renderChangeBar(status) {
+  document.dispatchEvent(new CustomEvent("kz:git-status", { detail: status }));
   const bar = $("change-bar");
   if (!bar) return;
   const files = status?.files ?? [];
@@ -181,8 +183,12 @@ export function renderChangeBar(status) {
   if (!changeBarOpen) return;
   box.replaceChildren();
   for (const file of files) {
-    const row = document.createElement("div");
+    const row = document.createElement("button");
+    row.type = "button";
     row.className = "change-file";
+    row.addEventListener("click", () => {
+      void openContextDrawer({ path: file.path, mode: file.untracked ? "source" : "diff" });
+    });
     const path = document.createElement("span");
     path.className = "change-file-path";
     path.textContent = file.path;
@@ -215,6 +221,7 @@ defer(() => {
     changeBarOpen = !changeBarOpen;
     void refreshGit();
   });
+  document.addEventListener("kz:context-file-saved", () => void refreshGit());
 });
 
 // UI2-0926 #13:项目不是(独立的)Git 仓库时,上下文带里一枚灰色「无 Git」芯片。原先 git_status 失败就把

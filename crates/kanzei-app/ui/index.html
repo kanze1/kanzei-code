@@ -109,6 +109,8 @@
             <div id="project-shared-warn" class="project-shared-warn hidden" role="alert"></div>
             <div id="project-facts" class="project-facts hidden" role="status" aria-live="polite"></div>
           </div>
+          <span class="spacer"></span>
+          <button type="button" id="context-drawer-toggle" class="ghost mini context-drawer-toggle" data-space-only="dev-auto" aria-expanded="false" aria-controls="context-drawer" title="打开或收起右侧文件上下文抽屉">文件上下文<span id="context-drawer-badge" class="cd-badge hidden"></span></button>
         </nav>
         <div id="chat-area">
           <!-- R-267:#messages 是**滚动容器**,消息本体挂在它下面的 per-session
@@ -312,6 +314,37 @@
 <button id="continue-btn" type="button" class="kz-ctl" title="按当前文案继续推进" data-i18n-title="按当前文案继续推进"><span data-i18n-key="继续">继续</span></button>
 </section></div>
 </footer>
+        <aside id="context-drawer" class="context-drawer hidden" aria-label="文件上下文">
+          <div id="cd-resize" class="cd-resize-handle" title="拖拽调整宽度" aria-hidden="true"></div>
+          <header class="cd-head">
+            <button type="button" id="cd-back-chat" class="ghost mini cd-back-chat">← 返回对话</button>
+            <span id="cd-path" class="cd-path" title="">未选择文件</span>
+            <span id="cd-meta" class="cd-meta dim"></span>
+            <span class="cd-head-actions">
+              <button type="button" id="cd-refresh" class="icon-btn" title="重新读取">⟳</button>
+              <button type="button" id="cd-copy-ref" class="icon-btn" title="复制路径与行号" disabled>⧉</button>
+              <button type="button" id="cd-reveal" class="icon-btn" title="在资源管理器中显示" disabled>↗</button>
+              <button type="button" id="cd-open-full" class="ghost mini" title="在完整文件页打开" disabled>文件页</button>
+              <button type="button" id="cd-close" class="icon-btn" title="关闭上下文抽屉" aria-label="关闭上下文抽屉">✕</button>
+            </span>
+          </header>
+          <div class="cd-lists">
+            <div class="cd-list-row">
+              <span class="cd-list-label dim">本轮触及 <em id="cd-touched-count">0</em></span>
+              <div id="cd-touched-list" class="cd-chip-list"></div>
+            </div>
+            <div class="cd-list-row">
+              <span class="cd-list-label dim">Git 改动 <em id="cd-git-count">0</em></span>
+              <div id="cd-git-list" class="cd-chip-list"></div>
+            </div>
+          </div>
+          <div id="cd-mode-tabs" class="cd-mode-tabs" role="group" aria-label="查看模式">
+            <button type="button" class="cd-tab active" data-mode="source" aria-pressed="true">原文</button>
+            <button type="button" class="cd-tab" data-mode="diff" aria-pressed="false">Git Diff</button>
+            <button type="button" class="cd-tab" data-mode="edit" aria-pressed="false">编辑</button>
+          </div>
+          <div id="cd-body" class="cd-body"></div>
+        </aside>
       </div>
 
       <div id="view-workspace" class="view active">
@@ -512,10 +545,9 @@
             <div id="files-toolbar">
               <span id="files-summary" class="dim"></span>
               <span class="files-toolbar-actions">
-                <button id="files-sort" class="ghost mini" title="切换排序:名称 / 行数" data-i18n-title="切换排序:名称 / 行数"><span id="files-sort-label" data-i18n-key="排序:名称">排序:名称</span></button>
-                <button id="files-annotate" class="ghost mini" title="用 fast 模型为每个新增或已变化的文件生成一句话用途说明(每个文件一次模型调用,会消耗 token;可随时停止)" data-i18n-title="用 fast 模型为每个新增或已变化的文件生成一句话用途说明(每个文件一次模型调用,会消耗 token;可随时停止)"><span id="files-annotate-label" data-i18n-key="用途说明">用途说明</span><span id="files-annotate-count"></span></button>
-                <button id="files-new" class="icon-btn" title="新建文件(相对项目根的路径)" data-i18n-title="新建文件(相对项目根的路径)" aria-label="新建文件" data-i18n-aria-label="新建文件">＋</button>
-                <button id="files-refresh" class="icon-btn" title="重新扫描" data-i18n-title="重新扫描" aria-label="重新扫描文件树" data-i18n-aria-label="重新扫描文件树">⟳</button>
+                <button id="files-sort" class="ghost mini" title="切换排序:名称 / 行数"><span id="files-sort-label">排序:名称</span></button>
+                <button id="files-new" class="icon-btn" title="新建文件(相对项目根的路径)" aria-label="新建文件">＋</button>
+                <button id="files-refresh" class="icon-btn" title="重新扫描" aria-label="重新扫描文件树">⟳</button>
               </span>
             </div>
             <!-- UX-088:项目有独立任务(并行线)的工作树时,可以在主项目与各工作树之间切换文件树;没有工作树时整行隐藏。 -->
@@ -567,40 +599,8 @@
             <div id="files-image" class="files-image hidden"><img id="files-image-img" alt=""></div>
             <!-- UX-151:焦点在可编辑的编辑器里时提示 Tab 的出口。浮在编辑器右下角,不参与布局流、不接鼠标:
                  它随焦点出现/消失,放在头部会让头部换行、按钮上移,第一次点「保存」/「放弃修改」就落空。 -->
-            <span id="files-tab-hint" class="files-tab-hint hidden" role="note" data-i18n-key="编辑中 Tab 是缩进;Ctrl+M 切换为用 Tab 离开编辑器">编辑中 Tab 是缩进;Ctrl+M 切换为用 Tab 离开编辑器</span>
-            <div id="files-placeholder" class="dim" data-i18n-key="选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明">选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明</div>
-          </div>
-        </div>
-      </div>
-
-      <div id="view-arch" class="view">
-        <div id="arch-scroll">
-          <div class="arch-head">
-            <h1 data-i18n-key="架构">架构</h1>
-            <button id="arch-refresh" class="icon-btn" title="重新扫描" data-i18n-title="重新扫描" aria-label="重新扫描架构索引" data-i18n-aria-label="重新扫描架构索引">⟳</button>
-          </div>
-          <section id="arch-diagram-card" aria-label="架构图" data-i18n-aria-label="架构图">
-            <div id="arch-diagram-head">
-              <div id="arch-diagram-tabs" role="tablist" aria-label="选择架构图" data-i18n-aria-label="选择架构图"></div>
-              <div id="arch-diagram-tools"></div>
-            </div>
-            <div id="arch-diagram-canvas" role="tabpanel"></div>
-            <div id="arch-diagram-foot"></div>
-            <div id="arch-diagram-issues" class="hidden" aria-label="图检查提示" data-i18n-aria-label="图检查提示"></div>
-          </section>
-          <section class="project-knowledge-wrap">
-            <h2 data-i18n-key="项目知识">项目知识</h2>
-            <div id="arch-knowledge"></div>
-          </section>
-          <div id="arch-layout" class="hidden">
-            <div id="arch-tree-wrap">
-              <div id="arch-tree-head">
-                <span id="arch-summary" class="dim"></span>
-                <input id="arch-filter" type="search" placeholder="搜索设计文档" data-i18n-placeholder="搜索设计文档" aria-label="搜索设计文档" data-i18n-aria-label="搜索设计文档" />
-                <button id="arch-open-index" class="ghost mini hidden" title="在查看器中打开架构索引" data-i18n-title="在查看器中打开架构索引"><span data-i18n-key="打开架构索引">打开架构索引</span></button>
-              </div>
-              <div id="arch-tree" role="tree" aria-label="设计文档树" data-i18n-aria-label="设计文档树" data-i18n-raw></div>
-            </div>
+            <span id="files-tab-hint" class="files-tab-hint hidden" role="note">编辑中 Tab 是缩进;Ctrl+M 切换为用 Tab 离开编辑器</span>
+            <div id="files-placeholder" class="dim">选择左侧文件查看或编辑内容，目录行显示聚合度量</div>
           </div>
         </div>
       </div>
@@ -1137,28 +1137,7 @@
       </div>
     </div>
   </div>
-  <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" data-i18n-title="重新打开询问" aria-label="重新打开询问" data-i18n-aria-label="重新打开询问" data-i18n-key="重新打开询问">重新打开询问</button>
-
-  <dialog id="conventions-dialog" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="conventions-title">
-    <div class="viewer-head">
-      <span id="conventions-title" data-i18n-key="项目约束与规范">项目约束与规范</span>
-      <button id="conventions-close" class="icon-btn" aria-label="关闭项目规范" data-i18n-aria-label="关闭项目规范">✕</button>
-    </div>
-    <div class="conventions-body">
-      <p id="conventions-project" class="dim"></p>
-      <p id="conventions-notice" class="dim"></p>
-      <div class="conventions-actions">
-        <button id="conventions-edit" class="ghost mini" data-i18n-key="编辑">编辑</button>
-        <button id="conventions-save" class="ghost mini hidden" data-i18n-key="保存并生效">保存并生效</button>
-        <button id="conventions-proposal" class="ghost mini hidden" data-i18n-key="对照建议稿">对照建议稿</button>
-        <button id="conventions-discard" class="ghost mini hidden" data-i18n-key="放弃建议稿">放弃建议稿</button>
-        <button id="conventions-generate" class="ghost mini" data-i18n-key="让 Agent 生成建议">让 Agent 生成建议</button>
-      </div>
-      <div id="conventions-current" class="md conventions-current hidden" aria-label="当前生效的规范" data-i18n-aria-label="当前生效的规范"></div>
-      <div id="conventions-preview" class="md"></div>
-      <textarea id="conventions-editor" class="conventions-editor hidden" aria-label="编辑项目规范" data-i18n-aria-label="编辑项目规范" spellcheck="false"></textarea>
-    </div>
-  </dialog>
+  <button id="ask-reopen" class="k-surface k-chip-float ask-reopen hidden" popover="manual" type="button" title="重新打开询问" aria-label="重新打开询问">重新打开询问</button>
 
   <dialog id="viewer-overlay" class="k-surface k-dialog hidden" data-size="lg" closedby="any" aria-labelledby="viewer-title" data-kz-frame="viewer" data-kz-frame-move=".viewer-head" data-kz-frame-edges="all" data-kz-frame-min="420 240">
     <div id="viewer-dialog">

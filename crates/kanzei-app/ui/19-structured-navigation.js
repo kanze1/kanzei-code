@@ -8,6 +8,7 @@ import { isAbsolutePath, normalizeRoot, relativeToRoot } from "./04-structured-p
 import { openToolItems } from "./12-open-tools.js";
 import { openProjectSpace } from "./12-workbench.js";
 import { openFilePreview, switchFilesTree } from "./17-files.js";
+import { openContextDrawer } from "./17-context-drawer.js";
 import { filesRoot } from "./17-files-editor.js";
 import { setStructuredNav, structuredNav } from "./04-structured.js";
 import { openMemoryDetailById } from "./13-memory.js";
@@ -21,10 +22,14 @@ export async function openUrlInApp(url) {
     toastError(`${t("打开失败")}:${error}`);
   }
 }
-/// 打开项目内文件路径（在 Phase 6 将升级为对话右侧伴生上下文抽屉）。
+/// 打开项目内文件路径:在对话页直接滑出右侧上下文抽屉并定位行号,不切离对话;其它视图进文件页。
 export async function openStructuredPath(path, line = null, target = null) {
   const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!rel) return;
+  if (document.body.dataset.view === "chat") {
+    if (target) return runPathAction(() => openPathTargetInDrawer(target));
+    return runPathAction(() => openContextDrawer({ path: rel, line, mode: "source" }));
+  }
   if (target) return runPathAction(() => openPathTargetInApp(target));
   navigate_view("files");
   void openFilePreview({ path: rel, line });
@@ -67,6 +72,20 @@ async function runPathAction(action) {
   try { await action(); } catch (error) { toastError(`${t("打开失败")}:${error}`); }
 }
 
+async function openPathTargetInDrawer(target) {
+  if (!target.preview) throw new Error(t("文件不在当前项目或对话工作目录中"));
+  if (!sameProject(currentProject, target.args.projectDir) && !await openProjectSpace(target.args.projectDir, "chat")) return;
+  const worktreePath = sameProject(target.preview.root, target.args.projectDir) ? null : target.preview.root;
+  await openContextDrawer({
+    projectDir: target.args.projectDir,
+    worktreePath,
+    root: target.preview.root,
+    path: target.preview.path,
+    line: target.line,
+    mode: "source",
+  });
+}
+
 async function openPathTargetInApp(target) {
   if (!target.preview) throw new Error(t("文件不在当前项目或对话工作目录中"));
   if (!sameProject(currentProject, target.args.projectDir) && !await openProjectSpace(target.args.projectDir, "files")) return;
@@ -79,7 +98,8 @@ async function openPathTargetInApp(target) {
 function openFileLinkMenu(link) {
   const target = fileLinkTarget(link);
   const items = tools => [
-    { label: t("在应用内打开"), onSelect: () => void runPathAction(() => openPathTargetInApp(target)) },
+    { label: "在上下文抽屉查看", onSelect: () => void runPathAction(() => openPathTargetInDrawer(target)) },
+    { label: "在文件页全屏打开", onSelect: () => void runPathAction(() => openPathTargetInApp(target)) },
     { label: t("在资源管理器中显示"), onSelect: () => void runPathAction(() => invoke("reveal_path", target.args)) },
     ...tools,
     "separator",

@@ -1,11 +1,7 @@
-//! 文件导览(R-148):一份扫描器,两个消费者。
+//! 文件导览:一份扫描器,两个消费者。
 //!
-//! - `files` 工具:agent 的架构地图——文本树 + 度量 + AI 用途标注,弱模型不必
-//!   逐个 read 就知道每个文件是干嘛的。
-//! - 桌面端「文件」页:同一扫描结果的 JSON 形态(经 Tauri command)。
-//!
-//! 度量是**中性**的(用户定调):行数多不必然要拆,工具不预设"该拆"立场;
-//! 拆分判断结合用途标注由人/agent 做。
+//! - `files` 工具:agent 的项目文件地图——文本树 + 度量。
+//! - 桌面端文件上下文抽屉与文件页:同一扫描结果的 JSON 形态(经 Tauri command)。
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -23,150 +19,7 @@ const CODE_EXTS: &[&str] = &[
     "h", "cpp", "hpp", "toml", "json", "yml", "yaml", "sql", "ps1", "sh", "bat", "xml", "svelte",
 ];
 
-/// AI 用途标注缓存(.kanzei/file-annotations.json)。
-/// 键=仓库相对路径(正斜杠);hash 是内容指纹,文件变了标注即失效。
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub struct AnnotationStore {
-    #[serde(default)]
-    pub files: BTreeMap<String, Annotation>,
-    /// 目录摘要与其输入指纹。旧无指纹记录保留但不再作为当前知识展示。
-    #[serde(default)]
-    pub dirs: BTreeMap<String, String>,
-    #[serde(default)]
-    pub dir_hashes: BTreeMap<String, String>,
-}
-
-/// 目录摘要由直属文件用途生成，因此直属内容和成员改变都使其失效。
-/// 子目录正文不参与；生成过程中的变更通过前后指纹比较丢弃旧结果。
-pub fn directory_fingerprint(root: &Path, rel: &str) -> Option<String> {
-    let dir = if rel.is_empty() {
-        root.to_path_buf()
-    } else {
-        annotation_target(root, rel)?
-    };
-    let mut parts = Vec::new();
-    for entry in std::fs::read_dir(dir).ok()? {
-        let entry = entry.ok()?;
-        let kind = entry.file_type().ok()?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
-            continue;
-        }
-        if kind.is_symlink() {
-            return None;
-        }
-        let stamp = if kind.is_file() {
-            let meta = entry.metadata().ok()?;
-            if meta.len() > MAX_MEASURE_BYTES {
-                format!("{}:{:?}", meta.len(), meta.modified().ok()?)
-            } else {
-                content_hash(&std::fs::read(entry.path()).ok()?)
-            }
-        } else {
-            "directory".into()
-        };
-        parts.push(format!("{name}:{stamp}"));
-    }
-    parts.sort();
-    Some(content_hash(parts.join("\n").as_bytes()))
-}
-
-pub fn valid_directory_notes(root: &Path, store: &AnnotationStore) -> BTreeMap<String, String> {
-    store
-        .dirs
-        .iter()
-        .filter(|(path, _)| {
-            store
-                .dir_hashes
-                .get(*path)
-                .is_some_and(|hash| directory_fingerprint(root, path).as_ref() == Some(hash))
-        })
-        .map(|(path, note)| (path.clone(), note.clone()))
-        .collect()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Annotation {
-    pub hash: String,
-    pub note: String,
-}
-
-pub fn annotations_path(project_root: &Path) -> PathBuf {
-    project_root.join(".kanzei").join("file-annotations.json")
-}
-
-pub(crate) fn annotation_target(project_root: &Path, rel: &str) -> Option<PathBuf> {
-    let path = Path::new(rel);
-    if rel.is_empty()
-        || path.is_absolute()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::Prefix(_)
-                    | std::path::Component::RootDir
-                    | std::path::Component::ParentDir
-            )
-        })
-    {
-        return None;
-    }
-    Some(project_root.join(path))
-}
-
-fn prune_missing_annotations(project_root: &Path, store: &mut AnnotationStore) -> bool {
-    let mut changed = false;
-    store.files.retain(|rel, _| {
-        let keep = annotation_target(project_root, rel)
-            .and_then(|path| std::fs::metadata(path).ok())
-            .is_some_and(|meta| meta.is_file());
-        changed |= !keep;
-        keep
-    });
-    store.dirs.retain(|rel, _| {
-        let keep = if rel.is_empty() {
-            project_root.is_dir()
-        } else {
-            annotation_target(project_root, rel)
-                .and_then(|path| std::fs::metadata(path).ok())
-                .is_some_and(|meta| meta.is_dir())
-        };
-        changed |= !keep;
-        keep
-    });
-    store
-        .dir_hashes
-        .retain(|rel, _| store.dirs.contains_key(rel));
-    changed
-}
-
-pub fn load_annotations(project_root: &Path) -> AnnotationStore {
-    let mut store = std::fs::read_to_string(annotations_path(project_root))
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default();
-    // D-665:标注缓存是可重建派生数据。删除测试夹具或源码后，加载即清理并回写，
-    // 否则每次 annotate 只会覆盖新键，已消失的路径会永久堆积在缓存里。
-    if prune_missing_annotations(project_root, &mut store) {
-        let _ = save_annotations(project_root, &store);
-    }
-    store
-}
-
-pub fn save_annotations(project_root: &Path, store: &AnnotationStore) -> std::io::Result<()> {
-    let path = annotations_path(project_root);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    // 序列化失败必须报错——旧实现 unwrap_or_default 会把空字符串写进缓存,
-    // 下次 load 解析失败回落 Default,整库标注静默清零(D-213 一类)。
-    let text = serde_json::to_string_pretty(store)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    crate::atomic_file::write_atomic(&path, &text)
-}
-
-/// 内容指纹。凡是标注会覆盖的文件(代码/md)扫描时本来就读了全文,顺手 FNV-1a——
-/// **真内容 hash**,mtime 免疫:git checkout/触碰时间戳不会让标注大面积假失效
-/// (D-213 教训:mtime 版指纹太脆)。只有 oversized 文件退化为大小+mtime。
+/// 内容指纹。凡是代码/md 扫描时本来就读了全文,顺手 FNV-1a;只有 oversized 文件退化为大小+mtime。
 pub fn content_stamp(meta: &std::fs::Metadata) -> String {
     let mtime = meta
         .modified()
@@ -423,12 +276,8 @@ fn measure_label(entry: &FileEntry) -> String {
     }
 }
 
-/// 文本树渲染(agent 消费)。目录行带聚合,文件行带度量与标注。
-pub fn render_tree(
-    entries: &[FileEntry],
-    annotations: &AnnotationStore,
-    prefix: Option<&str>,
-) -> String {
+/// 文本树渲染(agent 消费)。目录行带聚合,文件行带度量。
+pub fn render_tree(entries: &[FileEntry], prefix: Option<&str>) -> String {
     let filtered: Vec<&FileEntry> = entries
         .iter()
         .filter(|e| prefix.is_none_or(|p| e.path.starts_with(p)))
@@ -445,13 +294,8 @@ pub fn render_tree(
             last_dir = Some(dir.to_string());
             if !dir.is_empty() {
                 let stat = dirs.get(dir).cloned().unwrap_or_default();
-                let note = annotations
-                    .dirs
-                    .get(dir)
-                    .map(|n| format!("  · {n}"))
-                    .unwrap_or_default();
                 out.push_str(&format!(
-                    "{dir}/  ({} files, {}, {} lines){note}\n",
+                    "{dir}/  ({} files, {}, {} lines)\n",
                     stat.files,
                     human_size(stat.size),
                     stat.lines
@@ -459,20 +303,14 @@ pub fn render_tree(
             }
         }
         let name = entry.path.rsplit('/').next().unwrap_or(&entry.path);
-        let note = annotations
-            .files
-            .get(&entry.path)
-            .filter(|a| a.hash == entry.stamp)
-            .map(|a| format!("  · {}", a.note))
-            .unwrap_or_default();
         let indent = if dir.is_empty() { "" } else { "  " };
-        out.push_str(&format!("{indent}{name}  {}{note}\n", measure_label(entry)));
+        out.push_str(&format!("{indent}{name}  {}\n", measure_label(entry)));
     }
     out
 }
 
 /// top-N 重文件(按行数;无行数的按大小排在其后)。中性数据,不带"该拆"判断。
-pub fn render_top(entries: &[FileEntry], annotations: &AnnotationStore, top: usize) -> String {
+pub fn render_top(entries: &[FileEntry], top: usize) -> String {
     let mut sorted: Vec<&FileEntry> = entries.iter().collect();
     sorted.sort_by(|a, b| {
         b.lines
@@ -482,13 +320,7 @@ pub fn render_top(entries: &[FileEntry], annotations: &AnnotationStore, top: usi
     });
     let mut out = String::from("files by line count (largest first):\n");
     for entry in sorted.iter().take(top) {
-        let note = annotations
-            .files
-            .get(&entry.path)
-            .filter(|a| a.hash == entry.stamp)
-            .map(|a| format!("  · {}", a.note))
-            .unwrap_or_default();
-        out.push_str(&format!("{}  {}{note}\n", entry.path, measure_label(entry)));
+        out.push_str(&format!("{}  {}\n", entry.path, measure_label(entry)));
     }
     out
 }
@@ -503,7 +335,7 @@ struct FilesInput {
     top: Option<usize>,
 }
 
-/// 文件导览工具:项目的架构地图。
+/// 文件导览工具:项目的目录与文件地图。
 pub struct FilesTool;
 
 #[async_trait]
@@ -517,9 +349,8 @@ impl Tool for FilesTool {
 
     fn description(&self) -> String {
         "Project file map: directory tree with per-file size, code line counts (md char counts), \
-         directory aggregates, and per-file purpose annotations when available. Use `path` for a \
-         subtree, `top` for the N largest files by lines. Read-only; prefer this over shell \
-         `ls`/`find`/`wc` for understanding project structure."
+         and directory aggregates. Use `path` for a subtree, `top` for the N largest files by lines. \
+         Read-only; prefer this over shell `ls`/`find`/`wc` for understanding project structure."
             .into()
     }
 
@@ -545,33 +376,23 @@ impl FilesTool {
             Ok(value) => value,
             Err(output) => return output,
         };
-        // R-177 内容②:扫的是**代码树**。判据统一为「凡 `.kanzei/**` 资产走
-        // project_root,凡仓库源码走 cwd」——read/glob/grep/write/edit 早就走 cwd,
-        // 这里若还取主根,同一个 agent 会在两棵树之间读写:files 列主树的文件,
-        // edit 按 cwd 落 worktree。
         let mut entries = scan(&ctx.cwd);
         if entries.is_empty() {
             return ToolOutput::ok("(no files)".to_string());
         }
-        // 批注是 `.kanzei/file-annotations.json`,主根一份的资产,取 project_root 不变。
-        let mut annotations = load_annotations(&ctx.project_root);
-        annotations.dirs = valid_directory_notes(&ctx.cwd, &annotations);
         let prefix = input
             .path
             .as_deref()
             .map(|p| p.trim_matches('/').replace('\\', "/"));
         let text = match input.top {
             Some(top) => {
-                // D-327:top 视图曾丢掉 path 作用域,静默返回全仓重文件——拿到错
-                // 作用域的数据不报错,比报错更危险。裁剪口径与 render_tree 一致。
                 if let Some(prefix) = prefix.as_deref() {
                     entries.retain(|e| e.path.starts_with(prefix));
                 }
-                render_top(&entries, &annotations, top.clamp(1, 100))
+                render_top(&entries, top.clamp(1, 100))
             }
-            None => render_tree(&entries, &annotations, prefix.as_deref()),
+            None => render_tree(&entries, prefix.as_deref()),
         };
-        // 文件列表只呈现这次文件观察；项目知识由独立入口按需查询。
         ToolOutput::ok(text)
     }
 }
@@ -697,131 +518,26 @@ mod tests {
     }
 
     #[test]
-    fn 树输出带度量_top按行数降序_标注随树() {
+    fn 树输出带度量_top按行数降序() {
         let root = fixture("tree");
         let entries = scan(&root);
-        let mut ann = AnnotationStore::default();
-        let big = entries.iter().find(|e| e.path == "src/big.rs").unwrap();
-        ann.files.insert(
-            "src/big.rs".into(),
-            Annotation {
-                hash: big.stamp.clone(),
-                note: "大文件样例".into(),
-            },
-        );
-        // 过期标注(hash 不匹配)不得出现。
-        ann.files.insert(
-            "src/lib.rs".into(),
-            Annotation {
-                hash: "stale".into(),
-                note: "过期标注".into(),
-            },
-        );
-        ann.dirs.insert("src".into(), "源码目录".into());
 
-        let tree = render_tree(&entries, &ann, None);
+        let tree = render_tree(&entries, None);
         assert!(
             tree.contains("src/") && tree.contains("505 lines"),
             "{tree}"
         );
         assert!(tree.contains("big.rs") && tree.contains("501 行"), "{tree}");
-        assert!(
-            tree.contains("大文件样例") && tree.contains("源码目录"),
-            "{tree}"
-        );
-        assert!(
-            !tree.contains("过期标注"),
-            "hash 不匹配的标注必须被过滤:\n{tree}"
-        );
         assert!(tree.contains("字"), "md 字数缺失:\n{tree}");
 
-        let top = render_top(&entries, &ann, 2);
+        let top = render_top(&entries, 2);
         let big_pos = top.find("src/big.rs").unwrap();
         let lib_pos = top.find("src/lib.rs").unwrap_or(usize::MAX);
         assert!(big_pos < lib_pos, "top 必须按行数降序:\n{top}");
 
         // 子树过滤。
-        let sub = render_tree(&entries, &ann, Some("docs"));
+        let sub = render_tree(&entries, Some("docs"));
         assert!(sub.contains("note.md") && !sub.contains("big.rs"), "{sub}");
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn 标注缓存写读回环且指纹随内容变化() {
-        let root = fixture("cache");
-        let entries = scan(&root);
-        let lib = entries.iter().find(|e| e.path == "src/lib.rs").unwrap();
-        let mut store = AnnotationStore::default();
-        store.files.insert(
-            "src/lib.rs".into(),
-            Annotation {
-                hash: lib.stamp.clone(),
-                note: "工具函数集合".into(),
-            },
-        );
-        save_annotations(&root, &store).unwrap();
-        let loaded = load_annotations(&root);
-        assert_eq!(loaded.files.get("src/lib.rs").unwrap().note, "工具函数集合");
-
-        // mtime 免疫(D-213):重写**相同内容**,mtime 变而指纹不变——git checkout/
-        // 触碰时间戳不得让标注大面积假失效。
-        std::thread::sleep(std::time::Duration::from_millis(30));
-        std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn b() {}\nfn c() {}\n").unwrap();
-        let same = scan(&root);
-        let lib_same = same.iter().find(|e| e.path == "src/lib.rs").unwrap();
-        assert_eq!(lib.stamp, lib_same.stamp, "内容没变,指纹不得因 mtime 漂移");
-
-        // 内容变化 → stamp 变 → 旧标注失效。
-        std::fs::write(root.join("src/lib.rs"), "fn a() {}\nfn changed() {}\n").unwrap();
-        let rescanned = scan(&root);
-        let lib2 = rescanned.iter().find(|e| e.path == "src/lib.rs").unwrap();
-        assert_ne!(lib.stamp, lib2.stamp, "内容变了指纹必须变");
-        let tree = render_tree(&rescanned, &loaded, None);
-        assert!(!tree.contains("工具函数集合"), "过期标注不得注入:\n{tree}");
-        std::fs::remove_dir_all(root).ok();
-    }
-
-    #[test]
-    fn 加载标注会清除已删除路径并回写缓存() {
-        let root = fixture("prune");
-        let entries = scan(&root);
-        let lib = entries.iter().find(|e| e.path == "src/lib.rs").unwrap();
-        let mut store = AnnotationStore::default();
-        store.files.insert(
-            "src/lib.rs".into(),
-            Annotation {
-                hash: lib.stamp.clone(),
-                note: "仍存在".into(),
-            },
-        );
-        store.files.insert(
-            "gone/old.rs".into(),
-            Annotation {
-                hash: "stale".into(),
-                note: "测试夹具残留".into(),
-            },
-        );
-        store.files.insert(
-            "../outside.rs".into(),
-            Annotation {
-                hash: "unsafe".into(),
-                note: "非法路径".into(),
-            },
-        );
-        store.dirs.insert("src".into(), "仍存在的目录".into());
-        store.dirs.insert("gone".into(), "已删除目录".into());
-        save_annotations(&root, &store).unwrap();
-
-        let loaded = load_annotations(&root);
-        assert!(loaded.files.contains_key("src/lib.rs"));
-        assert!(!loaded.files.contains_key("gone/old.rs"));
-        assert!(!loaded.files.contains_key("../outside.rs"));
-        assert!(loaded.dirs.contains_key("src"));
-        assert!(!loaded.dirs.contains_key("gone"));
-
-        let persisted = load_annotations(&root);
-        assert_eq!(persisted.files.len(), 1, "清理结果必须持久化");
-        assert_eq!(persisted.dirs.len(), 1, "目录清理结果必须持久化");
         std::fs::remove_dir_all(root).ok();
     }
 

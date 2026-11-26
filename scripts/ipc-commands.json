@@ -484,6 +484,25 @@
     "path": "files_draft::file_drafts_load",
     "returns": "-> Result < Vec < Value > , String >"
   },
+  "file_git_diff": {
+    "host": "service",
+    "parameters": {
+      "path": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "worktreePath": {
+        "required": false,
+        "type": "Option < String >"
+      }
+    },
+    "path": "files_view::file_git_diff",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
   "file_image": {
     "host": "service",
     "parameters": {
@@ -560,30 +579,9 @@
     "path": "files_edit::file_write",
     "returns": "-> Result < serde_json :: Value , String >"
   },
-  "files_annotate": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "files_view::files_annotate",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "files_annotate_cancel": {
-    "host": "service",
-    "parameters": {},
-    "path": "files_view::files_annotate_cancel",
-    "returns": "-> Result < () , String >"
-  },
   "files_snapshot": {
     "host": "service",
     "parameters": {
-      "knowledgeProjectDir": {
-        "required": false,
-        "type": "Option < String >"
-      },
       "projectDir": {
         "required": true,
         "type": "String"

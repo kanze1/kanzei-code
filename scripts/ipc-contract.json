@@ -11,235 +11,17 @@
     ],
     "nextBeforeSequence": "number"
   },
-  "decision_review": {
-    "decision": {
-      "call_id": "string",
-      "created_at": "number",
-      "id": "string",
-      "missing_fact": "nullable",
-      "options": "array",
-      "process_id": "string",
-      "project": "string",
-      "question": "string",
-      "resolution": {
-        "answer": "string",
-        "impact": "string",
-        "preference_refs": "array",
-        "rationale": "string"
-      },
-      "review": {
-        "action": "string",
-        "feedback": "string",
-        "preference_id": "string",
-        "request_id": "string",
-        "reviewed_at": "number",
-        "rework_input_id": "string",
-        "scope": "string"
-      },
-      "revision": "number",
-      "run_id": "string",
-      "session_id": "string",
-      "status": "string",
-      "work_unit_id": "nullable"
-    },
-    "delivery": "nullable",
-    "preference_error": "nullable"
+  "file_git_diff": {
+    "additions": "number",
+    "deletions": "number",
+    "diff": "string",
+    "path": "string",
+    "repo": "string",
+    "status": "string",
+    "truncated": "bool"
   },
   "file_image": {
     "png": "string"
-  },
-  "docs_snapshot": {
-    "archived": {
-      "defect": "number",
-      "finding": "number",
-      "idea": "number",
-      "req": "number",
-      "source": "number"
-    },
-    "conventions": {
-      "exists": "bool",
-      "has_proposal": "bool",
-      "headings": [
-        "string"
-      ]
-    },
-    "defects": [
-      {
-        "batches": {
-          "done": "number",
-          "total": "number"
-        },
-        "block_reasons": "array",
-        "blocked": "bool",
-        "claimed_by": "nullable",
-        "closed": "bool",
-        "complexity": "string",
-        "dependencies": "array",
-        "dependents": "array",
-        "execution_model": "nullable",
-        "fields": [
-          [
-            "string"
-          ]
-        ],
-        "id": "string",
-        "nextStatuses": [
-          "string"
-        ],
-        "prior_art": "nullable",
-        "priority": "string",
-        "requirement": "nullable",
-        "severity": "string",
-        "status": "string",
-        "title": "string",
-        "work_planning_blockers": {},
-        "work_readiness": {},
-        "work_units": "array"
-      }
-    ],
-    "findings": "array",
-    "ideas": [
-      {
-        "batches": {
-          "done": "number",
-          "total": "number"
-        },
-        "block_reasons": "array",
-        "blocked": "bool",
-        "claimed_by": "nullable",
-        "closed": "bool",
-        "complexity": "nullable",
-        "dependencies": "array",
-        "dependents": "array",
-        "execution_model": "nullable",
-        "fields": [
-          [
-            "string"
-          ]
-        ],
-        "id": "string",
-        "nextStatuses": [
-          "string"
-        ],
-        "prior_art": "nullable",
-        "priority": "string",
-        "requirement": "nullable",
-        "severity": "nullable",
-        "status": "string",
-        "title": "string",
-        "work_planning_blockers": {},
-        "work_readiness": {},
-        "work_units": "array"
-      }
-    ],
-    "incident_metrics": {
-      "by_class": {
-        "development_defect": {
-          "escaped": "number",
-          "escaped_rate": "number",
-          "occurrences": "number",
-          "promotions": "number",
-          "repair_duration_ms_average": "nullable",
-          "repair_duration_ms_total": "number",
-          "repair_duration_samples": "number"
-        },
-        "execution_incident": {
-          "escaped": "number",
-          "escaped_rate": "number",
-          "occurrences": "number",
-          "promotions": "number",
-          "repair_duration_ms_average": "nullable",
-          "repair_duration_ms_total": "number",
-          "repair_duration_samples": "number"
-        },
-        "product_defect": {
-          "escaped": "number",
-          "escaped_rate": "number",
-          "occurrences": "number",
-          "promotions": "number",
-          "repair_duration_ms_average": "nullable",
-          "repair_duration_ms_total": "number",
-          "repair_duration_samples": "number"
-        },
-        "regression": {
-          "escaped": "number",
-          "escaped_rate": "number",
-          "occurrences": "number",
-          "promotions": "number",
-          "repair_duration_ms_average": "nullable",
-          "repair_duration_ms_total": "number",
-          "repair_duration_samples": "number"
-        }
-      },
-      "historical_replay": {
-        "consistent": "bool",
-        "consistent_count": "number",
-        "execution_incidents_excluded": "number",
-        "formal_defect_samples": "number",
-        "sample_count": "number",
-        "samples": [
-          {
-            "consistent": "bool",
-            "defect_id": "string",
-            "excluded_from_formal_defect_total": "bool",
-            "expected_class": "string",
-            "rationale": "string"
-          }
-        ]
-      },
-      "overall": {
-        "escaped": "number",
-        "escaped_rate": "number",
-        "repair_duration_ms_average": "nullable",
-        "repair_duration_ms_total": "number",
-        "repair_duration_samples": "number"
-      },
-      "promotion_events": "number",
-      "schema_version": "number",
-      "total_events": "number",
-      "total_occurrences": "number"
-    },
-    "requirements": [
-      {
-        "batches": {
-          "done": "number",
-          "total": "number"
-        },
-        "block_reasons": "array",
-        "blocked": "bool",
-        "claimed_by": "string",
-        "closed": "bool",
-        "complexity": "string",
-        "dependencies": "array",
-        "dependents": "array",
-        "execution_model": "nullable",
-        "fields": [
-          [
-            "string"
-          ]
-        ],
-        "id": "string",
-        "nextStatuses": [
-          "string"
-        ],
-        "prior_art": "nullable",
-        "priority": "string",
-        "requirement": {
-          "format": "number"
-        },
-        "severity": "nullable",
-        "status": "string",
-        "title": "string",
-        "work_planning_blockers": {},
-        "work_readiness": {},
-        "work_units": "array"
-      }
-    ],
-    "research_topics": "array",
-    "root": "string",
-    "sources": "array",
-    "warnings": "array",
-    "work_units": "array"
   },
   "file_drafts_load": [
     {
@@ -278,9 +60,6 @@
     "status": "string"
   },
   "files_snapshot": {
-    "annotatable": "number",
-    "annotated": "number",
-    "dirNotes": {},
     "dirs": {
       "": {
         "files": "number",
@@ -295,80 +74,14 @@
     },
     "files": [
       {
-        "area": "string",
         "chars": "nullable",
         "lines": "number",
-        "note": "nullable",
         "oversized": "bool",
         "path": "string",
         "size": "number"
       }
     ],
-    "knowledge": {
-      "areas": [
-        {
-          "dependencies": "array",
-          "dependency_depth": "number",
-          "dependents": "array",
-          "id": "string",
-          "kind": "string",
-          "label": "string",
-          "memory_ids": "array",
-          "parent": "nullable",
-          "purposes": "array",
-          "tree_depth": "number"
-        }
-      ],
-      "code_root": "string",
-      "enabled": "bool",
-      "memories": "array",
-      "project_root": "string",
-      "unassigned": "array",
-      "version": "number",
-      "warnings": "array"
-    },
-    "reused": "number",
-    "unannotated": "number"
-  },
-  "kz:preview-console": {
-    "entries": [
-      {
-        "col": "number",
-        "level": "string",
-        "line": "number",
-        "seq": "number",
-        "text": "string",
-        "ts": "number",
-        "url": "string"
-      }
-    ]
-  },
-  "kz:preview-pick": {
-    "png": "string",
-    "rect": {
-      "h": "number",
-      "w": "number",
-      "x": "number",
-      "y": "number"
-    },
-    "selector": "string",
-    "tag": "string",
-    "text": "string"
-  },
-  "kz:preview-state": {
-    "boundProcessId": "string",
-    "canBack": "bool",
-    "canForward": "bool",
-    "device": "string",
-    "error": {
-      "kind": "string",
-      "text": "string"
-    },
-    "loading": "bool",
-    "scheme": "string",
-    "title": "string",
-    "url": "string",
-    "visible": "bool"
+    "reused": "number"
   },
   "list_pending_inputs": [
     {
@@ -491,36 +204,6 @@
       "label": "string"
     }
   ],
-  "preview_capture": {
-    "height": "number",
-    "png": "string",
-    "width": "number"
-  },
-  "preview_console": {
-    "entries": [
-      {
-        "col": "number",
-        "level": "string",
-        "line": "number",
-        "seq": "number",
-        "text": "string",
-        "ts": "number",
-        "url": "string"
-      }
-    ]
-  },
-  "preview_dev_urls": {
-    "urls": [
-      {
-        "command": "string",
-        "pid": "number",
-        "url": "string"
-      }
-    ]
-  },
-  "preview_snippet": {
-    "url": "string"
-  },
   "process_closed_list": [
     {
       "closed_at": "number",
@@ -608,33 +291,8 @@
     "selected": "string",
     "shared": "bool"
   },
-  "test_runs_snapshot": {
-    "active": "array",
-    "archive_path": "string",
-    "archived": [
-      {
-        "fields": [
-          {
-            "key": "string",
-            "value": "string"
-          }
-        ],
-        "id": "string",
-        "refs": "array",
-        "status": "string",
-        "title": "string"
-      }
-    ],
-    "path": "string"
-  },
   "tool_image": {
     "png": "string"
-  },
-  "verification_cancel": "nullable",
-  "work_delivery_accept": {
-    "accepted_at": "number",
-    "source_sequence": "number",
-    "unit_id": "string"
   },
   "workspace_overview": {
     "current": "string",
@@ -642,46 +300,14 @@
     "projects": [
       {
         "content_revision": "string",
-        "counts": {
-          "decisions": "number",
-          "in_progress": "number",
-          "missing_facts": "number",
-          "ready_to_try": "number",
-          "verifying": "number"
-        },
         "current": "bool",
-        "current_items": [
-          {
-            "batches": {
-              "done": "number",
-              "source": "string",
-              "total": "number"
-            },
-            "claimed_by": "nullable",
-            "id": "string",
-            "kind": "string",
-            "owner_lines": [
-              {
-                "id": "string",
-                "label": "string",
-                "running": "bool"
-              }
-            ],
-            "priority": "string",
-            "project_id": "string",
-            "running": "bool",
-            "status": "string",
-            "title": "string"
-          }
-        ],
-        "current_items_total": "number",
         "error": "nullable",
         "freshness": "string",
         "lines": [
           {
             "available": "bool",
             "branch": "nullable",
-            "current_item_id": "string",
+            "current_item_id": "nullable",
             "id": "string",
             "kind": "string",
             "label": "string",

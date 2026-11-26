@@ -220,7 +220,7 @@ pub(crate) mod tests {
     async fn files_snapshot_形状与ipc契约一致() {
         let root = fixture_project();
         let actual = shape(
-            &crate::files_view::files_snapshot(root.display().to_string(), None)
+            &crate::files_view::files_snapshot(root.display().to_string())
                 .await
                 .expect("夹具项目应能取到文件快照"),
         );

@@ -33,6 +33,7 @@ import "./15-views-misc.js";
 import "./16-settings.js";
 import "./17-files-editor.js";
 import "./17-files.js";
+import "./17-context-drawer.js";
 import "./19-structured-navigation.js";
 import "./21-palette.js";
 import "./12-workbench.js";
