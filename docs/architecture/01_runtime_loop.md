@@ -62,7 +62,7 @@ flowchart LR
 | worker 与监督器 | `kanzei-app/src/commands/run.rs` 持有调度器与执行锁，单轮 worker 独立 spawn；`session_supervisor.rs::worker_result` 在协作取消期限后 abort 并 join worker，父任务继续回收和排队调度 |
 | 写入完成 | SessionExecutionGuard 为每个 TypedSessionWriter 保留所有权与完成回执；父任务 join worker 后等待所有 writer 退出，最后释放执行锁再发布 Idle |
 | 停止截止线 | SessionStore::request_session_stop 在事务中固定输入 sequence，只立即取消 pending；重复请求返回仍在进行的同一操作。worker 的 stopped terminal 与活动输入 cancelled 同事务提交；settle_session_stop 仅结清原截止线内的执行输入 |
-| 后台回收 | Team、TaskCancellations 使用实际 owner 完成通知；停止回收子任务、终端退出与恢复、原生控制。失败进入 Blocked，保留错误和输入；显式重试停止后才能继续 |
+| 后台回收 | TaskCancellations 使用实际 owner 完成通知；停止回收子任务、终端退出与恢复。失败进入 Blocked，保留错误和输入；显式重试停止后才能继续 |
 | 空闲停止与关闭 | 空闲停止安装存活的 reaper；关闭先将 existence 置 Closing，再调用相同回收协议并 join，完成后才能注销和处置 worktree。服务退出复用该边界 |
 | 输入回执 | 所有人工输入先入持久 inbox，包括第一条；outbox 为一次发送冻结 commandId，SQLite 同事务保存内容指纹和输入映射。重发复用原输入，改载荷冲突，相同正文的新命令仍独立准入 |
 | 状态投影 | process_list.runtime 和 kz:lifecycle 共享 actor_epoch/revision；旧 actor 和旧版本不能覆盖新状态。停止确认期限只改为 unconfirmed 并查询，不伪造 stopped |
@@ -76,7 +76,7 @@ flowchart LR
 
 每个会话由一个 `ConversationSupervisor` 串行处理生命周期命令和完成事件。它持有前台执行所有权，管理所属执行任务和停止操作；worker、writer、终端和子任务报告结果，不直接改会话生命周期。监督器必须在其 worker 被强制取消后继续存活，完成资源回收并处理新输入。
 
-状态、转换规则、持久命令回执与快照合同由 `kanzei-core` 的公开会话领域服务拥有。`kanzei-runtime` 组合异步执行宿主和能力；desktop、CLI、定时任务使用适配器接入。Tauri 句柄、窗口与 WebView 连接不进入 core；能力 crate 不反向依赖 runtime。复用现有 SessionStore、TypedSessionWriter、SessionExecutionGuard、AsyncMailbox 和资源注册表，不新建平行事实库。
+状态、转换规则、持久命令回执与快照合同由 `kanzei-core` 的公开会话领域服务拥有。`kanzei-runtime` 组合异步执行宿主和能力；desktop 与 CLI 使用适配器接入。Tauri 句柄、窗口与 WebView 连接不进入 core；能力 crate 不反向依赖 runtime。复用现有 SessionStore、TypedSessionWriter、SessionExecutionGuard、AsyncMailbox 和资源注册表，不新建平行事实库。
 
 监督器内的状态转换必须短且串行。数据库事务、文件锁和资源生命周期分别保持原有约束；等待模型、工具、JoinHandle、writer 线程或子进程退出时不持有 lifecycle mutex。副作用执行完后，以携带身份的事件回到监督器，再决定能否推进。
 
@@ -255,6 +255,6 @@ sequenceDiagram
 
 领域测试覆盖非法转换、重复停止固定水位、回收失败阻止启动、关闭后拒绝命令、writer 实际完成屏障、命令回执回滚与重发。应用测试覆盖强制取消后的 join、停止后输入保留、真实历史提交和关闭前资源交接。浏览器测试使用生产 ESM 和可控时钟，覆盖旧版本/旧 actor、停止超时查询、outbox 重试与输入交付。
 
-原生验收使用 WebView2、Rust 调度器、SQLite、Git、真实子任务与终端；模型响应来自隔离本地服务。这证明调度和 UI 链路，不等于真实模型质量验收。全表仍按各场景对应证据判断，不能用总用例数宣称所有系统故障交错均已覆盖。当前剩余适配范围是 CLI/定时任务的统一常驻 actor 事件接口，以及全部渲染增量的 step/attempt 版本协议；这些不参与桌面生命周期的权威判定。
+原生验收使用 WebView2、Rust 调度器、SQLite、Git、真实子任务与终端；模型响应来自隔离本地服务。这证明调度和 UI 链路，不等于真实模型质量验收。全表仍按各场景对应证据判断，不能用总用例数宣称所有系统故障交错均已覆盖。当前剩余适配范围是 CLI 的统一常驻 actor 事件接口，以及全部渲染增量的 step/attempt 版本协议；这些不参与桌面生命周期的权威判定。
 
 旧运行布尔标志、后端停止 watchdog、请求停止时立即终态化、关闭后分离杀进程、前端超时造 stopped 已删除。旧事件保留历史/渲染兼容作用，不能重写已绑定权威快照的执行状态；生命周期通知携带相同版本，迟到的 idle 不能清除新一轮的答案。
