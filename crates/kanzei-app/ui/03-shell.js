@@ -15,15 +15,11 @@ import { autoContinueTimers, clearStoppingWatchdog } from "./08-auto.js";
 import "./08-compose-runtime.js";
 import "./08-compose.js";
 import { lastProjectPrefs, switchProcess } from "./09-sessions.js";
-import { clearJumpReveal, clearPendingJump } from "./11-docs-list.js";
-import { refreshWorkspace } from "./12-docs-pages.js";
 import { refreshMemory } from "./13-memory.js";
-import { refreshDocs } from "./14-docs-actions.js";
 import { loadSettings } from "./16-settings.js";
 import { filesViewLeft, showFilesView } from "./17-files.js";
 import { active_space, remember_workspace_view, view_allowed } from "./03-workspaces.js";
-import { cancelProjectNavigation, openProjectSpace, reconcileWorkbenchView, renderProjectOverview, renderProjectActivity, setBrowsingProject, workbenchProject } from "./12-workbench.js";
-import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
+import { cancelProjectNavigation, openProjectSpace, reconcileWorkbenchView, refreshWorkspace, renderProjectActivity, setBrowsingProject, workbenchProject } from "./12-workbench.js";
 import { layoutPref, onLayoutChange, prefObject, setLayoutPref, setPrefObject } from "./03-layout.js";
 import { sameProject } from "./00-project-identity.js";
 
@@ -320,7 +316,6 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
   });
   item?.classList.add("active");
   item?.setAttribute("aria-current", "page");
-  document.body.classList.toggle("documents-active", view === "documents");
   // 已经在这个视图里就别再重载一遍:设置页尤其致命——再点一次侧栏图标,
   // 填了一半没保存的表单会静悄悄回滚成磁盘值。
   const previousView = document.querySelector(".view.active")?.id;
@@ -328,12 +323,8 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
   trackNavigation(view);
   clearTimeout(viewLoadTimer);
   const generation = ++viewLoadGeneration;
-  if (view !== "documents") {
-    clearPendingJump();
-    clearJumpReveal();
-  }
   document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
-  $(`view-${view}`).classList.add("active");
+  $(`view-${view}`)?.classList.add("active");
   syncBackBars();
   if (view !== "files") filesViewLeft();
   if (view !== "chat") setLogPanelOpen(false);
@@ -343,7 +334,7 @@ export function navigate_view(view, { prepared = false, reload = false } = {}) {
     if (generation !== viewLoadGeneration) return;
     viewLoadTimer = setTimeout(() => {
       if (generation !== viewLoadGeneration) return;
-      const loaders = { settings: loadSettings, workspace: refreshWorkspace, project: () => renderProjectOverview(lastWorkspaceSnapshot), documents: refreshDocs,
+      const loaders = { settings: loadSettings, workspace: refreshWorkspace,
         memory: refreshMemory,
         files: showFilesView, skills: () => import("./32-skills.js").then(module => module.refreshSkills()) };
       const loading = loaders[view]?.();

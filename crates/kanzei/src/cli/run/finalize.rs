@@ -286,18 +286,6 @@ pub(crate) async fn finish_run(
             );
         }
     }
-    // R-169:CLI 轮末消费自主推进状态机的 backlog 单源(与桌面端同一实现,
-    // kanzei_tools::tracker::backlog_status;D-229 类桌面端独占能力架构债消除)。
-    // CLI 无交互循环不做自动续跑,只在无可推进条目时提示,与桌面端刹车一致。
-    match kanzei_tools::tracker::backlog_status(&state.ctx.project_root) {
-        kanzei_harness::auto_run::BacklogStatus::AllBlocked => {
-            eprintln!("\x1b[33m(auto: 需求与缺陷全部被阻塞,自主推进无可用目标)\x1b[0m");
-        }
-        kanzei_harness::auto_run::BacklogStatus::Empty => {
-            eprintln!("\x1b[33m(auto: 需求与缺陷已清空,自主推进无可用目标)\x1b[0m");
-        }
-        _ => {}
-    }
     if let Some(reason) = summary.incomplete_reason() {
         anyhow::bail!("{reason}");
     }

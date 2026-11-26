@@ -7,35 +7,24 @@ import { currentProject, processItems, toast, toastError, navigate_view } from "
 import { isAbsolutePath, normalizeRoot, relativeToRoot } from "./04-structured-parse.js";
 import { openToolItems } from "./12-open-tools.js";
 import { openProjectSpace } from "./12-workbench.js";
-import { jumpToEntry } from "./11-docs-list.js";
 import { openFilePreview, switchFilesTree } from "./17-files.js";
 import { filesRoot } from "./17-files-editor.js";
 import { setStructuredNav, structuredNav } from "./04-structured.js";
 import { openMemoryDetailById } from "./13-memory.js";
-import { openCustomDocViewer, openRuntimeMarkdown } from "./15-views-misc.js";
 export async function openUrlInApp(url) {
   const target = String(url ?? "");
   if (!target) return;
   try {
-    const page = await invoke("webfetch_preview", { url: target });
-    const depth = page.depth ? `[${page.depth}]\n` : "";
-    openRuntimeMarkdown(page.title || target, `${depth}${page.text || ""}`);
+    await navigator.clipboard.writeText(target);
+    toast(`${t("已复制")}: ${target}`, { kind: "ok" });
   } catch (error) {
     toastError(`${t("打开失败")}:${error}`);
   }
 }
-/// docs/ 下的 markdown 进应用内查看器;其余文件切到文件打开预览。
+/// 打开项目内文件路径（在 Phase 6 将升级为对话右侧伴生上下文抽屉）。
 export async function openStructuredPath(path, line = null, target = null) {
   const rel = String(path ?? "").replace(/\\/g, "/").replace(/^\.\//, "");
   if (!rel) return;
-  const project = target?.args.projectDir || currentProject;
-  const documentPath = target?.preview && sameProject(target.preview.root, project) ? target.preview.path : rel;
-  if (!target?.args.processId && /^docs\/.+\.md$/i.test(documentPath) && project) {
-    return runPathAction(async () => {
-      if (!sameProject(currentProject, project) && !await openProjectSpace(project, "documents")) return;
-      await openCustomDocViewer(project, documentPath);
-    });
-  }
   if (target) return runPathAction(() => openPathTargetInApp(target));
   navigate_view("files");
   void openFilePreview({ path: rel, line });
@@ -44,15 +33,12 @@ export function openStructuredMemory(scope, id) {
   navigate_view("memory");
   void openMemoryDetailById(scope, id);
 }
-/// R/D/I/S/F/T 走条目跳转;M-(项目)/U-(全局)进记忆详情;A- 没有对应视图,不跳。
+/// M-(项目)/U-(全局)进记忆详情。
 export function openStructuredRef(id) {
   const ref = String(id ?? "");
   if (/^[MU]-\d/.test(ref)) {
     openStructuredMemory(ref.startsWith("U-") ? "global" : "project", ref);
-    return;
   }
-  if (!ref || /^A-/.test(ref)) return;
-  void jumpToEntry(ref, { expand: true });
 }
 
 // Resolve the link's conversation before awaiting native tool discovery. Menu actions

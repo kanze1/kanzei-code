@@ -531,24 +531,3 @@ fn process_restore_is_isolated_per_project() {
     std::fs::remove_dir_all(&root_a).ok();
     std::fs::remove_dir_all(&root_b).ok();
 }
-
-#[tokio::test]
-async fn stop_closes_resource_admission_and_joins_in_flight_factories() {
-    use std::future::Future;
-    let root = kanzei_base::test_support::TestDir::new("kz-stop-producer-");
-    let store = kanzei_core::SessionStore::open(&root.join("state.db")).unwrap();
-    store.create_session("s", "project", None).unwrap();
-    let runtime = Arc::new(SessionRuntime::default());
-    let factory = runtime.admit_effect("factory").unwrap();
-    request_runtime_stop(&runtime, &store, &root.join("state.db"), "s").unwrap();
-    assert!(factory.token().is_cancelled());
-    assert!(runtime.admit_effect("late-factory").is_err());
-    let waiting = runtime.task_cancellations.settled();
-    tokio::pin!(waiting);
-    let pending =
-        std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx).is_pending()))
-            .await;
-    assert!(pending, "cleanup must wait for already admitted producers");
-    drop(factory);
-    waiting.await;
-}

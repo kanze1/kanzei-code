@@ -7,10 +7,9 @@ import { uiPrefsLoad } from "./00-ui-preferences.js";
 import { LANGUAGE_PREFERENCES, syncLanguagePreferenceFromSettings, t } from "./02-i18n.js";
 import { log, setStatus, toast, toastError } from "./03-shell.js";
 import { renderProjects, lastProjectPrefs } from "./09-sessions.js";
-import { refreshWorkspace } from "./12-docs-pages.js";
 import { persistLanguagePreference, updateResultText } from "./16-settings.js";
 import { active_space, restore_workspace_preferences, restore_active_workspace, sync_workspace_visibility } from "./03-workspaces.js";
-import { workbenchNavigationGuard, openProjectSpace } from "./12-workbench.js";
+import { workbenchNavigationGuard, openProjectSpace, refreshWorkspace } from "./12-workbench.js";
 import { openGeneralChat } from "./03-general-scope.js";
 
 // ---------- 启动 ----------

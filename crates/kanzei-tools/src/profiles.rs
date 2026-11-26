@@ -4,13 +4,8 @@
 use std::sync::Arc;
 
 use kanzei_harness::{
-    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileKind, ProfileScope,
-    ResolveCtx,
+    rule, source, AgentDef, AgentMode, Component, Effect, HarnessDraft, ProfileScope, ResolveCtx,
 };
-
-use crate::tracker::TrackerTool;
-use crate::work::WorkTool;
-use kanzei_memory::docstore::{DECISIONS, DEFECTS, IDEAS, REQUIREMENTS};
 
 #[cfg(test)]
 mod context_tests;
@@ -19,7 +14,6 @@ mod general;
 mod isolated;
 pub use isolated::IsolatedProfile;
 mod policy;
-mod project_indexes;
 mod readonly;
 pub use development::{DevelopmentProfile, DEVELOPMENT_DEFERRED_TOOLS};
 pub use general::{GeneralChatProfile, GeneralChatScope};
@@ -92,7 +86,6 @@ mod tests {
             "逐条对照验收",
             "真实调用方",
             "自主选择",
-            "不以登记作为修复前提",
             "只提交自己负责",
         ] {
             assert!(system.contains(required), "missing {required}");
@@ -415,63 +408,7 @@ mod tests {
         assert_eq!(mentions, vec!["req", "git", "node"]);
     }
 
-    #[test]
-    fn design_documents_remain_available_without_a_resident_index() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-r318-design-context-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei/project/architecture")).unwrap();
-        std::fs::create_dir_all(root.join("docs/design")).unwrap();
-        std::fs::write(
-            root.join(".kanzei/project/architecture/README.md"),
-            "## live_design\n- [identity: live_design; last_verified_commit: abcdef1] [`live.md`](../../../docs/design/live.md)\n## superseded\n- [identity: superseded; as_of_commit: abcdef1; superseded_by: live.md] [`old.md`](../../../docs/design/old.md)\n",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join("docs/design/live.md"),
-            "LIVE_DESIGN_BODY_MUST_NOT_BE_READ\n",
-        )
-        .unwrap();
-        std::fs::write(
-            root.join("docs/design/old.md"),
-            "SUPERSEDED_BODY_MUST_NOT_BE_READ\n",
-        )
-        .unwrap();
-
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevAuto,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevelopmentProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-        let baseline = snapshot.system_baseline().unwrap();
-        assert!(snapshot
-            .materialize_tools()
-            .iter()
-            .any(|tool| tool.name() == "architecture"));
-        assert!(!baseline.contains("live.md"));
-        assert!(
-            !baseline.contains("old.md"),
-            "superseded 设计入口不应进入默认索引上下文"
-        );
-        assert!(!baseline.contains("LIVE_DESIGN_BODY_MUST_NOT_BE_READ"));
-        assert!(!baseline.contains("SUPERSEDED_BODY_MUST_NOT_BE_READ"));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     /// D-173:硬 deny 与专用工具必须闭合。
-    /// 有工具的资源族要点名工具;没工具的要如实说"能力未实现"并堵死 shell 绕行。
     #[test]
     fn 每个硬deny资源族都给出真实可达的下一步() {
         let root = PathBuf::from("C:/kanzei-d173-test");
@@ -486,78 +423,15 @@ mod tests {
             .add(crate::BaseComponent)
             .add(DevelopmentProfile)
             .add(ConfigComponent);
-        // resolve 本身就是覆盖校验:声明的 required_tool 没注册会直接 bail。
         let snapshot = harness.resolve(&ctx).unwrap();
 
-        for (path, tool) in [
-            (".kanzei/project/requirements.md", "req"),
-            (".kanzei/project/defects-archive.md", "defect"),
-            (".kanzei/project/ideas.md", "idea"),
-            (".kanzei/project/decisions.md", "decision"),
-            (".kanzei/project/architecture/README.md", "architecture"),
-            (".kanzei/project/tests.md", "test_record"),
-            (".kanzei/project/tests-archive.md", "test_record"),
-            (".kanzei/memory/M-001-x.md", "memory_note"),
-        ] {
-            let normalized = kanzei_harness::permission::normalize_resource(path);
-            assert_eq!(
-                snapshot.evaluate("write", &normalized),
-                Effect::Deny,
-                "{path}"
-            );
-            let hint = snapshot.denial_hint("write", &normalized);
-            assert!(
-                hint.contains(&format!("`{tool}`")),
-                "{path} 的指引没点名 {tool}: {hint}"
-            );
-            if snapshot.is_deferred(tool) {
-                assert!(
-                    hint.contains("tool_search") && hint.contains(&format!("select:{tool}")),
-                    "对延迟工具 `{tool}` 的拒绝必须指向 tool_search select:{tool}: {hint}"
-                );
-            }
-        }
-
-        // 没有专用写入工具的资源族只报告能力缺失，不编造工具或追加工作。
-        // conventions.md 自 D-235 起有了专用工具,这里用另一个仍无工具的
-        // .kanzei/project 文件(如 notes.md)继续守「不得编造工具名」这条底线。
-        let uncovered = kanzei_harness::permission::normalize_resource(".kanzei/project/notes.md");
-        assert_eq!(snapshot.evaluate("write", &uncovered), Effect::Deny);
-        let hint = snapshot.denial_hint("write", &uncovered);
+        let normalized = kanzei_harness::permission::normalize_resource(".kanzei/memory/M-001-x.md");
+        assert_eq!(snapshot.evaluate("write", &normalized), Effect::Deny);
+        let hint = snapshot.denial_hint("write", &normalized);
         assert!(
-            hint.contains("no owning write tool is registered"),
-            "{hint}"
+            hint.contains("`memory_note`"),
+            "memory 路径的指引没点名 memory_note: {hint}"
         );
-        assert!(!hint.contains("defect add"), "{hint}");
-        assert!(
-            !hint.contains("use the dedicated tool"),
-            "不得编造不存在的工具: {hint}"
-        );
-
-        // conventions.md 现在有了合法通道,指引必须点名它,不能再说「没有专用工具」。
-        let conventions =
-            kanzei_harness::permission::normalize_resource(".kanzei/project/conventions.md");
-        assert_eq!(snapshot.evaluate("write", &conventions), Effect::Deny);
-        let hint = snapshot.denial_hint("write", &conventions);
-        assert!(
-            hint.contains("`conventions`"),
-            "指引没点名 conventions 工具: {hint}"
-        );
-        assert!(
-            hint.contains("tool_search") && hint.contains("select:conventions"),
-            "延迟 conventions 拒绝必须指向 tool_search select:conventions: {hint}"
-        );
-
-        // 架构索引现在有了合法通道,而且读/校验默认放行。
-        assert_eq!(snapshot.evaluate("architecture", "get"), Effect::Allow);
-        assert_eq!(snapshot.evaluate("architecture", "check"), Effect::Allow);
-        // UI2-0926 #7:架构图 lint 是只读动作,默认放行(agent 改完图直接自查)。
-        assert_eq!(snapshot.evaluate("architecture", "diagrams"), Effect::Allow);
-        assert_eq!(snapshot.evaluate("architecture", "update"), Effect::Ask);
-
-        // conventions 的读动作默认放行、写动作(patch)逐次询问——与 architecture 同口径。
-        assert_eq!(snapshot.evaluate("conventions", "get"), Effect::Allow);
-        assert_eq!(snapshot.evaluate("conventions", "patch"), Effect::Ask);
     }
 
     /// 覆盖校验必须真的会炸:声明了不存在的工具就不该装配成功。
@@ -592,37 +466,6 @@ mod tests {
             Err(error) => error.to_string(),
         };
         assert!(error.contains("ledger"), "{error}");
-    }
-
-    #[test]
-    fn dev_project_document_deny_survives_later_user_rules() {
-        let mut config = KanzeiConfig::default();
-        config
-            .permissions
-            .rules
-            .push(rule("write", "*.kanzei/project/*", Effect::Ask));
-        config
-            .permissions
-            .rules
-            .push(rule("write", "*.kanzei/project/*", Effect::Allow));
-        let root = PathBuf::from("C:/kanzei-d050-test");
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevAuto,
-            cwd: root.clone(),
-            project_root: root,
-            config: Arc::new(config),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevelopmentProfile)
-            .add(ConfigComponent);
-        let snapshot = harness.resolve(&ctx).unwrap();
-
-        assert_eq!(
-            snapshot.evaluate("write", r".KANZEI\project\requirements.md"),
-            Effect::Deny
-        );
     }
 
     /// Readonly installs its primary definition and exposes observation permissions.

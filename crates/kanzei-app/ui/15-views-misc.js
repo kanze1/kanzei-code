@@ -4,7 +4,6 @@ import { conversationHistory, readConversationHistory, invalidateConversationHis
 export { conversationHistory } from "./00-conversation-history.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { isGeneralChat, openGeneralChat } from "./03-general-scope.js";
-import { workbenchNavigationGuard } from "./12-workbench.js";
 import { segmentTitle, syncHistoryIfOpen } from "./12-session-tree.js";
 import { closeSurface, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./00-dom.js";
@@ -12,7 +11,6 @@ import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setCurrentReasoningHead } from "./05-chat-render.js";
 import { setCtxTokens } from "./03-shell.js";
 import { setActivePane } from "./01-chat-panes.js";
-import { escapeHtml } from "./04-markdown.js";
 import { $ } from "./00-dom.js";
 import { activePane, appendToPane, discardSessionPane, messages, promptBox, resetPane, showPane } from "./01-chat-panes.js";
 import { confirmDialog } from "./00-dialogs.js";
@@ -68,78 +66,28 @@ import { bgClear, renderRecoveredTraces } from "./06-activity.js";
 import { cancelAutoContinueTimer } from "./08-auto.js";
 import { initProjectGit, processRunning, processSwitchGeneration, projectFactsStale, refreshProcesses, refreshProjectFacts } from "./09-sessions.js";
 import { fillTemplate, formatByteSize, stripInternalHandoff } from "./04-structured-parse.js";
-import "./14-docs-actions.js";
 import { active_space, create_workspace_process, project_workspace } from "./03-workspaces.js";
 
-// R-053 快速记录(记需求/记缺陷)的表单随入口迁到需求页「＋ 新建」菜单:见 14-docs-quick.js。
-// 原来的版本挂在被隐藏的侧栏分区里(0×0),命令面板点了毫无反应(UX-053/B7)。
-
-// 项目规范由项目管理页、需求页更多菜单及设置页进入，共用 15-conventions.js 的编辑器，
-// 生成建议稿在规范对话框里;原来的侧栏「开发规范」分区从不可见,已删(UX-069 / B5)。
-
-// ---------- 应用内文档查看器:markdown/代码直接渲染,外部打开是兜底 ----------
-export let viewerKind = null;
-let viewerProject = null;
+// ---------- 应用内文档查看器:markdown/代码直接渲染 ----------
 let viewerGeneration = 0;
 function viewerRequest() {
-  const generation = ++viewerGeneration, navigationCurrent = workbenchNavigationGuard();
-  const project = currentProject, selection = processSwitchGeneration;
-  return () => generation === viewerGeneration && navigationCurrent()
-    && currentProject === project && processSwitchGeneration === selection;
+  const generation = ++viewerGeneration;
+  return () => generation === viewerGeneration;
 }
 function showViewer() {
-  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close", onClose: () => {
-    viewerGeneration += 1;
-    viewerKind = null; viewerProject = null;
-  } });
+  openDialog($("viewer-overlay"), { initialFocus: "#viewer-close" });
 }
 export function openRuntimeMarkdown(title, content) {
-  viewerGeneration += 1;
-  viewerKind = null;
-  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "md";
   renderMarkdownInto(body, content ?? "");
   body.scrollTop = 0;
   $("viewer-external").classList.add("hidden");
-  // <dialog> 模态经原语打开:原生惰性化背景、Esc/点外关闭、关闭后焦点归还;已开着则只换内容。
   showViewer();
-}
-export async function openCustomDocViewer(project, relPath) {
-  const isCurrent = viewerRequest();
-  const file = await invoke("docs_read_custom", { projectDir: project, relPath });
-  if (isCurrent() && currentProject === project) openRuntimeMarkdown(file.name || relPath, file.content);
-}
-export async function openDocViewer(kind) {
-  const isCurrent = viewerRequest();
-  const project = currentProject;
-  try {
-    const doc = await invoke("docs_read", { projectDir: project, kind });
-    if (!isCurrent()) return;
-    viewerKind = kind;
-    viewerProject = project;
-    $("viewer-external").classList.remove("hidden");
-    $("viewer-title").textContent = doc.name;
-    const body = $("viewer-body");
-    if (doc.name.endsWith(".md")) {
-      body.className = "md";
-      renderMarkdownInto(body, doc.content);
-    } else {
-      body.className = "";
-      body.innerHTML = `<pre class="code">${escapeHtml(doc.content)}</pre>`;
-    }
-    body.scrollTop = 0;
-    showViewer();
-  } catch (err) {
-    if (isCurrent()) toastError(String(err), { retry: () => { if (isCurrent()) return openDocViewer(kind); } });
-  }
 }
 /// 源码查看(图的「查看源码」/错误卡):带文件行号的只读代码,出错行高亮并滚进视口。
 export function openRuntimeSource(title, source, { line = null, startLine = 1 } = {}) {
-  viewerGeneration += 1;
-  viewerKind = null;
-  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-source-view";
@@ -168,11 +116,8 @@ export function openRuntimeSource(title, source, { line = null, startLine = 1 } 
   showViewer();
   target?.scrollIntoView?.({ block: "center" });
 }
-/// UI2-0926 #8:工具截图 / 交付图片的大图查看(src 是 data URL,由 24-preview.js 经 tool_image / delivered_image 取来)。
+/// UI2-0926 #8:工具截图 / 项目图片的大图查看。
 export function openRuntimeImage(title, src) {
-  viewerGeneration += 1;
-  viewerKind = null;
-  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-image-view";
@@ -188,9 +133,6 @@ export function openRuntimeImage(title, src) {
 }
 /// 聊天/文档里的图「放大」:在查看器里按页面模式重挂一张(适应/缩放/平移)。
 export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 } = {}) {
-  viewerGeneration += 1;
-  viewerKind = null;
-  viewerProject = null;
   $("viewer-title").textContent = title;
   const body = $("viewer-body");
   body.className = "kz-diagram-viewer";
@@ -205,14 +147,6 @@ defer(() => {
     openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")}  ${path || title}`, source, { line, startLine }),
     openLarge: ({ title, source, path, sourceLine }) => openRuntimeDiagram(title, source, { path, sourceLine }),
     toast: (text, kind) => toast(text, { kind }),
-  });
-});
-defer(() => {
-  $("viewer-external").addEventListener("click", () => {
-    if (!viewerKind || !viewerProject) return;
-    const args = { projectDir: viewerProject, kind: viewerKind };
-    const open = () => invoke("docs_open", args).catch((error) => toastError(String(error), { retry: open }));
-    void open();
   });
 });
 
@@ -1312,10 +1246,4 @@ export async function startNewConversation() {
 
 defer(() => {
   $("new-chat").addEventListener("click", () => void startNewConversation());
-});
-
-defer(() => {
-  for (const [btn, kind] of [["req-open", "req"], ["defect-open", "defect"], ["idea-open", "idea"]]) {
-    $(btn).addEventListener("click", () => openDocViewer(kind));
-  };
 });

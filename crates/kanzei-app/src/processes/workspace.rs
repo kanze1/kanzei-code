@@ -15,9 +15,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use kanzei_harness::orchestration::{ProjectExecutionCoordinator, WriterLease, WriterLeaseRequest};
-use kanzei_llm::{Message, Part};
-use kanzei_memory::docstore::DocStore;
-use kanzei_memory::docstore::{DEFECTS, REQUIREMENTS};
 
 use crate::{normalized_project_root, process_session_id, AppState, WorktreeInfo};
 use kanzei_tools::worktree as wt;
@@ -324,24 +321,9 @@ pub(crate) fn merge_worktree_and_release(
     worktree_path: &str,
 ) -> Result<String, String> {
     let worktree = wt::validate_worktree_path(root, worktree_path)?;
-    let project = root.display().to_string();
-    let bound = bound_thread_for_worktree(state, root, &project, &wt::worktree_key(&worktree))?;
-    let branch = wt::worktree_current_branch(&worktree)?;
-    let merged = with_idle_bound_process(state, root, &worktree, "合并", || {
+    with_idle_bound_process(state, root, &worktree, "合并", || {
         wt::merge_worktree(root, worktree_path)
-    })?;
-    if bound.is_none() {
-        return Ok(merged);
-    }
-    match kanzei_tools::release_line_claims(root, &branch, "worktree-merged") {
-        Ok(released) if !released.is_empty() => {
-            Ok(format!("{merged};已释放需求绑定 {}", released.join(", ")))
-        }
-        Ok(_) => Ok(merged),
-        Err(error) => Ok(format!(
-            "{merged};警告:合并已完成，但需求绑定释放失败({error})，请关闭这个独立任务重试释放"
-        )),
-    }
+    })
 }
 
 /// 在绑定线路的 lifecycle 临界区内检查并执行工作树破坏性操作。检查通过后，
@@ -422,129 +404,4 @@ pub async fn worktree_discard(
     // R-171 批4:worktree 放弃(remove 工作树)是项目级写操作,接入写仲裁。
     let _lease = acquire_project_write_lease(&state, &root, "worktree discard").await?;
     discard_worktree_and_unregister(&state, &root, &worktree_path)
-}
-
-/// R-184 批5(收活格5):合并成功后,把线的交付回写**主根** tracker。
-///
-/// 设计文档 §5 ⑤:回写必须走 tracker 工具落主根一份,标记带取得者代号;线全程
-/// 不碰 `.kanzei/**`(两个 worktree 相隔 10 秒各登记一条缺陷都拿到 D-267 的教训)。
-/// 这里就是桌面端那个落点:claims 里的条目 ID 决定写哪个 docstore,`append_progress`
-/// 走与 `TrackerTool::execute` 相同的跨进程锁与完整性门禁,只追加「进展」不改状态
-/// (该不该 done/open 仍由取活判定负责)。
-///
-/// claim 不是条目 ID(自由文本)时拒绝回写——宁可让用户看到"无法自动回写",
-/// 也不能猜一个 ID 写错条目。acceptance 检查在关闭时由主代理用自己的 tracker
-/// 工具做,不在这里越权。
-pub(crate) fn parse_harvest_claim(claim: &str) -> Result<(&str, &str), String> {
-    let Some((prefix, id)) = claim.split_once('-') else {
-        return Err(format!(
-            "条目 `{claim}` 不是条目编号(应为 R-xxx / D-xxx),无法自动更新;请让主对话手动登记合并结果。"
-        ));
-    };
-    if id.is_empty() || !id.chars().all(|ch| ch.is_ascii_digit()) {
-        return Err(format!(
-            "条目 `{claim}` 不是严格的 R-xxx / D-xxx 条目编号,无法自动更新;请让主对话手动登记合并结果。"
-        ));
-    }
-    match prefix {
-        "R" | "D" => Ok((prefix, id)),
-        _ => Err(format!(
-            "条目 `{claim}` 的类型不支持自动更新合并结果(R/D 之外);请让主对话手动登记。"
-        )),
-    }
-}
-
-fn tracker_ids_in_text(text: &str) -> impl Iterator<Item = &str> {
-    text.split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
-        .filter(|token| parse_harvest_claim(token).is_ok())
-}
-
-pub(crate) fn harvest_tracker_candidates_from_messages(
-    root: &Path,
-    messages: &[Message],
-) -> Vec<String> {
-    let mut existing = std::collections::HashSet::new();
-    for (kind, prefix) in [(&REQUIREMENTS, "R"), (&DEFECTS, "D")] {
-        if let Ok(entries) = DocStore::open(root, kind).load() {
-            existing.extend(
-                entries
-                    .into_iter()
-                    .filter(move |entry| entry.id.starts_with(prefix))
-                    .map(|entry| entry.id),
-            );
-        }
-    }
-    let mut seen = std::collections::HashSet::new();
-    let mut candidates = Vec::new();
-    // 最新消息优先。只读可见文本，不把工具参数/结果里的偶然 ID 当成交付声明；
-    // 同时要求 ID 当前真实存在，避免把示例 R-xxx 或已归档条目送进回写入口。
-    for message in messages.iter().rev() {
-        for part in message.parts.iter().rev() {
-            let Part::Text { text } = part else {
-                continue;
-            };
-            for id in tracker_ids_in_text(text) {
-                if existing.contains(id) && seen.insert(id.to_string()) {
-                    candidates.push(id.to_string());
-                }
-            }
-        }
-    }
-    candidates
-}
-
-/// D-314:收活第 5 格的条目候选来自**该线路**最新对话，并与主根活动 tracker
-/// 求交。接口只读，不改 runtime conversation，也不猜多候选的主次。
-#[tauri::command]
-pub fn worktree_harvest_candidates(
-    project_dir: String,
-    process_id: String,
-) -> Result<Vec<String>, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    let state_path = kanzei_core::project_state_path(&root);
-    let store = kanzei_core::SessionStore::open(&state_path).map_err(|error| error.to_string())?;
-    let session_id = process_session_id(&root, Some(&process_id));
-    // R-242 批6:UI 历史恢复(收活候选对话)真源切到事件投影;gate 回退时走 legacy。
-    let messages = if crate::projection_gate::read_path_uses_projection("ui_history") {
-        let facts = store
-            .list_latest_segment_facts(&session_id)
-            .map_err(|error| error.to_string())?;
-        kanzei_core::project_session_facts(&facts).surface_messages
-    } else {
-        crate::conversation::recover_messages_raw(&store, &session_id, None)
-            .map_err(|error| error.to_string())?
-    };
-    Ok(harvest_tracker_candidates_from_messages(&root, &messages))
-}
-
-#[tauri::command]
-pub async fn worktree_harvest_writeback(
-    project_dir: String,
-    worktree_path: String,
-    claim: String,
-    agent_code: String,
-    branch: String,
-) -> Result<String, String> {
-    let root = normalized_project_root(Path::new(&project_dir));
-    // 收活对象必须是 git 认得的真实工作树(与 merge/gate 同一条路径校验),防越界。
-    let _worktree = wt::validate_worktree_path(&root, &worktree_path)?;
-    let (prefix, id) = parse_harvest_claim(&claim)?;
-    let kind = match prefix {
-        "R" => &REQUIREMENTS,
-        "D" => &DEFECTS,
-        _ => unreachable!("parse_harvest_claim only returns R/D"),
-    };
-    let note = format!(
-        "由独立任务 {agent_code} 交付并合并(branch {branch})。合并收尾回写来自 {worktree_path}。"
-    );
-    let updated = kanzei_tools::tracker::append_progress(&root, kind, id, &note)?;
-    let progress = updated
-        .fields
-        .iter()
-        .find(|(k, _)| k == "进展")
-        .map(|(_, v)| v.as_str())
-        .unwrap_or_default();
-    Ok(format!(
-        "已把合并记录写进 {id} 的进展。当前进展:\n{progress}"
-    ))
 }

@@ -135,8 +135,6 @@ import {
   renderParallelTaskStatus,
   renderProcesses,
 } from "./09-sessions.js";
-import { markRuntimeFocusStale, setRuntimeFocus } from "./12-docs-pages.js";
-import { refreshDocs, refreshDocsSoon } from "./14-docs-actions.js";
 import { refreshConversationList, refreshGit, refreshGitSoon } from "./15-views-misc.js";
 import { autoAllowEnabled, onLayoutChange, setAutoAllowEnabled } from "./03-layout.js";
 // UI-0926 #10:权限卡资源、压缩纪要、上下文详情的结构化渲染。
@@ -194,9 +192,6 @@ defer(() => {
     setCtxPending(true);
     renderTokens();
     if (p.step === 1) agentAuditBegin(p.sessionId);
-    // 新一轮 run 开跑:上一轮的「在做」运行证据降级为遗留(不删除)——删了就是
-    // 每轮开头一段"未绑定条目"空窗;新证据到达时自然覆盖。
-    if (p.step === 1) markRuntimeFocusStale(p.sessionId);
     if (p.step > 1) {
       clearEmptyState();
       // 轮次分隔不再进主对话区(用户定调:对话为主);轮次在侧边栏"当前进展"实时可见。
@@ -425,13 +420,6 @@ defer(() => {
     // UI-0926 #8:子代理卡片(与侧栏)同一数据流:meta 给人格与模型,start/end 给尾迹与过程,
     // usage 是累计值(替换),text 是子代理自述。后台线路也推进(BACKGROUND_RENDER_EVENTS)。
     subagentProgress({ sessionId: payload.sessionId, id: payload.id, text: payload.text, trace: payload.trace });
-    // 子代理不会单独发顶层 tool-end；它每提交一个批次时由 task-progress 带回。
-    // 这里马上重新取 Git 推导的进度，不等 parent task 或整轮结束。
-    // 「在做」运行证据③:子代理的批次提交同样指认实际在推的条目。
-    if (isBatchCommit(payload.trace)) {
-      setRuntimeFocus(workItemIdFrom(payload.trace?.preview), payload.sessionId);
-      refreshDocsSoon();
-    }
   });
 });
 defer(() => {
@@ -449,27 +437,8 @@ defer(() => {
       ? toolResultSummary(p.name, { ok: p.ok, outcome, code: p.code, content: p.content, preview: p.preview, contentTruncated: p.contentTruncated, contentBytes: p.contentBytes, display: p.display }).text
       : p.preview;
     log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
-    // 工作焦点:req/defect/idea 的增改结果最能代表"它在干哪件事"。侧栏原来另有一行
-    // #live-focus 抄一遍这条结果,与「各线当前在做」焦点卡重复,UI-0926 #4 删掉;焦点卡靠下面的运行证据。
-    if (p.ok && ["req", "defect", "idea"].includes(p.name)) {
-      // 「在做」运行证据①:update 型 tracker 结果(取活时标 doing/fixing、批次进展
-      // 都走这里)。add(快记新增)与 close(刚收尾)不指向正在做的条目,不采。
-      if (["req", "defect"].includes(p.name) && /^updated:/.test(p.preview)) {
-        setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
-      }
-      // 文档已经变了,侧栏列表与状态按钮跟着刷新,不等本轮结束。
-      refreshDocsSoon();
-    }
-    // Git 提交标题是批次进度的真源，成功提交后立即重拉文档快照。
-    // 「在做」运行证据②:批次提交标题以条目 ID 开头,是最强的"实际在推谁"信号。
-    if (isBatchCommit(p)) {
-      setRuntimeFocus(workItemIdFrom(p.preview), p.sessionId);
-      refreshDocsSoon();
-    }
-    // 测试记录同理:跑完测试后左侧应立即出现结果。
-    if (p.ok && ["source", "finding"].includes(p.name)) refreshDocsSoon();
     // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
-    if (p.ok && ["write", "edit", "multiedit", "bash"].includes(p.name)) refreshGitSoon();
+    if (p.ok && ["write", "edit", "multiedit", "bash", "git"].includes(p.name)) refreshGitSoon();
     // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
     const toolEndExtra = {
       content: p.content,
@@ -766,7 +735,6 @@ defer(() => {
     refreshConversationList();
     // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
     liveIdle(`${t("空闲")}  ${t("上轮")} ${p.steps} ${t("轮")}  ${endReason || t("本轮结束")}`);
-    refreshDocs();
     refreshGit();
     refreshPendingInputs();
   

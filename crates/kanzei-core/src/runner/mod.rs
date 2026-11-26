@@ -70,11 +70,6 @@ impl AskPolicy {
     pub(crate) fn allows_permission_prompt(self) -> bool {
         matches!(self, Self::Interactive | Self::DeferredQuestions)
     }
-
-    /// question 使用决策记录通道；不要求普通实现选择逐个留档。
-    pub fn records_questions(self) -> bool {
-        !matches!(self, Self::Interactive)
-    }
 }
 
 pub struct RunnerConfig {
@@ -300,14 +295,9 @@ mod tests {
     #[test]
     fn 自举与并行线禁止用户询问() {
         assert!(AskPolicy::Interactive.allows_permission_prompt());
-        assert!(!AskPolicy::Interactive.records_questions());
         assert!(AskPolicy::DeferredQuestions.allows_permission_prompt());
-        assert!(AskPolicy::DeferredQuestions.records_questions());
         assert!(!AskPolicy::NonInteractive.allows_permission_prompt());
-        assert!(AskPolicy::NonInteractive.records_questions());
-        // D-281:AutoAllow 也不弹用户窗——自动放行放的是权限,不是问题。
         assert!(!AskPolicy::AutoAllow.allows_permission_prompt());
-        assert!(AskPolicy::AutoAllow.records_questions());
     }
 
     #[test]

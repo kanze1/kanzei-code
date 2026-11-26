@@ -387,11 +387,6 @@ pub(crate) fn memory_graph_with(
             node["hits"] = json!(hits.get(&key).copied().unwrap_or(0));
         }
     }
-    if let Err(error) = crate::decisions::append_graph_lineage(root, &mut value) {
-        if let Some(warnings) = value["warnings"].as_array_mut() {
-            warnings.push(json!(format!("决策来源暂不可用：{error}")));
-        }
-    }
     value["cache"] = json!(if hit { "hit" } else { "miss" });
     value["build_ms"] = json!(started.elapsed().as_millis() as u64);
     value["generated_at"] = json!(now_ms());

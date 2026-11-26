@@ -329,7 +329,7 @@ mod tests {
                         config: std::sync::Arc::new(config),
                     };
                     let snapshot =
-                        crate::run::assembly::build_run_harness(ctx.profile, false)
+                        crate::run::assembly::build_run_harness(ctx.profile)
                             .resolve(&ctx)
                             .unwrap();
                     let preferences = snapshot

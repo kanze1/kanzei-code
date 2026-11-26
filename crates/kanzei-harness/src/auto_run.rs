@@ -43,32 +43,9 @@ pub fn has_progress_tools(tools: &[String]) -> bool {
         .any(|name| !NON_PROGRESS_TOOLS.contains(&name.as_str()))
 }
 
-/// 轮末 backlog 状态(由调用方查询 docs_snapshot 后传入)。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BacklogStatus {
-    /// 存在可推进条目:继续正常取活。
-    Workable,
-    /// 活动条目全部外部阻塞:继续跑只会空转烧钱(R-128)。
-    AllBlocked,
-    /// 没有活动条目(已清空):同样空转。
-    Empty,
-    /// 查询失败:按可推进处理,绝不因探测故障误停。
-    Unknown,
-}
-
-impl BacklogStatus {
-    fn should_stop(&self) -> bool {
-        matches!(self, BacklogStatus::AllBlocked | BacklogStatus::Empty)
-    }
-}
-
-/// 停止原因(枚举;i18n 文案由 UI 层按枚举映射,引擎不产生用户可读文案)。
+/// 停止原因(枚举;文案由 UI 层按枚举映射,引擎不产生用户可读文案)。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AutoStopReason {
-    /// 活动条目全部阻塞(R-128:阻塞解除后可恢复)。
-    AllBlocked,
-    /// 活动条目已清空。
-    BacklogEmpty,
     /// 用户暂停。
     Paused,
     /// 用户勾选「本轮后停」(一次性意图,不持久化)。
@@ -76,32 +53,22 @@ pub enum AutoStopReason {
     /// 连续两轮无实质动作。
     NoAction,
     /// 当前档位不允许自动续跑，停止由共享控制器判定。
-    /// 档位作为输入进 AutoRunCtx,前端不再持有引擎不知道的否决权。
     ProfileMismatch,
-    /// D-403:连续 N 轮瞬态失败(退避重试仍失败),停止并通知——
-    /// provider 可能长时间不可用,继续空转只会烧钱。
+    /// 连续 N 轮瞬态失败(退避重试仍失败),停止并通知。
     RepeatedFailure(u32),
-    /// D-403:本轮以致命错误失败(认证/配置类),重试只会原样复现,立即停。
+    /// 本轮以致命错误失败(认证/配置类),立即停。
     FatalError,
-    /// provider 明确返回限流/过载(通常是 HTTP 429):本轮自动推进立即停，
-    /// 等待用户确认配额恢复后手动恢复，避免继续消耗订阅额度。
+    /// provider 明确返回限流/过载(通常是 HTTP 429)。
     RateLimited,
-    /// D-583:连续 ZERO_OUTPUT_ROUND_LIMIT 轮真实进展签名未变(带触发轮数供展示)——
-    /// 与 NoAction 互补:那个防「整轮不调用任何工具」,这个防「调用了工具但什么也没变」。
+    /// 连续 ZERO_OUTPUT_ROUND_LIMIT 轮真实进展签名未变。
     ZeroOutput(u32),
-    /// 模型声明当前请求完成,调用方已核对请求身份;仅用于结伴委托。
-    /// 自主队列仍有工作时,请求完成不能结束整条线路。
+    /// 模型声明当前请求完成。
     ModelDeclaredDone,
-    /// R-322 B3:用户给定的目标条件已达成(模型判定并声明),目标随之自动清除。
-    /// 与 ModelDeclaredDone 同源(都是模型的声明),分开只为让 UI 说得准确:
-    /// 这一条要回显「哪个目标达成了」。
+    /// 用户给定的目标条件已达成(模型判定并声明),目标随之自动清除。
     GoalMet,
-    /// R-322 B3:目标条件挂着,但连续 GOAL_IDLE_ROUND_LIMIT 轮没有实质动作。
-    /// 目标可能表述不清、或者根本达不到——继续推只会烧钱,停下来让用户改条件。
+    /// 目标条件挂着,但连续 GOAL_IDLE_ROUND_LIMIT 轮没有实质动作。
     GoalUnreachable(u32),
-    /// UI2-0926 #13:模型在等用户回答(本轮用 question 提了问、问题还挂着,或者最终回复
-    /// 明显以向用户提问收尾)。与 ModelDeclaredDone 同属模型的停机权:引擎不再推进,
-    /// 但鞭挞保持开着——用户一回复,下一轮照常续跑。挂着的目标不清除。
+    /// 模型在等用户回答。
     AwaitingUser,
 }
 
@@ -116,68 +83,15 @@ pub enum AutoRunAction {
     Stop(AutoStopReason),
     /// 用户拒绝/手动停止本轮:不续跑、不重置计数(等手动输入重新武装)。
     NoContinue,
-    /// D-403:本轮瞬态失败,退避后重试(attempt = 当前连续失败次数,计数已 +1;
-    /// 退避时长由调用方按 attempt 换算,引擎不持时钟)。
+    /// 本轮瞬态失败,退避后重试。
     RetryAfterFailure { attempt: u32 },
-    /// R-322 B3:目标条件尚未达成,再推一轮(计数已 +1)。
-    ///
-    /// **与 [`AutoRunAction::Nudge`] 的区别是文案来源,不是行为**:Nudge 的内容是
-    /// 引擎生成的(`nudge_prompt`:续跑提示和当前队列事实),而这条的内容是
-    /// **用户自己写下的停止条件**,引擎只负责复述。前者是引擎替模型决定该干什么,
-    /// 正是 #7 双控制器问题的来源;后者是用户给了目标、模型自己判断达没达成——
-    /// 控制权仍在模型手里,引擎只是不让它半途散场。
-    ///
-    /// 调用方负责把目标原文作为下一轮输入发回(与 Nudge 同款机制)。
+    /// 目标条件尚未达成,再推一轮(计数已 +1)。
     GoalPending,
 }
 
-/// 取活顺序。桌面输入由 app::auto_run::work_priority_enum 解析，执行提示由 tools::work 构造。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkPriority {
-    RequirementFirst,
-    DefectFirst,
-}
-
-/// 引擎当前选中的条目(取自 `resolve_work_decision`,与 `work next` 同源)。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SelectedItem {
-    pub id: String,
-    pub title: String,
-    pub status: String,
-}
-
-/// 当前选择、现有队列及记录中的阻塞标记；只提供续跑时的状态投影。
-/// 记录不证明阻塞仍成立，也不扩大原委托的授权范围。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct NudgeFacts {
-    /// 引擎当前选中的条目;None = 没有可取的条目(全阻塞/清空/没有 tracker)。
-    pub selected: Option<SelectedItem>,
-    /// 项目里实际存在的 tracker 队列文件名(如 `requirements.md`)。
-    pub queues: Vec<String>,
-    /// 记录中阻塞字段指向用户的活动条目 ID。
-    pub user_blocked: Vec<String>,
-}
-
-/// Engine-authored continuation with factual queue state; it does not add authorization.
-pub fn nudge_prompt(facts: &NudgeFacts) -> String {
-    let mut out =
-        String::from("自动续跑检查点：根据当前委托和现有证据，自主决定下一步或交付结果。\n");
-    if let Some(item) = &facts.selected {
-        out.push_str(&format!(
-            "当前选中 {}「{}」({})。\n",
-            item.id, item.title, item.status
-        ));
-    }
-    if !facts.queues.is_empty() {
-        out.push_str(&format!("现有队列：{}。\n", facts.queues.join("、")));
-    }
-    if !facts.user_blocked.is_empty() {
-        out.push_str(&format!(
-            "记录中标为等待用户的条目：{}。\n",
-            facts.user_blocked.join("、")
-        ));
-    }
-    out
+/// 引擎生成的续跑检查点文案，不扩大原委托授权范围。
+pub fn nudge_prompt() -> &'static str {
+    "自动续跑检查点：根据当前委托和现有证据，自主决定下一步或交付结果。\n"
 }
 
 /// 自主推进状态:跨轮计数与用户一次性意图。
@@ -255,16 +169,6 @@ impl AutoRunState {
     /// 无人值守时这是唯一的失控兜底,**两档都保留**,别按强度关掉它。
     pub fn decide(&mut self, ctx: &AutoRunCtx) -> AutoRunAction {
         let policy = ctx.intensity.policy();
-        // R-322 B3:目标挂着时工作来源是**目标**,不是队列——用户说「把 X 做完」,
-        // 跟 requirements.md 里还剩几条毫无关系。所以目标压过 backlog 判据。
-        if policy.backlog_stops_loop && !ctx.goal_active && ctx.backlog.should_stop() {
-            let reason = match ctx.backlog {
-                BacklogStatus::AllBlocked => AutoStopReason::AllBlocked,
-                BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
-                _ => unreachable!(),
-            };
-            return self.stop_with(reason);
-        }
         if !ctx.auto_allowed {
             return self.stop_with(AutoStopReason::ProfileMismatch);
         }
@@ -277,8 +181,6 @@ impl AutoRunState {
         if self.stop_after_round {
             return self.stop_with(AutoStopReason::StopAfterRound);
         }
-        // D-403:失败轮不算「无动作」——模型没机会动作,不该吃 Nudge/NoAction 刹车。
-        // 瞬态失败退避重试,连续 MAX_FAILED_ROUNDS 轮才停;致命/限流失败立即停不空转。
         if let Some(failure) = ctx.round_failure {
             self.no_action_rounds = 0;
             return match failure {
@@ -298,13 +200,12 @@ impl AutoRunState {
             };
         }
         self.failed_rounds = 0;
-        // 完成范围先匹配委托,局部交付不能终止整条线路。
         match ctx.completion {
             Some(crate::handoff::HandoffScope::Goal) if ctx.goal_active => {
                 return self.stop_with(AutoStopReason::GoalMet);
             }
             Some(crate::handoff::HandoffScope::Request)
-                if !ctx.goal_active && !policy.backlog_stops_loop =>
+                if !ctx.goal_active && !policy.engine_nudge =>
             {
                 return self.stop_with(AutoStopReason::ModelDeclaredDone);
             }
@@ -456,14 +357,8 @@ impl HarnessIntensity {
         match self {
             HarnessIntensity::Paired => IntensityPolicy {
                 engine_nudge: false,
-
-                backlog_stops_loop: false,
             },
-            HarnessIntensity::Autonomous => IntensityPolicy {
-                engine_nudge: true,
-
-                backlog_stops_loop: true,
-            },
+            HarnessIntensity::Autonomous => IntensityPolicy { engine_nudge: true },
         }
     }
 }
@@ -474,52 +369,30 @@ pub struct IntensityPolicy {
     /// 引擎能否在模型本轮无实质动作时追加推进指令(Nudge)。
     /// false = 模型说没什么可做就是没什么可做,引擎不制造工作。
     pub engine_nudge: bool,
-    /// backlog 空/全阻塞时是否停止本 loop。
-    ///
-    /// **只对自主档成立**:那一档的活**来自 tracker 队列**,队列空就是真的没活了。
-    /// 结伴档的活来自**用户的上一条消息**——用户让你解释一段代码、跑一次实验、
-    /// 改一个 CSS,跟 requirements.md 里有没有条目毫无关系。在结伴档拿队列状态
-    /// 当停机判据,等于一开轻 loop 就立刻 Stop(BacklogEmpty),轻 loop 名存实亡。
-    pub backlog_stops_loop: bool,
 }
 
 /// 轮末判定输入。
 #[derive(Clone, Debug)]
 pub struct AutoRunCtx<'a> {
-    pub backlog: BacklogStatus,
     /// 用户拒绝/手动停止(前端 kz:done 的 halted 字段)。
     pub halted: bool,
-    /// 本轮门禁强度，决定无动作续跑提示与队列停止判断。
+    /// 本轮门禁强度，决定无动作续跑提示。
     pub intensity: HarnessIntensity,
     /// 已由调用方核对当前请求/目标身份的完成范围。局部事项和批次只记进度。
     pub completion: Option<crate::handoff::HandoffScope>,
-    /// UI2-0926 #13:模型本轮在等用户回答。来源(调用方组装):① 本轮 question 调用以
-    /// `pending_question` 收口(自主轮没有人当场回答,问题挂起);② 兜底:最终助手文本明显
-    /// 以向用户提问收尾(保守的散文判据,见桌面端 `ends_with_user_question`)。
-    /// 只由交互模式产生;自主模式自行决策或登记缺少的事实,继续独立工作。
+    /// 模型本轮在等用户回答。
     pub awaiting_user: bool,
-    /// R-322 B3:是否挂着用户给定的目标条件。
-    ///
-    /// 挂上之后停止规则整体换掉:**不再由引擎猜「还有没有活干」**——
-    /// backlog 空不停(目标才是工作来源,不是队列)、一轮没动作也不停
-    /// (改为复述目标再推一轮),只有模型声明达成、用户喊停、或资源兜底才停。
-    /// 这是 Claude Code `/goal` 的形状:条件由用户给,达成与否由模型判,
-    /// 引擎只负责在达成前不让它散场、并在无限空转时兜底。
+    /// 是否挂着用户给定的目标条件。
     pub goal_active: bool,
     /// 本轮工具调用轮数。
     pub steps: u32,
     /// 本轮实际调用的工具名列表(供空转画像判定)。
     pub tools: &'a [String],
-    /// R-199:当前模式是否允许自主推进(引擎知道的档位条件,前端不再持有)。
+    /// 当前模式是否允许自主推进。
     pub auto_allowed: bool,
-    /// R-144:本轮实际关闭的条目数(req/defect close 成功计数)。
-    pub closed_this_round: u32,
-
-    /// D-403:本轮运行失败及其性质;None = 本轮正常完成。失败轮由调用方分类后
-    /// 送进判定(瞬态=退避重试,致命=立即停),不再在轮末判定之前提前返回。
+    /// 本轮运行失败及其性质;None = 本轮正常完成。
     pub round_failure: Option<RoundFailure>,
-    /// D-583:本轮「真实进展」签名——调用方按 (HEAD、代码 worktree hash、tracker
-    /// 文档内容) 拼出,与上一轮的值逐字节比较;引擎不关心怎么算出来的,只做纯比较。
+    /// 本轮「真实进展」签名——与上一轮的值逐字节比较。
     pub progress_signature: &'a str,
 }
 
@@ -544,9 +417,7 @@ mod tests {
 
     fn ctx_with_tools(tools: &[String]) -> AutoRunCtx<'_> {
         AutoRunCtx {
-            backlog: BacklogStatus::Workable,
             halted: false,
-            // 既有测试全部锚定自主档(引入强度维度前的行为),逐条断言不变。
             intensity: HarnessIntensity::Autonomous,
             completion: None,
             awaiting_user: false,
@@ -554,11 +425,7 @@ mod tests {
             steps: 1,
             tools,
             auto_allowed: true,
-            closed_this_round: 0,
-
             round_failure: None,
-            // 空串 = 不追踪(见 decide() 里的哨兵说明),现有测试默认不关心 D-583;
-            // 需要模拟「签名不变/改变」的测试自行覆盖为具体值。
             progress_signature: "",
         }
     }
@@ -841,75 +708,6 @@ mod tests {
     }
 
     #[test]
-    fn 全部阻塞或清空_优先于其它判定停止() {
-        let mut state = AutoRunState::default();
-        // 即使有动作、未暂停、未达上限:全阻塞照样停(前端 stopAutoWhenBacklogEmpty 最先跑)。
-        let ok = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["edit"]),
-            ..ctx_with_tools(&[])
-        };
-        let mut blocked_ctx = ok.clone();
-        blocked_ctx.backlog = BacklogStatus::AllBlocked;
-        assert_eq!(
-            state.decide(&blocked_ctx),
-            AutoRunAction::Stop(AutoStopReason::AllBlocked)
-        );
-        assert_eq!(state.rounds, 1);
-
-        let mut empty_ctx = ok.clone();
-        empty_ctx.backlog = BacklogStatus::Empty;
-        assert_eq!(
-            state.decide(&empty_ctx),
-            AutoRunAction::Stop(AutoStopReason::BacklogEmpty)
-        );
-    }
-
-    #[test]
-    fn 阻塞解除后_恢复续跑() {
-        // R-128 验收后半段:全阻塞停止后,阻塞字段清空、backlog 回到 Workable,
-        // 下一轮判定应恢复正常续跑(停止仅由当时的 backlog 状态触发,不持久锁死)。
-        let mut state = AutoRunState::default();
-        let ok = AutoRunCtx {
-            steps: 2,
-            tools: &mk_tools(&["edit"]),
-            ..ctx_with_tools(&[])
-        };
-        let mut blocked_ctx = ok.clone();
-        blocked_ctx.backlog = BacklogStatus::AllBlocked;
-        assert_eq!(
-            state.decide(&blocked_ctx),
-            AutoRunAction::Stop(AutoStopReason::AllBlocked)
-        );
-        assert_eq!(state.rounds, 1);
-        // 阻塞解除:同一状态机,backlog 回到 Workable → 正常续跑并计数。
-        assert_eq!(state.decide(&ok), AutoRunAction::Continue);
-        assert_eq!(state.rounds, 2);
-    }
-
-    #[test]
-    fn backlog查询失败_按可推进处理不误停() {
-        let mut state = AutoRunState::default();
-        let t = mk_tools(&["edit"]);
-        let ctx = AutoRunCtx {
-            backlog: BacklogStatus::Unknown,
-            halted: false,
-            intensity: HarnessIntensity::Autonomous,
-            completion: None,
-            awaiting_user: false,
-            goal_active: false,
-            steps: 2,
-            tools: &t,
-            auto_allowed: true,
-            closed_this_round: 0,
-
-            round_failure: None,
-            progress_signature: "",
-        };
-        assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
-    }
-
-    #[test]
     fn 用户拒绝_halted_不续跑也不重置计数() {
         let mut state = AutoRunState {
             rounds: 5,
@@ -1012,53 +810,6 @@ mod tests {
         for _ in 0..5 {
             assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
         }
-    }
-
-    /// UI2-0926 #13:文案只取项目真实状态——不写不存在的文件名,不再说「不要再做可行性判断」,
-    /// 给出 question/阻塞 的出路,并保留「复核阻塞是否还成立」(kanzei 自举靠它复核历轮阻塞)。
-    #[test]
-    fn nudge_prompt_按项目状态生成() {
-        let facts = NudgeFacts {
-            selected: Some(SelectedItem {
-                id: "R-001".into(),
-                title: "移动端 Markdown 上下文库".into(),
-                status: "doing".into(),
-            }),
-            queues: vec!["requirements.md".into()],
-            user_blocked: Vec::new(),
-        };
-        let p = nudge_prompt(&facts);
-        assert!(
-            p.contains("R-001「移动端 Markdown 上下文库」(doing)"),
-            "{p}"
-        );
-        assert!(!p.contains("defects.md"), "项目里没有的文件不得出现: {p}");
-        assert!(!p.contains("可行性判断"), "{p}");
-        for directive in [
-            "question",
-            "立刻做掉",
-            "清空",
-            "最小可执行步骤",
-            "上一轮没有实质动作",
-        ] {
-            assert!(!p.contains(directive), "{p}");
-        }
-
-        let blocked = nudge_prompt(&NudgeFacts {
-            selected: None,
-            queues: vec!["defects.md".into(), "requirements.md".into()],
-            user_blocked: vec!["R-007".into(), "D-003".into()],
-        });
-        assert!(!blocked.contains("work next"), "{blocked}");
-        assert!(blocked.contains("defects.md、requirements.md"), "{blocked}");
-        assert!(blocked.contains("R-007、D-003"), "{blocked}");
-
-        let empty = nudge_prompt(&NudgeFacts::default());
-        assert!(
-            !empty.contains("tracker") && !empty.contains("req add"),
-            "{empty}"
-        );
-        assert!(!empty.contains(".md"), "{empty}");
     }
 
     /// UI2-0926 #13:等用户是模型的停机权——两档都停,即使本轮有进展工具;
@@ -1166,15 +917,6 @@ mod tests {
                 AutoRunAction::Stop(reason)
             );
         }
-        let mut blocked = AutoRunState::default();
-        assert_eq!(
-            blocked.decide(&AutoRunCtx {
-                awaiting_user: true,
-                backlog: BacklogStatus::AllBlocked,
-                ..ctx_with_tools(&tools)
-            }),
-            AutoRunAction::Stop(AutoStopReason::AllBlocked)
-        );
     }
 
     // ---- R-322:门禁强度与模型停机权 ----
@@ -1381,43 +1123,6 @@ mod tests {
         assert!(!paired.engine_nudge);
     }
 
-    /// R-322 B2:backlog 是**自主档**的取活真源,不是结伴档的。
-    /// 结伴档的活来自用户上一条消息——队列空不代表没事可做,拿它当停机判据
-    /// 会让轻 loop 一开就死。
-    #[test]
-    fn backlog空_只停自主档_不停结伴档() {
-        let tools = mk_tools(&["edit", "bash"]);
-        for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
-            let mut auto = AutoRunState::default();
-            let expected = match backlog {
-                BacklogStatus::Empty => AutoStopReason::BacklogEmpty,
-                _ => AutoStopReason::AllBlocked,
-            };
-            assert_eq!(
-                auto.decide(&AutoRunCtx {
-                    intensity: HarnessIntensity::Autonomous,
-                    backlog,
-                    steps: 5,
-                    ..ctx_with_tools(&tools)
-                }),
-                AutoRunAction::Stop(expected),
-                "自主档取活来自队列,队列 {backlog:?} 必须停"
-            );
-
-            let mut paired = AutoRunState::default();
-            assert_eq!(
-                paired.decide(&AutoRunCtx {
-                    intensity: HarnessIntensity::Paired,
-                    backlog,
-                    steps: 5,
-                    ..ctx_with_tools(&tools)
-                }),
-                AutoRunAction::Continue,
-                "结伴档的活来自用户,队列 {backlog:?} 不构成停机理由"
-            );
-        }
-    }
-
     /// 结伴档轻 loop 的完整形状:有实质动作就续跑,一轮没动作就停(不 Nudge),
     /// 模型声明完成也停。这三条合起来才是「简单 loop」。
     #[test]
@@ -1428,7 +1133,6 @@ mod tests {
         fn paired_ctx(tools: &[String]) -> AutoRunCtx<'_> {
             AutoRunCtx {
                 intensity: HarnessIntensity::Paired,
-                backlog: BacklogStatus::Empty,
                 steps: 4,
                 ..ctx_with_tools(tools)
             }
@@ -1453,7 +1157,6 @@ mod tests {
         let ctx = AutoRunCtx {
             intensity: HarnessIntensity::Paired,
             goal_active: true,
-            backlog: BacklogStatus::Empty,
             steps: 1,
             ..ctx_with_tools(&idle)
         };
@@ -1529,27 +1232,6 @@ mod tests {
         // 计数已清零,再来两轮空转仍不该停。
         assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
         assert_eq!(state.decide(&goal_ctx(&idle)), AutoRunAction::GoalPending);
-    }
-
-    /// 目标是工作来源,不是队列——backlog 空/全阻塞都不构成停机理由,
-    /// 自主档也一样(用户说「把 X 做完」跟队列剩几条无关)。
-    #[test]
-    fn 目标挂着时_backlog不再是停机判据() {
-        let tools = mk_tools(&["edit"]);
-        for backlog in [BacklogStatus::Empty, BacklogStatus::AllBlocked] {
-            let mut state = AutoRunState::default();
-            assert_eq!(
-                state.decide(&AutoRunCtx {
-                    intensity: HarnessIntensity::Autonomous,
-                    goal_active: true,
-                    backlog,
-                    steps: 5,
-                    ..ctx_with_tools(&tools)
-                }),
-                AutoRunAction::GoalPending,
-                "{backlog:?}:目标压过队列判据"
-            );
-        }
     }
 
     /// 目标 loop 关掉了 NoAction 刹车,零产出熔断必须仍然挡得住

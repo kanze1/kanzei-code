@@ -8,7 +8,6 @@ pub(crate) struct ExecutionInput<'a> {
     pub(crate) stage: &'a (dyn Fn(&str, String) + Sync),
     pub(crate) initial_parts: &'a [kanzei_llm::Part],
     pub(crate) prompt: &'a str,
-    pub(crate) autonomous: bool,
     pub(crate) subagent_rt: &'a Option<kanzei_core::SubagentRuntime>,
     pub(crate) prior: &'a [kanzei_llm::Message],
 }
@@ -24,7 +23,6 @@ pub(crate) async fn run_execution_loop(
     let initial_parts = input.initial_parts;
     let prompt = input.prompt;
     let ctx = &round.ctx;
-    let autonomous = input.autonomous;
     let config = &deps.config;
     let subagent_rt = input.subagent_rt;
     let client = &deps.client;
@@ -58,31 +56,14 @@ pub(crate) async fn run_execution_loop(
         );
     }
 
-    // 开跑预检索(R-106):prompt 命中既有记忆时前置索引提示块;历史存用户原文。
-    // Project recall only into the current provider request, after reusable history;
-    // persisted human input and future conversation history remain unchanged.
-    // 自主轮以同一调度器的当前选择检索，保持与执行顺序一致。
-    let memory_query = if autonomous && ctx.project_workflow {
-        kanzei_tools::work::resolve_work_selection(&ctx.cwd, &ctx.project_root, ctx.work_priority)
-            .map_err(anyhow::Error::msg)?
-            .selected
-            .map(|item| item.title)
-            .unwrap_or_default()
-    } else {
-        prompt.to_string()
-    };
     let memory_hints = kanzei_runtime::task_memory_hints(
         config,
         deps.rctx.profile,
         &ctx.project_root,
-        &memory_query,
+        prompt,
         ctx.run_id.as_deref(),
     )?;
     let run_prompt = prompt.to_string();
-    if let Some(item_id) = round.work_item_id.as_deref() {
-        stage("领取", format!("按用户选择领取 {item_id}…"));
-        super::work_start::claim_requested_work(ctx, item_id, on_event).await?;
-    }
     stage("请求", "已取得工作树写入槽，正在等待模型首响应…".into());
     let run_result = run_once_with_parts(
         client,

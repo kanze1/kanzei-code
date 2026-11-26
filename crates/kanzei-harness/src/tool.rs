@@ -95,8 +95,6 @@ pub struct ToolCtx {
     pub input_inbox: Option<crate::InputInbox>,
     /// Successful read receipts belong to one conversation. Children use a fresh ledger.
     pub read_ledger: Option<crate::ReadLedger>,
-    /// 本轮唯一的取活队列优先级。`work` 工具只读此值，模型不能在调用参数里改模式。
-    pub work_priority: crate::auto_run::WorkPriority,
 }
 
 impl Default for ToolCtx {
@@ -119,7 +117,6 @@ impl Default for ToolCtx {
             async_mailbox: None,
             input_inbox: None,
             read_ledger: None,
-            work_priority: crate::auto_run::WorkPriority::DefectFirst,
         }
     }
 }
@@ -155,7 +152,6 @@ impl ToolCtx {
             async_mailbox: None,
             input_inbox: None,
             read_ledger: None,
-            work_priority: crate::auto_run::WorkPriority::DefectFirst,
         }
     }
 
@@ -189,11 +185,6 @@ impl ToolCtx {
         self.project_write_key = Some(project_write_key);
         self.run_id = Some(run_id);
         self.process_id = Some(process_id);
-        self
-    }
-
-    pub fn with_work_priority(mut self, work_priority: crate::auto_run::WorkPriority) -> Self {
-        self.work_priority = work_priority;
         self
     }
 

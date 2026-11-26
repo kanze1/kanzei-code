@@ -19,7 +19,6 @@ import {
 import { selectedAgent } from "./08-auto.js";
 import { processUpdateQueues, queueProcessUpdate, updateLocalProcessItem } from "./08-compose-runtime.js";
 import { refreshProcesses } from "./09-sessions.js";
-import { restoreDocFilters } from "./10-docs-core.js";
 import { workspace_process_draft, update_workspace_process_draft } from "./03-workspaces.js";
 
 // ---------- 模型选择:数据层(UI-0926 #3) ----------
@@ -284,7 +283,6 @@ export function restoreProjectPrefs() {
   if (delivery && [...deliverySelect.options].some((o) => o.value === delivery)) {
     deliverySelect.value = delivery;
   }
-  restoreDocFilters();
 }
 
 // ---------- 刷新触发点(只由事件触发,不轮询) ----------

@@ -1,20 +1,21 @@
 import { openMenu } from "./00-surface.js";
 import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { $, defer } from "./00-dom.js";
-import { invoke } from "./00-ipc.js";
-import { localizedDocStatus, t } from "./02-i18n.js";
-import { currentProject, processItems, sessionStates, navigate_view, syncBackBars, toast, toastError } from "./03-shell.js";
+import { invoke, listen } from "./00-ipc.js";
+import { t } from "./02-i18n.js";
+import { currentProject, processItems, sessionStates, navigate_view, syncBackBars, toastError } from "./03-shell.js";
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
-import { enterProject, lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
-import { lastWorkspaceSnapshot, refreshWorkspace } from "./12-docs-pages.js";
+import { enterProject, lastProjectPrefs, projectDisplayName, removeProject, renameProject, shortProjectPath } from "./09-sessions.js";
 import { executionActivity, activityLabels, sameProject } from "./00-project-identity.js";
 import { awaitingUserSessions } from "./08-auto.js";
-import { lineName, openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, sidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
+import { openSessionHistory, orderedProjects, projectApprovalCount, renderSidebarSessions, setSidebarOpen, sidebarOpen, syncSessionActivity, wrapProjectRow } from "./12-session-tree.js";
 
 // Browsing a project does not select an execution root or create a session.
 export let browsingProject = null;
+export let lastWorkspaceSnapshot = null;
+let workspaceRefreshGeneration = 0;
+let workspaceRefreshTimer = null;
 let projectNavigationGeneration = 0;
-let goalFormGeneration = 0;
 let openingProject = null;
 let scrolledProject = null;
 let questionSessions = new Set();
@@ -29,6 +30,77 @@ export function workbenchNavigationGuard() {
 }
 export function setBrowsingProject(path) { browsingProject = path || null; }
 export function workbenchProject() { return browsingProject || (isGeneralChat() ? null : currentProject || lastProjectPrefs.current); }
+export function lineAuthorityLabel(item) { return item?.worktree_path ? t("独立任务") : t("主对话"); }
+
+export function renderWorkspace(snapshot = lastWorkspaceSnapshot) {
+  const root = $("workspace-projects");
+  if (!root) return;
+  root.replaceChildren();
+  const projects = snapshot?.projects ?? [];
+  if (!projects.length) {
+    const empty = node("div", "workspace-empty");
+    empty.append(
+      node("p", "", t("还没有添加项目")),
+      node("p", "dim", t("添加一个已有文件夹或新建项目以开始对话。")),
+    );
+    root.append(empty);
+    return;
+  }
+  for (const project of projects) {
+    const card = node("article", `workspace-card${sameProject(project.path, currentProject) ? " current" : ""}`);
+    card.dataset.path = project.path;
+    const head = node("div", "workspace-card-head");
+    const titleBtn = action(project.name || projectDisplayName(project.path), () => void openProjectSpace(project.path, "chat"), "workspace-card-title");
+    const menuBtn = action("⋯", (event) => {
+      event.stopPropagation();
+      openMenu(event.currentTarget, [
+        { label: t("打开对话"), onSelect: () => void openProjectSpace(project.path, "chat") },
+        { label: `${t("重命名项目")}…`, onSelect: () => void renameProject(project.path).then(() => refreshWorkspace()) },
+        "separator",
+        { label: `${t("移除项目")}…`, danger: true, onSelect: () => void removeProject(project.path).then(() => refreshWorkspace()) },
+      ], { placement: "bottom-end", label: project.name || projectDisplayName(project.path) });
+    }, "ghost mini");
+    menuBtn.title = t("项目操作");
+    head.append(titleBtn, menuBtn);
+
+    const meta = node("div", "workspace-card-meta dim");
+    const runningCount = Number(project.running_lines) || 0;
+    const statusText = project.error
+      ? t("项目目录暂时不可访问")
+      : runningCount > 0 ? `${runningCount} ${t("条运行中")}` : t("空闲");
+    meta.append(
+      node("span", `workspace-card-status${runningCount > 0 ? " running" : ""}`, statusText),
+      node("span", "workspace-card-path", shortProjectPath(project.path)),
+    );
+    card.append(head, meta);
+    const recent = project.recent_progress?.summary || project.recent_progress?.text;
+    if (recent) card.append(node("p", "workspace-card-recent dim", String(recent)));
+    root.append(card);
+  }
+}
+
+export async function refreshWorkspace() {
+  const generation = ++workspaceRefreshGeneration;
+  try {
+    const snapshot = await invoke("workspace_overview");
+    if (generation !== workspaceRefreshGeneration) return snapshot;
+    lastWorkspaceSnapshot = snapshot;
+    renderWorkspace(snapshot);
+    renderProjectActivity();
+    return snapshot;
+  } catch (error) {
+    if (generation === workspaceRefreshGeneration) toastError(`${t("工作区刷新失败")}: ${error}`);
+    return null;
+  }
+}
+
+export function refreshWorkspaceSoon(delay = 250) {
+  if (workspaceRefreshTimer) clearTimeout(workspaceRefreshTimer);
+  workspaceRefreshTimer = setTimeout(() => {
+    workspaceRefreshTimer = null;
+    void refreshWorkspace();
+  }, delay);
+}
 
 function node(tag, className, text) {
   const el = document.createElement(tag);
@@ -167,12 +239,6 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
       if (!await switch_workspace("dev-auto", { isCurrent: () => generation === projectNavigationGeneration })) return false;
       if (generation !== projectNavigationGeneration) return false;
     }
-    if (view === "project" && !options.activate) {
-      navigate_view("project", { prepared: true });
-      renderProjectOverview(lastWorkspaceSnapshot);
-      await refreshWorkspace();
-      return generation === projectNavigationGeneration;
-    }
     const prefs = await invoke("projects_select", { path });
     if (generation !== projectNavigationGeneration) return false;
     await enterProject(prefs, { view, activate: options.activate, isCurrent: () => generation === projectNavigationGeneration });
@@ -181,55 +247,12 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
   finally { if (generation === projectNavigationGeneration) { openingProject = null; renderProjectActivity(); } }
 }
 
-export async function openWorkbenchItem(path, item) {
-  return (await import("./30-management.js")).openManagementItem(path, item);
-}
-
-export function renderCurrentItems(project) {
-  const root = node("div", "workbench-current-items");
-  if (project.freshness === "unavailable" || (project.error && project.freshness !== "stale")) {
-    root.append(node("p", "dim", t("项目读取失败")));
-    return root;
-  }
-  const items = project.current_items ?? [];
-  for (const item of items) {
-    const button = action("", () => void openWorkbenchItem(project.path, item), "workbench-item");
-    button.dataset.key = JSON.stringify([project.path, item.kind, item.id]);
-    button.append(node("span", "workbench-item-id", item.id), node("span", "workbench-item-title", item.title));
-    const state = node("span", `workbench-item-state${item.running ? " running" : ""}`, `${localizedDocStatus(item.status || "")}  ${item.running ? t("推进中") : t("待继续")}`);
-    button.append(state);
-    if (item.priority) button.append(node("span", "workbench-item-priority", item.priority));
-    if (item.batches?.total > 0) {
-      const batch = node("span", "workbench-batch", `${t("批次")} ${item.batches.done}/${item.batches.total}`);
-      batch.title = item.batches.source === "git" ? t("已完成的开发批次，依据提交记录") : t("登记的批次进度");
-      button.append(batch);
-    }
-    const owners = (item.owner_lines ?? []).map((line) => lineName(line)).filter(Boolean);
-    if (owners.length) button.append(node("span", "workbench-item-owner", owners.join(" / ")));
-    root.append(button);
-  }
-  if (!items.length) root.append(node("p", "dim", project.running_lines ? t("有任务运行，尚未绑定条目") : t("暂无推进中的条目")));
-  if (project.current_items_total > items.length) root.append(action(`+${project.current_items_total - items.length} ${t("查看全部工作")}`, () => void openProjectSpace(project.path, "documents"), "ghost mini"));
-  return root;
-}
-
-export function renderProjectOverview(snapshot) {
-  document.dispatchEvent(new CustomEvent("kz:project-overview", { detail: { snapshot, project: workbenchProject() } }));
-}
-
-/// 打开某个项目需求页的「想法」页签(「新目标」写进的就是那里)。
-export async function openProjectIdeas(path) {
-  if (!await openProjectSpace(path, "documents")) return;
-  if (currentProject === path && document.body.dataset.view === "documents") $("documents-tab-ideas")?.click();
-}
-
 export async function openProjectResource(path, view) {
   if (view === "chat") {
     if (await openProjectSpace(path, "chat")) openSessionHistory($("workbench-chat-history"), path);
     return;
   }
-  if (view !== "research") return openProjectSpace(path, view);
-  return openWorkbenchSpace("research");
+  return openProjectSpace(path, view);
 }
 
 export async function openWorkbenchSpace(space) {
@@ -237,10 +260,8 @@ export async function openWorkbenchSpace(space) {
   const isCurrent = () => generation === projectNavigationGeneration;
   if (!await switch_workspace(space, { isCurrent })) return false;
   if (!isCurrent()) return false;
-  if (space === "dev-auto") {
-    if (workbenchProject()) return openProjectSpace(workbenchProject());
-    navigate_view("workspace");
-  } else if (!["research", "chat"].includes(document.body.dataset.view)) navigate_view("research");
+  if (workbenchProject()) return openProjectSpace(workbenchProject());
+  navigate_view("workspace");
   return true;
 }
 
@@ -251,12 +272,6 @@ defer(() => {
     event.preventDefault(); void openWorkbenchSpace(event.detail.space);
   });
   $("workbench-home")?.addEventListener("click", () => { navigate_view("workspace"); });
-  $("workbench-attention")?.addEventListener("click", () => {
-    const event = new CustomEvent("kz:open-work-inbox", { cancelable: true });
-    document.dispatchEvent(event);
-    if (event.defaultPrevented) return;
-    navigate_view("workspace");
-  });
   // 品牌栏的搜索图标打开全局对话历史;弹层本体在 12-session-tree.js,走 openPopover 的唯一写法(UX-003)。
   $("workbench-chat-history")?.addEventListener("click", (event) => openSessionHistory(event.currentTarget, null));
   // 「项目」标题右侧的「＋」:添加已有文件夹 / 新建项目(与所有项目页头两个按钮同一实现,点它们本人);零项目时这是侧栏唯一入口。
@@ -266,38 +281,8 @@ defer(() => {
       { label: t("新建项目…"), onSelect: () => $("project-init")?.click() },
     ], { placement: "bottom-end", label: t("添加项目") });
   });
-  $("workbench-new-goal")?.addEventListener("click", () => {
-    goalFormGeneration += 1;
-    const form = $("workbench-goal-form");
-    const select = $("workbench-goal-project");
-    select.replaceChildren();
-    for (const path of lastProjectPrefs.projects ?? []) { const option = node("option", "", projectDisplayName(path)); option.value = path; select.append(option); }
-    // 默认写进用户正在用的项目(所有项目页没有「当前浏览项目」时退回当前项目,而不是下拉里的第一个)。
-    const preferred = workbenchProject() || currentProject;
-    if (preferred) select.value = preferred;
-    form.classList.remove("hidden");
-    $("workbench-goal-title").focus();
-  });
-  $("workbench-goal-cancel")?.addEventListener("click", () => { goalFormGeneration += 1; $("workbench-goal-form").classList.add("hidden"); });
-  $("workbench-goal-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const path = $("workbench-goal-project").value;
-    const title = $("workbench-goal-title").value.trim();
-    if (!path || !title) return;
-    const submit = $("workbench-goal-save");
-    if (submit.disabled) return;
-    const generation = goalFormGeneration;
-    submit.disabled = true;
-    try {
-      await invoke("docs_update", { projectDir: path, kind: "idea", action: "add", id: "", title });
-      if (generation === goalFormGeneration && $("workbench-goal-title").value.trim() === title && $("workbench-goal-project").value === path) {
-        $("workbench-goal-title").value = "";
-        $("workbench-goal-form").classList.add("hidden");
-      }
-      // 写进的是该项目「需求」页的「想法」页签;toast 给一颗直达按钮,不让用户自己去找(UX-006)。
-      toast(t("目标已记录到项目想法(在该项目「需求」页的「想法」页签里),尚未启动执行。"), { action: { label: t("查看想法"), onClick: () => void openProjectIdeas(path) } });
-      await refreshWorkspace();
-    } catch (error) { toastError(String(error)); }
-    finally { submit.disabled = false; }
-  });
+  void listen("kz:workspace-invalidated", () => refreshWorkspaceSoon());
+  setInterval(() => {
+    if (!document.hidden && document.body.dataset.view === "workspace") void refreshWorkspace();
+  }, 8000);
 });

@@ -7,9 +7,6 @@
 
 use tauri::Emitter;
 
-pub(crate) use kanzei_core::{run_once_with_parts, AskFuture};
-pub(crate) use kanzei_harness::ConfigComponent;
-
 mod agent_directory;
 mod app_events;
 mod async_mailbox;
@@ -20,9 +17,7 @@ mod composer_drafts;
 mod context_view;
 mod conversation;
 mod conversation_actions;
-mod decisions;
 mod desktop_bridge;
-mod docs;
 mod experience_events;
 mod fast_model;
 /// UX-089:文件页未保存草稿的落盘(file_draft_save / file_draft_clear / file_drafts_load)。
@@ -56,12 +51,9 @@ mod session_supervisor;
 mod settings;
 mod skills;
 mod state;
-mod subagents;
 mod terminal_monitor;
-mod tracker_capture;
 mod typed_events;
 mod update;
-mod verification_monitor;
 mod workspace;
 
 #[cfg(test)]
@@ -104,11 +96,6 @@ mod process_tests;
 mod update_tests_update;
 
 fn main() {
-    if let Some(code) =
-        kanzei_tools::verification::worker_entry(&std::env::args().skip(1).collect::<Vec<_>>())
-    {
-        std::process::exit(code);
-    }
     let service = runtime_service::is_service();
     let _service_lock = if service {
         match runtime_service::service_lock() {
@@ -151,7 +138,6 @@ fn main() {
                 // constructing a Window or starting WebView2.
                 runtime_service::install_service(app.handle())?;
                 workspace::install_recovery(app.handle());
-                verification_monitor::start(app.handle().clone(), app.handle().clone());
                 tauri::async_runtime::spawn(async move {
                     let _ = fast_model::fast_model_ensure_running().await;
                 });
@@ -192,7 +178,6 @@ fn main() {
                 workspace::install_recovery(app.handle());
             }
 
-            verification_monitor::start(app.handle().clone(), app.handle().clone());
             // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
             // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
             tauri::async_runtime::spawn(async move {

@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::ui_probe;
 use kanzei_harness::{ResolveCtx, ToolCtx};
-use kanzei_memory::docstore::{DEFECTS, IDEAS, REQUIREMENTS};
 
 #[derive(serde::Deserialize, schemars::JsonSchema)]
 pub(crate) struct UiProbeInput {
@@ -151,105 +150,6 @@ impl kanzei_harness::Component for FrontendToolsComponent {
     }
 }
 
-pub(crate) struct QuickCaptureComponent {
-    pub(crate) capture: &'static str,
-    pub(crate) source: crate::tracker_capture::CaptureSession,
-}
-impl kanzei_harness::Component for QuickCaptureComponent {
-    fn contribute(
-        &self,
-        draft: &mut kanzei_harness::HarnessDraft,
-        _ctx: &ResolveCtx,
-    ) -> anyhow::Result<()> {
-        let tool = if self.capture == "defect" {
-            kanzei_tools::tracker::TrackerTool {
-                tool_name: "defect",
-                noun: "defect",
-                kind: &DEFECTS,
-                requires_refs: None,
-            }
-        } else {
-            kanzei_tools::tracker::TrackerTool {
-                tool_name: "req",
-                noun: "requirement",
-                kind: &REQUIREMENTS,
-                requires_refs: None,
-            }
-        };
-        let name = tool.tool_name;
-        draft.tools.insert(
-            name,
-            Arc::new(crate::tracker_capture::RegistrationTracker {
-                inner: tool,
-                source: self.source.clone(),
-            }),
-        );
-        draft.permissions.push(kanzei_harness::rule(
-            name,
-            "*",
-            kanzei_harness::Effect::Allow,
-        ));
-        Ok(())
-    }
-}
-
-/// Registration is scoped to new R/D records; completion is an explicit, validated update of the selected idea.
-pub(crate) struct IdeaSplitComponent {
-    pub(crate) idea: kanzei_memory::docstore::Entry,
-    pub(crate) source: crate::tracker_capture::CaptureSession,
-}
-impl kanzei_harness::Component for IdeaSplitComponent {
-    fn contribute(
-        &self,
-        draft: &mut kanzei_harness::HarnessDraft,
-        _ctx: &ResolveCtx,
-    ) -> anyhow::Result<()> {
-        for (tool_name, noun, kind) in [
-            (
-                "req",
-                "requirement",
-                &REQUIREMENTS as &'static kanzei_memory::docstore::DocKind,
-            ),
-            (
-                "defect",
-                "defect",
-                &DEFECTS as &'static kanzei_memory::docstore::DocKind,
-            ),
-            (
-                "idea",
-                "idea",
-                &IDEAS as &'static kanzei_memory::docstore::DocKind,
-            ),
-        ] {
-            let inner = kanzei_tools::tracker::TrackerTool {
-                tool_name,
-                noun,
-                kind,
-                requires_refs: None,
-            };
-            let tool: Arc<dyn kanzei_harness::Tool> = if tool_name == "idea" {
-                Arc::new(crate::tracker_capture::IdeaSplitTracker {
-                    inner,
-                    idea: self.idea.clone(),
-                    source: self.source.clone(),
-                })
-            } else {
-                Arc::new(crate::tracker_capture::RegistrationTracker {
-                    inner,
-                    source: self.source.clone(),
-                })
-            };
-            draft.tools.insert(tool_name, tool);
-            draft.permissions.push(kanzei_harness::rule(
-                tool_name,
-                "*",
-                kanzei_harness::Effect::Allow,
-            ));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod browser_registration_tests {
     use kanzei_harness::{ConfigComponent, Harness, KanzeiConfig, ProfileKind, ResolveCtx};
@@ -276,7 +176,7 @@ mod browser_registration_tests {
 
     #[test]
     fn 桌面与cli共用base_component的外部browser工具() {
-        let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto, false);
+        let desktop = crate::run::assembly::build_run_harness(ProfileKind::DevAuto);
         assert_eq!(browser_count(desktop), 1, "桌面复用唯一 browser 工具");
 
         let cli = kanzei_runtime::build_harness(ProfileKind::DevAuto, |_| {}, |_| {});

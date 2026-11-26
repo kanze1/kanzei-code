@@ -202,26 +202,6 @@ pub(crate) fn load_parts(
     crate::prompt_attachment_parts(attachments)
 }
 
-/// Question/review tools return the answer together with explicitly sourced file references.
-pub(crate) fn response_text(
-    root: &std::path::Path,
-    text: &str,
-    attachments: Vec<PromptAttachment>,
-) -> Result<String> {
-    let attachments = prepare(root, attachments)?.references;
-    if attachments.is_empty() {
-        return Ok(text.into());
-    }
-    let source =
-        kanzei_harness::ToolOutput::ok(serde_json::json!({"attachments":attachments}).to_string())
-            .with_external_source(
-                kanzei_harness::ExternalSourceKind::Attachment,
-                "reply attachments",
-            )
-            .model_content();
-    Ok(format!("{text}\n\n{source}"))
-}
-
 pub(crate) fn document_part(attachment: &PromptAttachment) -> Result<kanzei_llm::Part> {
     anyhow::ensure!(
         attachment.data.len() <= MAX_BYTES.div_ceil(3) * 4,
@@ -435,92 +415,12 @@ mod tests {
             .contains("已准入附件内容已变化"));
     }
 
-    #[tokio::test]
-    async fn reply_files_survive_recovery_and_read_returns_the_original_image() {
-        use kanzei_harness::Component;
-        let root = kanzei_base::test_support::TestDir::new("reply-files");
-        let mut image = attachment("../../outside.png", b"\x89PNG\r\n\x1a\nimage bytes");
-        image.media_type = "image/png".into();
-        let sheet = attachment(
-            "budget.xlsx",
-            include_bytes!("../../../tests/fixtures/attachments/budget.xlsx"),
-        );
-        let text = "  回复正文\n保留空格  ";
-        let reply = response_text(&root, text, vec![image.clone(), sheet.clone()]).unwrap();
-        assert!(reply.starts_with(text));
-        assert_eq!(
-            reply,
-            response_text(&root, text, vec![image.clone(), sheet]).unwrap()
-        );
-        let refs = reply_references(&reply);
-        let image_path = std::path::Path::new(refs[0]["path"].as_str().unwrap());
-        assert!(image_path.starts_with(root.join(".kanzei/artifacts/attachments")));
-        assert_eq!(
-            std::fs::read(image_path).unwrap(),
-            b"\x89PNG\r\n\x1a\nimage bytes"
-        );
-        let readable = std::fs::read_to_string(refs[1]["path"].as_str().unwrap()).unwrap();
-        assert!(readable.contains("苹果") && readable.contains("[=B2*C2]"));
-        let mut draft = kanzei_harness::HarnessDraft::default();
-        kanzei_tools::BaseComponent
-            .contribute(
-                &mut draft,
-                &kanzei_harness::ResolveCtx {
-                    profile: kanzei_harness::ProfileKind::DevAuto,
-                    cwd: root.to_path_buf(),
-                    project_root: root.to_path_buf(),
-                    config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
-                },
-            )
-            .unwrap();
-        let output = draft
-            .tools
-            .get("read")
-            .unwrap()
-            .execute(
-                serde_json::json!({"path": image_path}),
-                &kanzei_harness::ToolCtx::new(root.to_path_buf(), root.to_path_buf()),
-            )
-            .await;
-        assert!(!output.is_error, "{}", output.content);
-        assert_eq!(output.images.len(), 1);
-        assert_eq!(output.images[0].data, image.data);
-        image.data = base64::engine::general_purpose::STANDARD.encode(b"changed image");
-        assert_ne!(reply, response_text(&root, text, vec![image]).unwrap());
-    }
-
-    #[test]
-    fn invalid_reply_file_is_rejected_before_writing_any_file() {
-        let root = kanzei_base::test_support::TestDir::new("invalid-reply-files");
-        let valid = attachment("notes.txt", b"valid text");
-        let invalid = PromptAttachment {
-            file_name: "bad.png".into(),
-            media_type: "image/png".into(),
-            data: "!invalid!".into(),
-        };
-        assert!(response_text(&root, "keep draft", vec![valid, invalid]).is_err());
-        assert!(!root.join(".kanzei/artifacts/attachments").exists());
-        assert_eq!(
-            response_text(&root, "  exact text  ", vec![]).unwrap(),
-            "  exact text  "
-        );
-    }
-
     fn source_envelope(text: &str) -> serde_json::Value {
         serde_json::from_str(
             text.strip_prefix(kanzei_harness::EXTERNAL_SOURCE_PREFIX)
                 .unwrap(),
         )
         .unwrap()
-    }
-    fn reply_references(reply: &str) -> serde_json::Value {
-        let (_, frame) = reply
-            .split_once(kanzei_harness::EXTERNAL_SOURCE_PREFIX)
-            .unwrap();
-        let envelope: serde_json::Value = serde_json::from_str(frame).unwrap();
-        let content: serde_json::Value =
-            serde_json::from_str(envelope["content"].as_str().unwrap()).unwrap();
-        content["attachments"].clone()
     }
     fn attachment(name: &str, bytes: &[u8]) -> PromptAttachment {
         PromptAttachment {

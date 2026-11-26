@@ -25,8 +25,7 @@ import { awaitingUserSessions } from "./08-auto.js";
 import { lastProjectPrefs, processRunning, projectDisplayName, switchProcess } from "./09-sessions.js";
 import { generalChatRoot, isGeneralChat, openGeneralChat } from "./03-general-scope.js";
 import { conversationRecord, matchesConversation, uniqueConversations } from "./12-conversation-model.js";
-import { lastWorkspaceSnapshot } from "./12-docs-pages.js";
-import { openProjectSpace, workbenchNavigationGuard, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
+import { lastWorkspaceSnapshot, openProjectSpace, workbenchNavigationGuard, workbenchProject, workbenchQuestionWaiting } from "./12-workbench.js";
 import { conversationHistory, loadEarlierConversations, conversationItemsByProcess, openClosedConversation, openConversationForProcess, startNewConversation } from "./15-views-misc.js";
 import { executionActivity, sameProject } from "./00-project-identity.js";
 

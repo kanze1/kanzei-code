@@ -26,13 +26,10 @@ pub mod browser {
         CONSOLE_ALL_LIMIT, MAX_EVAL_CHARS, MAX_SCREENSHOT_BYTES, MAX_WAIT_MS,
     };
 }
-/// R-311:条目关闭收尾链遥测与滚动汇总，供 tracker 写入与 `kz metrics` 消费。
-pub mod close_telemetry;
 mod edit;
 mod file_access;
 pub mod files;
 mod git;
-pub mod git_batches;
 mod glob;
 mod grep;
 mod preferences;
@@ -52,16 +49,10 @@ mod web_content;
 pub use read::pdf_to_text;
 pub mod image;
 mod shell;
-pub mod test_record;
-pub mod tracker;
 mod web_refs;
-/// D-413:研究工作台要在应用内打开文献正文,桌面命令直接复用本工具的抓取与
-/// HTML→文本管线(不另造第二套抓取逻辑,免得代理/超时/截断口径分叉)。
 pub mod webfetch;
 
-pub mod verification;
 mod websearch;
-pub mod work;
 /// R-207:worktree 生命周期内核(建线/回执/回滚/合并预检),桌面与 CLI 共用。
 pub mod worktree;
 mod write;
@@ -83,11 +74,6 @@ pub use profiles::{
 };
 pub use shell::{detected_shell, fresh_path, kill_tree};
 pub use subagent::{explore_agent, plan_agent, writer_agent, SubagentBase, WritableSubagentBase};
-pub use work::{
-    active_claims_by_line, release_line_claims, resolve_work_decision, resolve_work_selection,
-    resolved_control_prompt, resolved_control_prompt_of, ResolvedControlState, WorkDecision,
-    WorkTool,
-};
 
 use kanzei_harness::Tool;
 
@@ -206,43 +192,6 @@ pub(crate) fn configured_proxy(proxy: Option<&str>) -> kanzei_llm::proxy::ProxyC
 }
 
 /// D-393:latex/plot 等写盘工具的 workdir 路径边界校验。
-///
-/// D-398:写者工具统一记写日志(路径+写后指纹+身份)——围栏收口对账的归因凭据。
-/// 专用写者(写者工具)成功落盘后调用;先写文档再记日志(「写后」凭据,
-/// write_log 模块头契约)。所有专用写者必须接线:test_record/conventions/
-/// architecture/tracker 活动+归档——半上线(部分写者有凭据、部分没有)比不接
-/// 线更危险:无凭据的合法写者会被围栏当越界回滚。
-pub(crate) fn record_write_log(
-    ctx: &kanzei_harness::ToolCtx,
-    rel_path: &str,
-    abs_path: &std::path::Path,
-) -> Result<(), String> {
-    let _lock = atomic_file::lock_exclusive(abs_path).map_err(|error| error.to_string())?;
-    let content = match std::fs::read(abs_path) {
-        Ok(bytes) => Some(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(format!("写入后读取 {rel_path} 失败：{error}")),
-    };
-    write_log::record(
-        &ctx.project_root,
-        &write_log::WriteLogEntry {
-            at_ms: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|error| error.to_string())?
-                .as_millis(),
-            path: rel_path.replace('\\', "/"),
-            fingerprint: content_hash(content.as_deref().unwrap_or(&[])),
-            content: content.map_or(
-                write_log::LoggedContent::Deleted,
-                write_log::LoggedContent::Stored,
-            ),
-            run_id: ctx.run_id.clone(),
-            process_id: ctx.process_id.clone(),
-        },
-    )
-    .map_err(|error| format!("文件已写入，但 {rel_path} 的写入凭据记录失败：{error}"))?;
-    Ok(())
-}
 /// Windows 上禁止外部子进程新建控制台窗口(D-238)。
 /// 桌面端是 GUI 进程(没有控制台可继承),不设 CREATE_NO_WINDOW 时,每次
 /// spawn git/cargo/taskkill 等外部程序都会闪出一个黑色 cmd 窗口。std 与

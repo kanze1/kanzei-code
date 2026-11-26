@@ -89,15 +89,6 @@ struct BashInput {
     /// 长驻服务跨应用恢复。普通后台命令可跨对话轮次存活，明确停止所属会话时清理。
     #[serde(default)]
     persistent: bool,
-    /// Foreground test command: automatically records running/result/duration/log in one call.
-    /// Foreground only. Without a result contract, exit 0 is recorded as unknown.
-    /// Use result_contract=python_unittest for a single Python unittest text summary, or
-    /// exit_code only if zero guarantees one or more tests ran and all passed.
-    #[serde(default)]
-    test: Option<crate::test_record::execution::TestExecution>,
-    /// 冻结源码并异步验证 Work Unit，释放开发 WIP；与 test/background/persistent 互斥。
-    #[serde(default)]
-    verification: Option<crate::verification::VerificationRequest>,
 }
 
 /// Permission resources and execution decode the same input contract, including
@@ -130,8 +121,7 @@ impl Tool for BashTool {
             "Run a host command using {} ({syntax}), with host user privileges. \
              Foreground returns output and exit status; background/interactive returns a process ID for the process tool. \
              stdin is closed by default (EOF); interactive=true accepts pipe input via process action=input, without a PTY. Eligible foreground commands may transfer to the background when steered; explicit deadlines still apply. \
-             Background tasks stop with their owner session unless persistent=true. \
-             Test receipts and independent verification jobs are selected by their input fields.", shell.name
+             Background tasks stop with their owner session unless persistent=true.", shell.name
         )
     }
 
@@ -221,7 +211,7 @@ async fn execute_owned(
     }
 }
 
-/// 输入校验通过后的命令执行；围栏、进程和测试记录归本体持有。
+/// 输入校验通过后的命令执行。
 async fn bash_body(
     _tool: &BashTool,
     input: BashInput,
@@ -231,56 +221,7 @@ async fn bash_body(
     if cancel.is_cancelled() {
         return ToolOutput::error("cancelled: run stopped before command execution");
     }
-    if let Some(request) = &input.verification {
-        if input.test.is_some() || input.background || input.persistent {
-            return ToolOutput::error(
-                "verification cannot be combined with test/background/persistent",
-            );
-        }
-        let mut verification_ctx = ctx.clone();
-        if let Some(workdir) = &input.workdir {
-            verification_ctx.cwd = ctx.cwd.join(workdir);
-        }
-        return match crate::verification::submit(&verification_ctx, &input.command, input.timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS), request) {
-            Ok(job) => ToolOutput::ok(serde_json::json!({
-                "verification_job": job.id, "status": job.status, "unit_id": job.unit_id,
-                "source_fingerprint": job.source_fingerprint, "snapshot": job.snapshot,
-                "next_action": "验证独立运行；调用 work next 推进无依赖单元，不重复执行同一测试。结果见 work verification_jobs。"
-            }).to_string()),
-            Err(error) => ToolOutput::error(format!("cannot submit verification: {error}")),
-        };
-    }
-    let test = if let Some(test) = &input.test {
-        if input.background {
-            return ToolOutput::needs_correction(
-                "TEST_REQUIRES_FOREGROUND",
-                "test recording requires background=false",
-            );
-        }
-        match crate::test_record::execution::TestExecutionGuard::start(
-            ctx,
-            &input.command,
-            input.workdir.as_deref(),
-            test,
-        ) {
-            Ok(guard) => Some(guard),
-            Err(error) => return ToolOutput::error(format!("cannot start test record: {error}")),
-        }
-    } else {
-        None
-    };
-    let mut output = bash_command_body(input, ctx, cancel).await;
-    if let Some(test) = test {
-        if let Err(error) = test.finish(&mut output) {
-            output.is_error = true;
-            output.outcome = kanzei_harness::ToolOutcome::Failed;
-            output.code = Some("TEST_RECORD_FAILED".into());
-            output.content.push_str(&format!(
-                "\n自动测试记录未完成: {error}；不能据此声称测试已登记。"
-            ));
-        }
-    }
-    output
+    bash_command_body(input, ctx, cancel).await
 }
 
 async fn bash_command_body(
@@ -305,21 +246,13 @@ async fn bash_command_body(
     }
 
     let shell = detected_shell();
-    let execution_source =
-        match crate::shell::execution_source(shell.name, &input.command, input.test.is_some()) {
-            Ok(source) => source,
-            Err(error) => {
-                return ToolOutput::needs_correction(
-                    "VERIFICATION_SHELL_REQUIRED",
-                    error.to_string(),
-                )
-            }
-        };
+    let execution_source = match crate::shell::execution_source(shell.name, &input.command, false) {
+        Ok(source) => source,
+        Err(error) => {
+            return ToolOutput::needs_correction("VERIFICATION_SHELL_REQUIRED", error.to_string())
+        }
+    };
     let mut command = tokio::process::Command::new(&shell.program);
-    // UI2-0926 #13:① 命令前加 UTF-8 输出前导(中文路径曾被 GBK→UTF-8 解码成 U+FFFD);
-    // ② PATH 每次按注册表新鲜合并(会话中途装好的工具立刻可用);③ 工作目录用 simplify
-    // 形态(cmd.exe 不认 `\\?\` 工作目录,部分工具链在它下面直接报错)。
-    // 权限判定、展示与回喂模型的都是原始 input.command,前导只在子进程参数里。
     command
         .args(&shell.args)
         .arg(crate::shell::command_with_utf8_output(
@@ -327,10 +260,7 @@ async fn bash_command_body(
             &execution_source,
         ))
         .env("KANZEI_SHELL_SOURCE", &input.command)
-        .env(
-            "KANZEI_SHELL_VERIFICATION",
-            if input.test.is_some() { "1" } else { "0" },
-        )
+        .env("KANZEI_SHELL_VERIFICATION", "0")
         .env("PATH", crate::shell::fresh_path())
         .current_dir(crate::path_form::simplify(&workdir))
         .stdin(if input.interactive {
@@ -381,7 +311,7 @@ async fn bash_command_body(
     let handoff_mailbox = ctx
         .async_mailbox
         .as_ref()
-        .filter(|mailbox| !mailbox.is_closed() && input.test.is_none());
+        .filter(|mailbox| !mailbox.is_closed());
     let mut background_requests = handoff_mailbox.map(|mailbox| mailbox.background_requests());
     let mut input_requests = kanzei_harness::InputRequests::new(handoff_mailbox);
     if cancel.is_cancelled() {

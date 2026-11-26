@@ -302,7 +302,6 @@ pub(crate) async fn run_task(
         stage: &stage,
         initial_parts,
         prompt: &prompt,
-        autonomous,
         subagent_rt: &subagent_rt,
         prior: &prior,
     };
@@ -313,9 +312,6 @@ pub(crate) async fn run_task(
     let run_started = round.run_started;
     let run_epoch_ms = round.run_epoch_ms;
     let ctx = round.ctx;
-    // UI2-0926 #13:Nudge 事实按本线代码树取活(与 `work next` 同源);下面两处 AutoRunCtx
-    // 局部变量同名 `ctx`,先把 cwd 取出来。
-    let ctx_cwd = ctx.cwd.clone();
     // R-202 批2:轮末收尾段前半(终态落库:typed 终态/会话状态/episode/轮末采集)收敛。
     let persistence_result = persist_round_outcome(
         &state_path,
@@ -372,25 +368,14 @@ pub(crate) async fn run_task(
                 } else {
                     let signature = crate::auto_run::progress_signature(&deps.project_root);
                     let ctx = kanzei_harness::auto_run::AutoRunCtx {
-                        backlog: crate::auto_run::backlog_status(
-                            &ctx_cwd,
-                            &deps.project_root,
-                            crate::auto_run::work_priority_enum(deps.work_priority),
-                        ),
                         halted: false,
                         steps: 0,
                         tools: &[],
-                        // R-322 B2:同上,判据放宽到 profile(失败轮的退避重试对
-                        // 结伴档的轻 loop 一样要生效)。
                         auto_allowed: deps.profile.is_development(),
                         intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
-                        // 失败轮模型没跑完,不可能声明完成;失败分类由 round_failure 承担。
                         completion: None,
                         awaiting_user: false,
-                        // R-322 B3:目标挂着时失败轮照样走退避重试(目标不该被一次 503 冲掉)。
                         goal_active: ctrl.goal.is_some(),
-                        closed_this_round: 0,
-
                         progress_signature: &signature,
                         round_failure: Some(if rate_limited {
                             kanzei_harness::auto_run::RoundFailure::RateLimited
@@ -404,16 +389,8 @@ pub(crate) async fn run_task(
                     Some((action, json!(ctrl.state.rounds)))
                 }
             };
-            // UI2-0926 #13 复核:手机通知(网络)与 Nudge 事实(tracker + git)在锁外做。
-            // 判定和计数在锁内取快照，提示与通知在锁外生成。
             let auto_payload = auto_payload.map(|(action, rounds)| {
-                let mut payload = crate::auto_run::serialize_action(action, || {
-                    crate::auto_run::nudge_facts(
-                        &ctx_cwd,
-                        &deps.project_root,
-                        crate::auto_run::work_priority_enum(deps.work_priority),
-                    )
-                });
+                let mut payload = crate::auto_run::serialize_action(action);
                 payload["rounds"] = rounds;
                 payload
             });
@@ -434,44 +411,21 @@ pub(crate) async fn run_task(
     // R-076:本轮工具画像随 kz:done 带给前端。D-655:使用 runner
     // 提供的稳定本轮消息真源,不再以 prior.len() 盲切压缩后的 messages。
     let this_run_tools = kanzei_core::summarize_tools(&summary.round_messages);
-    // R-169:自主推进判定后端化——轮末用 harness 状态机判定下一步,结果随
-    // kz:done 带给前端执行(发下一条/NUDGE/停止);前端不再承载任何机械判定。
-    let backlog = if crate::general_chat::is_general_root(&deps.project_root) {
-        kanzei_harness::auto_run::BacklogStatus::Unknown
-    } else {
-        crate::auto_run::backlog_status(
-            &ctx_cwd,
-            &deps.project_root,
-            crate::auto_run::work_priority_enum(deps.work_priority),
-        )
-    };
-    // D-361:主轮画像 + 本轮子代理内部用过的工具。两者合并后,「委派」按子代理
-    // 实际干了什么判定;子代理确实什么也没干时,合并后仍只有 task,空转判定照旧
-    // 生效(has_progress_tools 的语义没被削弱)。
-    // D-654:主轮画像的真源是事件流(round_tools,ToolStart 边跑边收),不再依赖
-    // summary.messages 的 prior.len() 切片——轮中上下文压缩会把消息列表结构性
-    // 删短;本轮真实调用不会因此从事件画像中消失。轮末 episode/metrics/harvest
-    // 则统一读取 summary.round_messages。
     let tools_vec: Vec<String> = {
         let mut names: std::collections::BTreeSet<String> = round_tools.lock_or_recover().clone();
         names.extend(subagent_tools.lock_or_recover().iter().cloned());
         names.into_iter().collect()
     };
-    // 自主决定不等待用户；缺少事实只影响依赖任务。散文提问兜底只用于交互模式。
     let awaiting_user = crate::auto_run::awaiting_user_for_round(
         round_awaiting_user.load(std::sync::atomic::Ordering::Relaxed),
         crate::auto_run::last_assistant_text(&summary.round_messages).as_deref(),
-        deps.runner_config.ask_policy.records_questions(),
+        autonomous,
     );
-    // D-583:真实进展签名——放在锁外算,避免在持锁期间做文件 IO/git 子进程调用。
     let progress_signature = if crate::general_chat::is_general_root(&deps.project_root) {
         kanzei_core::stable_json_hash(&summary.round_messages)
     } else {
         crate::auto_run::progress_signature(&deps.project_root)
     };
-    // UI2-0926 #13 复核:锁内只做判定、取计数镜像与目标;Nudge 事实(tracker 读取 + git 观测)
-    // 放到锁外算——auto_runs 是全会话共享的 std Mutex,同步命令 auto_state_update 在主线程上等它
-    // (D-583 同一原则:持锁期间不做文件 IO 与 git 子进程)。
     let handoff = round_handoff.lock_or_recover().clone();
     let has_pending_inputs = store
         .list_pending_inputs(&session_id)
@@ -481,26 +435,12 @@ pub(crate) async fn run_task(
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
-            backlog,
             halted: summary.halted_by_user,
             steps: summary.steps,
             tools: &tools_vec,
             progress_signature: &progress_signature,
-            // R-199 起档位条件下沉引擎;R-322 B2 把判据从 agent 放宽到 profile。
-            //
-            // 原判据 `profile==Dev && agent=="dev-auto"` 让结伴档永远 Stop(ProfileMismatch),
-            // 于是「系统级 loop 之外的简单 loop」根本不存在——用户勾鞭挞会被 R-224
-            // 静默切成 dev-auto(连人格一起换掉),而不是拿到一条轻控制的 loop。
-            // 现在 dev 两档都允许续跑,**区别落在 HarnessIntensity 而不是能不能跑**:
-            // 结伴档不追加 Nudge；完成范围由交接契约匹配。
-            // 自动续跑使用共享控制器的档位准入。
             auto_allowed: deps.profile.is_development(),
-            // R-322:门禁强度按 agent 取默认值。与 auto_allowed 是**两件事**——
-            // 后者答「能不能自动发下一条」,前者答「引擎对任务判断介入多深」。
-            // 结伴档即使手动一问一答也按 Paired 跑:Nudge/核查轮都不该
-            // 在用户盯着屏幕的时候插进来。
             intensity: crate::auto_run::intensity_for_agent(&deps.agent.name),
-            // 核对当前输入和目标;排队输入未消费时不能宣布整次委托完成。
             completion: handoff
                 .as_ref()
                 .filter(|_| !has_pending_inputs && summary.incomplete_reason().is_none())
@@ -508,16 +448,7 @@ pub(crate) async fn run_task(
                     declaration.bound_scope(&promoted_input_id, ctrl.goal.as_deref())
                 }),
             awaiting_user,
-            // R-322 B3:挂了目标就换一套停止规则——不由引擎猜还有没有活干,
-            // 而是推到模型声明达成为止(详见 AutoRunCtx::goal_active)。
             goal_active: ctrl.goal.is_some(),
-            // R-144:本轮关闭条目数(req/defect close 成功计数)。D-654:改事件收口
-            // (ToolStart 登记意图 + ToolEnd ok 计数)——原实现扫全历史 messages,
-            // 历史 close 每轮重复计入,关闭计数被污染。
-            closed_this_round: round_closed.load(std::sync::atomic::Ordering::Relaxed),
-            // A protocol-confirmed stop may still be a refusal/truncated output.
-            // A budget checkpoint can continue; an unsuccessful model response
-            // must not be treated as a successful autonomous round.
             round_failure: match summary.finish_reason.as_ref() {
                 Some(
                     kanzei_llm::FinishReason::MaxTokens
@@ -529,19 +460,14 @@ pub(crate) async fn run_task(
         };
         use kanzei_harness::auto_run::{AutoRunAction, AutoStopReason};
         let action = crate::auto_run::decide_auto_run(ctrl, ctx);
-        // R-322 B3:目标原文由 controller 填入(引擎不持有用户数据),
-        // 前端按 Nudge 同款机制把它作为下一轮输入发回。
         let goal_prompt = matches!(action, AutoRunAction::GoalPending)
             .then(|| ctrl.goal.clone().unwrap_or_default());
-        // 达成或判定不可达 → 目标是一次性意图,就地清除(D-111 同型:一次性
-        // 意图留着会在下一段无关对话里继续生效)。前端收到 reason 后同步清输入框。
         if matches!(
             action,
             AutoRunAction::Stop(AutoStopReason::GoalMet | AutoStopReason::GoalUnreachable(_))
         ) {
             ctrl.goal = None;
         }
-        // 判定和镜像值必须在同一把锁内取，避免后台会话完成时覆盖本会话的计数。
         (
             action,
             goal_prompt,
@@ -551,14 +477,7 @@ pub(crate) async fn run_task(
     };
     let (action, goal_prompt, goal_active, rounds) = decided;
     let auto_action_json = {
-        // 锁已释放:Nudge 事实只在真的要发 Nudge 时才算(惰性)。
-        let mut payload = crate::auto_run::serialize_action(action, || {
-            crate::auto_run::nudge_facts(
-                &ctx_cwd,
-                &deps.project_root,
-                crate::auto_run::work_priority_enum(deps.work_priority),
-            )
-        });
+        let mut payload = crate::auto_run::serialize_action(action);
         if let Some(goal) = goal_prompt {
             payload["prompt"] = json!(goal);
         }

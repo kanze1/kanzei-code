@@ -416,51 +416,6 @@ export function formatIncidentDuration(metrics) {
   return `${(average / 1000).toFixed(1)}s`;
 }
 
-export function renderIncidentMetrics(data, targetId) {
-  const box = $(targetId);
-  if (!box) return;
-  box.replaceChildren();
-  const byClass = data?.by_class ?? {};
-  const heading = document.createElement("div");
-  heading.className = "metrics-trend-head dim";
-  heading.textContent = t("事件分类指标");
-  const table = document.createElement("table");
-  table.className = "metrics-cat-table";
-  const head = document.createElement("tr");
-  for (const label of [t("类型"), t("数量"), t("平均修复时长"), t("逃逸率"), t("晋升")]) {
-    const cell = document.createElement("th");
-    cell.textContent = label;
-    head.appendChild(cell);
-  }
-  table.appendChild(head);
-  for (const className of Object.keys(INCIDENT_CLASS_LABELS)) {
-    const metrics = byClass[className] ?? {};
-    const row = document.createElement("tr");
-    const values = [
-      t(INCIDENT_CLASS_LABELS[className]),
-      Number(metrics.occurrences ?? 0),
-      formatIncidentDuration(metrics),
-      `${(Number(metrics.escaped_rate ?? 0) * 100).toFixed(0)}%`,
-      Number(metrics.promotions ?? 0),
-    ];
-    for (const value of values) {
-      const cell = document.createElement("td");
-      cell.textContent = String(value);
-      row.appendChild(cell);
-    }
-    table.appendChild(row);
-  }
-  const overall = data?.overall ?? {};
-  const summary = document.createElement("div");
-  summary.className = "dim";
-  summary.textContent = `${t("总事件")} ${Number(data?.total_occurrences ?? 0)}  ${t("总体逃逸率")} ${(Number(overall.escaped_rate ?? 0) * 100).toFixed(0)}%  ${t("晋升事件")} ${Number(data?.promotion_events ?? 0)}`;
-  const replay = data?.historical_replay ?? {};
-  const replayNote = document.createElement("div");
-  replayNote.className = "dim";
-  replayNote.textContent = `${t("历史样本回放")} ${Number(replay.consistent_count ?? 0)}/${Number(replay.sample_count ?? 0)} ${replay.consistent ? t("一致") : t("不一致")}  ${t("瞬时失手排除")} ${Number(replay.execution_incidents_excluded ?? 0)}`;
-  box.append(heading, table, summary, replayNote);
-}
-
 // ---------- R-126 UI 自查探针:在真实运行中的窗口里取样 ----------
 // 后端工具发 kz:ui-probe,这里取样后用 ui_probe_result 回传。取的是用户眼前这个
 // 窗口的实际渲染结果——不是重新起一个空白页,那样查不出任何真实的渲染问题。

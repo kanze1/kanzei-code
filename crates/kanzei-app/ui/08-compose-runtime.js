@@ -11,7 +11,7 @@ import { setCtxTokens, setRunTokens } from "./03-shell.js";
 import { $ } from "./00-dom.js";
 import { activePane, promptBox } from "./01-chat-panes.js";
 import { createImeSubmitGuard, readJson, writeJson } from "./00-ui-primitives.js";
-import { uiPrefsCache, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
+import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
 import { setSessionDetails } from "./00-session-state.js";
 import { localizeDynamic, t } from "./02-i18n.js";
@@ -68,10 +68,8 @@ import {
   renderAutoStatus,
   renderGoalState,
   renderHarnessIntensity,
-  rememberWorkPrioritySelection,
   resetAutoRunState,
   selectedAgent,
-  selectedWorkPriority,
   setAutoHint,
   setAutoPaused,
   setAutoRounds,
@@ -80,7 +78,6 @@ import {
   setNoActionRounds,
   syncAutoRunState,
   takeAwaitingUser,
-  workPriorityKeyFor,
 } from "./08-auto.js";
 import "./08-compose.js";
 import { processRunning, refreshParallelTaskProjection, refreshPendingInputs } from "./09-sessions.js";
@@ -183,8 +180,6 @@ export async function sendAutoToSession(prompt, sessionId) {
     // (主根身份,后端已给 simplify 形态,这里再防一道旧形态);③ 取活顺序键与写入键同一个函数。
     const mode = lineAgent(item);
     const projectDir = String(item.origin_project || item.project_dir || currentProject).replace(/^\\\\\?\\(?!UNC\\)/, "");
-    const workItemId = mode.agent === "dev-auto" ? await (await import("./31-work-selection.js")).validateSelectedWork(projectDir, item.id) : null;
-    const priority = uiPrefsCache?.work_priority?.[projectDir] ?? localStorage.getItem(workPriorityKeyFor(projectDir));
     await invoke("run_prompt", {
       prompt,
       projectDir,
@@ -192,21 +187,14 @@ export async function sendAutoToSession(prompt, sessionId) {
       agent: mode.agent,
       researchTopic: research ? item.research_topic : undefined,
       model: item.model || null,
-      workPriority: priority === "requirement-first" ? "requirement-first" : "defect-first",
       delivery: "queue",
       attachments: [],
       processId: item.id,
       autonomous: true,
-      // D-764:自动推进轮的枪不是用户按键,归属交给后端在准入点标注,前端不再伪装成用户发言。
       autoRound: true,
-      ...(workItemId ? { workItemId, executionBatch: true } : {}),
       autoAllow: autoAllowEnabled(),
     });
     awaitRunConfirmation(sessionId, { projectDir, processId: item.id });
-    if (workItemId) {
-      const selection = await import("./31-work-selection.js");
-      if (selection.selectedWork(projectDir, item.id) === workItemId) selection.selectWork(projectDir, item.id, null);
-    }
   } catch (error) {
     releaseAutoContinue(sessionId);
     transitionSession(sessionId, "failed");
@@ -505,18 +493,6 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   }
   if (!recipientIsCurrent()) { toast(t("对话已切换，请在目标对话中重新发送")); return false; }
   if (selectedAgent().agent !== "dev-auto") { executionBatch = false; workItemId = null; }
-  // A running conversation receives a message. A pending work choice belongs to
-  // the next execution request, and must not turn a question into a new batch.
-  // An explicit null means a planning/research request with no execution claim.
-  // Only an omitted binding inherits the work picker's selection.
-  if (workItemId === undefined && selectedAgent().agent === "dev-auto" && !recipient.running) {
-    const project = currentProject, process = activeProcessId;
-    try {
-      workItemId = await (await import("./31-work-selection.js")).validateSelectedWork(project, process);
-      if (project !== currentProject || process !== activeProcessId) { toast(t("对话已切换，请在目标对话中重新发送")); return; }
-      if (workItemId) executionBatch = true;
-    } catch (error) { toastError(String(error)); return; }
-  }
   workItemId ??= null;
   if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
   const delivery = workItemId ? "queue" : requestedDelivery || $("delivery-select").value;
@@ -605,7 +581,6 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       researchTopic: processItems.find((item) => item.id === requestProcessId)?.research_topic || undefined,
       agent: mode.agent,
       model: lineModelFor(requestProcessId),
-      workPriority: selectedWorkPriority(),
       delivery,
       attachments: promptAttachments.map((item) => ({ ...item })),
       processId: requestProcessId,
@@ -1380,15 +1355,6 @@ defer(() => {
     }
     syncAutoContinueWithProfile();
     rememberAutoUiState(activeProcessId, ["mode"]);
-  });
-});
-defer(() => {
-  $("work-priority-select").addEventListener("change", () => {
-    const value = selectedWorkPriority();
-    // 只写这一处。引擎读的就是它(run.rs normalize_work_priority → WorkPriority
-    // → resolve_work_decision);不再镜像成 preference 记忆,理由见文件上方说明。
-    rememberWorkPrioritySelection(value);
-    log(localizeDynamic(value === "requirement-first" ? "已切换为需求优先" : "已切换为缺陷优先"));
   });
 });
 defer(() => {

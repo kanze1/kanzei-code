@@ -1026,26 +1026,6 @@ pub(crate) fn workspace_snapshot(
                 .map_err(|e| e.to_string())?
                 .into_iter()
                 .sum::<usize>();
-            let decisions = store
-                .list_decisions(&session_id)
-                .map_err(|e| e.to_string())?;
-            kanzei_tools::verification::recover(&root).map_err(|e| e.to_string())?;
-            let verification_jobs = kanzei_tools::verification::list_jobs(&root).map_err(|e| e.to_string())?.into_iter().take(100).map(|job| json!({
-                "id": job.id, "unit_id": job.unit_id, "status": job.status, "source_fingerprint": job.source_fingerprint,
-                "snapshot": job.snapshot, "log_path": job.log_path, "exit_code": job.exit_code,
-                "updated_at": job.updated_at, "error": job.error, "environment": job.environment,
-            })).collect::<Vec<_>>();
-            let work_units = store.list_work_units(None).map_err(|e| e.to_string())?;
-            let work_acceptances = store
-                .list_work_acceptances(&session_id)
-                .map_err(|e| e.to_string())?;
-            let rework = decisions
-                .iter()
-                .filter_map(|d| d.review.as_ref())
-                .filter_map(|r| r.rework_input_id.as_ref())
-                .map(|id| store.input_status(id).map(|status| (id.clone(), status)))
-                .collect::<Result<std::collections::BTreeMap<_, _>, _>>()
-                .map_err(|e| e.to_string())?;
             Ok(json!({
                 "path": path,
                 "name": prefs.names.get(path).cloned().unwrap_or_else(|| base_name_for_snapshot(path)),
@@ -1057,11 +1037,6 @@ pub(crate) fn workspace_snapshot(
                 "recent_activity": recent.into_iter().rev().take(8).collect::<Vec<_>>(),
                 "lines": lines,
                 "running_lines": running_lines,
-                "decisions": decisions,
-                "work_units": work_units,
-                "verification_jobs": verification_jobs,
-                "work_acceptances": work_acceptances,
-                "rework": rework,
                 "error": null,
             }))
         })();

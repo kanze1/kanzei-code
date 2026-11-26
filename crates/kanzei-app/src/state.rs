@@ -174,23 +174,6 @@ impl SessionRuntime {
     pub(crate) fn stopping(&self) -> bool {
         self.supervisor.lock_or_recover().stopping()
     }
-    /// Register resource-producing controls before they can await or spawn.
-    /// Stop closes admission under this same lock and waits for their drops.
-    pub(crate) fn admit_effect(
-        &self,
-        id: &str,
-    ) -> Result<kanzei_core::TaskCancellationGuard, String> {
-        use kanzei_core::session_lifecycle::{Existence, Phase};
-        let _lifecycle = self.lifecycle.lock_or_recover();
-        let snapshot = self.snapshot();
-        if snapshot.existence != Existence::Open
-            || self.stopping()
-            || snapshot.phase == Phase::Blocked
-        {
-            return Err("对话正在回收，完成后再操作子任务".into());
-        }
-        Ok(self.task_cancellations.register(id))
-    }
 
     pub(crate) fn begin_exclusive(
         &self,

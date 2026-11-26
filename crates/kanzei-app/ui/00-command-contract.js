@@ -104,52 +104,6 @@ export const commandParameters = {
     "projectDir": true,
     "sequence": false
   },
-  "decision_review": {
-    "agent": false,
-    "attachments": false,
-    "decisionId": true,
-    "projectDir": true,
-    "review": true
-  },
-  "defect_review": {
-    "projectDir": true
-  },
-  "docs_archive_entries": {
-    "kind": true,
-    "projectDir": true
-  },
-  "docs_open": {
-    "kind": true,
-    "projectDir": true,
-    "topic": false
-  },
-  "docs_read": {
-    "kind": true,
-    "projectDir": true,
-    "topic": false
-  },
-  "docs_read_custom": {
-    "projectDir": true,
-    "relPath": true
-  },
-  "docs_snapshot": {
-    "projectDir": true
-  },
-  "docs_update": {
-    "action": true,
-    "evidence": false,
-    "fields": false,
-    "id": true,
-    "kind": true,
-    "order": false,
-    "priority": false,
-    "projectDir": true,
-    "reason": false,
-    "requirement": false,
-    "status": false,
-    "title": false,
-    "topic": false
-  },
   "export_pick_dir": {},
   "export_project_data": {
     "options": true
@@ -208,10 +162,6 @@ export const commandParameters = {
   "git_status": {
     "projectDir": true,
     "worktreePath": false
-  },
-  "idea_split": {
-    "id": true,
-    "projectDir": true
   },
   "list_pending_inputs": {
     "processId": false,
@@ -472,11 +422,6 @@ export const commandParameters = {
     "protocol": true,
     "proxy": false
   },
-  "quick_req": {
-    "description": true,
-    "kind": false,
-    "projectDir": true
-  },
   "reveal_path": {
     "path": false,
     "processId": false,
@@ -565,20 +510,6 @@ export const commandParameters = {
     "processId": false,
     "projectDir": true
   },
-  "test_run_record": {
-    "command": false,
-    "projectDir": true,
-    "refs": false,
-    "status": true,
-    "summary": false,
-    "title": true
-  },
-  "test_runs_init_refs": {
-    "projectDir": true
-  },
-  "test_runs_snapshot": {
-    "projectDir": true
-  },
   "tool_image": {
     "projectDir": true,
     "rel": true
@@ -604,25 +535,6 @@ export const commandParameters = {
     "url": true
   },
   "update_receipt": {},
-  "verification_cancel": {
-    "jobId": true,
-    "projectDir": true
-  },
-  "webfetch_preview": {
-    "url": true
-  },
-  "work_delivery_accept": {
-    "projectDir": true,
-    "sourceSequence": true,
-    "unitId": true
-  },
-  "work_node_decompose": {
-    "children": true,
-    "expectedSequence": true,
-    "id": true,
-    "projectDir": true,
-    "reason": true
-  },
   "workspace_overview": {},
   "workspace_snapshot": {
     "projectDir": false
@@ -640,17 +552,6 @@ export const commandParameters = {
     "worktreePath": true
   },
   "worktree_gate": {
-    "projectDir": true,
-    "worktreePath": true
-  },
-  "worktree_harvest_candidates": {
-    "processId": true,
-    "projectDir": true
-  },
-  "worktree_harvest_writeback": {
-    "agentCode": true,
-    "branch": true,
-    "claim": true,
     "projectDir": true,
     "worktreePath": true
   },

@@ -515,24 +515,8 @@ pub(crate) fn schedule_run(
         && agent.as_deref() != Some("dev-pair")
         && execution_batch;
     let autonomous = !general && !discussion && autonomous;
-    let research_topic: Option<String> = None;
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
-    let block_tracker_writes =
-        process.worktree_path.is_some() && !process.tracker_writes_enabled.load(Ordering::SeqCst);
-    if let Some(id) = work_item_id.as_deref() {
-        crate::run::work_start::validate_requested_item(id)?;
-        if general
-            || discussion
-            || matches!(
-                profile.as_deref(),
-                Some("readonly" | "research" | "isolated")
-            )
-            || block_tracker_writes
-        {
-            return Err("当前对话不能领取需求，请返回主对话开始".into());
-        }
-    }
     let runtime = runtime_for(state, &session_id);
     let _lifecycle = runtime.lifecycle.lock().unwrap();
     if runtime.snapshot().existence != kanzei_core::session_lifecycle::Existence::Open {
@@ -672,7 +656,7 @@ pub(crate) fn schedule_run(
             agent: agent.clone(),
             model: model.clone(),
             work_priority: work_priority.clone(),
-            research_topic: research_topic.clone(),
+            research_topic: None,
             autonomous: false,
             auto_allow,
             // 回调选项描述「下一轮怎么发」;自动轮的归属由 submission 形态与 auto_round 判定。
@@ -699,7 +683,6 @@ pub(crate) fn schedule_run(
         let mut next_input = initial_input;
         let mut next_prompt = prompt;
         let mut next_attachments = attachments;
-        let mut next_work_item_id = work_item_id;
         loop {
             let promoted_id = next_input.as_ref().map(|input| input.input_id.clone());
             let cancellation = runtime_for_task
@@ -718,13 +701,10 @@ pub(crate) fn schedule_run(
                 let next_prompt = next_prompt.clone();
                 let mut next_input = next_input.take();
                 let mut next_attachments = next_attachments.take();
-                let mut next_work_item_id = next_work_item_id.take();
                 let process_id_for_run = process_id_for_run.clone();
                 let profile = profile.clone();
-                let research_topic = research_topic.clone();
                 let agent = agent.clone();
                 let model = model.clone();
-                let work_priority = work_priority.clone();
                 let reasoning = reasoning.clone();
                 let process = process.clone();
                 let lifecycle = lifecycle.clone();
@@ -765,18 +745,14 @@ pub(crate) fn schedule_run(
                             delivery,
                             promoted_input: next_input.take(),
                             process_id: process_id_for_run.clone(),
-                            work_item_id: next_work_item_id.take(),
                         },
                         RunMode {
                             execution_batch: !discussion && execution.execution_batch,
                             // 排队输入共用这个循环；每轮重读,运行中改开关在下一轮生效。
                             subagent_mode: process.subagent_mode(),
-                            block_tracker_writes,
                             profile: profile.clone(),
-                            research_topic: research_topic.clone(),
                             agent_name: agent.clone(),
                             model_override: model.clone(),
-                            work_priority: work_priority.clone(),
                             reasoning_override: reasoning.clone(),
                             autonomous: execution.autonomous,
                             auto_allow,

@@ -13,7 +13,6 @@ pub(crate) mod execution;
 mod facts;
 pub(crate) mod input;
 pub(crate) mod persistence;
-pub(crate) mod work_start;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -239,7 +238,7 @@ mod assembly_tests {
                 project_root: root,
                 config: Arc::new(KanzeiConfig::default()),
             };
-            let harness = super::assembly::build_run_harness(profile, false);
+            let harness = super::assembly::build_run_harness(profile);
             let snapshot = harness.resolve(&ctx).unwrap();
             let resident_names: Vec<&str> = snapshot
                 .resident_tools()
@@ -247,14 +246,8 @@ mod assembly_tests {
                 .map(|tool| tool.name())
                 .collect();
             assert!(resident_names.contains(&"tool_search"));
-            for name in ["req", "defect", "test_record", "memory_note"] {
-                assert!(snapshot.is_deferred(name));
-                assert!(!resident_names.contains(&name));
-            }
-            assert_eq!(
-                snapshot.is_deferred("work"),
-                profile == ProfileKind::DevPair
-            );
+            assert!(snapshot.is_deferred("memory_note"));
+            assert!(!resident_names.contains(&"memory_note"));
             let all_specs: Vec<kanzei_llm::ToolSpec> = snapshot
                 .materialize_tools()
                 .iter()

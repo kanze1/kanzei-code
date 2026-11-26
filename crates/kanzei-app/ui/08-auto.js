@@ -3,14 +3,12 @@ import "./00-dom.js";
 import { motionCount } from "./00-ui-primitives.js";
 import { $ } from "./00-dom.js";
 import { activePane, messages } from "./01-chat-panes.js";
-import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
 import { setSessionDetails } from "./00-session-state.js";
 import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
-  currentProject,
   log,
   processItems,
   sessionState,
@@ -164,40 +162,6 @@ export function renderHarnessIntensity() {
     ? t("无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。")
     : t("无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。"));
 }
-// UI2-0926 #13:取活顺序的存储键只有一种写法。原先自主轮读 `kz-work-priority:${item.origin_project}`
-// (进程记录里的 `\\?\C:\…`),写入键却是 currentProject(`C:\…`),于是自主轮永远读不到用户选的顺序。
-export function workPriorityKeyFor(project) {
-  const key = String(project || "default").replace(/^\\\\\?\\(?!UNC\\)/, "");
-  return `kz-work-priority:${key}`;
-}
-export function workPriorityStorageKey() {
-  return workPriorityKeyFor(currentProject);
-}
-export function selectedWorkPriority() {
-  return $("work-priority-select").value === "requirement-first" ? "requirement-first" : "defect-first";
-}
-let workPriorityGeneration = 0;
-export function rememberWorkPrioritySelection(value) {
-  const project = currentProject || "default";
-  ++workPriorityGeneration;
-  localStorage.setItem(workPriorityKeyFor(project), value);
-  void uiPrefsSave({ work_priority: { [project]: value } });
-}
-export function syncWorkPriorityControl() {
-  const project = currentProject || "default";
-  const generation = ++workPriorityGeneration;
-  const saved = localStorage.getItem(workPriorityStorageKey());
-  $("work-priority-select").value = saved === "requirement-first" ? saved : "defect-first";
-  // D-404:localStorage 数据文件缺失时重启即丢;后端 app.json 是权威,有值则覆盖。
-  void uiPrefsLoad().then((p) => {
-    if (generation !== workPriorityGeneration || project !== (currentProject || "default")) return;
-    const v = p.work_priority?.[project];
-    if (v === "requirement-first" || v === "defect-first") $("work-priority-select").value = v;
-  });
-}
-
-// 取活顺序经 uiPrefs 保存到 work_priority，再由引擎投影为 resolved-control-state。
-// 已保存偏好由 core/preferences 独立加载；此控件不再镜像写入记忆。
 
 // 自动推进状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
 // 旧实现把三样揉进一条自由文本塞进 #auto-status,而 renderAutoStatus 的默认参数是

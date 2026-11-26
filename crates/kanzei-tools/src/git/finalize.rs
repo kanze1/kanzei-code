@@ -1,23 +1,21 @@
-//! Git 交付事务域(R-257 B4):fmt/clippy → 定向测试 → test_record → stage → CAS commit。
-//! 事务顺序与门禁实现仍复用 git.rs 的 dev 当前实现，避免回退到旧分支语义。
+//! Git 交付事务域：fmt/clippy → 定向测试 → stage → CAS commit。
 
 use kanzei_harness::{ToolCtx, ToolOutput};
 
 use super::{
-    aggregate_gate_errors, build_commit_plan, clippy_gate, commit_with_gate_state, fmt_gate,
-    run_git, source_endorsement_fingerprint, stage, with_git_diagnostics,
+    aggregate_gate_errors, build_commit_plan, clippy_gate, commit_with_gate_state, fmt_gate, stage,
+    with_git_diagnostics,
 };
 
-/// 项目交付事务：有 Rust 输入时并行执行 fmt/clippy，两者通过后跑定向测试，
-/// 记录带指纹的结果，再 stage 与 CAS commit。非项目工作流沿用直接 stage/commit 路径。
+/// 项目交付事务：有 Rust 输入时并行执行 fmt/clippy，两者通过后跑定向测试，再 stage 与 CAS commit。
 pub(crate) async fn finalize(
     ctx: &ToolCtx,
     files: Vec<String>,
     message: Option<String>,
-    requirement_id: Option<String>,
+    _requirement_id: Option<String>,
 ) -> ToolOutput {
     let mut diagnostics = Vec::new();
-    let output = finalize_body(ctx, files, message, requirement_id, &mut diagnostics).await;
+    let output = finalize_body(ctx, files, message, &mut diagnostics).await;
     with_git_diagnostics(output, &diagnostics)
 }
 
@@ -25,7 +23,6 @@ async fn finalize_body(
     ctx: &ToolCtx,
     files: Vec<String>,
     message: Option<String>,
-    requirement_id: Option<String>,
     diagnostics: &mut Vec<String>,
 ) -> ToolOutput {
     let cwd = &ctx.cwd;
@@ -115,38 +112,6 @@ async fn finalize_body(
             tail.join("\n")
         ));
     }
-    let passed_summary = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter(|l| l.contains("test result: ok"))
-        .map(str::to_string)
-        .collect::<Vec<_>>()
-        .join("; ");
-
-    let fingerprint = source_endorsement_fingerprint(cwd).unwrap_or_default();
-    let summary = if passed_summary.is_empty() {
-        "finalize 测试通过(无 test result 行,或纯非 Rust 改动)".to_string()
-    } else {
-        passed_summary
-    };
-    let test_record = match crate::test_record::record_test_run_with_duration(
-        &ctx.project_root,
-        None,
-        &format!("git finalize (auto): {test_command}"),
-        "passed",
-        Some(&test_command),
-        Some(&summary),
-        None,
-        Some(duration_secs),
-        Some(&fingerprint),
-    ) {
-        Ok(snapshot) => snapshot,
-        Err(error) => return ToolOutput::error(format!("[finalize] test_record failed: {error}")),
-    };
-    let test_record_ids = test_record
-        .get("recorded_id")
-        .and_then(serde_json::Value::as_str)
-        .map(|id| vec![id.to_string()])
-        .unwrap_or_default();
 
     let staged = stage(&ctx.project_root, cwd, &files, None).await;
     let ToolOutput {
@@ -180,50 +145,9 @@ async fn finalize_body(
             committed.content
         ));
     }
-    let deliver_note = match run_git(cwd, &["rev-parse", "HEAD"]).await {
-        Ok(commit) => {
-            let commit = commit.take_stdout(diagnostics);
-            let paths = run_git(
-                cwd,
-                &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"],
-            )
-            .await
-            .map(|output| output.take_stdout(diagnostics))
-            .unwrap_or_default()
-            .lines()
-            .filter(|path| !path.trim().is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-            let entry_id = requirement_id
-                .or_else(|| crate::work::log::latest_claim_id(&ctx.project_root, ctx));
-            if let Some(entry_id) = entry_id {
-                match crate::work::log::append(
-                    &ctx.project_root,
-                    "deliver",
-                    Some(&entry_id),
-                    ctx,
-                    serde_json::json!({
-                        "commit": commit.trim(),
-                        "paths": paths,
-                        "test_record_ids": test_record_ids,
-                        "source": "engine",
-                    }),
-                ) {
-                    Ok(()) => format!("\ndeliver recorded: {entry_id} @ {}", commit.trim()),
-                    Err(error) => format!(
-                        "\nWarning: committed but delivery record could not be saved: {error}"
-                    ),
-                }
-            } else {
-                "\nWarning: no bound claim found; commit remains legacy without a deliver record"
-                    .to_string()
-            }
-        }
-        Err(error) => format!("\nWarning: committed but deliver lookup failed: {error}"),
-    };
     ToolOutput::ok(format!(
-        "[finalize] complete: {test_command} passed in {duration_secs:.1}s → staged {staged_hash} → committed\n{content}\n{}{}",
-        committed.content, deliver_note
+        "[finalize] complete: {test_command} passed in {duration_secs:.1}s → staged {staged_hash} → committed\n{content}\n{}",
+        committed.content
     ))
     .with_display(display.unwrap_or_else(|| serde_json::json!({ "kind": "terminal" })))
 }

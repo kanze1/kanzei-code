@@ -9,8 +9,7 @@
 use std::path::Path;
 
 use kanzei_harness::auto_run::{
-    nudge_prompt, AutoRunAction, AutoRunCtx, AutoRunState, AutoStopReason, BacklogStatus,
-    NudgeFacts, SelectedItem, WorkPriority,
+    nudge_prompt, AutoRunAction, AutoRunCtx, AutoRunState, AutoStopReason,
 };
 use serde_json::json;
 use tauri::State;
@@ -175,44 +174,7 @@ pub fn decide_auto_run(ctrl: &mut AutoRunController, ctx: AutoRunCtx) -> AutoRun
 // 刷穿;且轮中上下文压缩会改写消息列表,消息口径本身不可靠。现口径为事件收口,
 // 见 run/events/mod.rs MetricsSink(ToolStart 登记 close 意图,ToolEnd ok 计数)。
 
-/// 自动模式使用当前线的确定性取活结果。
-pub fn backlog_status(cwd: &Path, project_root: &Path, priority: WorkPriority) -> BacklogStatus {
-    kanzei_tools::tracker::backlog_status_for(cwd, project_root, priority)
-}
-
-/// D-583 验收①后半:「点名阻塞清单」——熔断多半发生在活动条目卡在外部阻塞
-/// (权限环境/待用户决策/真实冲突)时,诊断必须直接列出卡住的条目与阻塞原文,
-/// 不能让人再去翻 defects.md/requirements.md 逐条找。只扫 WIP(doing/fixing)
-/// 且「阻塞」字段非空的条目——已经 todo/open 的排队条目不算「正在卡住」。
-pub fn blocked_wip_summary(project_root: &Path) -> Vec<String> {
-    use kanzei_memory::docstore::{DocStore, DEFECTS, REQUIREMENTS};
-    let mut out = Vec::new();
-    for kind in [&REQUIREMENTS, &DEFECTS] {
-        let Ok(entries) = DocStore::open(project_root, kind).load() else {
-            continue;
-        };
-        for entry in entries {
-            if !matches!(entry.status.as_str(), "doing" | "fixing") {
-                continue;
-            }
-            let blocked = entry
-                .fields
-                .iter()
-                .find(|(key, _)| key == "阻塞")
-                .map(|(_, value)| value.trim())
-                .unwrap_or_default();
-            if !blocked.is_empty() {
-                out.push(format!("{}: {blocked}", entry.id));
-            }
-        }
-    }
-    out
-}
-
-/// D-583:熔断事件留痕——单纯的一次性 kz:done UI 事件会随会话滚动沉底,人工事后
-/// 想查「这个会话到底哪一轮触发过熔断」找不到独立证据。追加写一条 JSONL 到项目级
-/// 审计文件,与 D-566 的 cleanup-log.jsonl、D-567 的连续失败持久化同一手法:
-/// 只增不改,坏一行不影响其余行,不需要额外的读—改—写并发保护。
+/// D-583:熔断事件留痕——追加写一条 JSONL 到项目级审计文件。
 pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_signature: &str) {
     let path = project_root.join(".kanzei/project/auto-run-alerts.jsonl");
     let recorded_at_ms = std::time::SystemTime::now()
@@ -224,7 +186,6 @@ pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_
         "session_id": session_id,
         "rounds": kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT,
         "progress_signature": progress_signature,
-        "blocked": blocked_wip_summary(project_root),
         "recorded_at_ms": recorded_at_ms,
     });
     let Some(parent) = path.parent() else { return };
@@ -241,94 +202,48 @@ pub fn record_zero_output_alert(project_root: &Path, session_id: &str, progress_
     }
 }
 
-/// D-583:本轮「真实进展」签名——(HEAD、代码 worktree hash、tracker 文档内容)三者
-/// 拼在一起哈希。与 has_progress_tools(工具名画像)互补:那个防「整轮不调用任何
-/// 工具」,这个防「调用了 bash/read 等工具但状态什么也没真的变」(复诵证据清单、
-/// 反复读同一批文件这类看起来在干活、实际空转的场景——R-306 现场空转 10 轮
-/// 才被人工发现)。
-///
-/// `repo_observation` 的 (head, worktree_hash) 刻意排除 `.kanzei/**`(它是给证据锚
-/// 新鲜度用的,tracker 独立提交不该让代码证据变 stale),所以这里再显式并入
-/// defects.md/requirements.md 的原始字节,三段一起才覆盖「文件改动/提交/tracker
-/// 实质字段变化」三个验收点。哈希只用于本进程内逐轮比较,不落盘不跨进程,
-/// 用标准库 DefaultHasher 足够,不必对齐 work.rs 的 fnv1a64 格式。
+/// D-583:本轮「真实进展」签名——对 Git 仓库取 HEAD + status + diff 内容哈希，
+/// 非 Git 项目取项目树指纹，用于检测连续多轮无真实产出的空转。
 pub fn progress_signature(project_root: &Path) -> String {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    let observation = kanzei_tools::work::repo_observation(project_root);
     let mut hasher = DefaultHasher::new();
-    observation.observed_head.hash(&mut hasher);
-    observation.observed_worktree_hash.hash(&mut hasher);
-    // UI2-0926 #13:非 Git 项目的 git 观测全部失败,HEAD 与工作树哈希是常量,签名只剩
-    // tracker 字节会变——连续三轮只写代码不动 tracker 就被零产出熔断误停。没有独立仓库时
-    // 并入项目树指纹(`.kanzei` 与构建目录之外文件的路径/大小/修改时间,遍历有上限)。
-    if !kanzei_tools::project_state::git_state_of(project_root).is_repo() {
-        kanzei_tools::project_state::tree_fingerprint(project_root).hash(&mut hasher);
-    }
-    for rel in [
-        ".kanzei/project/defects.md",
-        ".kanzei/project/requirements.md",
-    ] {
-        std::fs::read(project_root.join(rel))
-            .unwrap_or_default()
-            .hash(&mut hasher);
-    }
-    match kanzei_tools::work::progress_snapshot(project_root) {
-        Ok(snapshot) => snapshot.hash(&mut hasher),
-        Err(error) => {
-            tracing::warn!(%error, "work progress unavailable; zero-output comparison suspended");
-            return String::new();
+    if kanzei_tools::project_state::git_state_of(project_root).is_repo() {
+        let git_out = |args: &[&str]| -> Vec<u8> {
+            crate::state::hidden_command("git")
+                .args(args)
+                .current_dir(project_root)
+                .output()
+                .map(|o| o.stdout)
+                .unwrap_or_default()
+        };
+        git_out(&["rev-parse", "HEAD"]).hash(&mut hasher);
+        let status = git_out(&["status", "--porcelain"]);
+        status.hash(&mut hasher);
+        git_out(&["diff", "--no-ext-diff"]).hash(&mut hasher);
+        git_out(&["diff", "--cached", "--no-ext-diff"]).hash(&mut hasher);
+        // 未跟踪文件内容变更也要能被签名感知。
+        for line in String::from_utf8_lossy(&status).lines() {
+            if let Some(rel) = line.strip_prefix("?? ") {
+                if let Ok(meta) = std::fs::metadata(project_root.join(rel.trim())) {
+                    meta.len().hash(&mut hasher);
+                    if let Ok(mtime) = meta.modified() {
+                        mtime
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .ok()
+                            .map(|d| d.as_nanos())
+                            .hash(&mut hasher);
+                    }
+                }
+            }
         }
+    } else {
+        kanzei_tools::project_state::tree_fingerprint(project_root).hash(&mut hasher);
     }
     format!("{:016x}", hasher.finish())
 }
 
-/// UI2-0926 #13:Nudge 文案的事实——引擎当前选中项(与 `work next` 同源)、项目里实际存在的
-/// tracker 队列文件(按取活顺序)、等用户拍板的阻塞条目。只在真的要发 Nudge 时才算。
-pub fn nudge_facts(cwd: &Path, project_root: &Path, work_priority: WorkPriority) -> NudgeFacts {
-    let mut names = ["defects.md", "requirements.md"];
-    if work_priority == WorkPriority::RequirementFirst {
-        names.reverse();
-    }
-    let queues = names
-        .iter()
-        .filter(|name| project_root.join(".kanzei/project").join(name).is_file())
-        .map(|name| (*name).to_string())
-        .collect();
-    // 不做全量交付对账(include_reconciliation = false):Nudge 只要选中项与阻塞原因。
-    let decision = kanzei_tools::resolve_work_selection(cwd, project_root, work_priority).ok();
-    let selected = decision
-        .as_ref()
-        .and_then(|state| state.selected.as_ref())
-        .map(|item| SelectedItem {
-            id: item.id.clone(),
-            title: item.title.clone(),
-            status: item.lifecycle_status.clone(),
-        });
-    let user_blocked = decision
-        .map(|state| {
-            state
-                .blocked_items
-                .iter()
-                .filter(|item| {
-                    item.block_reasons.iter().any(|reason| {
-                        let lower = reason.to_lowercase();
-                        lower.contains("用户") || lower.contains("user") || lower.contains("拍板")
-                    })
-                })
-                .map(|item| item.id.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-    NudgeFacts {
-        selected,
-        queues,
-        user_blocked,
-    }
-}
-
-/// 只有交互模式的问题能进入等待用户状态。自动模式的问题持久留档，
-/// 不决定线路是否继续；没有可推进工作时由 backlog/无动作/零产出判据收口。
+/// 只有交互模式的问题能进入等待用户状态。自动模式不因散文问号中断。
 pub(crate) fn awaiting_user_for_round(
     missing_fact: bool,
     last_text: Option<&str>,
@@ -492,22 +407,12 @@ fn last_paragraph(text: &str) -> String {
 }
 
 /// 判定结果序列化给前端:`{"type":"Continue"|"Nudge"|"NoContinue"|"Stop","prompt":...}`。
-/// Nudge 文案由引擎按项目状态生成(nudge_prompt + nudge_facts),前端不持模板;事实只在
-/// 真的要发 Nudge 时才计算(`nudge` 惰性求值)。
-pub fn serialize_action(
-    action: AutoRunAction,
-    nudge: impl FnOnce() -> NudgeFacts,
-) -> serde_json::Value {
+pub fn serialize_action(action: AutoRunAction) -> serde_json::Value {
     match action {
         AutoRunAction::Continue => json!({ "type": "Continue" }),
-        AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt(&nudge()) }),
+        AutoRunAction::Nudge => json!({ "type": "Nudge", "prompt": nudge_prompt() }),
         AutoRunAction::NoContinue => json!({ "type": "NoContinue" }),
-        // R-322 B3:目标未达成,复述**用户自己写的**条件再推一轮。
-        // 与 Nudge 同款投递机制,但 prompt 由调用方从 controller.goal 填入——
-        // 引擎不持有目标文本(它是用户数据,不是引擎规则)。
         AutoRunAction::GoalPending => json!({ "type": "GoalPending" }),
-        // D-403:瞬态失败退避重试——退避时长在此换算(attempt1=15s,attempt2=30s,
-        // 封顶 60s),引擎不持时钟;前端只按 delayMs 定时,不再造第二套退避表。
         AutoRunAction::RetryAfterFailure { attempt } => json!({
             "type": "RetryAfterFailure",
             "attempt": attempt,
@@ -516,26 +421,17 @@ pub fn serialize_action(
         }),
         AutoRunAction::Stop(reason) => {
             let (reason_str, max) = match reason {
-                AutoStopReason::AllBlocked => ("AllBlocked", None),
-                AutoStopReason::BacklogEmpty => ("BacklogEmpty", None),
                 AutoStopReason::Paused => ("Paused", None),
                 AutoStopReason::StopAfterRound => ("StopAfterRound", None),
                 AutoStopReason::NoAction => ("NoAction", None),
                 AutoStopReason::ProfileMismatch => ("ProfileMismatch", None),
-                // D-403:连续瞬态失败停摆(max 槽复用为失败次数)/致命错误立即停。
                 AutoStopReason::RepeatedFailure(n) => ("RepeatedFailure", Some(n)),
                 AutoStopReason::FatalError => ("FatalError", None),
                 AutoStopReason::RateLimited => ("RateLimited", None),
-                // D-583:连续 N 轮真实进展签名未变(max 槽复用为触发轮数,与
-                // RepeatedFailure 同口径)。
                 AutoStopReason::ZeroOutput(n) => ("ZeroOutput", Some(n)),
-                // R-322(#7):模型自己交还控制权。前端文案必须与其余原因区分——
-                // 这不是「引擎把它停了」,是「它说做完了」。
                 AutoStopReason::ModelDeclaredDone => ("ModelDeclaredDone", None),
-                // R-322 B3:目标达成/推不动。两者都要让前端清除目标输入。
                 AutoStopReason::GoalMet => ("GoalMet", None),
                 AutoStopReason::GoalUnreachable(n) => ("GoalUnreachable", Some(n)),
-                // UI2-0926 #13:模型在等用户回答。前端保持鞭挞开着、不挂续跑、提示并定位问题。
                 AutoStopReason::AwaitingUser => ("AwaitingUser", None),
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
@@ -586,53 +482,36 @@ pub fn is_transient_run_error(error: &anyhow::Error) -> bool {
     }
 }
 
-pub fn work_priority_enum(v: &str) -> WorkPriority {
-    if v == "requirement-first" {
-        WorkPriority::RequirementFirst
-    } else {
-        WorkPriority::DefectFirst
-    }
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
-    fn 自动问题不改变线路状态_队列和目标仍由状态机判定() {
-        use kanzei_harness::auto_run::{AutoRunCtx, AutoRunState, BacklogStatus};
-        for backlog in [
-            BacklogStatus::Workable,
-            BacklogStatus::AllBlocked,
-            BacklogStatus::Empty,
-            BacklogStatus::Unknown,
-        ] {
-            for goal_active in [false, true] {
-                let round = |missing_fact| AutoRunCtx {
-                    backlog,
-                    halted: false,
-                    intensity: kanzei_harness::HarnessIntensity::Autonomous,
-                    completion: None,
-                    awaiting_user: super::awaiting_user_for_round(
-                        missing_fact,
-                        Some("请提供路径？"),
-                        true,
-                    ),
-                    goal_active,
-                    steps: 3,
-                    tools: &[],
-                    auto_allowed: true,
-                    closed_this_round: 0,
-                    round_failure: None,
-                    progress_signature: "initial",
-                };
-                let mut with_question = AutoRunState::default();
-                let mut without_question = AutoRunState::default();
-                assert_eq!(
-                    with_question.decide(&round(true)),
-                    without_question.decide(&round(false)),
-                    "backlog={backlog:?}, goal={goal_active}"
-                );
-                assert_eq!(with_question.rounds, without_question.rounds);
-            }
+    fn 自动问题不改变线路状态_目标仍由状态机判定() {
+        use kanzei_harness::auto_run::{AutoRunCtx, AutoRunState};
+        for goal_active in [false, true] {
+            let round = |missing_fact| AutoRunCtx {
+                halted: false,
+                intensity: kanzei_harness::HarnessIntensity::Autonomous,
+                completion: None,
+                awaiting_user: super::awaiting_user_for_round(
+                    missing_fact,
+                    Some("请提供路径？"),
+                    true,
+                ),
+                goal_active,
+                steps: 3,
+                tools: &[],
+                auto_allowed: true,
+                round_failure: None,
+                progress_signature: "initial",
+            };
+            let mut with_question = AutoRunState::default();
+            let mut without_question = AutoRunState::default();
+            assert_eq!(
+                with_question.decide(&round(true)),
+                without_question.decide(&round(false)),
+                "goal={goal_active}"
+            );
+            assert_eq!(with_question.rounds, without_question.rounds);
         }
     }
 
@@ -685,13 +564,8 @@ mod tests {
         dir
     }
 
-    /// D-583:真实进展签名对三类真实动作都要敏感——①代码文件改动;②commit;
-    /// ③tracker 文档内容改动(哪怕还没 commit)。`repo_observation` 本身显式排除
-    /// `.kanzei/**`(避免 tracker 独立提交让证据锚变 stale),所以③必须靠
-    /// progress_signature 自己并入 defects.md/requirements.md 字节才覆盖得到——
-    /// 这条测试专门守住这一点,防止未来重构把这段拼接删掉。
     #[test]
-    fn 真实进展签名对代码改动提交与tracker文档改动均敏感() {
+    fn 真实进展签名对代码改动与提交敏感() {
         let dir = temp_git_repo("basic");
         let baseline = super::progress_signature(&dir);
         assert_eq!(
@@ -700,12 +574,10 @@ mod tests {
             "什么都没变,签名必须稳定复现"
         );
 
-        // ①未提交的代码改动应改变签名(repo_observation 的 worktree_hash 会变)。
         std::fs::write(dir.join("source.txt"), "changed").unwrap();
         let after_code_edit = super::progress_signature(&dir);
         assert_ne!(baseline, after_code_edit, "代码文件改动后签名必须变化");
 
-        // ②commit 应再次改变签名(HEAD 变化)。
         std::process::Command::new("git")
             .current_dir(&dir)
             .args(["commit", "-aqm", "code change"])
@@ -714,60 +586,9 @@ mod tests {
         let after_commit = super::progress_signature(&dir);
         assert_ne!(after_code_edit, after_commit, "提交后签名必须再次变化");
 
-        // ③只改 tracker 文档(不提交)也必须改变签名——repo_observation 本身对
-        // `.kanzei/**` 视而不见,这一步专门验证 progress_signature 自己补上了这块。
-        std::fs::write(
-            dir.join(".kanzei/project/defects.md"),
-            "# Defects\n\n## D-1 test\n",
-        )
-        .unwrap();
-        let after_tracker_edit = super::progress_signature(&dir);
-        assert_ne!(
-            after_commit, after_tracker_edit,
-            "tracker 文档改动未被 repo_observation 捕捉,必须靠本函数自己的拼接补上"
-        );
-
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// D-583 验收①后半:「点名阻塞清单」只收 WIP(doing/fixing)且「阻塞」字段
-    /// 非空的条目——排队中的 todo/open 与阻塞字段空着的活动条目都不算「正在卡住」。
-    #[test]
-    fn 阻塞清单只收wip且阻塞字段非空的条目() {
-        let dir = temp_git_repo("blocked");
-        std::fs::write(
-            dir.join(".kanzei/project/defects.md"),
-            "# Defects\n\n\
-             ## D-001 卡住的缺陷 [fixing] (medium)\n\
-             - 阻塞: 等用户确认线上环境\n\n\
-             ## D-002 正常推进的缺陷 [fixing] (medium)\n\
-             - 阻塞: \n\n\
-             ## D-003 排队中的缺陷 [open] (low)\n\
-             - 阻塞: 这条不该出现,状态不是 wip\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join(".kanzei/project/requirements.md"),
-            "# Requirements\n\n\
-             ## R-001 卡住的需求 [doing]\n\
-             - 阻塞: 等 review\n",
-        )
-        .unwrap();
-
-        let summary = super::blocked_wip_summary(&dir);
-        assert_eq!(summary.len(), 2, "{summary:?}");
-        assert!(summary
-            .iter()
-            .any(|s| s.starts_with("D-001: 等用户确认线上环境")));
-        assert!(summary.iter().any(|s| s.starts_with("R-001: 等 review")));
-        assert!(!summary.iter().any(|s| s.starts_with("D-002")));
-        assert!(!summary.iter().any(|s| s.starts_with("D-003")));
-
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// D-583 验收③:熔断事件必须留痕可审计——追加进 auto-run-alerts.jsonl,
-    /// 每行独立(只增不改),多次触发各自成行不覆盖,且带上阻塞清单(验收①)。
     #[test]
     fn 熔断事件写入审计文件_多次触发各自成行() {
         let dir = temp_git_repo("alert");
@@ -786,7 +607,6 @@ mod tests {
             parsed["rounds"],
             kanzei_harness::auto_run::ZERO_OUTPUT_ROUND_LIMIT
         );
-        assert!(parsed["blocked"].is_array(), "{parsed}");
 
         super::record_zero_output_alert(&dir, "session-2", "sig-b");
         let content = std::fs::read_to_string(&alert_path).unwrap();
@@ -827,7 +647,6 @@ mod tests {
         };
         assert_eq!(ctrl.state.rounds, 0, "前置:第一轮尚未计数");
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
-            backlog: kanzei_harness::auto_run::BacklogStatus::Workable,
             halted: false,
             intensity: kanzei_harness::HarnessIntensity::Autonomous,
             completion: None,
@@ -836,8 +655,6 @@ mod tests {
             steps: 0,
             tools: &[],
             auto_allowed: true,
-            closed_this_round: 0,
-
             round_failure: Some(kanzei_harness::auto_run::RoundFailure::Transient),
             progress_signature: "",
         };
@@ -1036,40 +853,16 @@ mod tests {
     }
 
     #[test]
-    fn 等用户序列化_与_nudge_按项目状态生成() {
-        let v = super::serialize_action(
-            kanzei_harness::auto_run::AutoRunAction::Stop(super::AutoStopReason::AwaitingUser),
-            || panic!("Stop 不应计算 Nudge 事实"),
-        );
+    fn 等用户与nudge序列化() {
+        let v = super::serialize_action(kanzei_harness::auto_run::AutoRunAction::Stop(
+            super::AutoStopReason::AwaitingUser,
+        ));
         assert_eq!(v["type"], "Stop");
         assert_eq!(v["reason"], "AwaitingUser");
 
-        let dir = std::env::temp_dir().join(format!(
-            "kz-nudge-facts-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(dir.join(".kanzei/project")).unwrap();
-        std::fs::write(
-            dir.join(".kanzei/project/requirements.md"),
-            "# Requirements\n\n## R-001 移动端 Markdown 上下文库 [doing]\n- 优先级: P1\n- 复杂度: 大\n- 标签: 核心\n",
-        )
-        .unwrap();
-        let facts = super::nudge_facts(&dir, &dir, super::WorkPriority::DefectFirst);
-        assert_eq!(facts.queues, vec!["requirements.md".to_string()]);
-        let v = super::serialize_action(kanzei_harness::auto_run::AutoRunAction::Nudge, || {
-            facts.clone()
-        });
-        let prompt = v["prompt"].as_str().unwrap();
-        assert!(!prompt.contains("defects.md"), "{prompt}");
-        assert!(
-            prompt.contains("R-001") || prompt.contains("work next"),
-            "{prompt}"
-        );
-        std::fs::remove_dir_all(&dir).ok();
+        let v = super::serialize_action(kanzei_harness::auto_run::AutoRunAction::Nudge);
+        assert_eq!(v["type"], "Nudge");
+        assert!(!v["prompt"].as_str().unwrap_or_default().is_empty());
     }
 
     /// R-322 B3:目标是**一次性意图**——空串即撤销,超长截断,前后空白不算内容。

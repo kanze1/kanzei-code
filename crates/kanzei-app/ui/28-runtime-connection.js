@@ -6,8 +6,7 @@ import { currentProject, toastError } from "./03-shell.js";
 import { refreshProcesses, renderProjects, lastProjectPrefs } from "./09-sessions.js";
 import { loadConversation } from "./15-views-misc.js";
 import { active_space, restore_workspace_preferences, restore_active_workspace, sync_workspace_visibility } from "./03-workspaces.js";
-import { workbenchNavigationGuard, openProjectSpace } from "./12-workbench.js";
-import { refreshWorkspace } from "./12-docs-pages.js";
+import { workbenchNavigationGuard, openProjectSpace, refreshWorkspace } from "./12-workbench.js";
 import { openGeneralChat } from "./03-general-scope.js";
 
 let runtimeSync = null;

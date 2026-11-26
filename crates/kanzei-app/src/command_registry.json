@@ -120,26 +120,6 @@
     "host": "service"
   },
   {
-    "path": "decisions::decision_review",
-    "host": "service"
-  },
-  {
-    "path": "decisions::work_delivery_accept",
-    "host": "service"
-  },
-  {
-    "path": "decisions::verification_cancel",
-    "host": "service"
-  },
-  {
-    "path": "docs::docs_snapshot",
-    "host": "service"
-  },
-  {
-    "path": "docs::docs_archive_entries",
-    "host": "service"
-  },
-  {
     "path": "commands::run::run_prompt",
     "host": "service"
   },
@@ -296,18 +276,6 @@
     "host": "desktop"
   },
   {
-    "path": "subagents::quick_req",
-    "host": "service"
-  },
-  {
-    "path": "subagents::idea_split",
-    "host": "service"
-  },
-  {
-    "path": "subagents::defect_review",
-    "host": "service"
-  },
-  {
     "path": "memory::memory_overview",
     "host": "service"
   },
@@ -436,27 +404,11 @@
     "host": "service"
   },
   {
-    "path": "docs::docs_update",
-    "host": "service"
-  },
-  {
-    "path": "docs::work_nodes::work_node_decompose",
-    "host": "service"
-  },
-  {
-    "path": "docs::webfetch_preview",
-    "host": "service"
-  },
-  {
-    "path": "docs::docs_open",
-    "host": "desktop"
-  },
-  {
     "path": "commands::summarize::summarize_chat",
     "host": "service"
   },
   {
-    "path": "docs::git_status",
+    "path": "files_view::git_status",
     "host": "service"
   },
   {
@@ -477,14 +429,6 @@
   },
   {
     "path": "conversation::conversation_cleanup",
-    "host": "service"
-  },
-  {
-    "path": "docs::docs_read",
-    "host": "service"
-  },
-  {
-    "path": "docs::docs_read_custom",
     "host": "service"
   },
   {
@@ -593,26 +537,6 @@
   },
   {
     "path": "processes::gate::worktree_post_merge_gate",
-    "host": "service"
-  },
-  {
-    "path": "processes::workspace::worktree_harvest_candidates",
-    "host": "service"
-  },
-  {
-    "path": "processes::workspace::worktree_harvest_writeback",
-    "host": "service"
-  },
-  {
-    "path": "docs::test_runs_snapshot",
-    "host": "service"
-  },
-  {
-    "path": "docs::test_run_record",
-    "host": "service"
-  },
-  {
-    "path": "docs::test_runs_init_refs",
     "host": "service"
   },
   {

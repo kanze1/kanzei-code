@@ -219,15 +219,7 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
 
     // 同名 Agent:内置 → 全局 Markdown → 已批准项目 Markdown。
     // ConfigComponent 贡献权限规则，不定义或覆盖 Agent 正文。
-    let mut harness = kanzei_runtime::build_harness(profile, |_| {}, |_| {});
-    if requested_agent
-        .as_deref()
-        .is_none_or(|name| name == kanzei_harness::DEV_AUTO_AGENT)
-    {
-        harness.add(kanzei_tools::work::WorkControlContext(
-            kanzei_harness::auto_run::WorkPriority::DefectFirst,
-        ));
-    }
+    let harness = kanzei_runtime::build_harness(profile, |_| {}, |_| {});
     let snapshot = harness.resolve(&rctx)?;
 
     let agent = snapshot
@@ -263,7 +255,6 @@ pub(crate) async fn run_cli(args: &[String]) -> anyhow::Result<()> {
     let (worktree_key, write_key) = cli_identity_keys(&cwd, &project_root);
     let mut ctx = ToolCtx::new(cwd, project_root.clone())
         .with_read_ledger(kanzei_harness::ReadLedger::default())
-        .with_work_priority(kanzei_harness::auto_run::WorkPriority::DefectFirst)
         .with_identity(
             worktree_key,
             write_key,

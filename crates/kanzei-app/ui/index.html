@@ -60,7 +60,6 @@
           </button>
         </div>
         <button type="button" id="workbench-home" class="workbench-nav-link active" data-space-only="dev-auto" data-i18n-key="所有项目">所有项目</button>
-        <button type="button" id="workbench-attention" class="workbench-nav-link" data-space-only="dev-auto"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4.5h16v15H4zM4 14h5l1.5 2h3l1.5-2h5"/></svg><span data-i18n-key="待我处理">待我处理</span><span id="workbench-attention-count" class="workbench-nav-count"></span></button>
         <div id="workbench-conversation-scroll" data-space-only="dev-auto">
         <div class="workbench-nav-label">
           <span data-i18n-key="项目">项目</span>
@@ -263,21 +262,6 @@
                 <button type="button" id="autorun-more" class="kz-ctl autorun-trigger" data-kz-menu="autorun-menu" title="自动推进设置" data-i18n-title="自动推进设置" aria-label="自动推进设置" data-i18n-aria-label="自动推进设置"><span id="auto-progress" class="auto-progress"><b id="auto-round-now">0</b><span class="auto-round-unit" data-i18n-key="轮">轮</span></span><span id="auto-phase" class="auto-phase"></span><span class="kz-chev" aria-hidden="true"></span></button>
                 <div id="autorun-menu" class="k-surface k-menu autorun-menu hidden" popover="manual" data-placement="top-start" role="group" aria-label="自动推进设置" data-i18n-aria-label="自动推进设置">
                   <div class="menu-section">
-                    <span class="menu-section-label" data-i18n-key="任务队列">任务队列</span>
-                    <!-- 原「门禁强度」只读行已撤(B40):强度是模式的后果,逐条说明改挂在模式选择器 #profile-select 的悬停提示上
-                         (08-auto.js renderHarnessIntensity 按当前档写 title)。 -->
-                    <label class="menu-row" for="work-priority-select">
-                      <span class="menu-row-main">
-                        <span class="menu-row-title" data-i18n-key="先做哪类">先做哪类</span>
-                        <span class="menu-row-desc" data-i18n-key="需求和缺陷都有可做的条目时,先做哪一类">需求和缺陷都有可做的条目时,先做哪一类</span>
-                      </span>
-                      <select id="work-priority-select" title="自动推进先做哪类" data-i18n-title="自动推进先做哪类">
-                        <option value="defect-first"><span data-i18n-key="缺陷优先">缺陷优先</span></option>
-                        <option value="requirement-first"><span data-i18n-key="需求优先">需求优先</span></option>
-                      </select>
-                    </label>
-                  </div>
-                  <div class="menu-section">
                     <span class="menu-section-label" data-i18n-key="刹车">刹车</span>
                     <div class="menu-row" data-shortcut="1">
                       <span class="menu-row-main">
@@ -340,154 +324,11 @@
               <p class="dim" data-i18n-key="持续推进，集中试用，纠正决定。">持续推进，集中试用，纠正决定。</p>
             </div>
             <div class="workspace-actions">
-              <button type="button" id="workbench-new-goal" class="primary" data-i18n-key="新目标">新目标</button>
               <button type="button" id="project-add" class="ghost" title="把磁盘上已有的文件夹添加为项目(只登记,不改动文件夹)" data-i18n-title="把磁盘上已有的文件夹添加为项目(只登记,不改动文件夹)"><span data-i18n-key="添加项目文件夹…">添加项目文件夹…</span></button>
               <button type="button" id="project-init" class="ghost" title="新建一个项目文件夹(可同时初始化 Git)" data-i18n-title="新建一个项目文件夹(可同时初始化 Git)"><span data-i18n-key="新建项目…">新建项目…</span></button>
             </div>
           </header>
-          <form id="workbench-goal-form" class="workbench-goal-form hidden">
-            <label><span data-i18n-key="目标所属项目">目标所属项目</span><select id="workbench-goal-project" required></select></label>
-            <label><span data-i18n-key="你想完成什么">你想完成什么</span><textarea id="workbench-goal-title" rows="3" required maxlength="4000"></textarea></label>
-            <p class="dim" data-i18n-key="先记入项目想法，整理后再开始执行。">先记入项目想法，整理后再开始执行。</p>
-            <div><button type="submit" id="workbench-goal-save" class="primary" data-i18n-key="记录目标">记录目标</button><button type="button" id="workbench-goal-cancel" class="ghost" data-i18n-key="取消">取消</button></div>
-          </form>
-          <div id="workspace-console"></div>
           <div id="workspace-projects" class="workspace-projects"></div>
-        </div>
-      </div>
-
-      <div id="view-project" class="view">
-        <div id="project-overview-content"></div>
-      </div>
-
-      <div id="view-lines" class="view">
-        <div id="lines-scroll">
-          <header class="lines-header">
-            <div>
-              <h1 data-i18n-key="并行线路">并行线路</h1>
-              <p class="dim" data-i18n-key="每个独立任务在自己的分支与工作树里并行工作；状态与改动文件来自当前运行现场。">每个独立任务在自己的分支与工作树里并行工作；状态与改动文件来自当前运行现场。</p>
-            </div>
-            <div class="lines-actions">
-              <button id="lines-refresh" class="ghost" type="button"><span data-i18n-key="刷新">刷新</span></button>
-            </div>
-          </header>
-          <div id="lines-summary" class="lines-summary" role="status" aria-live="polite"></div>
-          <section class="lines-section" aria-labelledby="lines-board-title">
-            <div class="lines-section-head">
-              <h2 id="lines-board-title" data-i18n-key="运行现场">运行现场</h2>
-              <span class="dim" data-i18n-key="运行中的独立任务会自动刷新">运行中的独立任务会自动刷新</span>
-            </div>
-            <div id="lines-list" class="lines-list"></div>
-          </section>
-          <!-- 隔离工作树的操作台。侧栏只读之后,差异/放弃全在这里;而且这里能看见
-               「没绑定线路」的孤儿树(手工 git worktree add 出来的、或线路关掉后残留的)——
-               collaboration_snapshot 只遍历已注册进程,那些树在运行现场里天然不可见。 -->
-          <section id="lines-worktrees" class="lines-section" aria-labelledby="lines-worktrees-title">
-            <div class="lines-section-head">
-              <h2 id="lines-worktrees-title" data-i18n-key="各独立任务的工作树">各独立任务的工作树</h2>
-              <span class="dim" data-i18n-key="清单读自 Git;手工建的工作树也在内">清单读自 Git;手工建的工作树也在内</span>
-            </div>
-            <div id="lines-worktree-list" class="lines-worktree-list"></div>
-          </section>
-        </div>
-      </div>
-
-      <!-- 设置视图 -->
-      <div id="view-documents" class="view">
-        <div id="documents-scroll">
-          <!-- 页名「需求」(UX-062/B11):原 h1 与下方页签逐字重复,删掉可见标题,只留给读屏的页名。页签:进行中/缺陷/测试/想法;
-               「对照」页签已移除(B12),依赖视图升为工具条上的页内切换(UX-061)。 -->
-          <header class="documents-head">
-            <h1 class="sr-only" data-i18n-key="需求">需求</h1>
-            <label for="documents-project-select" class="documents-project-label sr-only" data-i18n-key="项目">项目</label>
-            <select id="documents-project-select" title="切换当前项目" data-i18n-title="切换当前项目"></select>
-          </header>
-          <div class="documents-toolbar">
-            <div class="documents-tabs" role="group" aria-label="需求页签" data-i18n-aria-label="需求页签">
-              <button id="documents-tab-req" class="primary" type="button" title="进行中和待开始的需求" data-i18n-title="进行中和待开始的需求"><span data-i18n-key="进行中">进行中</span> <em id="req-count"></em></button>
-              <button id="documents-tab-defect" class="ghost" type="button"><span data-i18n-key="缺陷">缺陷</span> <em id="defect-count"></em></button>
-              <button id="documents-tab-tests" class="ghost" type="button" title="查看测试记录" data-i18n-title="查看测试记录"><span data-i18n-key="测试">测试</span> <em id="test-count"></em></button>
-              <button id="documents-tab-ideas" class="ghost" type="button" title="想法收件箱:原样录入的想法,拆解成需求或缺陷后再开始执行" data-i18n-title="想法收件箱:原样录入的想法,拆解成需求或缺陷后再开始执行"><span data-i18n-key="想法">想法</span> <em id="idea-count"></em></button>
-            </div>
-            <span class="spacer"></span>
-            <span id="defect-review-status" class="dim" role="status" aria-live="polite"></span>
-            <button type="button" id="documents-dep-toggle" class="ghost documents-view-toggle" aria-pressed="false" title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链" data-i18n-title="按依赖拓扑分层展示：可做层/被阻塞层，点击条目高亮其依赖链"><span data-i18n-key="依赖视图">依赖视图</span></button>
-            <button type="button" id="documents-new-toggle" class="primary documents-menu-trigger" data-kz-menu="documents-new-menu" title="新建需求、缺陷或想法" data-i18n-title="新建需求、缺陷或想法"><span data-i18n-key="＋ 新建">＋ 新建</span></button>
-            <div id="documents-new-menu" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-end" role="menu" aria-label="新建" data-i18n-aria-label="新建">
-              <button id="documents-new-req" class="k-menu-item" type="button" role="menuitem" title="自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="自然语言描述交给独立子代理结构化落库,不打断当前对话"><span data-i18n-key="记需求">记需求</span></button>
-              <button id="documents-new-defect" class="k-menu-item" type="button" role="menuitem" title="自然语言描述交给独立子代理结构化落库,不打断当前对话" data-i18n-title="自然语言描述交给独立子代理结构化落库,不打断当前对话"><span data-i18n-key="记缺陷">记缺陷</span></button>
-              <button id="documents-new-idea" class="k-menu-item" type="button" role="menuitem" title="原样录入,不过模型;之后可拆解成需求或缺陷" data-i18n-title="原样录入,不过模型;之后可拆解成需求或缺陷"><span data-i18n-key="记想法">记想法</span></button>
-            </div>
-            <button type="button" id="documents-filter-toggle" class="ghost documents-menu-trigger" data-kz-menu="documents-filter-menu" title="筛选、排序与分组" data-i18n-title="筛选、排序与分组"><span data-i18n-key="筛选">筛选</span><em id="documents-filter-count"></em></button>
-            <div id="documents-filter-menu" class="k-surface k-popover documents-filter-panel hidden" popover="manual" data-placement="bottom-end" role="group" aria-label="筛选" data-i18n-aria-label="筛选">
-              <label class="documents-filter-field" data-docs-kinds="req defect"><span data-i18n-key="状态">状态</span>
-                <select id="documents-status-filter" class="doc-filter" title="按状态筛选" data-i18n-title="按状态筛选"><option value="all" data-i18n-key="全部状态">全部状态</option></select>
-              </label>
-              <label class="documents-filter-field" data-docs-kinds="req"><span data-i18n-key="复杂度">复杂度</span>
-                <select id="documents-complexity-filter" class="doc-filter" title="按复杂度筛选" data-i18n-title="按复杂度筛选">
-                  <option value="all" data-i18n-key="全部复杂度">全部复杂度</option>
-                  <option value="小" data-i18n-key="小">小</option><option value="中" data-i18n-key="中">中</option><option value="大" data-i18n-key="大">大</option><option value="unassessed" data-i18n-key="未评估">未评估</option>
-                </select>
-              </label>
-              <label class="documents-filter-field" data-docs-kinds="req defect"><span data-i18n-key="优先级">优先级</span>
-                <select id="documents-priority-filter" class="doc-filter" title="按优先级筛选(仅参考,不影响开工顺序)" data-i18n-title="按优先级筛选(仅参考,不影响开工顺序)"><option value="all" data-i18n-key="全部优先级">全部优先级</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select>
-              </label>
-              <label class="documents-filter-field" data-docs-kinds="req defect"><span data-i18n-key="标签">标签</span>
-                <select id="documents-tag-filter" class="doc-filter" title="按标签筛选" data-i18n-title="按标签筛选"><option value="all" data-i18n-key="全部标签">全部标签</option></select>
-              </label>
-              <label class="documents-filter-field" data-docs-kinds="req defect"><span data-i18n-key="执行状态">执行状态</span>
-                <select id="documents-blocked-filter" class="doc-filter" title="按阻塞状态筛选" data-i18n-title="按阻塞状态筛选"><option value="all" data-i18n-key="全部执行状态">全部执行状态</option><option value="blocked" data-i18n-key="已阻塞">已阻塞</option><option value="ready" data-i18n-key="可执行">可执行</option></select>
-              </label>
-              <label class="documents-filter-field" data-docs-kinds="req"><span data-i18n-key="排序">排序</span>
-                <select id="documents-sort" class="doc-filter" title="需求排序(手动=拖拽定开发顺序,agent 按此顺序开工)" data-i18n-title="需求排序(手动=拖拽定开发顺序,agent 按此顺序开工)">
-                  <option value="manual" data-i18n-key="手动">手动</option>
-                  <option value="priority" data-i18n-key="优先级">优先级</option>
-                  <option value="complexity" data-i18n-key="复杂度">复杂度</option>
-                  <option value="status" data-i18n-key="状态">状态</option>
-                  <option value="id" data-i18n-key="编号">编号</option>
-                </select>
-              </label>
-              <button id="documents-group-toggle" type="button" class="ghost mini group-toggle" aria-pressed="true"><span data-i18n-key="按标签分组显示">按标签分组显示</span></button>
-              <span id="documents-sort-note" class="dim" data-i18n-key="排序只改显示;拖拽(手动排序)才写回文件、改变开工顺序">排序只改显示;拖拽(手动排序)才写回文件、改变开工顺序</span>
-            </div>
-            <button type="button" id="documents-more-toggle" class="ghost documents-menu-trigger" data-kz-menu="documents-more-menu"><span data-i18n-key="更多">更多</span></button>
-            <!-- 更多菜单按页签生成(UX-061):每项带 data-docs-kinds,只在对应页签显示;原文入口各归各的页签。 -->
-            <div id="documents-more-menu" class="k-surface k-menu hidden" popover="manual" data-placement="bottom-end" role="menu" aria-label="更多" data-i18n-aria-label="更多">
-              <button id="defect-review" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="defect" title="使用只读子代理审查活动缺陷，不修改项目文件" data-i18n-title="使用只读子代理审查活动缺陷，不修改项目文件"><span data-i18n-key="自动审查缺陷">自动审查缺陷</span></button>
-              <button id="req-open" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="req" aria-label="打开 requirements.md 原文" data-i18n-aria-label="打开 requirements.md 原文"><span data-i18n-key="打开 requirements.md 原文">打开 requirements.md 原文</span></button>
-              <button id="defect-open" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="defect" aria-label="打开 defects.md 原文" data-i18n-aria-label="打开 defects.md 原文"><span data-i18n-key="打开 defects.md 原文">打开 defects.md 原文</span></button>
-              <button id="idea-open" class="k-menu-item" type="button" role="menuitem" data-docs-kinds="ideas" aria-label="打开 ideas.md 原文" data-i18n-aria-label="打开 ideas.md 原文" title="想法收件箱原文;拆解由人点按钮触发子代理" data-i18n-title="想法收件箱原文;拆解由人点按钮触发子代理"><span data-i18n-key="打开 ideas.md 原文">打开 ideas.md 原文</span></button>
-              <div class="k-menu-sep" role="separator"></div>
-              <button id="documents-conventions-open" class="k-menu-item" type="button" role="menuitem" title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议" data-i18n-title="项目约束与规范:agent 会遵守;可查看、编辑或让 agent 生成建议"><span class="k-menu-item-main"><span class="k-menu-item-label" data-i18n-key="项目规范…">项目规范…</span><span id="documents-conventions-note" class="k-menu-item-desc" data-i18n-raw></span></span></button>
-            </div>
-          </div>
-          <div id="documents-error" class="documents-error hidden" role="alert"></div>
-          <div id="documents-quick-slot" class="documents-quick-slot"></div>
-          <div id="documents-active-filters" class="documents-active-filters hidden" role="group" aria-label="生效的筛选" data-i18n-aria-label="生效的筛选"></div>
-          <div id="documents-batch-bar" class="documents-batch-bar hidden" role="region" aria-label="批量操作" data-i18n-aria-label="批量操作">
-            <span id="documents-batch-count" class="dim"></span>
-            <select id="documents-batch-status" class="doc-filter" title="批量改状态" data-i18n-title="批量改状态"><option value="" data-i18n-key="改状态…">改状态…</option></select>
-            <select id="documents-batch-tag" class="doc-filter" title="批量改标签" data-i18n-title="批量改标签">
-              <option value="" data-i18n-key="改标签…">改标签…</option>
-              <option data-i18n-key="前端">前端</option><option data-i18n-key="后端">后端</option><option data-i18n-key="核心">核心</option><option data-i18n-key="模型">模型</option><option data-i18n-key="发布">发布</option><option data-i18n-key="流程">流程</option>
-            </select>
-            <button id="documents-batch-apply" class="primary mini" type="button"><span data-i18n-key="应用">应用</span></button>
-            <button id="documents-batch-clear" class="ghost mini" type="button"><span data-i18n-key="取消选择">取消选择</span></button>
-          </div>
-          <section id="defect-incident-metrics" class="metrics-categories hidden" aria-label="缺陷分类指标" data-i18n-aria-label="缺陷分类指标"></section>
-          <div id="documents-req-list" class="doc-list documents-list"></div>
-          <div id="documents-defect-list" class="doc-list documents-list hidden"></div>
-          <div id="documents-idea-list" class="doc-list documents-list hidden"></div>
-          <div id="documents-tests" class="documents-list hidden" role="region" aria-label="测试记录" data-i18n-aria-label="测试记录">
-            <div class="documents-tests-tools">
-              <select id="tests-status-filter" class="doc-filter" title="按状态筛选测试" data-i18n-title="按状态筛选测试" aria-label="按状态筛选测试" data-i18n-aria-label="按状态筛选测试"><option value="all" data-i18n-key="全部状态">全部状态</option></select>
-              <input id="tests-search" type="search" class="doc-filter documents-tests-search" placeholder="搜索编号、标题或关联条目" data-i18n-placeholder="搜索编号、标题或关联条目" aria-label="搜索测试记录" data-i18n-aria-label="搜索测试记录" />
-              <span id="tests-summary" class="dim" role="status" aria-live="polite"></span>
-            </div>
-            <p class="dim" data-i18n-key="测试记录由 agent 跑测时写入,完成的会自动归档到历史。">测试记录由 agent 跑测时写入,完成的会自动归档到历史。</p>
-            <div id="test-list" class="doc-list"></div>
-          </div>
-          <div id="documents-dep-view" class="dep-view hidden" role="region" aria-label="依赖视图" data-i18n-aria-label="依赖视图"></div>
         </div>
       </div>
 

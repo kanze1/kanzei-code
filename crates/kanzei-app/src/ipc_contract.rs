@@ -83,59 +83,6 @@ pub(crate) mod tests {
         root
     }
 
-    /// D-381:`docs_snapshot` 的形状必须与两侧共读的契约文件一致。
-    ///
-    /// 这条测试红了有两种可能,处理方式**不同**:
-    ///   - 有意改形状:更新 `scripts/ipc-contract.json`,**并且**同步
-    ///     `scripts/ui-runtime-smoke.mjs` 的 `payloads.docs_snapshot` fixture
-    ///     与真正读这些字段的 `ui/*.js`。三处一起动才叫改完。
-    ///   - 无意改形状:那正是本判据要拦的——后端改名不会让任何既有测试变红。
-    #[test]
-    fn docs_snapshot_形状与ipc契约一致() {
-        let root = fixture_project();
-        let snapshot = crate::docs::docs_snapshot(root.display().to_string())
-            .expect("夹具项目应能取到文档快照");
-        let actual = shape(&snapshot);
-
-        // 有意改形状时的更新入口:`KZ_UPDATE_IPC_CONTRACT=1 cargo test -p kanzei-app 形状`。
-        // 刻意做成显式开关而不是「自动写回」——自动写回会让契约永远等于现状,
-        // 判据也就永远不会红,等于没有。
-        if std::env::var("KZ_UPDATE_IPC_CONTRACT").is_ok() {
-            let mut all: serde_json::Value = std::fs::read_to_string(contract_path())
-                .ok()
-                .and_then(|text| serde_json::from_str(&text).ok())
-                .unwrap_or_else(|| serde_json::json!({}));
-            all["docs_snapshot"] = actual.clone();
-            std::fs::write(
-                contract_path(),
-                serde_json::to_string_pretty(&all).unwrap() + "\n",
-            )
-            .unwrap();
-            let _ = std::fs::remove_dir_all(&root);
-            return;
-        }
-
-        let expected: serde_json::Value = serde_json::from_str(
-            &std::fs::read_to_string(contract_path()).expect("读不到 scripts/ipc-contract.json"),
-        )
-        .expect("ipc-contract.json 不是合法 JSON");
-        let expected = expected
-            .get("docs_snapshot")
-            .expect("契约缺 docs_snapshot 条目");
-
-        assert_eq!(
-            &actual,
-            expected,
-            "docs_snapshot 的 IPC 形状变了。\n\
-             实际:{}\n\
-             要么这是有意的——同步 scripts/ipc-contract.json + ui-runtime-smoke.mjs 的 \
-             payloads.docs_snapshot + 真正读这些字段的 ui/*.js(三处一起动);\n\
-             要么这是无意的——后端改名在 IPC 那侧不会让任何既有测试变红,本判据就是补这一条。",
-            serde_json::to_string_pretty(&actual).unwrap_or_default()
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
     #[test]
     fn 形状抽取只保留键与类型() {
         let value = serde_json::json!({
@@ -195,22 +142,6 @@ pub(crate) mod tests {
             "project_root_info",
             actual,
             "project_root_info 的 IPC 形状变了",
-        );
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    /// R-299:高频 command `test_runs_snapshot` 形状契约。
-    #[test]
-    fn test_runs_snapshot_形状与ipc契约一致() {
-        let root = fixture_project();
-        let actual = shape(
-            &crate::docs::test_runs_snapshot(root.display().to_string())
-                .expect("夹具项目应能取到测试快照"),
-        );
-        check_contract(
-            "test_runs_snapshot",
-            actual,
-            "test_runs_snapshot 的 IPC 形状变了",
         );
         let _ = std::fs::remove_dir_all(&root);
     }

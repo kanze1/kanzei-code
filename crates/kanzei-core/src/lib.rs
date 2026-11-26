@@ -37,17 +37,12 @@ pub use store::{
     SessionDeletionPlan, SessionDeletionResult, SessionFact, SessionFactEnvelope, SessionFactError,
     SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
     ShadowVerdictStats, StorageBackupReport, StorageCleanupPlan, StorageCleanupResult,
-    StorageReport, StoreError, StoredEvent, StoredInput, StoredProcess, StoredWorkEvent,
-    TypedSessionWriter, WorkCheckpoint, WorkEvidence, WorkFact, WorkGraphVersion, WorkImpact,
-    WorkImpactCause, WorkImpactNode, WorkNodeContract, WorkNodeKind, WorkNodeReadiness,
-    WorkNodeStep, WorkNodeType, WorkProjection, WorkReview, WorkRevisionDecision,
-    WorkRevisionDisposition, WorkRevisionRequest, WorkRevisionResolution, WorkUnitSpec,
-    WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS,
-    MAX_WORK_OBJECTIVE_CHARS, SUBAGENT_TRANSCRIPT, WORK_PROJECTION_FORMAT_VERSION,
+    StorageReport, StoreError, StoredEvent, StoredInput, StoredProcess,
+    TypedSessionWriter, SUBAGENT_TRANSCRIPT,
 };
 
 // Public domain services. The SQLite implementation stays private.
-pub use store::{artifact_liveness, context_manifest, decisions, session_execution};
+pub use store::{artifact_liveness, context_manifest, session_execution};
 pub use store::{
     capture_file_preimage_in, decode_session_fact, file_checkpoint_blob_path,
     file_checkpoint_path_key, file_checkpoint_tree_root, record_file_postimage_in,
@@ -56,7 +51,7 @@ pub use store::{
 };
 
 pub use store::{
-    capture_file_preimage, file_checkpoint_rel_path, project_work_events, record_file_postimage,
+    capture_file_preimage, file_checkpoint_rel_path, record_file_postimage,
     EffectEstimate, EvalCaseSet, InterruptedAssistant, OriginalConversation, RewindFile,
     RewindPlan, TaskCompatibilityAudit, TaskLegacyProjection, TaskMetricsProjection,
     TaskProjection, TaskRoundProjection, TaskStatus, ASSISTANT_DRAFT_APPENDED,

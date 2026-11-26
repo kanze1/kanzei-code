@@ -23,13 +23,12 @@ import {
 } from "./09-sessions.js";
 import {
   activateRow, buildRows, closedOpen, dropClosedSessions, dropRemoteSessions, forgetSessionPrefs, invalidateSessionTree, kindWord,
-  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, sessionItemsOf, newDiscussionIn, openSession,
+  loadRemoteSessions, closeSessionHistory, historyElement, historyProjectPath, newDiscussionIn, openSession,
   openSessionHistory, orderedProjects, orderRows, projectPinned, projectRunningCount, setClosedOpen, setProjectPinned,
   setSessionDragging, setSessionOrder, setSessionPinned, setSidebarOpen, sidebarOpen,
 } from "./12-session-tree.js";
 import { openProjectSpace, renderWorkbenchNavigation } from "./12-workbench.js";
 import { deleteConversationsForProcess, forgetDeletedSession } from "./15-views-misc.js";
-import { openHandoffForm } from "./26-project-conversations.js";
 import { sameProject } from "./00-project-identity.js";
 import { conversationMarkdown } from "./31-conversation-export.js";
 
@@ -223,13 +222,6 @@ export async function closeSession(project, id) {
   discardSessionPane(row.session_id);
   await refreshAfterChange(project);
 }
-async function handoffToProject(source, targetProject) {
-  await loadRemoteSessions(targetProject);
-  const items = sessionItemsOf(targetProject).filter(p => p.profile !== "research");
-  if (!items.length) { toast(t("目标项目的对话暂不可用"), { kind: "warn" }); return; }
-  if (!await openSession(source.project, source.id)) return;
-  openHandoffForm({ target: { project: targetProject, items, name: projectDisplayName(targetProject) } });
-}
 
 // ---------- 项目动作 ----------
 export function toggleProjectPin(path) {
@@ -401,10 +393,6 @@ export async function openSessionContextMenu(wrap, point, host) {
     live.worktree && { label: t("复制工作树路径"), onSelect: () => void copyText(live.worktree, t("工作树路径")) },
     live.branch && { label: t("复制分支名"), desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
     "separator",
-    !general && { label: `${t("交给其它对话")}…`, onSelect: async () => { if (await openSession(project, id)) openHandoffForm({}); } },
-    !general && { label: `${t("交给其它项目的对话")}…`, onSelect: () => chooseHandoffProject(point, host, live) },
-    task && { label: t("查看独立任务详情"), onSelect: () => void openProjectSpace(project, "lines") },
-    "separator",
     task && { label: `${t("关闭独立任务")}…`, danger: true, onSelect: () => afterDialog(wrap.dataset.key, closeSession(project, id)) },
     { label: `${t("删除对话")}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
   ];
@@ -412,16 +400,6 @@ export async function openSessionContextMenu(wrap, point, host) {
     `${t("重命名")}…`, t("置顶"), t("取消置顶"),
     t("导出…"), `${t("关闭独立任务")}…`, `${t("删除对话")}…`,
   ]);
-}
-function chooseHandoffProject(point, host, source) {
-  const others = (lastProjectPrefs.projects ?? []).filter((path) => !sameProject(path, source.project));
-  if (!others.length) { toast(t("没有其它项目可交付")); return; }
-  showMenu(point, host, [
-    { heading: t("交给哪个项目的对话") },
-    ...others.map((path) => ({
-      label: projectDisplayName(path), desc: shortProjectPath(path), onSelect: () => void handoffToProject(source, path),
-    })),
-  ], { label: t("选择目标项目") });
 }
 
 export async function openProjectContextMenu(row, point, host) {
@@ -447,9 +425,6 @@ export async function openProjectContextMenu(row, point, host) {
     ...toolItems(tools, (tool) => void openWithTool(tool, path)),
     { label: t("复制路径"), desc: shortProjectPath(path), onSelect: () => void copyText(path, t("项目路径")) },
     "separator",
-    { label: t("项目概览"), onSelect: () => void openProjectSpace(path, "project") },
-    { label: t("需求"), onSelect: () => void openProjectSpace(path, "documents") },
-    { label: t("并行线路"), onSelect: () => void openProjectSpace(path, "lines") },
     { label: `${t("项目模型")}…`, onSelect: () => void openProjectModelsDialog(path, { name }) },
     { label: `${t("导出工作资料")}…`, onSelect: () => void exportProjectData(path) },
     "separator",

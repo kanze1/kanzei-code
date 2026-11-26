@@ -8,7 +8,6 @@
 // 所有符号经 super::* 平铺(mod.rs 的 use 与 pub use 子模块)。
 use super::*;
 
-mod question;
 mod tool_catalog;
 use tool_catalog::{auto_load_deferred_tool, run_tool_search, tool_spec};
 mod history;

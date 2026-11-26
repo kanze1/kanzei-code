@@ -5,7 +5,6 @@
 
 use super::super::tool_failure_telemetry::{record_permission_denied, record_tool_failure};
 use super::permissions::{execution_permissions, resolve_permission_gate, PermissionGateRequest};
-use super::question::execute_question;
 use super::*;
 
 pub(super) struct SerialToolRequest<'a> {
@@ -108,14 +107,6 @@ pub(super) async fn execute_serial_tool_calls(
                 "FINAL_RESPONSE_MUST_BE_ALONE",
                 "Complete all observations first, then call the final response tool on its own with the complete reply.",
             );
-            on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
-            results.push(tool_result_part(id, output));
-            continue;
-        }
-
-        // question 是交互工具，不再叠加权限询问；答案作为工具结果回喂模型。
-        if name == "question" {
-            let output = execute_question(config.ask_policy, ctx, &id, &input, ask).await;
             on_event(RunEvent::tool_end(id.clone(), name.clone(), &output));
             results.push(tool_result_part(id, output));
             continue;

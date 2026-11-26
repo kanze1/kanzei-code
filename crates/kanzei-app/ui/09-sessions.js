@@ -1,8 +1,7 @@
 import { applyRuntimeSnapshot, beginRuntimeQuery } from "./00-session-state.js";
-import { renderWorkbenchNavigation, openProjectSpace, setBrowsingProject } from "./12-workbench.js";
+import { lineAuthorityLabel, openProjectSpace, refreshWorkspace, renderWorkbenchNavigation, setBrowsingProject } from "./12-workbench.js";
 import { isGeneralChat, rememberConversationMode } from "./03-general-scope.js";
 import { dropClosedSessions, processName, renderSidebarSessions, syncSessionActivity } from "./12-session-tree.js";
-import { prepareDocsProject } from "./12-docs-pages.js";
 import { closeSurface, isSurfaceOpen, openDialog, openMenu } from "./00-surface.js";
 import { defer } from "./00-dom.js";
 import { motionSync } from "./00-ui-primitives.js";
@@ -45,7 +44,6 @@ import {
   renderAutoStatus,
   restoreGoalState,
   syncAutoRunState,
-  syncWorkPriorityControl,
 } from "./08-auto.js";
 import {
   applyAutoUiState,
@@ -61,8 +59,6 @@ import {
 import "./08-compose.js";
 import { addMenuCheckColumn } from "./08-model-picker.js";
 import { loadModels, modelCatalogProject, restoreProjectPrefs, syncModelSelectToActiveLine } from "./08-models.js";
-import { lineAuthorityLabel, refreshWorkspace } from "./12-docs-pages.js";
-import { refreshDocs } from "./14-docs-actions.js";
 import {
   loadConversation,
   refreshConversationLists,
@@ -144,7 +140,7 @@ export async function handleWorktreeAction(item, action) {
     if (action === "discard") {
       // 放弃现在会在后端原子注销绑定进程。三份 UI 投影必须一起刷新；只刷新
       // git 工作树清单会把一个已不存在 cwd 的旧线路页签留在前端。
-      await Promise.all([refreshProcesses(), refreshWorktrees(), refreshDocs()]);
+      await Promise.all([refreshProcesses(), refreshWorktrees()]);
       if (currentProject !== forProject) return;
       if (discardingActiveLine && !processItems.some((process) => process.id === activeProcessId)) {
         const fallback = preferred_workspace_process(processItems);
@@ -260,7 +256,7 @@ export async function closeParallelProcess(processId) {
       setActiveProcessId(null);
       setActiveSessionId(null);
     }
-    await Promise.all([refreshProcesses(), refreshWorktrees(), refreshDocs()]);
+    await Promise.all([refreshProcesses(), refreshWorktrees()]);
     if (currentProject !== forProject) return;
     // 关掉的线路只是注销了身份,对话记录还在:在搜索与历史中查看。
     dropClosedSessions(forProject);
@@ -674,8 +670,6 @@ export async function switchProcess(processId, forceReload = false) {
   if (!isCurrentSwitch()) return;
   await refreshPendingAsks();
   if (!isCurrentSwitch()) return;
-  if (!isGeneralChat()) await refreshDocs();
-  if (!isCurrentSwitch()) return;
   // 模型目录按项目缓存:同项目内切线不再重复探测 models_list(每个 provider 最多 6 秒);
   // 芯片回显已在上面切线那一刻发出,这里只在目录属于别的项目时补拉一次(loadModels 会顺带重问)。
   if (modelCatalogProject !== currentProject) await loadModels();
@@ -840,9 +834,6 @@ export async function checkProjectIsolation() {
       await invoke("project_detach", { projectDir: project });
       if (currentProject !== project) return;
       toast(t("已建立独立空间"));
-      // 分离改变了项目根:文档、会话、记忆都要按新根重取,否则界面还停在旧根的数据上。
-      await refreshDocs();
-      if (currentProject !== project) return;
       await loadConversation();
       if (currentProject !== project) return;
       isolationReported = false; // 允许再体检一次,看还有没有别的项目共用
@@ -868,7 +859,6 @@ export function activate_execution_root(root) {
     renderWorktrees([]);
     resetPendingInputs();
   }
-  syncWorkPriorityControl();
   // R-115:按项目记的偏好(模型/思考强度/筛选)要跟着项目切换回填,
   // 也覆盖了启动这一次——currentProject 在这里才第一次确定。
   restoreProjectPrefs();
@@ -877,7 +867,6 @@ export function activate_execution_root(root) {
     void refreshProjectFacts(root);
   }
   if (previousProject !== currentProject) {
-    prepareDocsProject();
     // 旧项目的权限卡不能原样盖在新项目的对话上(UX-144):请求放回它自己会话的队首,切回那个项目时再弹。
     hideAsk(true);
     setActiveProcessId(null);
@@ -1452,7 +1441,6 @@ export async function enterProject(prefs, options = {}) {
     await refreshPendingInputs();
     if (!isCurrent()) return;
     void refreshGit();
-    void refreshDocs();
   }
   if (!isCurrent()) return;
   if (options.activate && targetView === "project") {

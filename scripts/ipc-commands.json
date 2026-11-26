@@ -398,182 +398,6 @@
     "path": "conversation::conversation_trace_get",
     "returns": "-> Result < Vec < serde_json :: Value > , String >"
   },
-  "decision_review": {
-    "host": "service",
-    "parameters": {
-      "agent": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "attachments": {
-        "required": false,
-        "type": "Option < Vec < crate :: PromptAttachment > >"
-      },
-      "decisionId": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "review": {
-        "required": true,
-        "type": "kanzei_core :: decisions :: ReviewDecision"
-      }
-    },
-    "path": "decisions::decision_review",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "defect_review": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "subagents::defect_review",
-    "returns": "-> Result < DefectReviewResult , String >"
-  },
-  "docs_archive_entries": {
-    "host": "service",
-    "parameters": {
-      "kind": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::docs_archive_entries",
-    "returns": "-> Result < Vec < serde_json :: Value > , String >"
-  },
-  "docs_open": {
-    "host": "desktop",
-    "parameters": {
-      "kind": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "topic": {
-        "required": false,
-        "type": "Option < String >"
-      }
-    },
-    "path": "docs::docs_open",
-    "returns": "-> Result < () , String >"
-  },
-  "docs_read": {
-    "host": "service",
-    "parameters": {
-      "kind": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "topic": {
-        "required": false,
-        "type": "Option < String >"
-      }
-    },
-    "path": "docs::docs_read",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "docs_read_custom": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "relPath": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::docs_read_custom",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "docs_snapshot": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::docs_snapshot",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "docs_update": {
-    "host": "service",
-    "parameters": {
-      "action": {
-        "required": true,
-        "type": "String"
-      },
-      "evidence": {
-        "required": false,
-        "type": "Option < serde_json :: Value >"
-      },
-      "fields": {
-        "required": false,
-        "type": "Option < serde_json :: Value >"
-      },
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "kind": {
-        "required": true,
-        "type": "String"
-      },
-      "order": {
-        "required": false,
-        "type": "Option < Vec < String > >"
-      },
-      "priority": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "reason": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "requirement": {
-        "required": false,
-        "type": "Option < serde_json :: Value >"
-      },
-      "status": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "title": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "topic": {
-        "required": false,
-        "type": "Option < String >"
-      }
-    },
-    "path": "docs::docs_update",
-    "returns": "-> Result < String , String >"
-  },
   "export_pick_dir": {
     "host": "desktop",
     "parameters": {},
@@ -807,23 +631,8 @@
         "type": "Option < String >"
       }
     },
-    "path": "docs::git_status",
+    "path": "files_view::git_status",
     "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "idea_split": {
-    "host": "service",
-    "parameters": {
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "subagents::idea_split",
-    "returns": "-> Result < String , String >"
   },
   "list_pending_inputs": {
     "host": "service",
@@ -1812,25 +1621,6 @@
     "path": "settings::provider_test",
     "returns": "-> Result < String , String >"
   },
-  "quick_req": {
-    "host": "service",
-    "parameters": {
-      "description": {
-        "required": true,
-        "type": "String"
-      },
-      "kind": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "subagents::quick_req",
-    "returns": "-> Result < String , String >"
-  },
   "reveal_path": {
     "host": "desktop",
     "parameters": {
@@ -2174,59 +1964,6 @@
     "path": "terminal_monitor::terminal_monitor",
     "returns": "-> Result < Value , String >"
   },
-  "test_run_record": {
-    "host": "service",
-    "parameters": {
-      "command": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "refs": {
-        "required": false,
-        "type": "Option < Vec < String > >"
-      },
-      "status": {
-        "required": true,
-        "type": "String"
-      },
-      "summary": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "title": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::test_run_record",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "test_runs_init_refs": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::test_runs_init_refs",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "test_runs_snapshot": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::test_runs_snapshot",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
   "tool_image": {
     "host": "service",
     "parameters": {
@@ -2329,78 +2066,6 @@
     "path": "update::update_receipt_command",
     "returns": "-> Result < Option < UpdateReceipt > , String >"
   },
-  "verification_cancel": {
-    "host": "service",
-    "parameters": {
-      "jobId": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "decisions::verification_cancel",
-    "returns": "-> Result < () , String >"
-  },
-  "webfetch_preview": {
-    "host": "service",
-    "parameters": {
-      "url": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::webfetch_preview",
-    "returns": "-> Result < serde_json :: Value , String >"
-  },
-  "work_delivery_accept": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "sourceSequence": {
-        "required": true,
-        "type": "i64"
-      },
-      "unitId": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "decisions::work_delivery_accept",
-    "returns": "-> Result < kanzei_core :: decisions :: WorkAcceptance , String >"
-  },
-  "work_node_decompose": {
-    "host": "service",
-    "parameters": {
-      "children": {
-        "required": true,
-        "type": "serde_json :: Value"
-      },
-      "expectedSequence": {
-        "required": true,
-        "type": "i64"
-      },
-      "id": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "reason": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "docs::work_nodes::work_node_decompose",
-    "returns": "-> Result < Value , String >"
-  },
   "workspace_overview": {
     "host": "service",
     "parameters": {},
@@ -2477,48 +2142,6 @@
     },
     "path": "processes::gate::worktree_gate",
     "returns": "-> Result < Vec < GateStep > , String >"
-  },
-  "worktree_harvest_candidates": {
-    "host": "service",
-    "parameters": {
-      "processId": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "processes::workspace::worktree_harvest_candidates",
-    "returns": "-> Result < Vec < String > , String >"
-  },
-  "worktree_harvest_writeback": {
-    "host": "service",
-    "parameters": {
-      "agentCode": {
-        "required": true,
-        "type": "String"
-      },
-      "branch": {
-        "required": true,
-        "type": "String"
-      },
-      "claim": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      },
-      "worktreePath": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "processes::workspace::worktree_harvest_writeback",
-    "returns": "-> Result < String , String >"
   },
   "worktree_list": {
     "host": "service",

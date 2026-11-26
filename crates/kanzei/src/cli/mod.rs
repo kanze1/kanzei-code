@@ -18,16 +18,11 @@ pub mod eval;
 pub mod lock;
 pub mod memory;
 pub mod run;
-pub mod tracker;
 mod trust;
-pub mod work;
 pub mod worktree;
 
 /// CLI 命令分发入口(原 main.rs main() 的 match)。
 pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
-    if args.first().map(String::as_str) == Some("--verification-worker") {
-        return kanzei_tools::verification::worker_command(args).await;
-    }
     match args.first().map(String::as_str) {
         Some("--version" | "-V" | "version") => {
             println!(
@@ -45,10 +40,6 @@ pub async fn main_entry(args: &[String]) -> anyhow::Result<()> {
             usage();
             anyhow::bail!("未知参数: {arg}");
         }
-        Some("req" | "defect" | "source" | "finding" | "idea" | "decision") => {
-            tracker::tracker_cli(args).await
-        }
-        Some("work") => work::work_cli(&args[1..]).await,
         Some("worktree") => worktree::worktree_cli(&args[1..]).await,
         Some("lock") => lock::lock_cli(&args[1..]).await,
         Some("artifacts") => artifacts::artifacts_cli(&args[1..]).await,
@@ -82,14 +73,6 @@ pub(crate) fn usage_text() -> &'static str {
        kz run --no-subagents \"<prompt>\"  # 关闭本次 CLI 运行的 task 子代理工具（默认开启）\n\
        kz compact [--focus <text>]  # 手动压缩当前上下文\n\
        kz replay-eval [--limit N]     # 六臂回放评估:历史 run.trace 提取 case,fake 档真调\n\
-       kz work next [--requirement-first] [--detail]  # 当前裁决；detail 显示完整状态\n\
-       kz work claim <id> [--reason <text>] # 原子占用 Requirement/Defect/Work Unit\n\
-       kz work create-unit --requirement R-xxx --objective <text> --acceptance <text> [--scope <path>] [--depends-on R-xxx/Wn] [--verify-with <cmd>]\n\
-       kz work checkpoint R-xxx/Wn --summary <text> --next-action <text> [--decision <text>] [--retrieval-ref <ref>]\n\
-       kz work verify R-xxx/Wn; kz work evidence R-xxx/Wn --criterion <exact> --evidence <ref>; kz work complete R-xxx/Wn\n\
-       kz work verify-async R-xxx/Wn --command <cmd> --criterion <exact> --environment <toolchain> [--resource <key>] [--timeout-ms 600000]\n\
-       kz work verification-jobs; kz work verification-cancel <job-id>\n\
-       kz work block|unblock|supersede R-xxx/Wn --reason <text>; kz work get-unit R-xxx/Wn; kz work list-units [--requirement R-xxx]\n\
        kz worktree create <name>            # 建线:原子认领+凭据回滚,桌面/CLI 同一实现(R-207)\n\
        kz worktree merge-preview <path>     # 合并前冲突预检(merge-tree),不执行合并(R-207)\n\
        kz worktree merge <path>              # 安全非快进合并:冲突则保持双方并返回诊断\n\
@@ -100,7 +83,6 @@ pub(crate) fn usage_text() -> &'static str {
        kz artifacts plan --dry-run [--json] # 列出 artifact 引用图与无引用清理候选,不写盘(R-245 B3)\n\
        kz memory repair-index               # 按 Markdown 真源显式修复项目 INDEX/FTS(D-568/R-308)\n\
        kz memory review-global              # 无模型执行一次真实 project/global memory review(R-308)\n\
-       kz <req|defect|source|finding> [list|get <id>|add <title>|close <id>]\n\
 project-root: --project-root <path>  # 显式主根;worktree 里跑也照样落主根的 .kanzei\n\
 project-root: KANZEI_PROJECT_ROOT=<path>  # 同上的环境变量形态;优先级 参数 > 环境变量 > 从 cwd 发现\n\
 config: ~/.kanzei/kanzei.toml + <project>/.kanzei/kanzei.toml\n\
@@ -363,7 +345,6 @@ pub(crate) fn cli_identity_keys(cwd: &Path, project_root: &Path) -> (String, Str
 #[cfg(test)]
 mod tests {
     use super::lock::lock_status_report;
-    use super::tracker::parse_tracker_flags;
     use super::{
         cli_exit_code, cli_identity_keys, explicit_main_root, explicit_main_root_from,
         main_project_root, non_interactive_decision, parse_allowlist, parse_run_args,
@@ -371,105 +352,6 @@ mod tests {
     };
     use kanzei_core::AskReply;
     use std::path::{Path, PathBuf};
-
-    /// D-359:`--reason` 是公共 flag,reopen/void_id/fix_terminal 共用一处解析。
-    /// 这三个动作都**强制必填** reason,而解析原先只写在 fix_terminal 分支里,
-    /// 于是 `kz req reopen R-183 --reason "..."` 永远得到 "`reason` is required"。
-    #[test]
-    fn reason_是公共flag_不再被当成位置参数() {
-        let args: Vec<String> = ["R-183", "--reason", "让位对象已归档,退回队列重新取活"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let mut input = serde_json::json!({ "action": "reopen" });
-        let positional = parse_tracker_flags(&args, &mut input);
-        assert_eq!(input["reason"], "让位对象已归档,退回队列重新取活");
-        assert_eq!(
-            positional,
-            vec!["R-183"],
-            "--reason 及其取值不得混进位置参数(否则 update/close 会把它当成 status)"
-        );
-
-        // 不给 --reason 时不得凭空造一个:必填校验留在动作层,CLI 只负责传达。
-        let bare: Vec<String> = ["R-183"].iter().map(|s| s.to_string()).collect();
-        let mut bare_input = serde_json::json!({ "action": "reopen" });
-        parse_tracker_flags(&bare, &mut bare_input);
-        assert_eq!(bare_input["reason"], serde_json::Value::Null);
-
-        // fix_terminal 的 id/status 位置参数不因 --reason 插在中间而错位。
-        let mixed: Vec<String> = ["D-172", "--reason", "归档终态纠错", "fixed"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let mut mixed_input = serde_json::json!({ "action": "fix_terminal" });
-        let mixed_positional = parse_tracker_flags(&mixed, &mut mixed_input);
-        assert_eq!(mixed_positional, vec!["D-172", "fixed"]);
-        assert_eq!(mixed_input["reason"], "归档终态纠错");
-    }
-
-    /// 登记开关解析:add 与 update 共用一套,位置参数语义不变。
-    /// 没有这套开关时 `kz defect add` 一律被 R-191 B3 的登记门禁拒掉,
-    /// 而 update 写不了字段就意味着 CLI 走不到关闭(§1.25 要求 close 前写证据)。
-    #[test]
-    fn 登记开关解析_字段与位置参数各归各位() {
-        let args: Vec<String> = [
-            "标题前半",
-            "--severity",
-            "medium",
-            "标题后半",
-            "-p",
-            "P2",
-            "--tag",
-            "核心",
-            "--complexity",
-            "中",
-            "--ref",
-            "R-221",
-            "--ref",
-            "D-570",
-            "--prior-art",
-            ".kanzei/research/r248-prior-art/prior-art.md",
-            "--field",
-            "复现=第一步=点开设置页",
-            "-f",
-            "验收=有测试",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let mut input = serde_json::json!({ "action": "add" });
-        let positional = parse_tracker_flags(&args, &mut input);
-        assert_eq!(positional, vec!["标题前半", "标题后半"]);
-        assert_eq!(input["severity"], "medium");
-        assert_eq!(input["priority"], "P2");
-        assert_eq!(input["fields"]["标签"], "核心");
-        assert_eq!(input["fields"]["复杂度"], "中");
-        assert_eq!(input["refs"], serde_json::json!(["R-221", "D-570"]));
-        assert_eq!(
-            input["prior_art"],
-            ".kanzei/research/r248-prior-art/prior-art.md"
-        );
-        assert_eq!(input["验收"], serde_json::Value::Null);
-        assert_eq!(input["fields"]["验收"], "有测试");
-        // 值里带等号只按第一个切,后面的等号原样留在值里。
-        assert_eq!(input["fields"]["复现"], "第一步=点开设置页");
-
-        // update 路径:位置参数是 id 与 status,字段照样能写(含 进展)。
-        let args: Vec<String> = ["R-191", "doing", "--field", "进展=解除阻塞"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        let mut input = serde_json::json!({ "action": "update" });
-        let positional = parse_tracker_flags(&args, &mut input);
-        assert_eq!(positional, vec!["R-191", "doing"]);
-        assert_eq!(input["fields"]["进展"], "解除阻塞");
-
-        // 无字段开关时不产出空的 fields 键(免得覆盖既有字段的语义被改变)。
-        let args: Vec<String> = ["D-1", "fixed"].iter().map(|s| s.to_string()).collect();
-        let mut input = serde_json::json!({ "action": "close" });
-        parse_tracker_flags(&args, &mut input);
-        assert_eq!(input["fields"], serde_json::Value::Null);
-    }
 
     fn run_args(new_session: bool, readonly: bool, prompt: &str) -> RunArgs {
         RunArgs {

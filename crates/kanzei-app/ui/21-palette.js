@@ -39,11 +39,9 @@ export function collectPaletteEntries() {
   };
 
   for (const [view, metadata] of Object.entries(views)) {
-    if (view === "project" || !view_allowed(view)) continue;
+    if (!view_allowed(view)) continue;
     push(t("视图"), localizeDynamic(metadata.label), "", () => navigate_view(view));
   }
-  const management = document.querySelector('[data-work-surface="project"]');
-  if (currentProject && management) push(t("视图"), t("管理"), t("需求、缺陷、交付与项目地图"), () => management.click());
 
   // UI2-0926 #1:侧栏不再有项目列表可点,项目读 projects_get 的偏好缓存;切换走 switchProject——
   // 侧栏项目菜单、项目总览卡片、这里三处都调它,仍然是「一处实现」。
@@ -64,7 +62,7 @@ export function collectPaletteEntries() {
   // 剔掉的话「搜索」这类功能就从面板里凭空消失了。
   // 研究空间没有「当前项目」和讨论入口:新讨论按钮被 CSS 藏起来(点了毫无反应),记需求/记缺陷/记想法/总结
   // 点了只会弹「先选择项目」。这些条目在研究空间不进清单(面板自述「不提供点了没反应的条目」)。
-  const devOnlyIds = new Set(["new-chat", "documents-new-req", "documents-new-defect", "documents-new-idea"]);
+  const devOnlyIds = new Set(["new-chat"]);
   const action = (label, id) => {
     const el = $(id);
     if (!el || el.disabled || el.classList.contains("hidden")) return;
@@ -92,16 +90,6 @@ export function collectPaletteEntries() {
   action(t("停止"), "stop");
   action(t("活动"), "tasks-toggle");
   action(t("切换主题"), "theme-toggle");
-  // 记需求/记缺陷/记想法(UX-053/B7):点需求页「＋ 新建」菜单里的同名项——它们会打开需求页上**可见**的表单。
-  // 原来点的是被隐藏的侧栏里的 #req-quick/#defect-quick,表单进了 0×0 的容器,点了毫无反应。
-  action(t("记需求"), "documents-new-req");
-  action(t("记缺陷"), "documents-new-defect");
-  // 项目规范(UX-007):入口在需求页「更多」菜单里,面板给一条直达;状态(有建议稿待审阅 / 未创建)写在候选的细字上。
-  if (document.body.dataset.space !== "research" && currentProject) {
-    const conventions = $("documents-conventions-open");
-    const conventionsState = conventions?.dataset.state;
-    push(t("动作"), t("项目规范…"), conventionsState === "proposal" ? t("有新建议稿  点击审阅") : conventionsState === "missing" ? t("未创建  可让 Agent 生成") : "", () => conventions?.click());
-  }
   push(t("动作"), t("聚焦输入"), "Ctrl/Cmd+K", () => promptBox.focus());
   return entries;
 }

@@ -210,12 +210,6 @@ pub(super) fn assemble_run_once<'a>(
             stable_system.last().unwrap().len(),
         )]);
     }
-    if config.ask_policy.records_questions() {
-        let instructions = super::question::AUTONOMOUS_DECISIONS;
-        context_report.push(("runtime/decisions".into(), instructions.chars().count()));
-        stable_system.push(instructions.into());
-        stable_system_sources.push(vec![("runtime/decisions".into(), instructions.len())]);
-    }
     if let Some(catalog) = deferred_catalog {
         stable_system.push(catalog);
         stable_system_sources.push(vec![(

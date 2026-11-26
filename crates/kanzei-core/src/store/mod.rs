@@ -322,7 +322,6 @@ pub struct EpisodeRecord<'a> {
 
 pub mod artifact_liveness;
 pub mod context_manifest;
-pub mod decisions;
 mod episodes;
 mod eval;
 mod events;
@@ -346,7 +345,6 @@ mod session;
 mod task;
 mod telemetry;
 mod typed;
-mod work;
 mod workspace;
 
 pub use eval::{EffectEstimate, EvalCaseSet};
@@ -380,14 +378,6 @@ pub use typed::{
 };
 
 pub use session::{project_session_id, project_state_path};
-pub use work::{
-    project_work_events, StoredWorkEvent, WorkCheckpoint, WorkEvidence, WorkFact, WorkGraphVersion,
-    WorkImpact, WorkImpactCause, WorkImpactNode, WorkNodeContract, WorkNodeKind, WorkNodeReadiness,
-    WorkNodeStep, WorkNodeType, WorkProjection, WorkReview, WorkRevisionDecision,
-    WorkRevisionDisposition, WorkRevisionRequest, WorkRevisionResolution, WorkUnitSpec,
-    WorkUnitStatus, MAX_CHECKPOINT_SUMMARY_CHARS, MAX_WORK_ITEM_CHARS, MAX_WORK_LIST_ITEMS,
-    MAX_WORK_OBJECTIVE_CHARS, WORK_PROJECTION_FORMAT_VERSION,
-};
 
 pub struct SessionStore {
     /// 仅限 store::* 子模块使用(S1 拆壳后本字段 pub(crate))。

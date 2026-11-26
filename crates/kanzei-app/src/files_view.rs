@@ -17,6 +17,89 @@ pub(crate) fn resolve_root(project_dir: &str) -> PathBuf {
     crate::normalized_project_root(Path::new(project_dir))
 }
 
+/// git 概览:分支 + 未提交改动数(状态栏与文件上下文抽屉显示)。
+#[tauri::command]
+pub async fn git_status(
+    project_dir: String,
+    worktree_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let project_root = crate::normalized_project_root(Path::new(&project_dir));
+    let root = match worktree_path
+        .as_deref()
+        .filter(|path| !path.trim().is_empty())
+    {
+        Some(path) => kanzei_tools::worktree::validate_worktree_path(&project_root, path)?,
+        None => project_root,
+    };
+    tokio::task::spawn_blocking(move || {
+        match kanzei_tools::project_state::git_state_of(&root) {
+            kanzei_tools::project_state::GitState::Repo { .. } => {}
+            kanzei_tools::project_state::GitState::None => {
+                return json!({
+                    "repo": "none", "branch": null, "changes": 0, "last": null,
+                    "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+            kanzei_tools::project_state::GitState::Parent { toplevel } => {
+                return json!({
+                    "repo": "parent", "toplevel": toplevel, "branch": null, "changes": 0,
+                    "last": null, "additions": 0, "deletions": 0, "files": [],
+                });
+            }
+        }
+        let run = |args: &[&str]| -> Option<String> {
+            let out = crate::state::hidden_command("git")
+                .args(args)
+                .current_dir(&root)
+                .output()
+                .ok()?;
+            out.status
+                .success()
+                .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        };
+        let branch = run(&["rev-parse", "--abbrev-ref", "HEAD"]);
+        let porcelain = run(&["status", "--porcelain"]).unwrap_or_default();
+        let changes = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
+        let last = run(&["log", "-1", "--format=%h %s"]);
+        let mut files: Vec<serde_json::Value> = Vec::new();
+        let mut additions = 0u64;
+        let mut deletions = 0u64;
+        for line in run(&["diff", "--numstat", "HEAD"])
+            .unwrap_or_default()
+            .lines()
+        {
+            let mut parts = line.split('\t');
+            let (add, del, path) = (parts.next(), parts.next(), parts.next());
+            let (Some(add), Some(del), Some(path)) = (add, del, path) else {
+                continue;
+            };
+            let binary = add == "-" || del == "-";
+            let add: u64 = add.parse().unwrap_or(0);
+            let del: u64 = del.parse().unwrap_or(0);
+            additions += add;
+            deletions += del;
+            files.push(
+                json!({ "path": path, "additions": add, "deletions": del, "binary": binary }),
+            );
+        }
+        for line in porcelain.lines() {
+            let Some(path) = line.strip_prefix("?? ") else {
+                continue;
+            };
+            files.push(
+                json!({ "path": path.trim(), "additions": 0, "deletions": 0, "untracked": true }),
+            );
+        }
+        json!({
+            "repo": "own",
+            "branch": branch, "changes": changes, "last": last,
+            "additions": additions, "deletions": deletions, "files": files,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// D-233 批2:进程内快照缓存(按项目根)。files_snapshot 第二次调用把上次的
 /// entries 喂给 scan_incremental,size+mtime 未变的文件直接复用,不再全量
 /// 读+哈希。前端的视图缓存只省了"切回不 invoke",这层省的是 invoke 内的读。

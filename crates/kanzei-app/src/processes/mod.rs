@@ -30,14 +30,13 @@ pub(crate) use registry::restore_processes_from_store_once;
 #[cfg(test)]
 pub(crate) use gate::{gate_steps, run_worktree_gate};
 #[cfg(test)]
-pub(crate) use lifecycle::{close_process, create_process, create_process_with_work_item};
+pub(crate) use lifecycle::{close_process, create_process};
 #[cfg(test)]
 pub(crate) use registry::{persist_process, restore_processes_from_store};
 #[cfg(test)]
 pub(crate) use workspace::{
     acquire_project_write_lease_within, create_worktree_arbitrated,
     discard_worktree_and_unregister, discard_worktree_checked,
-    harvest_tracker_candidates_from_messages, merge_worktree_and_release, parse_harvest_claim,
     reclaim_worktree_on_close, with_idle_bound_process, worktree_diff, WRITE_LEASE_TIMEOUT,
 };
 

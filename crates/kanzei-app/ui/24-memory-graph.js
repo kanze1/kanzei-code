@@ -13,7 +13,6 @@ import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { localizedDocStatus, t } from "./02-i18n.js";
 import { toastError } from "./03-shell.js";
 import { memoryProject as currentProject } from "./03-memory-scope.js";
-import { openWorkbenchItem } from "./12-workbench.js";
 import {
   confirmLeaveMemoryDetail,
   getMemoryEntries,
@@ -23,7 +22,6 @@ import {
   showMemoryDetail,
   showMemoryTab,
 } from "./13-memory.js";
-import { openDocViewer } from "./15-views-misc.js";
 import { canvasSupported, createGraphView } from "./24-graph-view.js";
 import {
   DEFAULT_LAYERS,
@@ -584,11 +582,7 @@ export function renderGraphNodeDetail(node) {
   actions.className = "memory-graph-node-actions";
   const groups = relationGroups(node);
   const memberMemories = [...groups.values()].flat().filter((r) => r.other.kind === "memory").map((r) => r.other);
-  if (node.kind === "requirement" || node.kind === "defect") {
-    actions.append(button(t("打开条目"), () => void openWorkbenchItem(currentProject, { id: node.id })));
-  } else if (node.kind === "decision") {
-    actions.append(button(t("打开决策文档"), () => void openDocViewer("decision")));
-  } else if (node.kind === "crate" || node.kind === "module") {
+  if (node.kind === "crate" || node.kind === "module") {
     actions.append(button(t("只看该区域"), () => setAreaFilter(node.id)));
   } else if (node.kind === "fingerprint" || node.kind === "subject") {
     actions.append(button(t("用对话合并"), () => prefillMergeChat(node, memberMemories), "ghost"));

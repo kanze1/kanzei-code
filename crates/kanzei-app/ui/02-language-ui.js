@@ -6,8 +6,7 @@ import { renderAgentAudit, syncDynamicUiLanguage } from "./06-activity.js";
 import { reconcileTasksPanel } from "./06-agent-panel.js";
 import { askActive, updateAskQueueStatus } from "./07-events.js";
 import { refreshWorktrees } from "./09-sessions.js";
-import { lastWorkspaceSnapshot, renderWorkspace } from "./12-docs-pages.js";
-import { refreshDocs } from "./14-docs-actions.js";
+import { lastWorkspaceSnapshot, renderWorkspace } from "./12-workbench.js";
 import { refreshConversationList } from "./15-views-misc.js";
 import { persistLanguagePreference, renderProviders } from "./16-settings.js";
 
@@ -20,7 +19,6 @@ defer(() => {
     if (document.querySelector("#providers-table tbody")?.children.length) renderProviders();
     renderTokens();
     if (lastWorkspaceSnapshot) renderWorkspace(lastWorkspaceSnapshot);
-    if (document.body.classList.contains("documents-active")) refreshDocs();
     if (currentProject) {
       refreshWorktrees();
       refreshConversationList();

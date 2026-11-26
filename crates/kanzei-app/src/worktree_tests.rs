@@ -16,11 +16,10 @@ use kanzei_base::test_support::TestDir;
 use kanzei_harness::{Tool, ToolCtx};
 
 use super::{
-    acquire_project_write_lease_within, close_process, create_process,
-    create_process_with_work_item, create_worktree_arbitrated, discard_worktree_and_unregister,
-    discard_worktree_checked, harvest_tracker_candidates_from_messages, merge_worktree_and_release,
-    parse_harvest_claim, reclaim_worktree_on_close, restore_processes_from_store,
-    unregister_parallel_process, with_idle_bound_process, worktree_diff,
+    acquire_project_write_lease_within, close_process, create_process, create_worktree_arbitrated,
+    discard_worktree_and_unregister, discard_worktree_checked, reclaim_worktree_on_close,
+    restore_processes_from_store, unregister_parallel_process, with_idle_bound_process,
+    worktree_diff,
 };
 // D-365:R-207 下沉后 worktree 实现只在 kanzei-tools,processes.rs 的转发壳已删,
 // 测试直接从这里取,不再隔一层桌面私有壳。
@@ -87,41 +86,6 @@ fn registry_has(root: &Path, worktree: &Path) -> bool {
 
 fn branch_exists(root: &Path, branch: &str) -> bool {
     !git(root, &["branch", "--list", branch]).trim().is_empty()
-}
-
-#[test]
-fn harvest_claim_only_accepts_strict_r_or_d_ids() {
-    assert_eq!(parse_harvest_claim("R-184"), Ok(("R", "184")));
-    assert_eq!(parse_harvest_claim("D-307"), Ok(("D", "307")));
-    for claim in ["", "未声明条目", "R-184 额外文本", "R-", "G-12", "r-12"] {
-        assert!(parse_harvest_claim(claim).is_err(), "应拒绝 claim: {claim}");
-    }
-}
-
-#[test]
-fn harvest_candidates_只取线路对话中真实存在的活动条目且最新优先() {
-    let root = TestDir::new("kz-harvest-");
-    std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
-    std::fs::write(
-        root.join(".kanzei/project/requirements.md"),
-        "# Requirements\n\n## R-001 真实需求 [open]\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join(".kanzei/project/defects.md"),
-        "# Defects\n\n## D-297 真实缺陷 [open]\n",
-    )
-    .unwrap();
-    let messages = vec![
-        kanzei_llm::Message::user_text("先看 R-001，也提到不存在的 D-999"),
-        kanzei_llm::Message::assistant(vec![kanzei_llm::Part::Text {
-            text: "当前实际交付 D-297；示例 R-xxx 不算条目".into(),
-        }]),
-    ];
-    assert_eq!(
-        harvest_tracker_candidates_from_messages(&root, &messages),
-        vec!["D-297", "R-001"]
-    );
 }
 
 #[tokio::test]
@@ -284,176 +248,6 @@ async fn 建线后worktree_path是真实路径() {
     assert_ne!(info.project_dir, bound);
 
     rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    cleanup_worktrees(&[target]);
-}
-
-/// R-247 验收①③④:并行视图选择条目后，建树、注册与真实 work claim 一次完成；
-/// 分支线的通用 tracker 写权限仍为关闭。关线统一释放取得线并退回可领取态。
-#[tokio::test]
-async fn r247_开线绑定条目且关线释放_无需开放tracker写权限() {
-    let root = git_repo();
-    let canonical = crate::normalized_project_root(&root);
-    let name = unique("r247-bind");
-    let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    let requirement = kanzei_memory::docstore::Entry {
-        id: "R-247".into(),
-        title: "开线绑定".into(),
-        status: "todo".into(),
-        severity: None,
-        fields: vec![("优先级".into(), "P1".into())],
-    };
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-        .save(&[requirement])
-        .unwrap();
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
-        .save(&[])
-        .unwrap();
-
-    let state = AppState::default();
-    let info = create_process_with_work_item(
-        &state,
-        &canonical.display().to_string(),
-        name,
-        "R-247".into(),
-    )
-    .await
-    .expect("开线与 claim 必须原子成功");
-    assert!(
-        !info.tracker_writes,
-        "绑定动作不得放开线路通用 tracker 写权限"
-    );
-    let entries =
-        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-            .load()
-            .unwrap();
-    assert_eq!(entries[0].status, "doing");
-    assert_eq!(
-        entries[0]
-            .fields
-            .iter()
-            .find(|(key, _)| key == "取得线")
-            .map(|(_, value)| value.as_str()),
-        Some(branch.as_str())
-    );
-
-    let process = state
-        .processes
-        .lock()
-        .unwrap()
-        .get(&info.id)
-        .cloned()
-        .unwrap();
-    let closed = close_process(&state, &process).await.unwrap();
-    assert!(closed.contains("已释放需求绑定 R-247"), "{closed}");
-    let released =
-        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-            .load()
-            .unwrap();
-    assert_eq!(released[0].status, "todo");
-    assert!(released[0].fields.iter().all(|(key, _)| key != "取得线"));
-
-    if target.exists() {
-        rollback_worktree(&canonical, &rollback_receipt(&canonical, &target, &branch)).unwrap();
-    }
-    cleanup_worktrees(&[target]);
-}
-
-#[tokio::test]
-async fn r247_条目claim失败时建线整体回滚() {
-    let root = git_repo();
-    let canonical = crate::normalized_project_root(&root);
-    let name = unique("r247-bind-rollback");
-    let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-        .save(&[])
-        .unwrap();
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
-        .save(&[])
-        .unwrap();
-    let state = AppState::default();
-
-    let error = create_process_with_work_item(
-        &state,
-        &canonical.display().to_string(),
-        name,
-        "R-999".into(),
-    )
-    .await
-    .expect_err("未知条目不得留下半绑定线路");
-    assert!(error.contains("R-999"), "{error}");
-    assert!(!target.exists(), "claim 失败后工作树必须回滚");
-    assert!(
-        !branch_exists(&canonical, &branch),
-        "claim 失败后分支必须回滚"
-    );
-    assert!(
-        state
-            .processes
-            .lock()
-            .unwrap()
-            .values()
-            .all(|process| process.id.starts_with("d|")),
-        "claim 失败后不得留下并行进程注册"
-    );
-    cleanup_worktrees(&[target]);
-}
-
-#[tokio::test]
-async fn r247_收活合并后立即释放取得线且保留线路供合并后门禁() {
-    let root = git_repo();
-    let canonical = crate::normalized_project_root(&root);
-    let name = unique("r247-merge");
-    let (target, branch) = worktree_target(&canonical, &name).unwrap();
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-        .save(&[kanzei_memory::docstore::Entry {
-            id: "R-248".into(),
-            title: "合并释放".into(),
-            status: "todo".into(),
-            severity: None,
-            fields: vec![("优先级".into(), "P1".into())],
-        }])
-        .unwrap();
-    kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::DEFECTS)
-        .save(&[])
-        .unwrap();
-    let state = AppState::default();
-    let info = create_process_with_work_item(
-        &state,
-        &canonical.display().to_string(),
-        name,
-        "R-248".into(),
-    )
-    .await
-    .unwrap();
-    std::fs::write(target.join("r247.txt"), "merged\n").unwrap();
-    git(&target, &["add", "r247.txt"]);
-    git(&target, &["commit", "-qm", "r247 merge release"]);
-
-    let result =
-        merge_worktree_and_release(&state, &canonical, info.worktree_path.as_deref().unwrap())
-            .unwrap();
-    assert!(result.contains("已释放需求绑定 R-248"), "{result}");
-    assert!(
-        state.processes.lock().unwrap().contains_key(&info.id),
-        "合并后仍要保留线路，供合并后全量门禁和回写继续使用"
-    );
-    let entries =
-        kanzei_memory::docstore::DocStore::open(&canonical, &kanzei_memory::docstore::REQUIREMENTS)
-            .load()
-            .unwrap();
-    assert_eq!(entries[0].status, "todo");
-    assert!(entries[0].fields.iter().all(|(key, _)| key != "取得线"));
-
-    let process = state
-        .processes
-        .lock()
-        .unwrap()
-        .get(&info.id)
-        .cloned()
-        .unwrap();
-    close_process(&state, &process).await.unwrap();
-    assert!(!target.exists());
-    assert!(!branch_exists(&canonical, &branch));
     cleanup_worktrees(&[target]);
 }
 
@@ -931,27 +725,6 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     git(&worktree, &["commit", "-qm", "line source"]);
 
     let ctx = ToolCtx::new(worktree.clone(), canonical.clone());
-    let tracker = kanzei_tools::tracker::TrackerTool {
-        tool_name: "req",
-        noun: "requirement",
-        kind: &kanzei_memory::docstore::REQUIREMENTS,
-        requires_refs: None,
-    };
-    let tracker_out = tracker
-        .execute(
-            serde_json::json!({
-                "action": "add",
-                "title": "F13 main-root tracker",
-                "priority": "P2",
-                // R-313 的发现记录门禁只作用于中/大需求。本用例的主题是「tracker 跟
-                // project_root 走」,复杂度是无关变量——取小档位既不触发那道门禁,
-                // 也不必往夹具里塞一份与本用例无关的发现记录。
-                "fields": {"复杂度": "小", "标签": "后端", "验收": "tracker follows project_root"}
-            }),
-            &ctx,
-        )
-        .await;
-    assert!(!tracker_out.is_error, "{}", tracker_out.content);
     let memory_out = kanzei_memory::memory::MemoryNoteTool
         .execute(
             serde_json::json!({
@@ -986,16 +759,6 @@ async fn 线上闭环_主树源码零改动_worktree内kanzei副本字节不变(
     assert!(
         !canonical.join("src/line.rs").exists(),
         "线内源码不得泄漏到主树"
-    );
-    assert!(
-        std::fs::read_to_string(canonical.join(".kanzei/project/requirements.md"))
-            .unwrap()
-            .contains("F13 main-root tracker")
-    );
-    assert!(
-        !std::fs::read_to_string(worktree.join(".kanzei/project/requirements.md"))
-            .unwrap()
-            .contains("F13 main-root tracker")
     );
     assert!(kanzei_memory::memory::project_memory_root(&canonical)
         .join("inbox.md")

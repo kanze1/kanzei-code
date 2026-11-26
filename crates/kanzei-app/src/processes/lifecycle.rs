@@ -13,7 +13,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
-use kanzei_harness::{Tool, ToolCtx};
 use serde_json::json;
 use tauri::State;
 
@@ -605,74 +604,8 @@ pub(crate) async fn create_process_with_tracker(
             });
         }
     };
-    if let Some(work_item_id) = work_item_id.as_deref() {
-        if let Err(error) = claim_work_item_for_process(&root, &info, work_item_id).await {
-            let cleanup = unregister_parallel_process(state, &root, &info.id)
-                .map(|_| ())
-                .map_err(|cleanup| format!("注销半绑定独立任务失败: {cleanup}"));
-            let error = wt::with_residue(error, cleanup);
-            return Err(match receipt.as_ref() {
-                Some(receipt) => wt::with_residue(error, wt::rollback_worktree(&root, receipt)),
-                None => error,
-            });
-        }
-    }
+    let _ = work_item_id;
     Ok(info)
-}
-
-/// R-247 的权限边界：建线绑定是主进程编排动作，不要求用户先给新线打开
-/// `tracker_writes`。这里仍复用 WorkTool 的 WIP、阻塞、接管与跨进程锁语义，
-/// 没有第二套“看起来像 claim”的字段直写。
-async fn claim_work_item_for_process(
-    root: &Path,
-    process: &ProcessInfo,
-    work_item_id: &str,
-) -> Result<(), String> {
-    let cwd = process
-        .worktree_path
-        .as_deref()
-        .map(PathBuf::from)
-        .ok_or_else(|| "条目绑定缺少独立任务的工作树".to_string())?;
-    let output = kanzei_tools::WorkTool
-        .execute(
-            json!({
-                "action": "claim",
-                "id": work_item_id,
-                "reason": "parallel-line-create:用户新建独立任务时绑定了这个条目"
-            }),
-            &ToolCtx::new(cwd, root.to_path_buf()),
-        )
-        .await;
-    if output.is_error {
-        Err(format!(
-            "新独立任务未能绑定 {work_item_id}: {}",
-            output.content
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-pub(crate) async fn create_process_with_work_item(
-    state: &AppState,
-    project_dir: &str,
-    worktree_name: String,
-    work_item_id: String,
-) -> Result<ProcessInfo, String> {
-    create_process_with_tracker(
-        state,
-        project_dir,
-        None,
-        None,
-        None,
-        Some(kanzei_harness::SubagentMode::Auto),
-        Some(false),
-        Some(worktree_name),
-        Some(work_item_id),
-        None,
-    )
-    .await
 }
 
 #[tauri::command]
@@ -886,15 +819,9 @@ pub(crate) fn unregister_parallel_process(
             runtime.asks.lock().unwrap().clear();
         }
     }
-    // 运行收口后、身份退役前释放 tracker 持有。释放失败时保留一条已停止的线路供
-    // 用户重试，不能制造「线已消失、条目仍被幽灵分支持有」的半截状态。
-    let released = match branch.as_deref() {
-        Some(branch) => {
-            kanzei_tools::release_line_claims(root, branch, "parallel-line-unregister")?
-        }
-        None => Vec::new(),
-    };
-    // finalize + release 成功后才退役身份；若持久化失败，保留已停止的内存线路。
+    let _ = branch;
+    let released = Vec::new();
+    // finalize 成功后才退役身份；若持久化失败，保留已停止的内存线路。
     store
         .delete_process(process_id)
         .map_err(|e| format!("删除对话登记失败: {e}"))?;

@@ -26,9 +26,6 @@ use tauri::Emitter;
 use crate::state::MutexPoisonExt;
 use crate::{typed_events, with_session_id, LiveRun, PendingAsk, PromptAttachment};
 
-mod components;
-use components::TrackerWritePolicyComponent;
-
 /// R-253 批7b:进入运行域的调用契约三分组之一——**本轮输入**(`RoundRequest`)。
 /// IPC 入口(run_prompt)解析后的「这一轮要跑什么」:提示词、附件、工作目录/主根/
 /// 会话身份、投递方式、已准入输入、进程身份。
@@ -47,23 +44,15 @@ pub(crate) struct RoundRequest {
     pub(crate) delivery: kanzei_core::Delivery,
     pub(crate) promoted_input: Option<kanzei_core::AdmittedInput>,
     pub(crate) process_id: String,
-    pub(crate) work_item_id: Option<String>,
 }
 
 /// R-253 批7b:调用契约三分组之二——**运行档位**(`RunMode`)。
-/// 决定这一轮怎么跑:子代理准入、tracker 写开关、模型/档位覆盖、自主推进与放行。
-/// 每轮读取的执行模式与协作倾向。
 pub(crate) struct RunMode {
     pub(crate) execution_batch: bool,
-    // 模型自主选择任务分解；引擎执行档位与并发上限。
     pub(crate) subagent_mode: kanzei_harness::SubagentMode,
-    pub(crate) block_tracker_writes: bool,
-    // 分支线 tracker 写入开关。主线永远不加此门禁;分支线默认关闭。
     pub(crate) profile: Option<String>,
-    pub(crate) research_topic: Option<String>,
     pub(crate) agent_name: Option<String>,
     pub(crate) model_override: Option<String>,
-    pub(crate) work_priority: Option<String>,
     pub(crate) reasoning_override: Option<String>,
     pub(crate) autonomous: bool,
     pub(crate) auto_allow: bool,
@@ -131,7 +120,6 @@ pub(crate) struct RuntimeDeps {
     pub(crate) rctx: ResolveCtx,
     pub(crate) snapshot: Arc<kanzei_harness::HarnessSnapshot>,
     pub(crate) agent: kanzei_harness::AgentDef,
-    pub(crate) work_priority: &'static str,
     pub(crate) resolved: kanzei_harness::config::ResolvedModel,
     pub(crate) proxy: kanzei_llm::ProxyConfig,
     pub(crate) route: kanzei_llm::Route,
@@ -154,7 +142,6 @@ pub(crate) struct SessionContext {
 
 pub(crate) struct RoundContext {
     pub(crate) run_id: String,
-    pub(crate) work_item_id: Option<String>,
     pub(crate) run_started: std::time::Instant,
     pub(crate) run_epoch_ms: i64,
     pub(crate) ctx: ToolCtx,
@@ -212,14 +199,8 @@ pub(crate) async fn assemble_run(
         config: config.clone(),
     };
 
-    let work_priority = normalize_work_priority(mode.work_priority.as_deref());
-    let mut harness = build_run_harness(profile, mode.block_tracker_writes);
+    let harness = build_run_harness(profile);
     let project_workflow = !general && mode.uses_project_workflow();
-    if project_workflow {
-        harness.add(kanzei_tools::work::WorkControlContext(
-            crate::auto_run::work_priority_enum(work_priority),
-        ));
-    }
     let snapshot = harness.resolve(&rctx)?;
     let mut agent = snapshot
         .select_primary_agent(mode.agent_name.as_deref())?
@@ -258,8 +239,7 @@ pub(crate) async fn assemble_run(
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     let client = new_llm_client(&proxy)?;
     let mut ctx = ToolCtx::new(cwd.clone(), project_root.clone())
-        .with_session_id(request.session_id.clone())
-        .with_work_priority(crate::auto_run::work_priority_enum(work_priority));
+        .with_session_id(request.session_id.clone());
     ctx.project_workflow = project_workflow;
     // R-256:RunnerConfig 构造与 CLI 共用 kanzei_runtime::build_runner_config(对照表 #12)。
     let mut runner_config = kanzei_runtime::build_runner_config(
@@ -308,7 +288,6 @@ pub(crate) async fn assemble_run(
         rctx,
         snapshot,
         agent,
-        work_priority,
         resolved,
         proxy,
         route,
@@ -379,16 +358,7 @@ async fn prepare_session(
             "input_{}",
             SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
         );
-        if let Some(item_id) = request.work_item_id.as_deref() {
-            store.admit_work_input(
-                &request.session_id,
-                &input_id,
-                &request.prompt,
-                item_id,
-                request.input_origin,
-                &attachment_refs,
-            )?;
-        } else if mode.execution_batch || mode.autonomous {
+        if mode.execution_batch || mode.autonomous {
             store.admit_batch_input(
                 &request.session_id,
                 &input_id,
@@ -423,15 +393,6 @@ async fn prepare_session(
             Some((input_id, parts)) if input_id == promoted.input_id => parts,
             _ => crate::attachments::load_parts(&promoted.attachments)?,
         };
-        let work_item_id = store.input_work_item(&request.session_id, &promoted.input_id)?;
-        anyhow::ensure!(
-            work_item_id.is_none() || ctx.project_workflow,
-            "领取需求请切换到自主推进；结伴开发按当前对话执行"
-        );
-        anyhow::ensure!(
-            work_item_id.is_none() || (profile.is_development() && !mode.block_tracker_writes),
-            "当前对话不能领取需求，请返回可写的开发主对话开始"
-        );
         ctx.input_origin = promoted.origin;
         ctx.input_attachments = promoted.attachments;
         let prompt = promoted.prompt;
@@ -616,7 +577,6 @@ async fn prepare_session(
             initial_parts,
             RoundContext {
                 run_id,
-                work_item_id,
                 run_started,
                 run_epoch_ms,
 
@@ -792,27 +752,17 @@ pub(crate) fn run_meta_payload(
     })
 }
 
-pub(crate) fn build_run_harness(
-    profile: kanzei_harness::ProfileKind,
-    block_tracker_writes: bool,
-) -> kanzei_harness::Harness {
+pub(crate) fn build_run_harness(profile: kanzei_harness::ProfileKind) -> kanzei_harness::Harness {
     // Runtime owns Agent precedence and the final projectless projection.
-    // Desktop tools precede user sources; application execution policy follows config.
     kanzei_runtime::build_harness(
         profile,
         |harness| {
             harness.add(crate::harness_ext::FrontendToolsComponent);
         },
-        |harness| {
-            harness.add(TrackerWritePolicyComponent {
-                block: block_tracker_writes,
-            });
-        },
+        |_| {},
     )
 }
 
-/// R-177 F11:分支线默认只读主根 tracker。规则放在 ConfigComponent 之后,
-/// 因而用户的通用 kanzei.toml allow 不能意外打开这条线级显式开关。
 pub(crate) fn resolve_profile(
     profile: Option<&str>,
     config: &kanzei_harness::config::KanzeiConfig,
@@ -822,13 +772,6 @@ pub(crate) fn resolve_profile(
             .parse()
             .map_err(|error: String| anyhow::anyhow!(error)),
         None => config.default_profile().map_err(anyhow::Error::msg),
-    }
-}
-
-pub(crate) fn normalize_work_priority(value: Option<&str>) -> &'static str {
-    match value {
-        Some("requirement-first") => "requirement-first",
-        _ => "defect-first",
     }
 }
 
@@ -976,7 +919,6 @@ mod startup_tests {
                 rctx,
                 snapshot,
                 agent,
-                work_priority: "defect-first",
                 resolved,
                 proxy: kanzei_llm::ProxyConfig::Disabled,
                 route: kanzei_llm::Route::openai_at(&format!("http://{address}/v1"), None),
@@ -986,14 +928,10 @@ mod startup_tests {
             };
             let mode = RunMode {
                 execution_batch: false,
-
                 subagent_mode: kanzei_harness::SubagentMode::Off,
-                block_tracker_writes: false,
                 profile: Some(profile.as_str().into()),
-                research_topic: None,
                 agent_name: None,
                 model_override: None,
-                work_priority: None,
                 reasoning_override: None,
                 autonomous: false,
                 auto_allow: false,
@@ -1026,7 +964,6 @@ mod startup_tests {
                 delivery: kanzei_core::Delivery::Queue,
                 promoted_input,
                 process_id: "fixture".into(),
-                work_item_id: None,
             }
         }
 
@@ -1579,14 +1516,10 @@ mod tests {
     fn 自动模式首轮续跑与复核输入都留档_权限仍按输入来源处理() {
         let mut mode = super::RunMode {
             execution_batch: false,
-
             subagent_mode: kanzei_harness::SubagentMode::Auto,
-            block_tracker_writes: false,
             profile: Some("dev-auto".into()),
-            research_topic: None,
             agent_name: None,
             model_override: None,
-            work_priority: None,
             reasoning_override: None,
             autonomous: false,
             auto_allow: false,
@@ -1627,7 +1560,7 @@ mod tests {
             project_root: root,
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
-        let snapshot = build_run_harness(ctx.profile, false)
+        let snapshot = build_run_harness(ctx.profile)
             .resolve(&ctx)
             .unwrap();
         let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
