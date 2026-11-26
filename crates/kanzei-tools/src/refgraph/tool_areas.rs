@@ -49,8 +49,10 @@ pub const TOOL_AREAS_EXEMPT: &[&str] = &[
 /// 关键词 → 区域(兜底信号,weak)。ASCII 关键词按词边界、不分大小写匹配;中文按子串。
 pub const KEYWORD_AREAS: &[(&[&str], &str)] = &[
     (
-        &["前端", "界面", "i18n", "HTML", "CSS", "冒烟", "smoke", "UI"],
-        "kanzei-app/ui",
+        &[
+            "前端", "界面", "React", "HTML", "CSS", "冒烟", "smoke", "UI",
+        ],
+        "kanzei-app/web",
     ),
     (
         &["runner", "上下文压缩", "compaction", "首次请求"],
@@ -210,7 +212,7 @@ mod tests {
             keyword_areas("ASSERTION providers").is_empty(),
             "ASCII 关键词按词边界"
         );
-        assert_eq!(keyword_areas("前端 i18n 冒烟"), vec!["kanzei-app/ui"]);
+        assert_eq!(keyword_areas("前端 React 冒烟"), vec!["kanzei-app/web"]);
         assert_eq!(
             title_lead_tool("edit 报 old_string not found"),
             Some("edit")

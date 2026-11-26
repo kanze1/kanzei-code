@@ -1,5 +1,5 @@
 use heck::ToLowerCamelCase;
-use quote::{format_ident, quote, ToTokens};
+use quote::{quote, ToTokens};
 use std::{collections::BTreeMap, fs, path::Path};
 use syn::{visit_mut::VisitMut, FnArg, Item, Type, UseTree};
 
@@ -95,9 +95,7 @@ pub fn generate() {
     println!("cargo:rerun-if-changed=src/command_registry.json");
     let registry: Vec<serde_json::Value> =
         serde_json::from_str(&fs::read_to_string("src/command_registry.json").unwrap()).unwrap();
-    let mut arms = Vec::new();
     let mut paths = Vec::new();
-    let mut desktop_names = Vec::new();
     let mut manifest = BTreeMap::new();
     for entry in registry {
         let path = entry["path"].as_str().expect("command path");
@@ -166,14 +164,7 @@ pub fn generate() {
             .expect("command attributes");
         }
         let command_path: syn::Path = syn::parse_str(&format!("crate::{path}")).unwrap();
-        paths.push(command_path.clone());
-        let desktop = entry["host"] == "desktop";
-        assert!(
-            desktop || entry["host"] == "service",
-            "invalid host for {path}"
-        );
-        let mut fields = Vec::new();
-        let mut values = Vec::new();
+        paths.push(command_path);
         let mut params = BTreeMap::new();
         for arg in &function.sig.inputs {
             let FnArg::Typed(arg) = arg else {
@@ -187,16 +178,16 @@ pub fn generate() {
                 Type::Path(p) => p.path.segments.last().unwrap().ident.to_string(),
                 _ => String::new(),
             };
-            if type_name == "State" {
-                values.push(quote! { app.state() });
-                continue;
-            }
-            if ["AppHandle", "AppEvents"].contains(&type_name.as_str()) {
-                values.push(quote! { app.clone() });
-                continue;
-            }
-            if ["Window", "WebviewWindow", "Webview"].contains(&type_name.as_str()) {
-                assert!(desktop, "service command {path} still requires a window");
+            if [
+                "State",
+                "AppHandle",
+                "AppEvents",
+                "Window",
+                "WebviewWindow",
+                "Webview",
+            ]
+            .contains(&type_name.as_str())
+            {
                 continue;
             }
             let field_name = ident.to_string();
@@ -211,87 +202,20 @@ pub fn generate() {
                 imports: &imports,
             }
             .visit_type_mut(&mut ty);
-            params.insert(wire_name.clone(), serde_json::json!({"type": ty.to_token_stream().to_string(), "required": type_name != "Option"}));
-            fields.push(quote! { #[serde(rename = #wire_name)] #ident: #ty });
-            values.push(quote! { args.#ident });
+            params.insert(
+                wire_name,
+                serde_json::json!({"type": ty.to_token_stream().to_string(), "required": type_name != "Option"}),
+            );
         }
         let output = function.sig.output.to_token_stream().to_string();
-        let data = serde_json::json!({"path":path,"host":entry["host"],"parameters":params,"returns":output});
+        let data = serde_json::json!({"path": path, "parameters": params, "returns": output});
         assert!(
             manifest.insert(command.clone(), data).is_none(),
             "duplicate command {command}"
         );
-        if desktop {
-            desktop_names.push(command);
-            continue;
-        }
-        let argument_type = format_ident!("Arguments");
-        let call = quote! { #command_path(#(#values),*) };
-        let call = if function.sig.asyncness.is_some() {
-            quote! { #call.await }
-        } else {
-            call
-        };
-        let returns_result = match &function.sig.output {
-            syn::ReturnType::Type(_, ty) => {
-                matches!(&**ty, Type::Path(p) if p.path.segments.last().unwrap().ident == "Result")
-            }
-            _ => false,
-        };
-        let result_type = match &function.sig.output {
-            syn::ReturnType::Default => None,
-            syn::ReturnType::Type(_, ty) if returns_result => {
-                let Type::Path(path) = &**ty else {
-                    unreachable!()
-                };
-                let syn::PathArguments::AngleBracketed(arguments) =
-                    &path.path.segments.last().unwrap().arguments
-                else {
-                    unreachable!()
-                };
-                arguments.args.iter().find_map(|arg| {
-                    if let syn::GenericArgument::Type(ty) = arg {
-                        Some(ty)
-                    } else {
-                        None
-                    }
-                })
-            }
-            syn::ReturnType::Type(_, ty) => Some(&**ty),
-        };
-        let unit =
-            result_type.is_none_or(|ty| matches!(ty, Type::Tuple(tuple) if tuple.elems.is_empty()));
-        let result = if returns_result {
-            quote! { #call.map_err(|error| error.to_string())? }
-        } else {
-            call
-        };
-        let body = if unit {
-            quote! { #result; Ok(serde_json::Value::Null) }
-        } else {
-            quote! { serde_json::to_value(#result).map_err(|error| error.to_string()) }
-        };
-        let body = if function.sig.asyncness.is_some() {
-            body
-        } else {
-            quote! { tauri::async_runtime::spawn_blocking(move || { #body }).await.map_err(|error| format!("command worker failed: {error}"))? }
-        };
-        arms.push(quote! { #command => {
-            #[derive(serde::Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct #argument_type { #(#fields),* }
-            let args: #argument_type = serde_json::from_value(args).map_err(|error| format!("invalid {} arguments: {error}", #command))?;
-            let _ = &args;
-            #body
-        } });
     }
     let generated = quote! {
         pub(crate) fn handler() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static { tauri::generate_handler![#(#paths),*] }
-        pub(crate) fn desktop_command(command: &str) -> bool { command.starts_with("plugin:") || matches!(command, #(#desktop_names)|*) }
-        pub(crate) async fn dispatch(command: &str, args: serde_json::Value, app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-            use tauri::Manager;
-            match command { #(#arms),*, _ => Err(format!("command is not available in the runtime service: {command}")) }
-        }
         #[cfg(test)]
         mod generated_contract_tests {
             #[test]

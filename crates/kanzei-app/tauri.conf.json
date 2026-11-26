@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "identifier": "dev.kanzei.app",
   "build": {
-    "frontendDist": "./ui"
+    "beforeBuildCommand": "npm run build --prefix ../..",
+    "frontendDist": "./dist-web"
   },
   "app": {
     "withGlobalTauri": true,

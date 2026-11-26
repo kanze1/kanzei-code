@@ -184,11 +184,22 @@ pub(crate) fn conversation_display_get(
     sequence: Option<i64>,
     process_id: Option<String>,
 ) -> Result<Vec<kanzei_llm::Message>, String> {
-    let original = conversation_get(project_dir.clone(), sequence, process_id.clone())?;
     let root = normalized_project_root(Path::new(&project_dir));
-    let store = kanzei_core::SessionStore::open_read_only(&kanzei_core::project_state_path(&root))
-        .map_err(|e| e.to_string())?;
+    let state_path = kanzei_core::project_state_path(&root);
+    if !state_path.exists() {
+        return Ok(Vec::new());
+    }
+    let store =
+        kanzei_core::SessionStore::open_read_only(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(&root, process_id.as_deref());
+    if store
+        .get_session(&session_id)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Ok(Vec::new());
+    }
+    let original = conversation_get_with_store(&store, &session_id, sequence)?;
     let end = sequence.unwrap_or(i64::MAX);
     let start = if sequence.is_some() {
         segment_boundaries(&store, &session_id)?
@@ -199,12 +210,9 @@ pub(crate) fn conversation_display_get(
     } else {
         current_segment_floor(&store, &session_id)?.unwrap_or(0)
     };
-    let facts: Vec<_> = store
-        .list_session_facts(&session_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .filter(|(event, _)| event.sequence > start && event.sequence <= end)
-        .collect();
+    let facts = store
+        .list_session_facts_in_range(&session_id, start, end)
+        .map_err(|e| e.to_string())?;
     let mut internal_inputs = std::collections::HashSet::new();
     for (_, envelope) in &facts {
         if let kanzei_core::SessionFact::UserMessageCommitted { input_id, .. }
@@ -274,6 +282,53 @@ pub(crate) fn conversation_display_get(
     )
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ConversationMessagePage {
+    pub(crate) items: Vec<kanzei_llm::Message>,
+    pub(crate) total: usize,
+    pub(crate) start_index: usize,
+    pub(crate) end_index: usize,
+    pub(crate) has_more: bool,
+}
+
+fn slice_message_page(
+    all: Vec<kanzei_llm::Message>,
+    before_index: Option<usize>,
+    limit: Option<usize>,
+) -> ConversationMessagePage {
+    let total = all.len();
+    let end_index = before_index.map(|idx| idx.min(total)).unwrap_or(total);
+    let page_size = limit.unwrap_or(100).clamp(1, 500);
+    let start_index = end_index.saturating_sub(page_size);
+    let items = all
+        .into_iter()
+        .skip(start_index)
+        .take(end_index.saturating_sub(start_index))
+        .collect();
+    ConversationMessagePage {
+        items,
+        total,
+        start_index,
+        end_index,
+        has_more: start_index > 0,
+    }
+}
+
+/// 分页读取对话可见消息：默认返回尾部最近 `limit` 条（默认 100），
+/// 传 `before_index` 向上翻页拉取更早消息，避免长对话首屏一次序列化与渲染全量历史。
+#[tauri::command]
+pub(crate) fn conversation_page_messages(
+    project_dir: String,
+    sequence: Option<i64>,
+    process_id: Option<String>,
+    before_index: Option<usize>,
+    limit: Option<usize>,
+) -> Result<ConversationMessagePage, String> {
+    let all = conversation_display_get(project_dir, sequence, process_id)?;
+    Ok(slice_message_page(all, before_index, limit))
+}
+
 #[tauri::command]
 pub(crate) fn conversation_get(
     project_dir: String,
@@ -291,6 +346,14 @@ pub(crate) fn conversation_get(
     {
         return Ok(Vec::new());
     }
+    conversation_get_with_store(&store, &session_id, sequence)
+}
+
+fn conversation_get_with_store(
+    store: &kanzei_core::SessionStore,
+    session_id: &str,
+    sequence: Option<i64>,
+) -> Result<Vec<kanzei_llm::Message>, String> {
     // R-242 批6/7:事件投影真源。sequence=None(最新历史)且 gate 开启时,从
     // 事件日志投影最新 segment surface。sequence=Some 既可能是 legacy
     // conversation.updated 快照序号,也可能是 conversation_list 投影模式返回的
@@ -299,19 +362,19 @@ pub(crate) fn conversation_get(
         && (crate::projection_gate::read_path_uses_projection("conversation_get")
             || store
                 .latest_completed_compaction_surface(
-                    &session_id,
-                    current_segment_floor(&store, &session_id)?.unwrap_or(0),
+                    session_id,
+                    current_segment_floor(store, session_id)?.unwrap_or(0),
                 )
                 .map_err(|e| e.to_string())?
                 .is_some())
     {
-        return project_latest_segment(&store, &session_id);
+        return project_latest_segment(store, session_id);
     }
     if sequence.is_none() {
         recover_latest_legacy_segment_raw(
-            &store,
-            &session_id,
-            current_segment_floor(&store, &session_id)?,
+            store,
+            session_id,
+            current_segment_floor(store, session_id)?,
         )
         .map_err(|e| e.to_string())
     } else {
@@ -319,28 +382,28 @@ pub(crate) fn conversation_get(
             unreachable!("sequence 已在分支条件中确认")
         };
         if store
-            .event_by_sequence_and_type(&session_id, sequence, "conversation.updated")
+            .event_by_sequence_and_type(session_id, sequence, "conversation.updated")
             .map_err(|e| e.to_string())?
             .is_none()
         {
             if let Some(event) = store
-                .event_by_sequence(&session_id, sequence)
+                .event_by_sequence(session_id, sequence)
                 .map_err(|e| e.to_string())?
             {
                 // 投影历史列表的 sequence 指向 typed fact 段末,不能再按
                 // conversation.updated 的精确序号读取,否则合法历史会被当成空数组。
                 if event.event_type == "conversation.rewind" {
-                    return project_segment_at_sequence(&store, &session_id, sequence);
+                    return project_segment_at_sequence(store, session_id, sequence);
                 }
                 if kanzei_core::decode_session_fact(&event)
                     .map_err(|e| e.to_string())?
                     .is_some()
                 {
-                    return project_segment_at_sequence(&store, &session_id, sequence);
+                    return project_segment_at_sequence(store, session_id, sequence);
                 }
             }
         }
-        recover_messages_raw(&store, &session_id, Some(sequence)).map_err(|e| e.to_string())
+        recover_messages_raw(store, session_id, Some(sequence)).map_err(|e| e.to_string())
     }
 }
 
@@ -1100,5 +1163,40 @@ mod tests {
         assert_eq!(report["projection"]["surface_messages"][0]["role"], "user");
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn slice_message_page_returns_tail_window_and_paginates_backwards() {
+        let messages: Vec<_> = (0..12)
+            .map(|i| kanzei_llm::Message::user_text(format!("msg-{i}")))
+            .collect();
+        let tail = slice_message_page(messages.clone(), None, Some(5));
+        assert_eq!(tail.total, 12);
+        assert_eq!(tail.start_index, 7);
+        assert_eq!(tail.end_index, 12);
+        assert!(tail.has_more);
+        assert_eq!(tail.items.len(), 5);
+        assert_eq!(tail.items[0], kanzei_llm::Message::user_text("msg-7"));
+        assert_eq!(tail.items[4], kanzei_llm::Message::user_text("msg-11"));
+
+        let middle = slice_message_page(messages.clone(), Some(tail.start_index), Some(5));
+        assert_eq!(middle.start_index, 2);
+        assert_eq!(middle.end_index, 7);
+        assert!(middle.has_more);
+        assert_eq!(middle.items.len(), 5);
+        assert_eq!(middle.items[0], kanzei_llm::Message::user_text("msg-2"));
+
+        let head = slice_message_page(messages, Some(middle.start_index), Some(5));
+        assert_eq!(head.start_index, 0);
+        assert_eq!(head.end_index, 2);
+        assert!(!head.has_more);
+        assert_eq!(head.items.len(), 2);
+        assert_eq!(head.items[0], kanzei_llm::Message::user_text("msg-0"));
+
+        let empty = slice_message_page(Vec::new(), None, Some(100));
+        assert_eq!(empty.total, 0);
+        assert_eq!(empty.start_index, 0);
+        assert!(!empty.has_more);
+        assert!(empty.items.is_empty());
     }
 }

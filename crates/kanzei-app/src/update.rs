@@ -274,7 +274,7 @@ pub(crate) async fn update_install_command(
         }
         receipt::write(&receipt_path, &result)?;
     }
-    match prepare_installer(&url, &receipt_path, &result).await {
+    match prepare_installer(&app, &url, &receipt_path, &result).await {
         Ok(message) => {
             app.exit(0);
             Ok(message)
@@ -288,6 +288,7 @@ pub(crate) async fn update_install_command(
 }
 
 async fn prepare_installer(
+    app: &tauri::AppHandle,
     url: &str,
     receipt_path: &Path,
     result: &UpdateReceipt,
@@ -323,7 +324,7 @@ async fn prepare_installer(
     let helper = directory.join("kanzei-update-helper.exe");
     std::fs::write(&installer, &bytes).map_err(|e| format!("写入安装包失败: {e}"))?;
     std::fs::copy(&result.installed_exe, &helper).map_err(|e| format!("准备安装助手失败: {e}"))?;
-    crate::runtime_service::shutdown_for_update().await?;
+    crate::app_lifecycle::shutdown_for_update(app).await?;
     // Spawn and durable ownership transfer share a lock with helper startup.
     // A reopened window cannot mistake the exited parent for an abandoned job.
     let _handoff =
@@ -336,7 +337,7 @@ async fn prepare_installer(
         .arg(receipt_path)
         .spawn()
         .map_err(|e| {
-            crate::runtime_service::cancel_update_shutdown();
+            crate::app_lifecycle::cancel_update_shutdown();
             format!("启动安装程序失败: {e}")
         })?;
     let mut handed_off = result.clone();
@@ -348,7 +349,7 @@ async fn prepare_installer(
     };
     if let Err(error) = persist_handoff() {
         let stopped = child.kill().and_then(|()| child.wait().map(|_| ()));
-        crate::runtime_service::cancel_update_shutdown();
+        crate::app_lifecycle::cancel_update_shutdown();
         return Err(format!(
             "更新交接记录保存失败: {error}; 助手停止结果: {stopped:?}"
         ));
@@ -407,42 +408,149 @@ pub(crate) fn startup_update() -> bool {
     }
 }
 
+#[cfg(windows)]
 pub(crate) fn cleanup_orphan_webviews() {
-    let script = format!(
-        r#"$mine = {}
-$others = @(Get-Process kzapp -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $mine }})
-if ($others.Count -gt 0) {{ exit 0 }}
-Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Where-Object {{ $_.CommandLine -match 'dev\.kanzei\.app' }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }}"#,
-        std::process::id()
-    );
-    let mut cmd = Command::new("powershell");
-    cmd.args(["-NoProfile", "-Command", &script]);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    // D-254:部分 Windows 机器的 CIM/WMI 服务会永久卡住。这里发生在 Tauri
-    // 建窗之前，等待无上限就会表现成“kzapp 进程存在但窗口永远不出现”。
-    // 清理只是启动前维护动作，5 秒仍未返回就终止查询并继续建窗。
-    cmd.stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let Ok(mut child) = cmd.spawn() else {
-        return;
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
     };
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return,
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
+    use windows_sys::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    let mine = std::process::id();
+    let mut webview_pids = Vec::new();
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if snapshot == INVALID_HANDLE_VALUE || snapshot.is_null() {
+            return;
+        }
+        let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+        if Process32FirstW(snapshot, &mut entry) != 0 {
+            loop {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if exe.eq_ignore_ascii_case("kzapp.exe") && entry.th32ProcessID != mine {
+                    let _ = CloseHandle(snapshot);
+                    return;
+                }
+                if exe.eq_ignore_ascii_case("msedgewebview2.exe") {
+                    webview_pids.push(entry.th32ProcessID);
+                }
+                if Process32NextW(snapshot, &mut entry) == 0 {
+                    break;
+                }
             }
         }
+        let _ = CloseHandle(snapshot);
+    }
+
+    for pid in webview_pids {
+        let Some(cmdline) = process_command_line(pid) else {
+            continue;
+        };
+        if !is_kanzei_webview_cmdline(&cmdline) {
+            continue;
+        }
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, 0, pid);
+            if !handle.is_null() {
+                let _ = TerminateProcess(handle, 1);
+                let _ = CloseHandle(handle);
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) fn cleanup_orphan_webviews() {}
+
+fn is_kanzei_webview_cmdline(cmdline: &str) -> bool {
+    cmdline.to_ascii_lowercase().contains("dev.kanzei.app")
+}
+
+#[cfg(windows)]
+fn process_command_line(pid: u32) -> Option<String> {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    #[repr(C)]
+    struct UnicodeString {
+        length: u16,
+        maximum_length: u16,
+        buffer: *const u16,
+    }
+
+    #[link(name = "ntdll")]
+    extern "system" {
+        fn NtQueryInformationProcess(
+            process_handle: *mut core::ffi::c_void,
+            process_information_class: u32,
+            process_information: *mut core::ffi::c_void,
+            process_information_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    const PROCESS_COMMAND_LINE_INFORMATION: u32 = 60;
+    const STATUS_BUFFER_OVERFLOW: i32 = 0x8000_0005u32 as i32;
+    const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004u32 as i32;
+    const STATUS_BUFFER_TOO_SMALL: i32 = 0xC000_0023u32 as i32;
+
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() {
+            return None;
+        }
+        let result = (|| {
+            let mut words = vec![0u64; 128]; // 1024 bytes, 8-byte aligned
+            let mut needed = 0u32;
+            let mut status = NtQueryInformationProcess(
+                handle,
+                PROCESS_COMMAND_LINE_INFORMATION,
+                words.as_mut_ptr().cast(),
+                (words.len() * std::mem::size_of::<u64>()) as u32,
+                &mut needed,
+            );
+            if matches!(
+                status,
+                STATUS_INFO_LENGTH_MISMATCH | STATUS_BUFFER_TOO_SMALL | STATUS_BUFFER_OVERFLOW
+            ) && needed > 0
+                && needed <= 256 * 1024
+            {
+                let count = (needed as usize).div_ceil(std::mem::size_of::<u64>()) + 4;
+                words.resize(count, 0);
+                status = NtQueryInformationProcess(
+                    handle,
+                    PROCESS_COMMAND_LINE_INFORMATION,
+                    words.as_mut_ptr().cast(),
+                    (words.len() * std::mem::size_of::<u64>()) as u32,
+                    &mut needed,
+                );
+            }
+            if status < 0 {
+                return None;
+            }
+            let base = words.as_ptr() as usize;
+            let end = base + words.len() * std::mem::size_of::<u64>();
+            let info = &*(words.as_ptr() as *const UnicodeString);
+            if info.length == 0 || info.buffer.is_null() {
+                return None;
+            }
+            let buf_start = info.buffer as usize;
+            let byte_len = usize::from(info.length);
+            if buf_start < base || buf_start.saturating_add(byte_len) > end {
+                return None;
+            }
+            let slice = std::slice::from_raw_parts(info.buffer, byte_len / 2);
+            Some(String::from_utf16_lossy(slice))
+        })();
+        let _ = CloseHandle(handle);
+        result
     }
 }
 pub(crate) fn wait_for_parent_exit(parent_pid: u32, timeout: std::time::Duration) -> bool {
@@ -655,5 +763,23 @@ mod install_verify_tests {
             "https://github.com/kanze1/kanzei-code/releases/download/build-1234567/../other.exe",
         ] { assert!(validate_release_target(url, "1234567").is_err()); }
         assert!(validate_release_target("", "dev").is_err());
+    }
+    #[test]
+    fn kanzei_webview_cmdline_matching_is_case_insensitive_and_scoped() {
+        assert!(is_kanzei_webview_cmdline(
+            r#""C:\Program Files\msedgewebview2.exe" --user-data-dir="C:\Users\u\AppData\Local\dev.kanzei.app\EBWebView""#
+        ));
+        assert!(is_kanzei_webview_cmdline(
+            r#"msedgewebview2.exe --user-data-dir=C:\DATA\DEV.KANZEI.APP\EBWebView"#
+        ));
+        assert!(!is_kanzei_webview_cmdline(
+            r#"msedgewebview2.exe --user-data-dir=C:\Users\u\AppData\Local\Microsoft\Widgets"#
+        ));
+    }
+    #[cfg(windows)]
+    #[test]
+    fn native_process_command_line_reads_current_process() {
+        let cmdline = process_command_line(std::process::id()).expect("current process cmdline");
+        assert!(!cmdline.trim().is_empty());
     }
 }

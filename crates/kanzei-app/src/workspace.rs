@@ -205,26 +205,50 @@ pub(crate) fn project_summary(
 }
 
 pub(crate) fn overview(state: &AppState, prefs: &AppPrefs) -> Value {
-    let projects = prefs
-        .projects
-        .iter()
-        .map(|path| match project_summary(state, prefs, path) {
+    let summaries: Vec<(String, Result<Value, String>)> = if prefs.projects.len() <= 1 {
+        prefs
+            .projects
+            .iter()
+            .map(|path| (path.clone(), project_summary(state, prefs, path)))
+            .collect()
+    } else {
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = prefs
+                .projects
+                .iter()
+                .map(|path| {
+                    scope.spawn(move || (path.clone(), project_summary(state, prefs, path)))
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle
+                        .join()
+                        .unwrap_or_else(|_| (String::new(), Err("项目摘要读取线程异常".into())))
+                })
+                .collect()
+        })
+    };
+    let projects = summaries
+        .into_iter()
+        .map(|(path, result)| match result {
             Ok(project) => {
                 let mut cache = LAST_GOOD.lock_or_recover();
-                remember_summary(&mut cache, path, &project);
+                remember_summary(&mut cache, &path, &project);
                 project
             }
             Err(error) => {
                 let cached = LAST_GOOD
                     .lock_or_recover()
-                    .get(path)
+                    .get(&path)
                     .map(|(value, _)| value.clone());
                 let stale = cached.is_some();
-                let mut project = cached.unwrap_or_else(|| identity(prefs, path));
+                let mut project = cached.unwrap_or_else(|| identity(prefs, &path));
                 project
                     .as_object_mut()
                     .unwrap()
-                    .extend(identity(prefs, path).as_object().unwrap().clone());
+                    .extend(identity(prefs, &path).as_object().unwrap().clone());
                 project["freshness"] = json!(if stale { "stale" } else { "unavailable" });
                 project["error"] = json!(error);
                 project
@@ -244,30 +268,48 @@ pub(crate) fn workspace_overview(state: tauri::State<'_, AppState>) -> Result<Va
 pub(crate) fn install_recovery(app: &tauri::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let mut first_pass = true;
         loop {
             let handle = app.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let state = handle.state::<AppState>();
+                let mut changed = false;
                 for path in load_prefs().projects {
                     let root = project_root(&path);
-                    let recovered = recover_project(&state, &root);
-                    if let Err(error) = recovered { tracing::warn!(project = %path, %error, "workspace lifecycle recovery will retry"); }
+                    match recover_project(&state, &root) {
+                        Ok(recovered) => changed |= recovered,
+                        Err(error) => tracing::warn!(project = %path, %error, "workspace lifecycle recovery will retry"),
+                    }
                 }
-            }).await;
-            if let Err(error) = result {
-                tracing::warn!(%error, "workspace recovery task failed");
+                changed
+            })
+            .await;
+            match result {
+                Ok(changed) => {
+                    if first_pass || changed {
+                        let _ = app.emit("kz:workspace-invalidated", json!({"source":"lifecycle"}));
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "workspace recovery task failed");
+                }
             }
-            let _ = app.emit("kz:workspace-invalidated", json!({"source":"lifecycle"}));
+            first_pass = false;
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         }
     });
 }
 
-fn recover_project(state: &AppState, root: &Path) -> Result<(), String> {
+fn recover_project(state: &AppState, root: &Path) -> Result<bool, String> {
     if !root.is_dir() || !kanzei_core::project_state_path(root).is_file() {
-        return Ok(());
+        return Ok(false);
     }
-    crate::processes::restore_processes_from_store_once(state, root)
+    let key = root.display().to_string();
+    if state.restored_projects.lock_or_recover().contains(&key) {
+        return Ok(false);
+    }
+    crate::processes::restore_processes_from_store_once(state, root)?;
+    Ok(true)
 }
 
 #[cfg(test)]

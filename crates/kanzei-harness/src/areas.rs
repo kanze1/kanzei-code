@@ -346,17 +346,25 @@ impl AreaRegistry {
                 continue;
             }
             let sub = dir.join(&name);
-            if count_files_with(&sub, FRONTEND_EXTS) < MIN_CODE_FILES {
+            let nested_src = sub.join("src");
+            let flat_count = count_files_with(&sub, FRONTEND_EXTS);
+            let nested_has_src = nested_src.is_dir() && sub.join("index.html").is_file();
+            if flat_count < MIN_CODE_FILES && !nested_has_src {
                 continue;
             }
             let sub_id = format!("{id}/{name}");
             self.push(&sub_id, AreaKind::Crate, Some(id));
-            for (file, file_is_dir) in list_dir(&sub) {
-                let script = !file_is_dir
-                    && ext_of(&file).is_some_and(|ext| matches!(ext, "js" | "mjs" | "ts"));
-                if script {
-                    let stem = script_stem(&file);
-                    self.push(&format!("{sub_id}/{stem}"), AreaKind::Module, Some(&sub_id));
+            if nested_has_src {
+                self.scan_modules(&sub_id, &nested_src, false, 0);
+            } else {
+                for (file, file_is_dir) in list_dir(&sub) {
+                    let script = !file_is_dir
+                        && ext_of(&file)
+                            .is_some_and(|ext| matches!(ext, "js" | "mjs" | "ts" | "tsx"));
+                    if script {
+                        let stem = script_stem(&file);
+                        self.push(&format!("{sub_id}/{stem}"), AreaKind::Module, Some(&sub_id));
+                    }
                 }
             }
         }
@@ -1047,10 +1055,10 @@ mod tests {
         let band = |id: &str| registry.get(id).map(|a| a.band);
         assert_eq!(band("kanzei-base"), Some(0));
         assert_eq!(band("kanzei-app"), Some(3));
-        assert_eq!(band("kanzei-app/ui"), Some(3));
+        assert_eq!(band("kanzei-app/web"), Some(3));
         assert_eq!(band("scripts"), Some(3));
         assert!(band("kanzei-tools").is_some_and(|b| b == 2));
         assert!(registry.get("kanzei-tools/git").is_some());
-        assert!(registry.get("kanzei-app/ui/memory").is_some());
+        assert!(registry.get("kanzei-app/web/views/memory").is_some());
     }
 }

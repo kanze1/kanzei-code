@@ -13,12 +13,14 @@ pub async fn fast_model_status() -> serde_json::Value {
     let Some((base_url, model)) = ollama_fast_target() else {
         return json!({ "managed": false });
     };
-    let installed = ollama_cli_installed();
-    let service_up = ollama_service_up(&base_url).await;
-    let model_present = if service_up {
-        ollama_model_present(&base_url, &model).await
+    // 单次 /api/tags 同时确认服务在线与目标模型存在;服务在线则无需反复拉起 `ollama --version` 子进程。
+    let (service_up, model_present) = ollama_probe_tags(&base_url, &model).await;
+    let installed = if service_up {
+        true
     } else {
-        false
+        tauri::async_runtime::spawn_blocking(ollama_cli_installed)
+            .await
+            .unwrap_or(false)
     };
     json!({
         "managed": true,
@@ -192,18 +194,21 @@ pub(crate) async fn ollama_service_up(base_url: &str) -> bool {
         .unwrap_or(false)
 }
 
-async fn ollama_model_present(base_url: &str, model: &str) -> bool {
+async fn ollama_probe_tags(base_url: &str, model: &str) -> (bool, bool) {
     let tags = format!("{}/api/tags", base_url.trim_end_matches("/v1"));
-    let Some(client) = loopback_client(3) else {
-        return false;
+    let Some(client) = loopback_client(2) else {
+        return (false, false);
     };
     let Ok(resp) = client.get(&tags).send().await else {
-        return false;
+        return (false, false);
     };
+    if !resp.status().is_success() {
+        return (false, false);
+    }
     let Ok(v) = resp.json::<serde_json::Value>().await else {
-        return false;
+        return (true, false);
     };
-    v["models"]
+    let present = v["models"]
         .as_array()
         .map(|models| {
             models.iter().any(|m| {
@@ -212,7 +217,12 @@ async fn ollama_model_present(base_url: &str, model: &str) -> bool {
                     .is_some_and(|n| n == model || n.trim_end_matches(":latest") == model)
             })
         })
-        .unwrap_or(false)
+        .unwrap_or(false);
+    (true, present)
+}
+
+async fn ollama_model_present(base_url: &str, model: &str) -> bool {
+    ollama_probe_tags(base_url, model).await.1
 }
 
 pub(crate) fn pull_progress_text(line: &serde_json::Value) -> Option<String> {

@@ -412,11 +412,6 @@ pub(crate) struct RunOptions {
 }
 
 pub(crate) enum Submission {
-    Automatic {
-        prompt: String,
-        generation: u64,
-        async_generation: u64,
-    },
     Notice {
         session_id: String,
         input_id: String,
@@ -434,10 +429,9 @@ pub(crate) enum Submission {
     },
 }
 
-/// D-764:哪些枪是引擎放的。`Submission::Automatic` 形态本身就是证据;UI 的自动续跑闸门
-/// 走 `Submission::Prompt`,靠 `auto_round` 声明。用户按键两者都不成立,文本原样进上下文。
-fn is_engine_round(submission: &Submission, auto_round: bool) -> bool {
-    matches!(submission, Submission::Automatic { .. }) || auto_round
+/// D-764:哪些枪是引擎放的。单进程架构下自动续跑均走 `Submission::Prompt` 并由 `auto_round` 显式声明。
+fn is_engine_round(auto_round: bool) -> bool {
+    auto_round
 }
 
 pub(crate) fn schedule_run(
@@ -448,7 +442,7 @@ pub(crate) fn schedule_run(
     submission: Submission,
     options: RunOptions,
 ) -> Result<&'static str, String> {
-    let _admission = crate::runtime_service::admit_work()?;
+    let _admission = crate::app_lifecycle::admit_work()?;
     let is_notice = matches!(&submission, Submission::Notice { .. });
     let RunOptions {
         command,
@@ -465,7 +459,7 @@ pub(crate) fn schedule_run(
     } = options;
     // D-764:投递点定归属。必须在 Automatic→Prompt 归一之前判定,否则两种来源已被压成
     // 同一种形态,再分不出来。
-    let engine_round = is_engine_round(&submission, auto_round);
+    let engine_round = is_engine_round(auto_round);
     // 规范化主根:会话 id 与进程归属的身份键(canonicalize 过,形态唯一)。
     let project_root = normalized_project_root(Path::new(&project_dir));
     // R-141:IPC 显式选中的主根只解析一次并传给 run_task;worktree cwd 另行选择。
@@ -533,35 +527,6 @@ pub(crate) fn schedule_run(
             return Ok("stopped");
         }
     }
-    let submission = match submission {
-        Submission::Automatic {
-            prompt,
-            generation,
-            async_generation,
-        } => {
-            let enabled = state
-                .auto_runs
-                .lock()
-                .unwrap()
-                .get(&session_id)
-                .is_some_and(|ctrl| {
-                    ctrl.enabled && !ctrl.state.paused && !ctrl.state.stop_after_round
-                });
-            if !enabled
-                || generation != runtime.generation()
-                || async_generation != runtime.async_generation.load(Ordering::SeqCst)
-                || runtime.is_running()
-            {
-                return Ok("superseded");
-            }
-            Submission::Prompt {
-                prompt,
-                delivery: kanzei_core::Delivery::Queue,
-                attachments: None,
-            }
-        }
-        other => other,
-    };
     // Every prompt is durable before execution acquisition, including the first
     // message. Retransmission resumes that same input instead of admitting twice.
     let submission = match submission {

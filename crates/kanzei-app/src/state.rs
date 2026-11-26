@@ -65,11 +65,6 @@ pub(crate) static UI_PROBE_EMIT: std::sync::OnceLock<Box<dyn Fn(serde_json::Valu
     std::sync::OnceLock::new();
 
 pub(crate) async fn ui_probe(kind: &str, arg: &str) -> Result<serde_json::Value, String> {
-    if crate::runtime_service::is_service() {
-        // The visible desktop owns both the probe request and its JS receipt.
-        // A service-side waiter cannot be completed by a desktop-local command.
-        return crate::desktop_bridge::probe(kind, arg).await;
-    }
     let Some(emit) = UI_PROBE_EMIT.get() else {
         return Err("UI 探针不可用:桌面窗口未就绪(CLI 环境下没有可自查的界面)".into());
     };
@@ -167,9 +162,6 @@ impl SessionRuntime {
         drop(supervisor);
         self.changed.notify_waiters();
         Ok(())
-    }
-    pub(crate) fn generation(&self) -> u64 {
-        self.snapshot().round_generation
     }
     pub(crate) fn stopping(&self) -> bool {
         self.supervisor.lock_or_recover().stopping()

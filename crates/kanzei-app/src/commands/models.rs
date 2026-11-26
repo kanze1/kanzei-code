@@ -5,11 +5,25 @@
 //! 是供独立启动路径复用的 route 包装。它们既不经 `run_task` 也不碰事件循环,
 //! 留在 run.rs 里只会让「运行主链路」文件继续膨胀(照 files_view.rs 模式)。
 
-use std::{collections::HashSet, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::{LazyLock, Mutex},
+    time::{Duration, Instant},
+};
 
 use serde_json::json;
 
 use kanzei_harness::config::{KanzeiConfig, ProviderConfig};
+
+const MODELS_CACHE_TTL: Duration = Duration::from_secs(30);
+static MODELS_CACHE: LazyLock<Mutex<HashMap<String, (Instant, serde_json::Value)>>> =
+    LazyLock::new(Mutex::default);
+
+fn config_fingerprint(config: &KanzeiConfig) -> String {
+    let snapshot = serde_json::to_value(config).unwrap_or(serde_json::Value::Null);
+    kanzei_core::stable_json_hash(&snapshot)
+}
 
 /// 探测 provider 的 /models 或 Ollama /api/tags 并收集模型清单(原 run.rs 1863)。
 pub(crate) async fn push_ollama_models(
@@ -48,9 +62,13 @@ pub(crate) async fn build_model_route(
     kanzei_core::build_route(resolved, proxy).await
 }
 
-/// 模型列表 Tauri command(原 run.rs 2295):返回顶栏模型下拉的候选项。
+/// 模型列表 Tauri command(原 run.rs 2295):返回模型下拉候选项。
+/// 按配置指纹缓存 30 秒，减少切项目与频繁开关面板导致的重复网络探测；传 `force: true` 强制刷新。
 #[tauri::command]
-pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_json::Value, String> {
+pub(crate) async fn models_list(
+    project_dir: Option<String>,
+    force: Option<bool>,
+) -> Result<serde_json::Value, String> {
     let config = if let Some(project_dir) = project_dir {
         KanzeiConfig::load_at_root(&crate::normalized_project_root(Path::new(&project_dir)))
     } else {
@@ -58,7 +76,22 @@ pub(crate) async fn models_list(project_dir: Option<String>) -> Result<serde_jso
         KanzeiConfig::load(&cwd)
     }
     .map_err(|e| e.to_string())?;
-    Ok(discover_models(&config).await)
+    let fingerprint = config_fingerprint(&config);
+    if !force.unwrap_or(false) {
+        if let Ok(cache) = MODELS_CACHE.lock() {
+            if let Some((at, value)) = cache.get(&fingerprint) {
+                if at.elapsed() < MODELS_CACHE_TTL {
+                    return Ok(value.clone());
+                }
+            }
+        }
+    }
+    let discovered = discover_models(&config).await;
+    if let Ok(mut cache) = MODELS_CACHE.lock() {
+        cache.retain(|_, (at, _)| at.elapsed() < MODELS_CACHE_TTL);
+        cache.insert(fingerprint, (Instant::now(), discovered.clone()));
+    }
+    Ok(discovered)
 }
 
 async fn discover_models(config: &KanzeiConfig) -> serde_json::Value {

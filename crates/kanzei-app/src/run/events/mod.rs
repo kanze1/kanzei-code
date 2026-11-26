@@ -41,13 +41,25 @@ pub(crate) fn committed_input_payload(
     )
 }
 
+const STREAM_COALESCE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+const STREAM_COALESCE_MAX_BYTES: usize = 4096;
+
+#[derive(Default)]
+struct StreamBuffer {
+    kind: Option<&'static str>,
+    text: String,
+    last_flush: Option<std::time::Instant>,
+}
+
 /// R-253 批8:UI 投影 sink——把 RunEvent 投影为前端可见的 kz:* 事件。
 /// 持有 emit 闭包(捕获 window + session_id);纯 UI 事件只落这一个 sink。
+/// 高频流式增量(kz:text / kz:reasoning)经 16ms 合帧合并，任何非 delta 事件前与 Drop 时强制刷新保序。
 pub(crate) struct UiEventSink {
     emit: EmitFn,
     session_id: String,
     run_id: String,
     state_path: std::path::PathBuf,
+    stream: Mutex<StreamBuffer>,
 }
 
 impl UiEventSink {
@@ -62,10 +74,65 @@ impl UiEventSink {
             session_id,
             run_id,
             state_path,
+            stream: Mutex::new(StreamBuffer::default()),
         }
     }
 
+    pub(crate) fn flush_stream(&self) -> tauri::Result<()> {
+        let pending = {
+            let mut buffer = self.stream.lock().unwrap();
+            let kind = buffer.kind.take();
+            if buffer.text.is_empty() {
+                None
+            } else {
+                buffer.last_flush = Some(std::time::Instant::now());
+                kind.map(|name| (name, std::mem::take(&mut buffer.text)))
+            }
+        };
+        if let Some((name, text)) = pending {
+            (self.emit)(name, json!({ "text": text }))?;
+        }
+        Ok(())
+    }
+
+    fn emit_delta(&self, name: &'static str, text: &str) -> tauri::Result<()> {
+        if text.is_empty() {
+            return Ok(());
+        }
+        let mut to_emit: Option<(&'static str, String)> = None;
+        let mut flush_now: Option<(&'static str, String)> = None;
+        {
+            let mut buffer = self.stream.lock().unwrap();
+            if let Some(prev) = buffer.kind {
+                if prev != name && !buffer.text.is_empty() {
+                    to_emit = Some((prev, std::mem::take(&mut buffer.text)));
+                    buffer.last_flush = Some(std::time::Instant::now());
+                }
+            }
+            buffer.kind = Some(name);
+            buffer.text.push_str(text);
+            let now = std::time::Instant::now();
+            let due = buffer
+                .last_flush
+                .is_none_or(|at| now.duration_since(at) >= STREAM_COALESCE_INTERVAL)
+                || buffer.text.len() >= STREAM_COALESCE_MAX_BYTES;
+            if due {
+                buffer.last_flush = Some(now);
+                buffer.kind = None;
+                flush_now = Some((name, std::mem::take(&mut buffer.text)));
+            }
+        }
+        if let Some((prev_name, prev_text)) = to_emit {
+            (self.emit)(prev_name, json!({ "text": prev_text }))?;
+        }
+        if let Some((cur_name, cur_text)) = flush_now {
+            (self.emit)(cur_name, json!({ "text": cur_text }))?;
+        }
+        Ok(())
+    }
+
     fn emit(&self, name: &str, payload: serde_json::Value) -> tauri::Result<()> {
+        let _ = self.flush_stream();
         let legacy_result = (self.emit)(name, payload.clone());
         let structured_result = match crate::experience_events::from_legacy(
             name,
@@ -91,6 +158,12 @@ impl UiEventSink {
             }
         };
         legacy_result.and(structured_result)
+    }
+}
+
+impl Drop for UiEventSink {
+    fn drop(&mut self) {
+        let _ = self.flush_stream();
     }
 }
 
@@ -732,9 +805,9 @@ pub(crate) fn build_event_handler(
             }
             RunEvent::Text(text) => {
                 typed.push_text(&text);
-                ui.emit("kz:text", json!({ "text": text }))
+                ui.emit_delta("kz:text", &text)
             }
-            RunEvent::Reasoning(text) => ui.emit("kz:reasoning", json!({ "text": text })),
+            RunEvent::Reasoning(text) => ui.emit_delta("kz:reasoning", &text),
             RunEvent::ResponseInterrupted => {
                 typed.stream_restarted();
                 ui.emit("kz:response-interrupted", json!({}))
@@ -1770,5 +1843,57 @@ mod tests {
             1,
             "c1 成功 close 计 1;c2 被拦不计;c3 是 update 不计"
         );
+    }
+
+    #[test]
+    fn ui_sink_coalesces_adjacent_deltas_and_preserves_order_before_control_events() {
+        let emitted = Arc::new(Mutex::new(Vec::<(String, serde_json::Value)>::new()));
+        let sink_events = emitted.clone();
+        {
+            let sink = UiEventSink::new(
+                move |name, payload| {
+                    sink_events.lock().unwrap().push((name.to_owned(), payload));
+                    Ok(())
+                },
+                "ses-coalesce".into(),
+                "run-coalesce".into(),
+                PathBuf::from("state.db"),
+            );
+            // 首帧立即发送，随后 16ms 内的相邻 text 合并缓冲
+            sink.emit_delta("kz:text", "你").unwrap();
+            sink.emit_delta("kz:text", "好").unwrap();
+            sink.emit_delta("kz:text", "世界").unwrap();
+            // 切换到 reasoning 时立即刷出前面缓冲的 text
+            sink.emit_delta("kz:reasoning", "思考A").unwrap();
+            sink.emit_delta("kz:reasoning", "思考B").unwrap();
+            // 非 delta 控制事件前必须先刷出缓冲的 reasoning，严格保序
+            sink.emit("kz:status", json!({"stage": "工具", "detail": "read"}))
+                .unwrap();
+            // 尾部未到期 delta 在 Drop 时自动刷出
+            sink.emit_delta("kz:text", "尾段1").unwrap();
+            sink.emit_delta("kz:text", "尾段2").unwrap();
+        }
+        let log = emitted.lock().unwrap();
+        let names: Vec<&str> = log.iter().map(|(n, _)| n.as_str()).collect();
+        let texts: String = log
+            .iter()
+            .filter(|(n, _)| n == "kz:text")
+            .filter_map(|(_, v)| v["text"].as_str())
+            .collect();
+        let reasonings: String = log
+            .iter()
+            .filter(|(n, _)| n == "kz:reasoning")
+            .filter_map(|(_, v)| v["text"].as_str())
+            .collect();
+        assert_eq!(texts, "你好世界尾段1尾段2");
+        assert_eq!(reasonings, "思考A思考B");
+        let status_idx = names.iter().position(|n| *n == "kz:status").unwrap();
+        let last_reasoning_idx = names.iter().rposition(|n| *n == "kz:reasoning").unwrap();
+        assert!(
+            last_reasoning_idx < status_idx,
+            "reasoning 必须在 kz:status 之前送达，实际顺序: {names:?}"
+        );
+        // 高频 delta 不再双发 kz:experience，只有 kz:status 对应一条 kz:experience
+        assert_eq!(names.iter().filter(|n| **n == "kz:experience").count(), 1);
     }
 }

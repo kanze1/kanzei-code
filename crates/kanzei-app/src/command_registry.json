@@ -12,11 +12,11 @@
     "host": "service"
   },
   {
-    "path": "runtime_service::runtime_status",
+    "path": "app_lifecycle::app_bootstrap",
     "host": "desktop"
   },
   {
-    "path": "runtime_service::runtime_shutdown",
+    "path": "app_lifecycle::app_shutdown",
     "host": "desktop"
   },
   {
@@ -37,18 +37,6 @@
   },
   {
     "path": "files_edit::file_write",
-    "host": "service"
-  },
-  {
-    "path": "files_draft::file_draft_save",
-    "host": "service"
-  },
-  {
-    "path": "files_draft::file_draft_clear",
-    "host": "service"
-  },
-  {
-    "path": "files_draft::file_drafts_load",
     "host": "service"
   },
   {
@@ -433,6 +421,10 @@
   },
   {
     "path": "conversation::conversation_display_get",
+    "host": "service"
+  },
+  {
+    "path": "conversation::conversation_page_messages",
     "host": "service"
   },
   {

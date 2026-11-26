@@ -1,5 +1,5 @@
 //! kzapp — kanzei Tauri 桌面端。
-//! 前端为静态页面(ui/),经 command + event 通信:
+//! 前端为 Vite + TypeScript + React 18 工程(web/，构建产物 dist-web/)，经 command + event 通信:
 //! run_prompt → kz:* 流式事件;kz:ask 权限弹窗 → answer_ask;stop_run 中止;
 //! projects_* 多项目管理(~/.kanzei/app.json);settings_* 全局配置表单。
 
@@ -9,6 +9,7 @@ use tauri::Emitter;
 
 mod agent_directory;
 mod app_events;
+mod app_lifecycle;
 mod async_mailbox;
 mod attachments;
 mod auto_run;
@@ -17,19 +18,14 @@ mod composer_drafts;
 mod context_view;
 mod conversation;
 mod conversation_actions;
-mod desktop_bridge;
 mod experience_events;
 mod fast_model;
-/// UX-089:文件页未保存草稿的落盘(file_draft_save / file_draft_clear / file_drafts_load)。
-mod files_draft;
-/// UI2-0926 #6:文件页编辑(路径解析、只读策略、BOM/换行、file_stat/file_write)。
+/// UI2-0926 #6:上下文抽屉轻编辑(路径解析、只读策略、BOM/换行、file_stat/file_write)。
 mod files_edit;
 mod files_view;
 mod general_chat;
 mod harness_ext;
 /// Rust↔JS 返回值形状契约；命令与参数从 command_registry.json 和 Rust 签名生成。
-/// 历史上部分命令手工拼 JSON,
-/// 而前端冒烟断言的是前端自己写的 fixture,后端改名两侧全绿、界面碎)。
 /// 纯判据模块,不参与产品构建。
 #[cfg(test)]
 mod ipc_contract;
@@ -45,8 +41,6 @@ mod processes;
 mod projection_gate;
 mod projects;
 mod run;
-mod runtime_continuation;
-mod runtime_service;
 mod session_supervisor;
 mod settings;
 mod skills;
@@ -96,27 +90,14 @@ mod process_tests;
 mod update_tests_update;
 
 fn main() {
-    let service = runtime_service::is_service();
-    let _service_lock = if service {
-        match runtime_service::service_lock() {
-            Ok(Some(lock)) => Some(lock),
-            _ => return,
-        }
-    } else {
-        None
-    };
-    if !service && update::startup_update() {
+    if update::startup_update() {
         return;
     }
     // 安装器只装得了 kzapp,CLI 得由这里搬到位——两者共用一个库,版本必须同步(D-175)。
-    if !service {
-        update::sync_bundled_cli();
-    }
+    update::sync_bundled_cli();
     // 窗口创建之前自清孤儿 webview(D-171):上一个实例被强杀留下的
     // msedgewebview2 会锁住数据目录,不清的话本次启动必黑屏。
-    if !service {
-        update::cleanup_orphan_webviews();
-    }
+    update::cleanup_orphan_webviews();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
@@ -132,22 +113,10 @@ fn main() {
             let _ = UI_PROBE_EMIT.set(Box::new(move |payload| {
                 let _ = handle.emit("kz:ui-probe", payload);
             }));
-            if service {
-                // The execution owner has no graphical surface. Native command
-                // dispatch, application events and managed state work without
-                // constructing a Window or starting WebView2.
-                runtime_service::install_service(app.handle())?;
-                workspace::install_recovery(app.handle());
-                tauri::async_runtime::spawn(async move {
-                    let _ = fast_model::fast_model_ensure_running().await;
-                });
-                return Ok(());
-            }
             // 窗口从 tauri.conf.json 自动创建改为这里手动创建(R-101 E2 harness):
             // 配置里 `"create": false`,由 from_config 按同一份配置建窗口,生产路径
             // 行为不变;仅当环境变量 KANZEI_E2E_CDP 非空时注入 --remote-debugging-port
             // 打开 WebView2 DevTools 协议,供 E2 脚本通过 CDP 驱动真实 UI。
-            runtime_service::install_client(app.handle());
             let window_config = app
                 .config()
                 .app
@@ -168,24 +137,25 @@ fn main() {
                     ));
                 }
             }
-            // UX-012:关掉 Tauri 默认的拖放处理。Windows 上它会在 WebView2 窗口上注册自己的 IDropTarget,
-            // 页面里的 HTML5 拖放(把文件拖进输入框当附件、需求/文档列表的拖拽排序)一律收不到事件;
-            // 前端没有用 tauri://drag-drop 的地方(网页预览子 webview 同样关着)。关掉之后浏览器默认行为是
-            // 「文件落在没人处理的地方 = 导航到该文件」,由前端 17-files.js 的全局 dragover/drop 兜底拦下。
+            // UX-012:关掉 Tauri 默认的拖放处理，确保前端 HTML5 拖放文件到输入框可用。
             builder = builder.disable_drag_drop_handler();
-            let _main_window = builder.build()?;
-            if runtime_service::embedded() {
-                workspace::install_recovery(app.handle());
-            }
+            let main_window = builder.build()?;
+            let shutdown_handle = app.handle().clone();
+            main_window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    app_lifecycle::cleanup_on_window_destroyed(&shutdown_handle);
+                }
+            });
+            workspace::install_recovery(app.handle());
 
             // R-190 启动即保活:fast 指向本地 Ollama 且 CLI 已装但服务未运行 → 自动拉起。
-            // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动(状态由常驻探测如实反映)。
+            // 未安装 / 外部 provider / 已运行 → 零动作;失败不阻塞启动。
             tauri::async_runtime::spawn(async move {
                 let _ = fast_model::fast_model_ensure_running().await;
             });
             Ok(())
         })
-        .invoke_handler(runtime_service::route(native_dispatch::handler()))
+        .invoke_handler(native_dispatch::handler())
         .run(tauri::generate_context!())
         .expect("error while running kanzei app");
 }

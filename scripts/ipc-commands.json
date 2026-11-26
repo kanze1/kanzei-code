@@ -1,6 +1,5 @@
 {
   "agent_directory_get": {
-    "host": "service",
     "parameters": {
       "profile": {
         "required": false,
@@ -15,7 +14,6 @@
     "returns": "-> Result < AgentDirectoryResponse , String >"
   },
   "agent_directory_open": {
-    "host": "desktop",
     "parameters": {
       "path": {
         "required": true,
@@ -30,7 +28,6 @@
     "returns": "-> Result < () , String >"
   },
   "answer_ask": {
-    "host": "service",
     "parameters": {
       "id": {
         "required": true,
@@ -44,14 +41,22 @@
     "path": "commands::run::answer_ask",
     "returns": "-> Result < () , String >"
   },
+  "app_bootstrap": {
+    "parameters": {},
+    "path": "app_lifecycle::app_bootstrap",
+    "returns": "-> Result < Value , String >"
+  },
   "app_info": {
-    "host": "desktop",
     "parameters": {},
     "path": "run::app_info",
     "returns": "-> serde_json :: Value"
   },
+  "app_shutdown": {
+    "parameters": {},
+    "path": "app_lifecycle::app_shutdown",
+    "returns": "-> Result < Value , String >"
+  },
   "auto_state_get": {
-    "host": "service",
     "parameters": {
       "sessionId": {
         "required": true,
@@ -62,7 +67,6 @@
     "returns": "-> serde_json :: Value"
   },
   "auto_state_reset": {
-    "host": "service",
     "parameters": {
       "sessionId": {
         "required": true,
@@ -73,7 +77,6 @@
     "returns": "-> serde_json :: Value"
   },
   "auto_state_update": {
-    "host": "service",
     "parameters": {
       "enabled": {
         "required": false,
@@ -100,7 +103,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "cancel_input": {
-    "host": "service",
     "parameters": {
       "inputId": {
         "required": true,
@@ -119,7 +121,6 @@
     "returns": "-> Result < bool , String >"
   },
   "composer_draft_save": {
-    "host": "service",
     "parameters": {
       "draft": {
         "required": false,
@@ -134,13 +135,11 @@
     "returns": "-> Result < () , String >"
   },
   "composer_drafts_load": {
-    "host": "service",
     "parameters": {},
     "path": "composer_drafts::composer_drafts_load",
     "returns": "-> Result < Vec < Value > , String >"
   },
   "context_content": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -163,7 +162,6 @@
     "returns": "-> Result < String , String >"
   },
   "context_snapshot": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -182,7 +180,6 @@
     "returns": "-> Result < Value , String >"
   },
   "conversation_action": {
-    "host": "service",
     "parameters": {
       "action": {
         "required": true,
@@ -217,7 +214,6 @@
     "returns": "-> Result < Value , String >"
   },
   "conversation_cleanup": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -228,7 +224,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "conversation_clear": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -243,7 +238,6 @@
     "returns": "-> Result < () , String >"
   },
   "conversation_compact": {
-    "host": "service",
     "parameters": {
       "focus": {
         "required": false,
@@ -262,7 +256,6 @@
     "returns": "-> Result < Value , String >"
   },
   "conversation_delete": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -281,7 +274,6 @@
     "returns": "-> Result < ConversationDeleteOutcome , String >"
   },
   "conversation_display_get": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -300,7 +292,6 @@
     "returns": "-> Result < Vec < kanzei_llm :: Message > , String >"
   },
   "conversation_get": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -319,7 +310,6 @@
     "returns": "-> Result < Vec < kanzei_llm :: Message > , String >"
   },
   "conversation_list": {
-    "host": "service",
     "parameters": {
       "beforeSequence": {
         "required": false,
@@ -342,7 +332,6 @@
     "returns": "-> Result < Vec < serde_json :: Value > , String >"
   },
   "conversation_page": {
-    "host": "service",
     "parameters": {
       "beforeSequence": {
         "required": false,
@@ -364,8 +353,33 @@
     "path": "conversation::conversation_page",
     "returns": "-> Result < ConversationPage , String >"
   },
+  "conversation_page_messages": {
+    "parameters": {
+      "beforeIndex": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "limit": {
+        "required": false,
+        "type": "Option < usize >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "sequence": {
+        "required": false,
+        "type": "Option < i64 >"
+      }
+    },
+    "path": "conversation::conversation_page_messages",
+    "returns": "-> Result < ConversationMessagePage , String >"
+  },
   "conversation_shadow_get": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -380,7 +394,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "conversation_trace_get": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -399,13 +412,11 @@
     "returns": "-> Result < Vec < serde_json :: Value > , String >"
   },
   "export_pick_dir": {
-    "host": "desktop",
     "parameters": {},
     "path": "projects::export_pick_dir",
     "returns": "-> Result < Option < String > , String >"
   },
   "export_project_data": {
-    "host": "service",
     "parameters": {
       "options": {
         "required": true,
@@ -416,76 +427,16 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "fast_model_setup": {
-    "host": "service",
     "parameters": {},
     "path": "fast_model::fast_model_setup",
     "returns": "-> Result < String , String >"
   },
   "fast_model_status": {
-    "host": "service",
     "parameters": {},
     "path": "fast_model::fast_model_status",
     "returns": "-> serde_json :: Value"
   },
-  "file_draft_clear": {
-    "host": "service",
-    "parameters": {
-      "path": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "files_draft::file_draft_clear",
-    "returns": "-> Result < () , String >"
-  },
-  "file_draft_save": {
-    "host": "service",
-    "parameters": {
-      "bom": {
-        "required": false,
-        "type": "Option < bool >"
-      },
-      "content": {
-        "required": true,
-        "type": "String"
-      },
-      "eol": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "hash": {
-        "required": false,
-        "type": "Option < String >"
-      },
-      "path": {
-        "required": true,
-        "type": "String"
-      },
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "files_draft::file_draft_save",
-    "returns": "-> Result < () , String >"
-  },
-  "file_drafts_load": {
-    "host": "service",
-    "parameters": {
-      "projectDir": {
-        "required": true,
-        "type": "String"
-      }
-    },
-    "path": "files_draft::file_drafts_load",
-    "returns": "-> Result < Vec < Value > , String >"
-  },
   "file_git_diff": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -504,7 +455,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "file_image": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -519,7 +469,6 @@
     "returns": "-> Result < Value , String >"
   },
   "file_preview": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -534,7 +483,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "file_stat": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -549,7 +497,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "file_write": {
-    "host": "service",
     "parameters": {
       "bom": {
         "required": false,
@@ -580,7 +527,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "files_snapshot": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -591,7 +537,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "general_chat_link": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": true,
@@ -606,19 +551,16 @@
     "returns": "-> Result < crate :: ProcessInfo , String >"
   },
   "general_chat_location": {
-    "host": "service",
     "parameters": {},
     "path": "general_chat::general_chat_location",
     "returns": "-> Result < Option < String > , String >"
   },
   "general_chat_open": {
-    "host": "service",
     "parameters": {},
     "path": "general_chat::general_chat_open",
     "returns": "-> Result < String , String >"
   },
   "git_status": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -633,7 +575,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "list_pending_inputs": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -648,7 +589,6 @@
     "returns": "-> Result < Vec < kanzei_core :: AdmittedInput > , String >"
   },
   "memory_archived_entries": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -663,7 +603,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_chat_history": {
-    "host": "desktop",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -674,7 +613,6 @@
     "returns": "-> Result < Value , String >"
   },
   "memory_chat_reset": {
-    "host": "desktop",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -685,7 +623,6 @@
     "returns": "-> Result < () , String >"
   },
   "memory_chat_send": {
-    "host": "desktop",
     "parameters": {
       "message": {
         "required": true,
@@ -712,7 +649,6 @@
     "returns": "-> Result < Value , String >"
   },
   "memory_chat_stop": {
-    "host": "desktop",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -727,7 +663,6 @@
     "returns": "-> Result < () , String >"
   },
   "memory_consolidate": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -742,7 +677,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_consolidate_note": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -765,7 +699,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_context_bill": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -776,7 +709,6 @@
     "returns": "-> serde_json :: Value"
   },
   "memory_control_plane": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -787,7 +719,6 @@
     "returns": "-> serde_json :: Value"
   },
   "memory_dream": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -806,7 +737,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_entries": {
-    "host": "service",
     "parameters": {
       "category": {
         "required": false,
@@ -825,7 +755,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_entry_delete": {
-    "host": "service",
     "parameters": {
       "id": {
         "required": true,
@@ -844,7 +773,6 @@
     "returns": "-> Result < () , String >"
   },
   "memory_entry_feedback": {
-    "host": "service",
     "parameters": {
       "expectedRevision": {
         "required": true,
@@ -871,7 +799,6 @@
     "returns": "-> Result < kanzei_core :: MemoryUsageCounts , String >"
   },
   "memory_entry_get": {
-    "host": "service",
     "parameters": {
       "id": {
         "required": true,
@@ -890,7 +817,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_entry_restore": {
-    "host": "service",
     "parameters": {
       "id": {
         "required": true,
@@ -913,7 +839,6 @@
     "returns": "-> Result < () , String >"
   },
   "memory_entry_save": {
-    "host": "service",
     "parameters": {
       "area": {
         "required": false,
@@ -952,7 +877,6 @@
     "returns": "-> Result < () , String >"
   },
   "memory_graph": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -963,7 +887,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_job_status": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -974,7 +897,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_job_stop": {
-    "host": "service",
     "parameters": {
       "jobId": {
         "required": true,
@@ -989,7 +911,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_note_candidates": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1000,7 +921,6 @@
     "returns": "-> serde_json :: Value"
   },
   "memory_note_discard": {
-    "host": "service",
     "parameters": {
       "fingerprint": {
         "required": true,
@@ -1019,7 +939,6 @@
     "returns": "-> Result < bool , String >"
   },
   "memory_overview": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1030,7 +949,6 @@
     "returns": "-> serde_json :: Value"
   },
   "memory_recalls": {
-    "host": "service",
     "parameters": {
       "limit": {
         "required": false,
@@ -1045,7 +963,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_search_page": {
-    "host": "service",
     "parameters": {
       "limit": {
         "required": false,
@@ -1064,7 +981,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "memory_value_flags": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1075,7 +991,6 @@
     "returns": "-> serde_json :: Value"
   },
   "model_effective": {
-    "host": "service",
     "parameters": {
       "agent": {
         "required": false,
@@ -1106,8 +1021,11 @@
     "returns": "-> Result < Value , String >"
   },
   "models_list": {
-    "host": "service",
     "parameters": {
+      "force": {
+        "required": false,
+        "type": "Option < bool >"
+      },
       "projectDir": {
         "required": false,
         "type": "Option < String >"
@@ -1117,13 +1035,11 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "open_tools_list": {
-    "host": "desktop",
     "parameters": {},
     "path": "commands::os_open::open_tools_list",
     "returns": "-> Result < Vec < Value > , String >"
   },
   "open_tools_save": {
-    "host": "desktop",
     "parameters": {
       "tools": {
         "required": true,
@@ -1134,7 +1050,6 @@
     "returns": "-> Result < () , String >"
   },
   "open_with": {
-    "host": "desktop",
     "parameters": {
       "path": {
         "required": false,
@@ -1157,7 +1072,6 @@
     "returns": "-> Result < () , String >"
   },
   "pending_asks_get": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -1172,7 +1086,6 @@
     "returns": "-> Result < Vec < serde_json :: Value > , String >"
   },
   "permission_rule_add": {
-    "host": "service",
     "parameters": {
       "action": {
         "required": true,
@@ -1191,7 +1104,6 @@
     "returns": "-> Result < () , String >"
   },
   "permission_rule_delete": {
-    "host": "service",
     "parameters": {
       "expectedRule": {
         "required": true,
@@ -1210,7 +1122,6 @@
     "returns": "-> Result < () , String >"
   },
   "permission_rules_get": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1221,7 +1132,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "process_close": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": true,
@@ -1232,7 +1142,6 @@
     "returns": "-> Result < String , String >"
   },
   "process_closed_list": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1243,7 +1152,6 @@
     "returns": "-> Result < Vec < serde_json :: Value > , String >"
   },
   "process_create": {
-    "host": "service",
     "parameters": {
       "model": {
         "required": false,
@@ -1286,7 +1194,6 @@
     "returns": "-> Result < ProcessInfo , String >"
   },
   "process_list": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1297,7 +1204,6 @@
     "returns": "-> Result < Vec < ProcessInfo > , String >"
   },
   "process_purge": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": true,
@@ -1312,7 +1218,6 @@
     "returns": "-> Result < String , String >"
   },
   "process_rename": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": true,
@@ -1331,7 +1236,6 @@
     "returns": "-> Result < () , String >"
   },
   "process_update": {
-    "host": "service",
     "parameters": {
       "manualModels": {
         "required": false,
@@ -1366,7 +1270,6 @@
     "returns": "-> Result < ProcessInfo , String >"
   },
   "project_config_open": {
-    "host": "desktop",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1377,7 +1280,6 @@
     "returns": "-> Result < () , String >"
   },
   "project_detach": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1388,7 +1290,6 @@
     "returns": "-> Result < () , String >"
   },
   "project_facts": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1399,7 +1300,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "project_files": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1414,7 +1314,6 @@
     "returns": "-> Result < Vec < String > , String >"
   },
   "project_git_init": {
-    "host": "service",
     "parameters": {
       "initialCommit": {
         "required": false,
@@ -1429,7 +1328,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "project_models_get": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1440,7 +1338,6 @@
     "returns": "-> Result < Value , String >"
   },
   "project_models_save": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1459,7 +1356,6 @@
     "returns": "-> Result < Value , String >"
   },
   "project_root_info": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1470,7 +1366,6 @@
     "returns": "-> serde_json :: Value"
   },
   "projects_add": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -1481,7 +1376,6 @@
     "returns": "-> Result < AppPrefs , String >"
   },
   "projects_create": {
-    "host": "service",
     "parameters": {
       "description": {
         "required": false,
@@ -1508,13 +1402,11 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "projects_get": {
-    "host": "service",
     "parameters": {},
     "path": "projects::projects_get",
     "returns": "-> AppPrefs"
   },
   "projects_init": {
-    "host": "service",
     "parameters": {
       "name": {
         "required": false,
@@ -1529,19 +1421,16 @@
     "returns": "-> Result < AppPrefs , String >"
   },
   "projects_isolation_report": {
-    "host": "service",
     "parameters": {},
     "path": "projects::projects_isolation_report",
     "returns": "-> serde_json :: Value"
   },
   "projects_pick": {
-    "host": "desktop",
     "parameters": {},
     "path": "projects::projects_pick",
     "returns": "-> Result < Option < AppPrefs > , String >"
   },
   "projects_remove": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -1552,7 +1441,6 @@
     "returns": "-> Result < AppPrefs , String >"
   },
   "projects_rename": {
-    "host": "service",
     "parameters": {
       "name": {
         "required": true,
@@ -1567,7 +1455,6 @@
     "returns": "-> Result < AppPrefs , String >"
   },
   "projects_reorder": {
-    "host": "service",
     "parameters": {
       "paths": {
         "required": true,
@@ -1578,7 +1465,6 @@
     "returns": "-> Result < () , String >"
   },
   "projects_select": {
-    "host": "service",
     "parameters": {
       "path": {
         "required": true,
@@ -1589,7 +1475,6 @@
     "returns": "-> Result < AppPrefs , String >"
   },
   "provider_test": {
-    "host": "service",
     "parameters": {
       "apiKey": {
         "required": false,
@@ -1620,7 +1505,6 @@
     "returns": "-> Result < String , String >"
   },
   "reveal_path": {
-    "host": "desktop",
     "parameters": {
       "path": {
         "required": false,
@@ -1639,7 +1523,6 @@
     "returns": "-> Result < () , String >"
   },
   "run_prompt": {
-    "host": "service",
     "parameters": {
       "agent": {
         "required": false,
@@ -1718,7 +1601,6 @@
     "returns": "-> Result < () , String >"
   },
   "run_tool_process_stop": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": true,
@@ -1732,20 +1614,7 @@
     "path": "commands::run::tool_process::run_tool_process_stop",
     "returns": "-> Result < bool , String >"
   },
-  "runtime_shutdown": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "runtime_service::runtime_shutdown",
-    "returns": "-> Result < Value , String >"
-  },
-  "runtime_status": {
-    "host": "desktop",
-    "parameters": {},
-    "path": "runtime_service::runtime_status",
-    "returns": "-> Result < Value , String >"
-  },
   "save_conversation_export": {
-    "host": "desktop",
     "parameters": {
       "content": {
         "required": true,
@@ -1760,7 +1629,6 @@
     "returns": "-> Result < Option < String > , String >"
   },
   "settings_get": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": false,
@@ -1771,13 +1639,11 @@
     "returns": "-> serde_json :: Value"
   },
   "settings_open": {
-    "host": "desktop",
     "parameters": {},
     "path": "settings::settings_open",
     "returns": "-> Result < () , String >"
   },
   "settings_save": {
-    "host": "service",
     "parameters": {
       "payload": {
         "required": true,
@@ -1788,7 +1654,6 @@
     "returns": "-> Result < () , String >"
   },
   "skills_delete": {
-    "host": "service",
     "parameters": {
       "expectedHash": {
         "required": true,
@@ -1803,7 +1668,6 @@
     "returns": "-> Result < Vec < Value > , String >"
   },
   "skills_duplicate": {
-    "host": "service",
     "parameters": {
       "name": {
         "required": true,
@@ -1818,7 +1682,6 @@
     "returns": "-> Result < Value , String >"
   },
   "skills_generate": {
-    "host": "service",
     "parameters": {
       "description": {
         "required": true,
@@ -1829,7 +1692,6 @@
     "returns": "-> Result < GeneratedSkill , String >"
   },
   "skills_import": {
-    "host": "service",
     "parameters": {
       "directory": {
         "required": true,
@@ -1840,13 +1702,11 @@
     "returns": "-> Result < Value , String >"
   },
   "skills_list": {
-    "host": "service",
     "parameters": {},
     "path": "skills::skills_list",
     "returns": "-> Result < Vec < Value > , String >"
   },
   "skills_read": {
-    "host": "service",
     "parameters": {
       "name": {
         "required": true,
@@ -1857,7 +1717,6 @@
     "returns": "-> Result < Value , String >"
   },
   "skills_save": {
-    "host": "service",
     "parameters": {
       "draft": {
         "required": true,
@@ -1872,7 +1731,6 @@
     "returns": "-> Result < Value , String >"
   },
   "skills_set_enabled": {
-    "host": "service",
     "parameters": {
       "enabled": {
         "required": true,
@@ -1887,7 +1745,6 @@
     "returns": "-> Result < Vec < Value > , String >"
   },
   "stop_run": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -1902,7 +1759,6 @@
     "returns": "-> Result < () , String >"
   },
   "stop_task": {
-    "host": "service",
     "parameters": {
       "processId": {
         "required": false,
@@ -1921,7 +1777,6 @@
     "returns": "-> Result < bool , String >"
   },
   "summarize_chat": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1936,7 +1791,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "terminal_monitor": {
-    "host": "service",
     "parameters": {
       "action": {
         "required": true,
@@ -1963,7 +1817,6 @@
     "returns": "-> Result < Value , String >"
   },
   "tool_image": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -1978,13 +1831,11 @@
     "returns": "-> Result < Value , String >"
   },
   "ui_prefs_get": {
-    "host": "service",
     "parameters": {},
     "path": "prefs::ui_prefs_get",
     "returns": "-> serde_json :: Value"
   },
   "ui_prefs_set": {
-    "host": "service",
     "parameters": {
       "backdrop": {
         "required": false,
@@ -2023,7 +1874,6 @@
     "returns": "-> Result < () , String >"
   },
   "ui_probe_result": {
-    "host": "desktop",
     "parameters": {
       "id": {
         "required": true,
@@ -2038,13 +1888,11 @@
     "returns": ""
   },
   "update_check": {
-    "host": "desktop",
     "parameters": {},
     "path": "update::update_check_command",
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "update_install": {
-    "host": "desktop",
     "parameters": {
       "expectedBuild": {
         "required": true,
@@ -2059,19 +1907,16 @@
     "returns": "-> Result < String , String >"
   },
   "update_receipt": {
-    "host": "desktop",
     "parameters": {},
     "path": "update::update_receipt_command",
     "returns": "-> Result < Option < UpdateReceipt > , String >"
   },
   "workspace_overview": {
-    "host": "service",
     "parameters": {},
     "path": "workspace::workspace_overview",
     "returns": "-> Result < Value , String >"
   },
   "workspace_snapshot": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": false,
@@ -2082,7 +1927,6 @@
     "returns": "-> Result < serde_json :: Value , String >"
   },
   "worktree_create": {
-    "host": "service",
     "parameters": {
       "name": {
         "required": true,
@@ -2097,7 +1941,6 @@
     "returns": "-> Result < WorktreeInfo , String >"
   },
   "worktree_diff": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2112,7 +1955,6 @@
     "returns": "-> Result < WorktreeInfo , String >"
   },
   "worktree_discard": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2127,7 +1969,6 @@
     "returns": "-> Result < String , String >"
   },
   "worktree_gate": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2142,7 +1983,6 @@
     "returns": "-> Result < Vec < GateStep > , String >"
   },
   "worktree_list": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2153,7 +1993,6 @@
     "returns": "-> Result < Vec < WorktreeInfo > , String >"
   },
   "worktree_merge": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2168,7 +2007,6 @@
     "returns": "-> Result < String , String >"
   },
   "worktree_merge_preview": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
@@ -2183,7 +2021,6 @@
     "returns": "-> Result < Vec < String > , String >"
   },
   "worktree_post_merge_gate": {
-    "host": "service",
     "parameters": {
       "projectDir": {
         "required": true,
