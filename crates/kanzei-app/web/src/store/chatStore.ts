@@ -1,5 +1,6 @@
 import { formatError, invoke } from "../ipc/client";
 import type {
+  ActionReportData,
   ChatMessage,
   ComposerDraftRecord,
   ConversationMessagePage,
@@ -8,9 +9,19 @@ import type {
   PromptAttachment,
 } from "../ipc/types";
 import { createStore, useStore } from "./createStore";
-import { noteTouchedFile } from "./drawerStore";
-import { getActiveProcess, refreshActiveSessionMeta, sessionStore } from "./sessionStore";
-import { appendLog, pushToast } from "./uiStore";
+import { noteTouchedFile, refreshGitStatus } from "./drawerStore";
+import {
+  getActiveProcess,
+  loadProcessesForProject,
+  refreshActiveSessionMeta,
+  sessionStore,
+} from "./sessionStore";
+import {
+  appendLog,
+  openRewindDialog,
+  pushToast,
+  type RewindPreviewData,
+} from "./uiStore";
 
 export interface ChatState {
   sessionId: string | null;
@@ -29,8 +40,11 @@ export interface ChatState {
   stageText: string;
   lastError: string | null;
   lastUsage: { input: number; output: number; step?: number; maxSteps?: number } | null;
+  lastActionReport: ActionReportData | null;
   autoAllow: boolean;
   deliveryMode: "steer" | "queue";
+  selectedAgent: string;
+  promptHistory: string[];
   searchOpen: boolean;
   searchQuery: string;
   drafts: Record<string, { text: string; attachments: PromptAttachment[] }>;
@@ -55,8 +69,11 @@ export const chatStore = createStore<ChatState>({
   stageText: "就绪",
   lastError: null,
   lastUsage: null,
+  lastActionReport: null,
   autoAllow: false,
   deliveryMode: "steer",
+  selectedAgent: "",
+  promptHistory: [],
   searchOpen: false,
   searchQuery: "",
   drafts: {},
@@ -331,7 +348,7 @@ export function onTaskProgressEvent(
 export async function sendPrompt(
   prompt: string,
   attachments: PromptAttachment[] = [],
-  options?: { autoRound?: boolean }
+  options?: { autoRound?: boolean; agent?: string | null }
 ): Promise<boolean> {
   const active = getActiveProcess();
   const projectDir = sessionStore.getState().projectDir;
@@ -345,7 +362,14 @@ export async function sendPrompt(
   const auto = sessionStore.getState().autoRun;
   const delivery = active.running ? chat.deliveryMode : "queue";
 
-  chatStore.setState({ lastError: null });
+  chatStore.setState((prev) => ({
+    ...prev,
+    lastError: null,
+    promptHistory:
+      trimmed && !options?.autoRound && prev.promptHistory[prev.promptHistory.length - 1] !== trimmed
+        ? [...prev.promptHistory.slice(-49), trimmed]
+        : prev.promptHistory,
+  }));
   if (!active.running) {
     const optimisticParts: ChatMessage["parts"] = [];
     if (trimmed) optimisticParts.push({ type: "text", text: trimmed });
@@ -372,11 +396,17 @@ export async function sendPrompt(
   }
 
   try {
+    if (!options?.autoRound && active.session_id) {
+      // 手动发送时重置自动推进连续计数（与后端 auto_state_reset 约定一致）
+      void invoke("auto_state_reset", { sessionId: active.session_id }).catch(() => {});
+    }
+    const chosenAgent = options?.agent !== undefined ? options.agent : chat.selectedAgent || null;
     await invoke("run_prompt", {
       projectDir,
       prompt: trimmed,
       processId: active.id,
       profile: active.profile,
+      agent: chosenAgent,
       model: active.model,
       autonomous: auto.enabled && !auto.paused,
       autoAllow: chat.autoAllow,
@@ -436,12 +466,16 @@ export async function clearCurrentConversation(): Promise<void> {
   }
 }
 
-export async function compactCurrentConversation(): Promise<void> {
+export async function compactCurrentConversation(focus?: string | null): Promise<void> {
   const active = getActiveProcess();
   const projectDir = sessionStore.getState().projectDir;
   if (!projectDir || !active) return;
   try {
-    await invoke("conversation_compact", { projectDir, processId: active.id });
+    await invoke("conversation_compact", {
+      projectDir,
+      processId: active.id,
+      focus: focus?.trim() ? focus.trim() : null,
+    });
     await loadConversationMessages(projectDir, active.id, active.session_id);
     pushToast("已完成上下文压缩", "ok");
   } catch (error) {
@@ -450,23 +484,120 @@ export async function compactCurrentConversation(): Promise<void> {
 }
 
 export async function performConversationAction(
-  action: "rewind" | "fork",
-  text: string
-): Promise<void> {
+  action: "rewind" | "fork" | "edit",
+  text: string,
+  occurrenceFromEnd = 0
+): Promise<boolean> {
   const active = getActiveProcess();
   const projectDir = sessionStore.getState().projectDir;
-  if (!projectDir || !active) return;
+  if (!projectDir || !active) return false;
   try {
+    // 后端 conversation_action 强制两阶段协议：先 preview 取得 sourceHash 与文件清单，再带 expectedHash 提交
+    const preview = await invoke<RewindPreviewData>("conversation_action", {
+      projectDir,
+      processId: active.id,
+      action: "preview",
+      text,
+      occurrenceFromEnd,
+    });
+    const expectedHash = preview?.sourceHash;
+    if (!expectedHash) {
+      pushToast("未获取到有效的历史快照校验和，无法执行操作", "error");
+      return false;
+    }
+
+    if (action === "fork") {
+      const forked = await invoke<{ processId?: string; prompt?: string }>("conversation_action", {
+        projectDir,
+        processId: active.id,
+        action: "fork",
+        text,
+        occurrenceFromEnd,
+        expectedHash,
+      });
+      const list = await loadProcessesForProject(projectDir, forked?.processId ?? null);
+      const nextProc =
+        (forked?.processId ? list.find((p) => p.id === forked.processId) : undefined) ??
+        getActiveProcess();
+      if (nextProc) {
+        await Promise.all([
+          loadConversationMessages(projectDir, nextProc.id, nextProc.session_id),
+          refreshActiveSessionMeta(),
+        ]);
+      }
+      if (forked?.prompt) {
+        updateDraft(projectDir, nextProc?.id ?? active.id, forked.prompt, []);
+      }
+      pushToast("已分叉出新对话并自动切换", "ok");
+      return true;
+    }
+
+    if (action === "edit") {
+      await invoke("conversation_action", {
+        projectDir,
+        processId: active.id,
+        action: "conversation",
+        text,
+        occurrenceFromEnd,
+        expectedHash,
+      });
+      await loadConversationMessages(projectDir, active.id, active.session_id);
+      updateDraft(projectDir, active.id, preview.prompt || text, []);
+      document.getElementById("kz-composer-input")?.focus();
+      pushToast("已回退该轮对话并将原指令填回输入框，可修改后重新发送", "ok");
+      return true;
+    }
+
+    const choice = await openRewindDialog({
+      text,
+      occurrenceFromEnd,
+      preview,
+    });
+    if (!choice) return false;
+
     await invoke("conversation_action", {
       projectDir,
       processId: active.id,
-      action,
+      action: choice.action,
       text,
-      occurrenceFromEnd: 1,
+      occurrenceFromEnd,
+      expectedHash,
+      force: choice.force ?? false,
     });
     await loadConversationMessages(projectDir, active.id, active.session_id);
-    pushToast(action === "rewind" ? "已回退到此节点" : "已分叉出新对话", "ok");
+    if (choice.action !== "conversation") {
+      void refreshGitStatus(projectDir, active.worktree_path);
+    }
+    if (choice.action !== "code" && preview.prompt) {
+      updateDraft(projectDir, active.id, preview.prompt, []);
+    }
+    const label =
+      choice.action === "both"
+        ? "已同时回退对话与代码改动"
+        : choice.action === "code"
+        ? "已还原该检查点之后的代码改动"
+        : "已回退对话上下文至此节点";
+    pushToast(label, "ok");
+    return true;
   } catch (error) {
     pushToast(`操作失败：${formatError(error)}`, "error");
+    return false;
   }
+}
+
+export async function appendQuoteToComposer(snippet: string): Promise<void> {
+  const active = getActiveProcess();
+  const projectDir = sessionStore.getState().projectDir;
+  const key = draftKeyFor(projectDir, active?.id ?? null);
+  const existing = chatStore.getState().drafts[key];
+  const prevText = existing?.text ?? "";
+  const nextText = prevText.trim() ? `${prevText.trimEnd()}\n\n${snippet}\n` : `${snippet}\n`;
+  updateDraft(projectDir, active?.id ?? null, nextText, existing?.attachments ?? []);
+  window.setTimeout(() => {
+    const input = document.getElementById("kz-composer-input") as HTMLTextAreaElement | null;
+    if (input) {
+      input.focus();
+      input.selectionStart = input.selectionEnd = input.value.length;
+    }
+  }, 30);
 }

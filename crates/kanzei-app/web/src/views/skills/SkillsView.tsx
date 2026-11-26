@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import { confirmDialog, promptDialog, pushToast } from "../../store/uiStore";
-import { IconPlus, IconSearch, IconSkills, IconSparkles } from "../../components/Icons";
+import { IconFolder, IconPlus, IconSearch, IconSkills, IconSparkles } from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
 
 interface SkillEntry {
@@ -196,6 +196,21 @@ export default function SkillsView(): React.ReactElement {
     }
   };
 
+  const handleImport = async () => {
+    setBusy(true);
+    try {
+      const directory = await invoke<string | null>("export_pick_dir");
+      if (!directory) return;
+      await invoke("skills_import", { directory });
+      pushToast("已从本地目录导入技能", "ok");
+      await loadSkills();
+    } catch (error) {
+      pushToast(`导入技能失败：${formatError(error)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="page-shell">
       <div className="page-header">
@@ -204,6 +219,10 @@ export default function SkillsView(): React.ReactElement {
           <div className="page-subtitle">管理内置与个人全局技能，决定模型按需加载的专用流程规范。</div>
         </div>
         <div className="page-header-actions">
+          <button type="button" className="btn" disabled={busy} onClick={() => void handleImport()}>
+            <IconFolder size={13} />
+            <span>导入目录…</span>
+          </button>
           <button type="button" className="btn" disabled={busy} onClick={() => void handleGenerate()}>
             <IconSparkles size={13} />
             <span>AI 生成草稿</span>

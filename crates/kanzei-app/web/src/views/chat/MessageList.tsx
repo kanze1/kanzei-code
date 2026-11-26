@@ -13,6 +13,7 @@ import {
   IconTerminal,
 } from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
+import { ActionReportCard } from "./ActionReportCard";
 import { MessageItem } from "./MessageItem";
 
 export function MessageList(): React.ReactElement {
@@ -28,6 +29,7 @@ export function MessageList(): React.ReactElement {
   const streamingReasoning = useChatStore((s) => s.streamingReasoning);
   const liveTools = useChatStore((s) => s.liveTools);
   const liveSubagents = useChatStore((s) => s.liveSubagents);
+  const lastActionReport = useChatStore((s) => s.lastActionReport);
   const lastError = useChatStore((s) => s.lastError);
   const searchOpen = useChatStore((s) => s.searchOpen);
   const searchQuery = useChatStore((s) => s.searchQuery);
@@ -53,7 +55,20 @@ export function MessageList(): React.ReactElement {
 
   const visibleEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const list: Array<{ index: number; globalIndex: number }> = [];
+    const list: Array<{
+      index: number;
+      globalIndex: number;
+      occurrenceFromEnd: number;
+      precedingUserText: string | null;
+    }> = [];
+    let lastUserText: string | null = null;
+    const rawItems: Array<{
+      index: number;
+      globalIndex: number;
+      role: string;
+      text: string;
+      precedingUserText: string | null;
+    }> = [];
     messages.forEach((msg, idx) => {
       if (msg.role === "tool") return;
       const textParts = (msg.parts ?? [])
@@ -64,11 +79,60 @@ export function MessageList(): React.ReactElement {
         textParts.trim().length > 0 ||
         (msg.parts ?? []).some((p) => p.type === "tool_use" || p.type === "image");
       if (!hasContent) return;
+      if (msg.role === "user") {
+        lastUserText = textParts.trim() || lastUserText;
+      }
       if (q && !textParts.toLowerCase().includes(q)) return;
-      list.push({ index: idx, globalIndex: startIndex + idx });
+      rawItems.push({
+        index: idx,
+        globalIndex: startIndex + idx,
+        role: msg.role,
+        text: textParts,
+        precedingUserText: msg.role === "assistant" ? lastUserText : null,
+      });
     });
+    // 从后往前统计同文本用户消息的倒序出现次序，对齐后端 rewind_plan(occurrence_from_end)
+    const seenFromEnd = new Map<string, number>();
+    for (let i = rawItems.length - 1; i >= 0; i -= 1) {
+      const item = rawItems[i];
+      let occ = 0;
+      if (item.role === "user") {
+        occ = seenFromEnd.get(item.text) ?? 0;
+        seenFromEnd.set(item.text, occ + 1);
+      }
+      list[i] = {
+        index: item.index,
+        globalIndex: item.globalIndex,
+        occurrenceFromEnd: occ,
+        precedingUserText: item.precedingUserText,
+      };
+    }
     return list;
   }, [messages, startIndex, searchQuery]);
+
+  // 提取实时步骤清单（支持结构化 todos/steps 工具参数或实时工具/子代理执行汇总）
+  const liveChecklist = useMemo(() => {
+    const todoTool = [...liveTools]
+      .reverse()
+      .find((t) => {
+        const inp = t.input as Record<string, unknown> | undefined;
+        return inp && (Array.isArray(inp.todos) || Array.isArray(inp.steps));
+      });
+    if (todoTool) {
+      const inp = todoTool.input as Record<string, unknown>;
+      const rawList = (Array.isArray(inp.todos) ? inp.todos : inp.steps) as Array<
+        Record<string, unknown>
+      >;
+      return rawList
+        .map((item, idx) => ({
+          id: String(item.id ?? idx),
+          title: String(item.title ?? item.content ?? item.text ?? `步骤 ${idx + 1}`),
+          status: String(item.status ?? "pending"),
+        }))
+        .filter((x) => x.title);
+    }
+    return null;
+  }, [liveTools]);
 
   const virtualizer = useVirtualizer({
     count: visibleEntries.length,
@@ -260,6 +324,8 @@ export function MessageList(): React.ReactElement {
                       message={msg}
                       globalIndex={entry.globalIndex}
                       toolResultMap={toolResultMap}
+                      occurrenceFromEnd={entry.occurrenceFromEnd}
+                      precedingUserText={entry.precedingUserText}
                     />
                   </div>
                 );
@@ -275,6 +341,46 @@ export function MessageList(): React.ReactElement {
                   <span>kanzei</span>
                   {running && <span className="status-dot running" />}
                 </div>
+
+                {(liveChecklist || liveTools.length > 0 || liveSubagents.length > 0) && (
+                  <div className="live-progress-card">
+                    <div className="live-progress-head">
+                      <span className="live-progress-title">
+                        {liveChecklist
+                          ? `执行步骤 (${liveChecklist.filter((s) => s.status === "done" || s.status === "completed").length}/${liveChecklist.length})`
+                          : `本轮进度 · 工具 ${liveTools.filter((t) => t.done).length}/${liveTools.length}${
+                              liveSubagents.length > 0 ? ` · 子代理 ${liveSubagents.length}` : ""
+                            }`}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={() => toggleDrawer("activity")}
+                      >
+                        活动面板
+                      </button>
+                    </div>
+                    {liveChecklist && (
+                      <div className="live-checklist">
+                        {liveChecklist.map((step) => {
+                          const isDone = step.status === "done" || step.status === "completed";
+                          const isActive = step.status === "in_progress";
+                          return (
+                            <div
+                              key={step.id}
+                              className={`live-check-item${isDone ? " done" : isActive ? " active" : ""}`}
+                            >
+                              <span className="live-check-mark" aria-hidden="true">
+                                {isDone ? "✓" : isActive ? "◉" : "○"}
+                              </span>
+                              <span>{step.title}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {streamingReasoning && (
                   <details className="reasoning-block" open>
@@ -347,6 +453,18 @@ export function MessageList(): React.ReactElement {
           )}
 
           {lastError && <div className="chat-error-banner">{lastError}</div>}
+
+          {!running && visibleEntries.length > 0 && (
+            <ActionReportCard
+              messages={messages}
+              toolResultMap={toolResultMap}
+              report={
+                lastActionReport && lastActionReport.sessionId === activeProcess?.session_id
+                  ? lastActionReport
+                  : null
+              }
+            />
+          )}
         </div>
 
         {!pinnedBottom && (

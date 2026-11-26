@@ -2,6 +2,7 @@ import { formatError, hasDesktopRuntime, invoke } from "../ipc/client";
 import type {
   AppBootstrapPayload,
   AppInfo,
+  ModelCatalogError,
   ModelCatalogItem,
   OpenToolInfo,
   ProjectsPrefs,
@@ -39,6 +40,7 @@ export interface AppState {
   projectFacts: ProjectFacts | null;
   workspaceOverview: WorkspaceOverview | null;
   modelsCatalog: ModelCatalogItem[];
+  modelsErrors: ModelCatalogError[];
   modelsLoading: boolean;
   openTools: OpenToolInfo[];
   fastModelReady: boolean | null;
@@ -56,6 +58,7 @@ export const appStore = createStore<AppState>({
   projectFacts: null,
   workspaceOverview: null,
   modelsCatalog: [],
+  modelsErrors: [],
   modelsLoading: false,
   openTools: [],
   fastModelReady: null,
@@ -105,14 +108,22 @@ export async function loadModelsCatalog(
   appStore.setState({ modelsLoading: true });
   const task = (async () => {
     try {
-      const res = await invoke<{ models?: ModelCatalogItem[] }>("models_list", {
-        projectDir: target,
-        force,
-      });
+      const res = await invoke<{ models?: ModelCatalogItem[]; errors?: ModelCatalogError[] }>(
+        "models_list",
+        {
+          projectDir: target,
+          force,
+        }
+      );
+      const errors = Array.isArray(res?.errors) ? res.errors : [];
       appStore.setState({
         modelsCatalog: Array.isArray(res?.models) ? res.models : [],
+        modelsErrors: errors,
         modelsLoading: false,
       });
+      for (const err of errors) {
+        appendLog(`探测 ${err.provider} 模型失败: ${err.message}`, "warn");
+      }
     } catch (error) {
       appStore.setState({ modelsLoading: false });
       appendLog(`探测模型清单失败: ${formatError(error)}`, "warn");
@@ -288,6 +299,18 @@ export async function removeProject(path: string): Promise<void> {
     pushToast("已从列表移除项目（未删除磁盘文件）", "ok");
   } catch (error) {
     pushToast(`移除项目失败：${formatError(error)}`, "error");
+  }
+}
+
+export async function reorderProjects(paths: string[]): Promise<void> {
+  const prev = appStore.getState().projects;
+  appStore.setState({ projects: { ...prev, projects: paths } });
+  try {
+    await invoke("projects_reorder", { paths });
+    void refreshWorkspaceOverview();
+  } catch (error) {
+    appStore.setState({ projects: prev });
+    pushToast(`调整项目顺序失败：${formatError(error)}`, "error");
   }
 }
 

@@ -95,9 +95,14 @@ export default function MemoryView(): React.ReactElement {
   const [contextBill, setContextBill] = useState<Record<string, unknown> | null>(null);
   const [recalls, setRecalls] = useState<unknown[]>([]);
   const [jobStatus, setJobStatus] = useState<Record<string, unknown> | null>(null);
-  const [chatTurns, setChatTurns] = useState<Array<{ role: string; text: string }>>([]);
+  const [chatTurns, setChatTurns] = useState<
+    Array<{ role: string; text: string; changes?: Array<{ tool?: string; ok?: boolean; summary?: string }> }>
+  >([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [chatRequestId, setChatRequestId] = useState<string | null>(null);
+  const [chatStreamText, setChatStreamText] = useState("");
+  const [chatStreamTool, setChatStreamTool] = useState<string | null>(null);
   const [graphData, setGraphData] = useState<GraphPayload | null>(null);
   const graphContainerRef = useRef<HTMLDivElement>(null);
 
@@ -336,28 +341,88 @@ export default function MemoryView(): React.ReactElement {
   const sendMemoryChat = async () => {
     const prompt = chatInput.trim();
     if (!prompt || chatBusy) return;
+    const requestId = `mem-chat-${Date.now()}`;
     setChatBusy(true);
+    setChatRequestId(requestId);
+    setChatStreamText("");
+    setChatStreamTool(null);
     setChatTurns((prev) => [...prev, { role: "user", text: prompt }]);
     setChatInput("");
     try {
-      const requestId = `mem-chat-${Date.now()}`;
       const TauriChannel = (
-        window.__TAURI__?.core as unknown as { Channel?: new () => { onmessage?: (ev: unknown) => void } }
+        window.__TAURI__?.core as unknown as {
+          Channel?: new () => { onmessage?: (ev: Record<string, unknown>) => void };
+        }
       )?.Channel;
       const onEvent = TauriChannel ? new TauriChannel() : null;
-      const res = await invoke<{ reply?: string; turns?: Array<{ role: string; text: string }> }>(
-        "memory_chat_send",
-        { projectDir, message: prompt, requestId, onEvent }
-      );
+      if (onEvent) {
+        onEvent.onmessage = (ev) => {
+          if (ev?.type === "text" && typeof ev.text === "string") {
+            setChatStreamText((prev) => prev + ev.text);
+          } else if (ev?.type === "tool") {
+            setChatStreamTool(`${String(ev.name ?? "tool")}：${String(ev.text ?? "")}`);
+          } else if (ev?.type === "tool_done") {
+            setChatStreamTool(null);
+          }
+        };
+      }
+      const res = await invoke<{
+        text?: string;
+        reply?: string;
+        changes?: Array<{ tool?: string; ok?: boolean; summary?: string }>;
+        turns?: Array<{ role: string; text: string }>;
+        stopped?: boolean;
+      }>("memory_chat_send", {
+        projectDir,
+        message: prompt,
+        requestId,
+        target: selected ? { scope: selected.scope, id: selected.id } : null,
+        onEvent,
+      });
       if (Array.isArray(res?.turns)) {
         setChatTurns(res.turns);
-      } else if (res?.reply) {
-        setChatTurns((prev) => [...prev, { role: "assistant", text: res.reply! }]);
+      } else {
+        const finalText = res?.text ?? res?.reply ?? "";
+        if (finalText) {
+          setChatTurns((prev) => [
+            ...prev,
+            { role: "assistant", text: finalText, changes: res?.changes },
+          ]);
+        }
+      }
+      if (res?.changes && res.changes.length > 0) {
+        void loadEntries();
       }
     } catch (error) {
       pushToast(`管理对话失败：${formatError(error)}`, "error");
     } finally {
       setChatBusy(false);
+      setChatRequestId(null);
+      setChatStreamText("");
+      setChatStreamTool(null);
+    }
+  };
+
+  const stopMemoryChat = async () => {
+    if (!projectDir || !chatRequestId) return;
+    try {
+      await invoke("memory_chat_stop", { projectDir, requestId: chatRequestId });
+      pushToast("已发送中止请求", "info");
+    } catch (error) {
+      pushToast(`停止失败：${formatError(error)}`, "error");
+    }
+  };
+
+  const stopMemoryJob = async () => {
+    const jobId = typeof jobStatus?.jobId === "string" ? jobStatus.jobId : typeof jobStatus?.id === "string" ? jobStatus.id : "";
+    if (!projectDir || !jobId) return;
+    try {
+      await invoke("memory_job_stop", { projectDir, jobId });
+      pushToast("已发送作业停止请求", "ok");
+      const nextStatus = await invoke<Record<string, unknown>>("memory_job_status", { projectDir }).catch(() => null);
+      setJobStatus(nextStatus);
+    } catch (error) {
+      pushToast(`停止作业失败：${formatError(error)}`, "error");
     }
   };
 
@@ -663,7 +728,20 @@ export default function MemoryView(): React.ReactElement {
                 后台做梦重构
               </button>
               {jobStatus && (
-                <span className="badge badge-info">作业状态：{String(jobStatus.status ?? "idle")}</span>
+                <>
+                  <span className="badge badge-info">
+                    作业状态：{String(jobStatus.status ?? "idle")}
+                  </span>
+                  {String(jobStatus.status ?? "") === "running" && (
+                    <button
+                      type="button"
+                      className="btn btn-danger btn-sm"
+                      onClick={() => void stopMemoryJob()}
+                    >
+                      停止作业
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -742,8 +820,29 @@ export default function MemoryView(): React.ReactElement {
                   <div key={idx} className={`memory-chat-bubble ${turn.role}`}>
                     <div className="field-label">{turn.role === "user" ? "你" : "记忆管理员"}</div>
                     <MarkdownView text={turn.text} />
+                    {turn.changes && turn.changes.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                        {turn.changes.map((c, ci) => (
+                          <span
+                            key={ci}
+                            className={`badge ${c.ok === false ? "badge-err" : "badge-ok"}`}
+                            title={c.summary ?? ""}
+                          >
+                            {c.tool ?? "修改"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ))
+              )}
+              {chatBusy && (chatStreamText || chatStreamTool) && (
+                <div className="memory-chat-bubble assistant">
+                  <div className="field-label">
+                    记忆管理员 {chatStreamTool ? `· ${chatStreamTool}` : "· 正在处理…"}
+                  </div>
+                  {chatStreamText && <MarkdownView text={chatStreamText} />}
+                </div>
               )}
             </div>
           </div>
@@ -754,13 +853,14 @@ export default function MemoryView(): React.ReactElement {
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void sendMemoryChat();
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) void sendMemoryChat();
               }}
             />
             <div style={{ display: "flex", gap: 6, flex: "none" }}>
               <button
                 type="button"
                 className="btn btn-ghost"
+                disabled={chatBusy}
                 onClick={() =>
                   void invoke("memory_chat_reset", { projectDir }).then(() => {
                     setChatTurns([]);
@@ -770,15 +870,25 @@ export default function MemoryView(): React.ReactElement {
               >
                 重置
               </button>
-              <button
-                type="button"
-                className="btn btn-accent"
-                disabled={chatBusy || !chatInput.trim()}
-                onClick={() => void sendMemoryChat()}
-              >
-                <IconSend size={13} />
-                <span>{chatBusy ? "执行中…" : "发送"}</span>
-              </button>
+              {chatBusy ? (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => void stopMemoryChat()}
+                >
+                  停止
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-accent"
+                  disabled={!chatInput.trim()}
+                  onClick={() => void sendMemoryChat()}
+                >
+                  <IconSend size={13} />
+                  <span>发送</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

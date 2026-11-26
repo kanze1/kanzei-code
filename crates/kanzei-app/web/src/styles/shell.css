@@ -861,6 +861,45 @@
   color: var(--fg-strong);
 }
 
+/* ---------- 状态栏上下文占比与已关闭历史 ---------- */
+.statusbar-ctx-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.statusbar-ctx-bar {
+  width: 44px;
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--border);
+  overflow: hidden;
+  display: inline-block;
+}
+
+.statusbar-ctx-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+}
+
+.statusbar-ctx-fill.warn {
+  background: var(--warn);
+}
+
+.session-row-closed-toggle {
+  opacity: 0.78;
+}
+
+.session-row-closed {
+  opacity: 0.72;
+  font-size: 11.5px;
+}
+
 /* ---------- 窄窗口响应式 ---------- */
 @media (max-width: 960px) {
   .window-project-name {
@@ -872,4 +911,107 @@
   .chrome-cmd-btn .kbd {
     display: none;
   }
+}
+
+/* 上下文构成彩色占比条 & 顶栏收件箱提醒态 */
+.chrome-pill.warn {
+  border-color: rgba(245, 158, 11, 0.5);
+  color: var(--warn);
+}
+
+.ctx-breakdown-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  margin-bottom: 12px;
+}
+
+.ctx-breakdown-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  gap: 1px;
+}
+
+.ctx-breakdown-seg {
+  display: block;
+  height: 100%;
+  min-width: 4px;
+}
+
+.ctx-breakdown-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+}
+
+.ctx-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ctx-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* 全局待办收件箱 Inbox */
+.inbox-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.inbox-empty {
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-card-done {
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.inbox-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inbox-card-body {
+  display: flex;
+  flex-direction: column;
 }

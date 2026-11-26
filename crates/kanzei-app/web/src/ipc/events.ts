@@ -12,7 +12,7 @@ import {
   onToolStartEvent,
   sendPrompt,
 } from "../store/chatStore";
-import { refreshGitStatus } from "../store/drawerStore";
+import { drawerStore, refreshGitStatus } from "../store/drawerStore";
 import {
   getActiveProcess,
   pushPendingAsk,
@@ -21,7 +21,14 @@ import {
   sessionStore,
   updateProcessRuntime,
 } from "../store/sessionStore";
-import { appendLog, pushToast, uiStore } from "../store/uiStore";
+import {
+  appendLog,
+  playNotificationChime,
+  pushToast,
+  recordBackgroundCompletion,
+  refreshGlobalInbox,
+  uiStore,
+} from "../store/uiStore";
 
 let installed = false;
 let unlisteners: Array<() => void> = [];
@@ -220,11 +227,20 @@ export async function installEventBridge(): Promise<() => void> {
         projectRoot: typeof payload.projectRoot === "string" ? payload.projectRoot : undefined,
       };
       pushPendingAsk(ask);
+      void refreshGlobalInbox();
+      if (uiStore.getState().soundEnabled) {
+        playNotificationChime("ask");
+      }
+      const activeSid = getActiveProcess()?.session_id;
+      if (ask.sessionId && activeSid && ask.sessionId !== activeSid) {
+        pushToast("另一条后台会话正在等待你的权限/提问确认（可在顶栏「收件箱」直接处理）", "warn", 5000);
+      }
     }),
 
     listenEvent<Record<string, unknown>>("kz:ask-resolved", (payload) => {
       const id = Number(payload.id ?? 0);
       if (id) removePendingAsk(id);
+      void refreshGlobalInbox();
     }),
 
     listenEvent<Record<string, unknown>>("kz:error", (payload) => {
@@ -249,8 +265,46 @@ export async function installEventBridge(): Promise<() => void> {
       updateProcessRuntime(sid, { running: false, stage: "空闲" });
       const active = getActiveProcess();
       const projectDir = sessionStore.getState().projectDir;
+      if (uiStore.getState().soundEnabled) {
+        playNotificationChime("done");
+      }
       if (active && projectDir && active.session_id === sid) {
-        chatStore.setState({ stageText: "已完成" });
+        const snap = chatStore.getState();
+        const doneTools = snap.liveTools;
+        const autoObj = payload.auto as
+          | {
+              type?: string;
+              action?: string;
+              prompt?: string;
+              reason?: string;
+              usedTokens?: number;
+              budgetTokens?: number;
+              handoff?: { summary?: string };
+            }
+          | undefined;
+        const usageObj = payload.usage as { input?: number; output?: number } | undefined;
+        chatStore.setState({
+          stageText: "已完成",
+          lastActionReport: {
+            sessionId: sid,
+            completedAt: Date.now(),
+            elapsedMs:
+              typeof payload.elapsedMs === "number"
+                ? payload.elapsedMs
+                : typeof payload.elapsed_ms === "number"
+                ? payload.elapsed_ms
+                : null,
+            inputTokens: usageObj?.input ?? snap.lastUsage?.input ?? 0,
+            outputTokens: usageObj?.output ?? snap.lastUsage?.output ?? 0,
+            toolsTotal: doneTools.length,
+            toolsFailed: doneTools.filter((t) => t.done && t.ok === false).length,
+            toolNames: Array.from(new Set(doneTools.map((t) => t.name))),
+            touchedFiles: [...drawerStore.getState().touchedFiles],
+            autoReason: autoObj?.reason ?? null,
+            handoffSummary:
+              typeof autoObj?.handoff?.summary === "string" ? autoObj.handoff.summary : null,
+          },
+        });
         void loadConversationMessages(projectDir, active.id, sid);
         void refreshActiveSessionMeta();
         if (!appStore.getState().generalMode) {
@@ -258,11 +312,22 @@ export async function installEventBridge(): Promise<() => void> {
         }
         // 单进程自动推进续跑：若后端判定需要继续，则在短暂延迟后投递下一轮
         const auto = payload.auto as
-          | { action?: string; prompt?: string; reason?: string }
+          | {
+              type?: string;
+              action?: string;
+              prompt?: string;
+              reason?: string;
+              usedTokens?: number;
+              budgetTokens?: number;
+            }
           | undefined;
         if (
           auto &&
-          (auto.action === "continue" || auto.action === "nudge") &&
+          (auto.action === "continue" ||
+            auto.action === "nudge" ||
+            auto.type === "Continue" ||
+            auto.type === "Nudge" ||
+            auto.type === "GoalPending") &&
           typeof auto.prompt === "string" &&
           auto.prompt.trim()
         ) {
@@ -273,10 +338,38 @@ export async function installEventBridge(): Promise<() => void> {
               void sendPrompt(nextPrompt, [], { autoRound: true });
             }
           }, 800);
+        } else if (auto?.reason === "TokenBudgetExceeded") {
+          const used = auto.usedTokens?.toLocaleString() ?? "-";
+          const budget = auto.budgetTokens?.toLocaleString() ?? "-";
+          const msg = `自主推进已触达 Token 预算上限（已用 ${used} / 上限 ${budget}），自动停止`;
+          appendLog(`[预算熔断] ${msg}`, "warn");
+          pushToast(msg, "warn", 6000);
         } else if (auto?.reason) {
           appendLog(`[自动推进结束] ${auto.reason}`);
         }
+      } else if (sid) {
+        const overview = appStore.getState().workspaceOverview;
+        let matchedProject = projectDir ?? "";
+        let matchedProcessId: string | undefined;
+        let matchedLabel = "后台会话";
+        for (const p of overview?.projects ?? []) {
+          const line = (p.lines ?? []).find((l) => l.session_id === sid);
+          if (line) {
+            matchedProject = p.path;
+            matchedProcessId = line.id;
+            matchedLabel = `${p.name} / ${line.label}`;
+            break;
+          }
+        }
+        recordBackgroundCompletion({
+          sessionId: sid,
+          projectDir: matchedProject,
+          processId: matchedProcessId,
+          label: matchedLabel,
+          at: Date.now(),
+        });
       }
+      void refreshGlobalInbox();
       void refreshWorkspaceOverview();
     }),
 

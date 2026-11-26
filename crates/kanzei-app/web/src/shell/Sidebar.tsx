@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
-import type { ProcessInfo } from "../ipc/types";
+import React, { useEffect, useMemo, useState } from "react";
+import { formatError, invoke } from "../ipc/client";
+import type { ChatMessage, ConversationMessagePage, ProcessInfo } from "../ipc/types";
 import {
   activateProcess,
   addExistingProject,
@@ -7,6 +8,7 @@ import {
   projectDisplayName,
   removeProject,
   renameProject,
+  reorderProjects,
   selectProject,
   useAppStore,
 } from "../store/appStore";
@@ -22,7 +24,9 @@ import {
 import {
   confirmDialog,
   navigateView,
+  openViewer,
   promptDialog,
+  pushToast,
   setSidebarWidth,
   toggleTheme,
   uiStore,
@@ -33,6 +37,7 @@ import {
   IconClose,
   IconFolder,
   IconGrid,
+  IconLayers,
   IconMemory,
   IconPlus,
   IconSearch,
@@ -51,6 +56,14 @@ interface ContextMenuState {
   process?: ProcessInfo;
 }
 
+interface ClosedProcessSummary {
+  id: string;
+  session_id: string;
+  ordinal?: number | null;
+  title?: string | null;
+  closed_at?: number | null;
+}
+
 export function Sidebar(): React.ReactElement {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
@@ -63,8 +76,95 @@ export function Sidebar(): React.ReactElement {
   const processes = useSessionStore((s) => s.processes);
   const activeProcessId = useSessionStore((s) => s.activeProcessId);
   const pinnedByProject = useSessionStore((s) => s.pinnedByProject);
+  const asks = useSessionStore((s) => s.asks);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const [closedOpen, setClosedOpen] = useState(false);
+  const [closedList, setClosedList] = useState<ClosedProcessSummary[]>([]);
+
+  useEffect(() => {
+    setClosedOpen(false);
+    setClosedList([]);
+  }, [activeProjectDir, generalMode]);
+
+  useEffect(() => {
+    if (!closedOpen || !activeProjectDir || generalMode) return;
+    invoke<ClosedProcessSummary[]>("process_closed_list", { projectDir: activeProjectDir })
+      .then((list) => setClosedList(Array.isArray(list) ? list : []))
+      .catch(() => setClosedList([]));
+  }, [closedOpen, activeProjectDir, generalMode, processes.length]);
+
+  const askCountBySession = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ask of asks) {
+      if (!ask.sessionId) continue;
+      map.set(ask.sessionId, (map.get(ask.sessionId) ?? 0) + 1);
+    }
+    return map;
+  }, [asks]);
+
+  const openClosedReadonly = async (item: ClosedProcessSummary) => {
+    if (!activeProjectDir) return;
+    try {
+      const page = await invoke<ConversationMessagePage>("conversation_page_messages", {
+        projectDir: activeProjectDir,
+        processId: item.id,
+        limit: 200,
+      });
+      const md = (page?.items ?? [])
+        .filter((m: ChatMessage) => m.role === "user" || m.role === "assistant")
+        .map((m: ChatMessage) => {
+          const text = (m.parts ?? [])
+            .filter((p) => p.type === "text" && typeof p.text === "string")
+            .map((p) => p.text ?? "")
+            .join("\n")
+            .trim();
+          if (!text) return "";
+          return `${m.role === "user" ? "### 用户" : "### 助手"}\n\n${text}`;
+        })
+        .filter(Boolean)
+        .join("\n\n---\n\n");
+      openViewer({
+        title: item.title || `已关闭对话 ${item.ordinal ?? item.id}`,
+        subtitle: "只读历史记录（已关闭会话）",
+        content: md || "该会话暂无可显示的文本消息。",
+        kind: "markdown",
+      });
+    } catch (error) {
+      pushToast(`读取已关闭对话失败：${formatError(error)}`, "error");
+    }
+  };
+
+  const handleCreateWorktreeChat = async (dir: string) => {
+    setMenu(null);
+    const name = await promptDialog({
+      title: "新建独立工作树并行对话",
+      label: "工作树 / 分支名称（仅字母、数字、连字符，将从当前 HEAD 创建隔离分支）",
+      placeholder: "例如：feat-ui-polish",
+      confirmLabel: "创建并进入",
+    });
+    if (!name) return;
+    if (activeProjectDir !== dir || generalMode) {
+      await selectProject(dir);
+    }
+    const created = await createConversation(dir, null, name);
+    if (created) {
+      navigateView("chat");
+      await activateProcess(created.id);
+      pushToast(`已创建工作树对话 ${created.branch ?? name}`, "ok");
+    }
+  };
+
+  const moveProject = (dir: string, delta: -1 | 1) => {
+    setMenu(null);
+    const list = [...projects.projects];
+    const idx = list.indexOf(dir);
+    const target = idx + delta;
+    if (idx < 0 || target < 0 || target >= list.length) return;
+    const [item] = list.splice(idx, 1);
+    list.splice(target, 0, item);
+    void reorderProjects(list);
+  };
 
   const openContextMenu = (
     e: React.MouseEvent,
@@ -285,6 +385,7 @@ export function Sidebar(): React.ReactElement {
                     {sortedActiveProcesses.map((proc) => {
                       const pinned = (pinnedByProject[dir] ?? []).includes(proc.id);
                       const selected = proc.id === activeProcessId && view === "chat";
+                      const pendingAskCount = askCountBySession.get(proc.session_id) ?? 0;
                       return (
                         <button
                           key={proc.id}
@@ -311,6 +412,11 @@ export function Sidebar(): React.ReactElement {
                           <span className="session-row-label" title={proc.label}>
                             {proc.label}
                           </span>
+                          {pendingAskCount > 0 && (
+                            <span className="badge badge-warn" title="等待权限或提问确认">
+                              待确认 {pendingAskCount}
+                            </span>
+                          )}
                           {proc.branch && (
                             <span className="session-row-meta" title={proc.branch}>
                               {proc.branch}
@@ -319,6 +425,36 @@ export function Sidebar(): React.ReactElement {
                         </button>
                       );
                     })}
+                    <button
+                      type="button"
+                      className="session-row session-row-closed-toggle"
+                      onClick={() => setClosedOpen((v) => !v)}
+                    >
+                      <span className="field-hint">
+                        {closedOpen ? "▾ 收起已关闭对话" : "▸ 查看已关闭对话"}
+                      </span>
+                    </button>
+                    {closedOpen &&
+                      (closedList.length === 0 ? (
+                        <div className="field-hint" style={{ padding: "4px 10px" }}>
+                          暂无已关闭的历史对话
+                        </div>
+                      ) : (
+                        closedList.map((closed) => (
+                          <button
+                            key={closed.id}
+                            type="button"
+                            className="session-row session-row-closed"
+                            onClick={() => void openClosedReadonly(closed)}
+                            title="点击只读查看该已关闭对话历史"
+                          >
+                            <span className="session-row-label">
+                              {closed.title || `已关闭对话 ${closed.ordinal ?? closed.id}`}
+                            </span>
+                            <span className="badge">只读</span>
+                          </button>
+                        ))
+                      ))}
                   </div>
                 )}
               </div>
@@ -376,6 +512,15 @@ export function Sidebar(): React.ReactElement {
           >
             <IconGrid size={14} />
             <span>工作台</span>
+          </button>
+          <button
+            type="button"
+            data-view="wiki"
+            className={`sidebar-nav-btn${view === "wiki" ? " active" : ""}`}
+            onClick={() => navigateView("wiki")}
+          >
+            <IconLayers size={14} />
+            <span>仓库百科</span>
           </button>
           <button
             type="button"
@@ -444,6 +589,13 @@ export function Sidebar(): React.ReactElement {
               <button
                 type="button"
                 className="context-menu-item"
+                onClick={() => void handleCreateWorktreeChat(menu.projectDir)}
+              >
+                新建工作树并行对话…
+              </button>
+              <button
+                type="button"
+                className="context-menu-item"
                 onClick={() => {
                   const dir = menu.projectDir;
                   setMenu(null);
@@ -459,6 +611,28 @@ export function Sidebar(): React.ReactElement {
               >
                 重命名显示名
               </button>
+              {projects.projects.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    disabled={projects.projects.indexOf(menu.projectDir) <= 0}
+                    onClick={() => moveProject(menu.projectDir, -1)}
+                  >
+                    上移项目
+                  </button>
+                  <button
+                    type="button"
+                    className="context-menu-item"
+                    disabled={
+                      projects.projects.indexOf(menu.projectDir) >= projects.projects.length - 1
+                    }
+                    onClick={() => moveProject(menu.projectDir, 1)}
+                  >
+                    下移项目
+                  </button>
+                </>
+              )}
               <div className="context-menu-sep" />
               <button
                 type="button"

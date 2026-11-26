@@ -1,4 +1,4 @@
-export type ViewId = "chat" | "workspace" | "memory" | "skills" | "settings";
+export type ViewId = "chat" | "workspace" | "wiki" | "memory" | "skills" | "settings";
 export type ThemeMode = "dark" | "light";
 
 export interface AppInfo {
@@ -186,14 +186,104 @@ export interface LiveSubagent {
 export interface PendingAskItem {
   id: number;
   sessionId: string;
+  projectDir?: string;
+  processId?: string;
   source?: string;
   agentId?: string | null;
   kind?: "permission" | "question";
   action: string;
   resource: string;
+  remember?: string;
   question?: string;
   options?: string[];
   projectRoot?: string;
+}
+
+export interface CompletedSessionNotice {
+  sessionId: string;
+  projectDir: string;
+  processId?: string;
+  label: string;
+  at: number;
+}
+
+export interface QuickShellResult {
+  command: string;
+  cwd: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  truncated: boolean;
+  timedOut: boolean;
+}
+
+export interface SideQuestionTurn {
+  role: "user" | "assistant";
+  text: string;
+  model?: string;
+}
+
+export interface HookRuleItem {
+  event: "pre_tool" | "post_tool" | "on_stop";
+  toolMatcher?: string | null;
+  command: string;
+  timeoutSecs?: number | null;
+  enabled: boolean;
+}
+
+export interface RepoWikiPageSummary {
+  areaId: string;
+  title: string;
+  kind: string;
+  parent: string | null;
+  band: number;
+  bandLabel: string;
+  depth: number;
+  status: "fresh" | "stale" | "missing";
+  fileCount: number;
+  sourceFingerprint: string;
+  generatedAt: number | null;
+  model: string | null;
+}
+
+export interface RepoWikiOverview {
+  projectDir: string;
+  wikiDir: string;
+  totalPages: number;
+  freshCount: number;
+  staleCount: number;
+  missingCount: number;
+  deps: Array<{ from: string; to: string }>;
+  pages: RepoWikiPageSummary[];
+}
+
+export interface RepoWikiDetail {
+  areaId: string;
+  title: string;
+  path: string;
+  status: "fresh" | "stale" | "missing";
+  content: string | null;
+  files: string[];
+  outboundDeps: string[];
+  inboundDeps: string[];
+  sourceFingerprint: string;
+  generatedAt: number | null;
+  model: string | null;
+}
+
+export interface ActionReportData {
+  sessionId: string;
+  completedAt: number;
+  elapsedMs: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  toolsTotal: number;
+  toolsFailed: number;
+  toolNames: string[];
+  touchedFiles: string[];
+  autoReason?: string | null;
+  handoffSummary?: string | null;
 }
 
 export interface PendingInputItem {
@@ -245,12 +335,83 @@ export interface ModelCatalogItem {
   label: string;
 }
 
+export interface ModelCatalogError {
+  provider: string;
+  message: string;
+}
+
+export interface EffectiveModelChoice {
+  ref?: string;
+  resolved?: string | null;
+  value?: string;
+  source?: string;
+  role?: string | null;
+  followsPrimary?: boolean;
+  error?: string | null;
+}
+
+export interface EffectiveReasoningChoice {
+  value: string;
+  source: string;
+}
+
+export interface EffectiveFastModeView {
+  enabled: boolean;
+  applies?: boolean;
+  active?: boolean;
+  source?: string;
+}
+
 export interface EffectiveModelView {
-  model?: { value: string; source: string; provider?: string; model?: string };
-  reasoning?: { value: string; source: string };
-  codexFastMode?: { value: boolean; source: string };
+  agent?: string | null;
+  agentError?: string | null;
+  model?: EffectiveModelChoice;
+  defaultModel?: EffectiveModelChoice;
+  reasoning?: EffectiveReasoningChoice;
+  defaultReasoning?: EffectiveReasoningChoice;
+  codexFastMode?: EffectiveFastModeView;
+  contextLimit?: number | null;
   effective?: string;
   [key: string]: unknown;
+}
+
+export interface ProjectModelFieldView<T = string | null> {
+  project: T;
+  global: T;
+  inherited: T;
+  inheritedSource: string;
+  inheritedFollowsPrimary: boolean;
+  effective: T;
+  source: string;
+  followsPrimary: boolean;
+}
+
+export interface ProjectModelsResponse {
+  projectDir: string;
+  configPath: string;
+  exists: boolean;
+  fields: {
+    primary?: ProjectModelFieldView<string | null>;
+    fast?: ProjectModelFieldView<string | null>;
+    compact?: ProjectModelFieldView<string | null>;
+    reasoning?: ProjectModelFieldView<string | null>;
+    codexFastMode?: ProjectModelFieldView<boolean | null>;
+  };
+}
+
+export interface ProjectModelOverrideSummary {
+  project: string;
+  name: string;
+  configPath?: string;
+  keys: string[];
+  current?: boolean;
+}
+
+export interface PermissionRuleRecord {
+  index: number;
+  action: string;
+  resource: string;
+  effect: string;
 }
 
 export interface AutoRunStatus {

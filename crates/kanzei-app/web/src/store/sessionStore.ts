@@ -132,6 +132,7 @@ export async function refreshActiveSessionMeta(): Promise<void> {
     invoke<EffectiveModelView>("model_effective", {
       projectDir,
       processId,
+      profile: active.profile ?? null,
     }).catch(() => null),
     invoke<AutoRunStatus>("auto_state_get", {
       sessionId,
@@ -175,12 +176,14 @@ export function removePendingAsk(askId: number): void {
 
 export async function createConversation(
   projectDir: string,
-  profile: string | null = null
+  profile: string | null = null,
+  worktreeName: string | null = null
 ): Promise<ProcessInfo | null> {
   try {
     const created = await invoke<ProcessInfo>("process_create", {
       projectDir,
       profile,
+      worktreeName: worktreeName?.trim() ? worktreeName.trim() : null,
     });
     await loadProcessesForProject(projectDir, created.id);
     return created;
@@ -237,17 +240,26 @@ export async function updateProcessSettings(
     model?: string | null;
     profile?: string | null;
     reasoning?: string | null;
+    manualModels?: string[] | null;
     subagentMode?: string | null;
   }
 ): Promise<void> {
   try {
-    const updated = await invoke<ProcessInfo>("process_update", {
-      processId,
-      model: patch.model,
-      profile: patch.profile,
-      reasoning: patch.reasoning,
-      subagentMode: patch.subagentMode,
-    });
+    const args: {
+      processId: string;
+      model?: string | null;
+      profile?: string | null;
+      reasoning?: string | null;
+      manualModels?: string[] | null;
+      subagentMode?: string | null;
+    } = { processId };
+    if (patch.model !== undefined) args.model = patch.model;
+    if (patch.profile !== undefined) args.profile = patch.profile;
+    if (patch.reasoning !== undefined) args.reasoning = patch.reasoning;
+    if (patch.manualModels !== undefined) args.manualModels = patch.manualModels;
+    if (patch.subagentMode !== undefined) args.subagentMode = patch.subagentMode;
+
+    const updated = await invoke<ProcessInfo>("process_update", args);
     sessionStore.setState((prev) => ({
       ...prev,
       processes: prev.processes.map((p) => (p.id === updated.id ? updated : p)),

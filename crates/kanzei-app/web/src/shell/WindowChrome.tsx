@@ -10,7 +10,7 @@ import {
   uiStore,
   useUiStore,
 } from "../store/uiStore";
-import { IconActivity, IconFileCode, IconSearch, IconSidebar } from "../components/Icons";
+import { IconActivity, IconFileCode, IconSearch, IconShield, IconSidebar } from "../components/Icons";
 
 const INTERACTIVE_SELECTOR =
   "button, a, input, select, textarea, summary, [role='button'], [data-no-drag]";
@@ -22,6 +22,9 @@ export function WindowChrome(): React.ReactElement {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const closing = useUiStore((s) => s.closingWindow);
   const windowError = useUiStore((s) => s.windowError);
+  const inboxOpen = useUiStore((s) => s.inboxOpen);
+  const inboxCount = useUiStore((s) => s.globalAsks.length + s.recentCompleted.length);
+  const inboxAskCount = useUiStore((s) => s.globalAsks.length);
   const drawerOpen = useDrawerStore((s) => s.open);
   const drawerMode = useDrawerStore((s) => s.mode);
   const gitChanges = useDrawerStore((s) => s.gitStatus?.changes ?? 0);
@@ -56,6 +59,8 @@ export function WindowChrome(): React.ReactElement {
   const titleLabel =
     view === "workspace"
       ? "工作台"
+      : view === "wiki"
+      ? "Repo Wiki 仓库百科"
       : view === "memory"
       ? "记忆管理"
       : view === "skills"
@@ -173,6 +178,17 @@ export function WindowChrome(): React.ReactElement {
         </div>
 
         <div className="window-header-actions">
+          <button
+            type="button"
+            className={`chrome-pill${inboxOpen ? " active" : ""}${inboxAskCount > 0 ? " warn" : ""}`}
+            title="全局待办收件箱（跨项目权限审批与后台完工提醒）"
+            onClick={() => uiStore.setState({ inboxOpen: !inboxOpen })}
+          >
+            <IconShield size={13} />
+            <span>收件箱</span>
+            {inboxCount > 0 && <span className="chrome-pill-count">{inboxCount}</span>}
+          </button>
+
           <button
             type="button"
             className="chrome-cmd-btn"

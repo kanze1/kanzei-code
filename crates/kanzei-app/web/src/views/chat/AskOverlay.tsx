@@ -17,19 +17,14 @@ export function AskOverlay(): React.ReactElement | null {
   const current: PendingAskItem | undefined = visibleAsks[0];
   if (!current) return null;
 
-  const replyPermission = async (allow: boolean, remember: boolean) => {
+  const replyPermission = async (decision: "once" | "always" | "deny") => {
     setBusy(true);
     try {
-      if (allow && remember && current.projectRoot) {
-        await invoke("permission_rule_add", {
-          projectDir: current.projectRoot,
-          action: current.action,
-          resource: current.resource,
-        });
-      }
+      // 后端 answer_ask 严格匹配 "once" | "always" | 其余(Deny)；
+      // "always" 由后端原子持久化权限规则并返回 AlwaysAllow。
       await invoke("answer_ask", {
         id: current.id,
-        reply: allow ? "allow" : "deny",
+        reply: decision,
       });
       removePendingAsk(current.id);
     } catch (error) {
@@ -57,6 +52,22 @@ export function AskOverlay(): React.ReactElement | null {
     }
   };
 
+  const cancelQuestion = async () => {
+    setBusy(true);
+    try {
+      await invoke("answer_ask", {
+        id: current.id,
+        reply: "cancel",
+      });
+      removePendingAsk(current.id);
+      setAnswerText("");
+    } catch (error) {
+      pushToast(`取消提问失败：${formatError(error)}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const isQuestion = current.kind === "question" || current.action === "question";
 
   return (
@@ -69,7 +80,9 @@ export function AskOverlay(): React.ReactElement | null {
             {current.source ? `（${current.source}）` : ""}
           </span>
         </span>
-        {visibleAsks.length > 1 && <span className="badge badge-accent">还有 {visibleAsks.length - 1} 条待确认</span>}
+        {visibleAsks.length > 1 && (
+          <span className="badge badge-accent">还有 {visibleAsks.length - 1} 条待确认</span>
+        )}
       </div>
 
       <div className="ask-overlay-resource">{current.question ?? current.resource}</div>
@@ -98,7 +111,9 @@ export function AskOverlay(): React.ReactElement | null {
               value={answerText}
               onChange={(e) => setAnswerText(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void replyQuestion(answerText);
+                if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                  void replyQuestion(answerText);
+                }
               }}
             />
             <button
@@ -109,6 +124,14 @@ export function AskOverlay(): React.ReactElement | null {
             >
               回复
             </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={busy}
+              onClick={() => void cancelQuestion()}
+            >
+              取消
+            </button>
           </div>
         </div>
       ) : (
@@ -117,7 +140,7 @@ export function AskOverlay(): React.ReactElement | null {
             type="button"
             className="btn btn-accent"
             disabled={busy}
-            onClick={() => void replyPermission(true, false)}
+            onClick={() => void replyPermission("once")}
           >
             允许一次
           </button>
@@ -125,7 +148,7 @@ export function AskOverlay(): React.ReactElement | null {
             type="button"
             className="btn btn-primary"
             disabled={busy}
-            onClick={() => void replyPermission(true, true)}
+            onClick={() => void replyPermission("always")}
           >
             允许并记住
           </button>
@@ -133,7 +156,7 @@ export function AskOverlay(): React.ReactElement | null {
             type="button"
             className="btn btn-danger"
             disabled={busy}
-            onClick={() => void replyPermission(false, false)}
+            onClick={() => void replyPermission("deny")}
           >
             拒绝
           </button>

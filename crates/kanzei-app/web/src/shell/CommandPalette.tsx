@@ -6,8 +6,12 @@ import { createConversation } from "../store/sessionStore";
 import {
   navigateBack,
   navigateView,
+  openBtwOverlay,
+  openProjectModelsDialog,
+  openTraceDialog,
   toggleSidebar,
   toggleTheme,
+  triggerContextInspector,
   uiStore,
   useUiStore,
 } from "../store/uiStore";
@@ -24,6 +28,7 @@ interface CommandAction {
 export function CommandPalette(): React.ReactElement | null {
   const open = useUiStore((s) => s.paletteOpen);
   const projectDir = useAppStore((s) => s.activeProjectDir);
+  const generalMode = useAppStore((s) => s.generalMode);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
 
@@ -58,17 +63,45 @@ export function CommandPalette(): React.ReactElement | null {
         label: "压缩当前对话上下文",
         run: () => void compactCurrentConversation(),
       },
-      {
-        id: "toggle-files-drawer",
-        group: "抽屉",
-        label: "开关右侧文件上下文抽屉",
-        run: () => toggleDrawer("files"),
-      },
+      ...(!generalMode && projectDir
+        ? [
+            {
+              id: "toggle-files-drawer",
+              group: "抽屉",
+              label: "开关右侧文件上下文抽屉",
+              run: () => toggleDrawer("files"),
+            },
+          ]
+        : []),
       {
         id: "toggle-activity-drawer",
         group: "抽屉",
         label: "开关右侧活动面板",
         run: () => toggleDrawer("activity"),
+      },
+      {
+        id: "open-inbox",
+        group: "全局",
+        label: "打开待办收件箱（跨项目权限审批与后台完工提醒）",
+        run: () => uiStore.setState({ inboxOpen: true }),
+      },
+      {
+        id: "open-btw",
+        group: "对话",
+        label: "/btw 打开旁路只读提问（不写入主对话历史）",
+        run: () => openBtwOverlay(""),
+      },
+      {
+        id: "open-context-breakdown",
+        group: "对话",
+        label: "/context 查看上下文构成占比拆解",
+        run: () => triggerContextInspector(),
+      },
+      {
+        id: "open-trace",
+        group: "对话",
+        label: "/trace 查看会话执行轨迹与工具耗时",
+        run: () => openTraceDialog(),
       },
       {
         id: "add-project",
@@ -82,21 +115,26 @@ export function CommandPalette(): React.ReactElement | null {
         label: "新建项目…",
         run: () => uiStore.setState({ newProjectOpen: true }),
       },
-      {
-        id: "project-models",
-        group: "项目",
-        label: "配置本项目模型覆盖…",
-        run: () => uiStore.setState({ projectModelsOpen: true }),
-      },
+      ...(!generalMode && projectDir
+        ? [
+            {
+              id: "project-models",
+              group: "项目",
+              label: "配置本项目模型覆盖…",
+              run: () => openProjectModelsDialog(projectDir),
+            },
+          ]
+        : []),
       { id: "go-chat", group: "导航", label: "转到：对话工作面", run: () => navigateView("chat") },
-      { id: "go-workspace", group: "导航", label: "转到：工作台项目总览", run: () => navigateView("workspace") },
+      { id: "go-workspace", group: "导航", label: "转到：工作台与 My Quests 任务看板", run: () => navigateView("workspace") },
+      { id: "go-wiki", group: "导航", label: "转到：Repo Wiki 仓库架构百科", run: () => navigateView("wiki") },
       { id: "go-memory", group: "导航", label: "转到：记忆与知识图谱", run: () => navigateView("memory") },
       { id: "go-skills", group: "导航", label: "转到：Skills 技能库", run: () => navigateView("skills") },
       { id: "go-settings", group: "导航", label: "转到：全局设置", run: () => navigateView("settings") },
       { id: "toggle-theme", group: "外观", label: "切换明暗主题", run: toggleTheme },
       { id: "toggle-sidebar", group: "外观", label: "收起 / 展开侧栏", run: toggleSidebar },
     ],
-    [projectDir]
+    [projectDir, generalMode]
   );
 
   const filtered = useMemo(() => {
