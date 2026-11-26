@@ -328,10 +328,9 @@ mod tests {
                         project_root: root,
                         config: std::sync::Arc::new(config),
                     };
-                    let snapshot =
-                        crate::run::assembly::build_run_harness(ctx.profile)
-                            .resolve(&ctx)
-                            .unwrap();
+                    let snapshot = crate::run::assembly::build_run_harness(ctx.profile)
+                        .resolve(&ctx)
+                        .unwrap();
                     let preferences = snapshot
                         .refreshable_system_baseline_with_report()
                         .unwrap()
@@ -369,8 +368,6 @@ mod tests {
                         "bash",
                         "process",
                         "browser",
-                        "latex",
-                        "plot",
                         "memory_search",
                         "tool_search",
                     ] {

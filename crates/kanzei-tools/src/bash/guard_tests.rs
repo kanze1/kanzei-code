@@ -11,7 +11,7 @@ use tokio::net::TcpListener;
 struct BashFixture;
 impl Component for BashFixture {
     fn contribute(&self, draft: &mut HarnessDraft, _ctx: &ResolveCtx) -> anyhow::Result<()> {
-        draft.tools.insert("bash", Arc::new(BashTool::default()));
+        draft.tools.insert("bash", Arc::new(BashTool));
         draft.permissions.push(kanzei_harness::permission::Rule {
             action: "bash".into(),
             resource: "*".into(),
@@ -225,7 +225,7 @@ async fn long_command_guard_covers_input_aliases_without_starting_the_body() {
         "missing-command-directory".into(),
     );
     for field in ["command", "cmd", "script"] {
-        let output = BashTool::default()
+        let output = BashTool
             .execute(json!({field:"a".repeat(MAX_COMMAND_CHARS + 1)}), &ctx)
             .await;
         assert_eq!(output.outcome, kanzei_harness::ToolOutcome::NeedsCorrection);
@@ -251,7 +251,7 @@ fn long_command_guard_counts_utf16_units_at_the_exact_boundary() {
 #[test]
 fn bash_permission_aliases_preserve_command_workdir_and_denial() {
     use kanzei_harness::{Effect, Rule, Ruleset};
-    let tool = BashTool::default();
+    let tool = BashTool;
     let ctx = ToolCtx::new("code-tree".into(), "project-root".into()).with_identity(
         "tree".into(),
         "project".into(),
@@ -305,7 +305,7 @@ fn bash_permission_aliases_preserve_command_workdir_and_denial() {
 
 #[tokio::test]
 async fn bash_permission_invalid_input_stays_unknown_and_cannot_execute() {
-    let tool = BashTool::default();
+    let tool = BashTool;
     let ctx = ToolCtx::new("missing-directory".into(), "missing-directory".into());
     for input in [
         json!({}),

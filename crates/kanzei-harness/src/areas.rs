@@ -1050,7 +1050,7 @@ mod tests {
         assert_eq!(band("kanzei-app/ui"), Some(3));
         assert_eq!(band("scripts"), Some(3));
         assert!(band("kanzei-tools").is_some_and(|b| b == 2));
-        assert!(registry.get("kanzei-tools/tracker").is_some());
+        assert!(registry.get("kanzei-tools/git").is_some());
         assert!(registry.get("kanzei-app/ui/memory").is_some());
     }
 }

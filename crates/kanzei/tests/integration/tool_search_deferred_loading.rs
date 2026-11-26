@@ -256,18 +256,18 @@ async fn direct_deferred_call_auto_loads_and_executes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn paired_management_tools_load_on_demand_and_queue_reads_still_execute() {
-    let management = ["req", "defect", "work", "test_record", "memory_note"];
+async fn paired_deferred_tools_load_on_demand_and_execute() {
+    let deferred = ["memory_note", "memory_stats", "browser"];
     let (project, output, requests) = run_cli(
-        "management-discovery",
+        "deferred-discovery",
         Vec::new(),
         vec![
             tool_call_response(
                 "tool_search",
-                json!({"query":format!("select:{}", management.join(","))}),
+                json!({"query":format!("select:{}", deferred.join(","))}),
             ),
-            tool_call_response("work", json!({"action":"next"})),
-            success_response("inspected queue"),
+            tool_call_response("memory_stats", json!({})),
+            success_response("inspected memory stats"),
         ],
     )
     .await;
@@ -277,7 +277,7 @@ async fn paired_management_tools_load_on_demand_and_queue_reads_still_execute() 
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(requests.len(), 3);
-    for name in management {
+    for name in deferred {
         assert!(!tool_names(&requests[0]).contains(&name), "eager {name}");
         for request in &requests[1..] {
             assert_eq!(
@@ -293,11 +293,11 @@ async fn paired_management_tools_load_on_demand_and_queue_reads_still_execute() 
         .as_array()
         .unwrap()
         .iter()
-        .find(|message| message["role"] == "tool" && message["tool_call_id"] == "call_work")
-        .expect("queue read must return a tool result")["content"]
+        .find(|message| message["role"] == "tool" && message["tool_call_id"] == "call_memory_stats")
+        .expect("memory_stats read must return a tool result")["content"]
         .as_str()
         .unwrap();
-    assert!(result.contains("decision"), "{result}");
+    assert!(!result.is_empty(), "{result}");
     assert!(!result.contains("[tool_outcome=failed"), "{result}");
     std::fs::remove_dir_all(project.parent().unwrap()).unwrap();
 }

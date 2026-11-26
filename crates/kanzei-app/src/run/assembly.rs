@@ -238,8 +238,8 @@ pub(crate) async fn assemble_run(
     );
     let route = kanzei_core::build_route(&resolved, &proxy).await?;
     let client = new_llm_client(&proxy)?;
-    let mut ctx = ToolCtx::new(cwd.clone(), project_root.clone())
-        .with_session_id(request.session_id.clone());
+    let mut ctx =
+        ToolCtx::new(cwd.clone(), project_root.clone()).with_session_id(request.session_id.clone());
     ctx.project_workflow = project_workflow;
     // R-256:RunnerConfig 构造与 CLI 共用 kanzei_runtime::build_runner_config(对照表 #12)。
     let mut runner_config = kanzei_runtime::build_runner_config(
@@ -1560,9 +1560,7 @@ mod tests {
             project_root: root,
             config: std::sync::Arc::new(kanzei_harness::KanzeiConfig::default()),
         };
-        let snapshot = build_run_harness(ctx.profile)
-            .resolve(&ctx)
-            .unwrap();
+        let snapshot = build_run_harness(ctx.profile).resolve(&ctx).unwrap();
         let agent = snapshot.select_primary_agent(Some("readonly")).unwrap();
         assert_eq!(agent.name, "readonly");
         assert_eq!(
@@ -1579,7 +1577,8 @@ mod tests {
         }
         for name in [
             "read",
-            "symbols",
+            "glob",
+            "grep",
             "webfetch",
             "websearch",
             "skill_read",

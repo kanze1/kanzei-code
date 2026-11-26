@@ -82,12 +82,8 @@ mod tests {
     fn core_contract_is_bounded_and_technology_neutral() {
         let system = dev_auto_system_prompt("compact-contract");
         assert!(system.chars().count() < 5000);
-        for required in [
-            "逐条对照验收",
-            "真实调用方",
-            "自主选择",
-            "只提交自己负责",
-        ] {
+        for required in ["逐条对照验收", "真实调用方", "自主选择", "只提交自己负责"]
+        {
             assert!(system.contains(required), "missing {required}");
         }
         for inappropriate in [
@@ -116,13 +112,8 @@ mod tests {
     fn resolved_context_keeps_project_scope_and_single_effective_cadence() {
         use kanzei_harness::config::FullTestCadence;
         let root = std::env::temp_dir().join(format!("kz-policy-matrix-{}", std::process::id()));
-        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
+        std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("pubspec.yaml"), "name: reader").unwrap();
-        std::fs::write(
-            root.join(".kanzei/project/conventions.md"),
-            "用户规则: preserve-local-first",
-        )
-        .unwrap();
         let render = |profile, full_test| {
             let mut config = KanzeiConfig::default();
             config.cadence.full_test = full_test;
@@ -146,7 +137,6 @@ mod tests {
         );
         assert!(release.contains("仅发布前"));
         assert!(!release.contains("关闭前一次"));
-        assert!(release.contains("preserve-local-first"));
         for forbidden in [
             "cargo test",
             "clippy",
@@ -176,7 +166,6 @@ mod tests {
         std::fs::create_dir_all(root.join("crates/kanzei-app")).unwrap();
         std::fs::write(root.join("crates/kanzei-app/Cargo.toml"), "[package]").unwrap();
         let with_repository_marker = render(ProfileKind::DevAuto, FullTestCadence::EntryClose);
-        assert!(with_repository_marker.contains("preserve-local-first"));
         for forbidden in ["cargo test", "cargo clippy", "verify.ps1", "compile_gate"] {
             assert!(!with_repository_marker.contains(forbidden), "{forbidden}");
         }
@@ -269,10 +258,7 @@ mod tests {
             "task",
         ];
 
-        for profile in [
-            ProfileKind::DevAuto,
-            ProfileKind::DevPair,
-        ] {
+        for profile in [ProfileKind::DevAuto, ProfileKind::DevPair] {
             let root = PathBuf::from("C:/kanzei-d195-test");
             let ctx = ResolveCtx {
                 profile,
@@ -314,91 +300,6 @@ mod tests {
         }
     }
 
-    /// D-201:规范必须全量送达。原实现取前 3000 字符,而真实 conventions.md 有
-    /// 14944 字符——「1.2 关闭边界」正好落在截断线之外,于是 11 条 high 缺陷带着
-    /// 已发布的修复卡在 fixing。送不到的规则等于不存在,所以这条守的是"不截断",
-    /// 不是"截得优雅"。
-    #[test]
-    fn 开发规范全量注入不做字符截断() {
-        let root = std::env::temp_dir().join(format!(
-            "kanzei-d201-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(root.join(".kanzei/project")).unwrap();
-        // 尾部这条规则只有全量注入才看得见——它正是被旧上限切掉的那一类。
-        let tail = "## 关闭边界:可用即关闭,不因验证增强项长期滞留 fixing";
-        let filler = "- 填充行,单纯为了越过旧的 3000 字符上限,内容本身不重要。\n".repeat(200);
-        let body = format!("# 开发规范\n\n{filler}\n{tail}\n");
-        assert!(body.chars().count() > 3000, "夹具没超过旧上限,测不出截断");
-        std::fs::write(root.join(".kanzei/project/conventions.md"), &body).unwrap();
-
-        let ctx = ResolveCtx {
-            profile: ProfileKind::DevAuto,
-            cwd: root.clone(),
-            project_root: root.clone(),
-            config: Arc::new(KanzeiConfig::default()),
-        };
-        let mut harness = Harness::default();
-        harness
-            .add(crate::BaseComponent)
-            .add(DevelopmentProfile)
-            .add(ConfigComponent);
-        let baseline = harness.resolve(&ctx).unwrap().system_baseline().unwrap();
-
-        assert!(
-            baseline.contains(tail),
-            "规范尾部没进上下文——又被截断了。送不到的规则等于不存在。"
-        );
-        assert!(
-            !baseline.contains("规范过长已截断"),
-            "不该再出现截断提示:全量注入之后它没有意义"
-        );
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn project_conventions_load_only_saved_content_for_each_supported_profile() {
-        let fixture = super::context_tests::Fixture::new("project-rules");
-        for profile in [
-            ProfileKind::DevAuto,
-            ProfileKind::DevPair,
-            ProfileKind::Research,
-        ] {
-            let baseline = fixture.snapshot(profile).system_baseline().unwrap();
-            assert!(!baseline.contains("<project-rules"));
-        }
-        assert!(!fixture.0.join(".kanzei/project/conventions.md").exists());
-        fixture.write(".kanzei/project/conventions.md", "   ");
-        assert!(!fixture
-            .snapshot(ProfileKind::DevPair)
-            .system_baseline()
-            .unwrap()
-            .contains("<project-rules"));
-        let rules = "## 项目特有规则\n- 保留用户指定的架构边界";
-        fixture.write(".kanzei/project/conventions.md", rules);
-        for profile in [
-            ProfileKind::DevAuto,
-            ProfileKind::DevPair,
-            ProfileKind::Research,
-        ] {
-            let (baseline, reports) = fixture
-                .snapshot(profile)
-                .system_baseline_with_report()
-                .unwrap();
-            assert!(baseline.contains(&format!("<project-rules source=\".kanzei/project/conventions.md\">\n{rules}\n</project-rules>")));
-            assert!(reports
-                .iter()
-                .any(|report| report.key == "project/conventions"));
-            for forbidden in ["# 项目约定的来源", "compile_gate", "cargo clippy"] {
-                assert!(!baseline.contains(forbidden), "{forbidden}");
-            }
-        }
-    }
-
     #[test]
     fn prompt_tool_mentions_只取反引号里的标识符首词() {
         let mentions = super::prompt_tool_mentions(
@@ -425,7 +326,8 @@ mod tests {
             .add(ConfigComponent);
         let snapshot = harness.resolve(&ctx).unwrap();
 
-        let normalized = kanzei_harness::permission::normalize_resource(".kanzei/memory/M-001-x.md");
+        let normalized =
+            kanzei_harness::permission::normalize_resource(".kanzei/memory/M-001-x.md");
         assert_eq!(snapshot.evaluate("write", &normalized), Effect::Deny);
         let hint = snapshot.denial_hint("write", &normalized);
         assert!(

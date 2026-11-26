@@ -520,12 +520,12 @@ mod tests {
         let out = WriteTool
             .execute(
                 serde_json::json!({"path":"src/lib.rs", "content":"pub async fn ready() {}\n"}),
-                &ToolCtx::new(tree, main),
+                &ToolCtx::new(tree.clone(), main.clone()),
             )
             .await;
         assert!(!out.is_error, "{}", out.content);
-        assert!(out.content.contains("--edition 2021"), "{}", out.content);
-        assert!(!out.content.contains("E0670"), "{}", out.content);
+        assert!(tree.join("src/lib.rs").exists(), "{}", out.content);
+        assert!(!main.join("src/lib.rs").exists(), "{}", out.content);
         assert!(!root.join("tree/src/lib.lock").exists());
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1027,9 +1027,9 @@ mod tests {
         ));
         std::fs::create_dir_all(&root).unwrap();
         let input_path = if cfg!(windows) {
-            r".KANZEI\project\requirements.md"
+            r".KANZEI\memory\M-001-x.md"
         } else {
-            r".kanzei\project\requirements.md"
+            r".kanzei\memory\M-001-x.md"
         };
         let call_input = serde_json::json!({
             "path": input_path,
@@ -1105,7 +1105,7 @@ mod tests {
         let mut config = KanzeiConfig::default();
         config.permissions.rules.push(rule(
             "write",
-            "*.kanzei/project/*",
+            "*.kanzei/memory/*",
             kanzei_harness::Effect::Ask,
         ));
         let resolve_ctx = ResolveCtx {
@@ -1173,7 +1173,7 @@ mod tests {
         assert!(summary.messages.iter().flat_map(|message| &message.parts).any(
             |part| matches!(part, kanzei_llm::Part::ToolResult { content, is_error: true, .. } if content.contains("permission denied"))
         ));
-        assert!(!root.join(".kanzei/project/requirements.md").exists());
+        assert!(!root.join(".kanzei/memory/M-001-x.md").exists());
         server.await.unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }

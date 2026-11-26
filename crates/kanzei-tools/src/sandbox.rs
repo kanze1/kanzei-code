@@ -1,8 +1,5 @@
 //! Namespace execution with disposable inputs or an engine-owned persistent workspace.
-use std::{
-    path::Path,
-    process::Stdio,
-};
+use std::{path::Path, process::Stdio};
 
 use async_trait::async_trait;
 use kanzei_harness::{

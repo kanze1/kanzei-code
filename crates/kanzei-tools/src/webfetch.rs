@@ -961,16 +961,6 @@ mod tests {
             crate::public_http::fixture_scope(super::WebFetchTool.execute(input, ctx)).await
         }
     }
-    struct ResearchWebFetchTool;
-    impl ResearchWebFetchTool {
-        async fn execute(
-            &self,
-            input: serde_json::Value,
-            ctx: &ToolCtx,
-        ) -> kanzei_harness::ToolOutput {
-            crate::public_http::fixture_scope(super::ResearchWebFetchTool.execute(input, ctx)).await
-        }
-    }
 
     /// R-217:URL 资源规范化——去掉 scheme,域名+路径形态可直接配白名单规则。
     #[test]
@@ -1631,22 +1621,5 @@ base_url = "{base_url}/v1"
         assert!(text.contains("尾文 ẞ"));
         assert!(!text.contains("hidden script"));
         assert!(!text.contains("hidden style"));
-    }
-
-    #[tokio::test]
-    async fn research_webfetch缺活动任务在联网前被拒绝() {
-        let root =
-            std::env::temp_dir().join(format!("kz-research-fetch-gate-{}", std::process::id()));
-        std::fs::create_dir_all(&root).unwrap();
-        let ctx = ToolCtx::new(root.clone(), root.clone());
-        let output = ResearchWebFetchTool
-            .execute(
-                serde_json::json!({"url": "https://example.test", "topic": "topic", "task_id": "forged"}),
-                &ctx,
-            )
-            .await;
-        assert_eq!(output.code.as_deref(), Some("RESEARCH_LOOP_TASK_REQUIRED"));
-        assert!(output.content.contains("尚未启动检索环"));
-        std::fs::remove_dir_all(root).ok();
     }
 }

@@ -18,13 +18,7 @@ impl Component for IsolatedProfile {
             let name = tool.name();
             draft.tools.insert(name, tool);
         }
-        for name in [
-            "read",
-            "glob",
-            "grep",
-            "files",
-            "tool_search",
-        ] {
+        for name in ["read", "glob", "grep", "files", "tool_search"] {
             draft.permissions.push(rule(name, "*", Effect::Allow));
         }
         draft.permissions.push(rule("sandbox", "*", Effect::Ask));

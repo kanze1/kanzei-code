@@ -671,8 +671,7 @@ mod tests {
         let executing = tokio::spawn(async move {
             kanzei_harness::progress::scope(
                 handle,
-                BashTool::default()
-                    .execute(json!({"command":command,"timeout_ms":timeout_ms}), &ctx),
+                BashTool.execute(json!({"command":command,"timeout_ms":timeout_ms}), &ctx),
             )
             .await
         });
@@ -775,7 +774,7 @@ mod tests {
             }
             _ => "echo MD文件保存 & cd".to_string(),
         };
-        let out = BashTool::default()
+        let out = BashTool
             .execute(serde_json::json!({ "command": command }), &ctx)
             .await;
         assert!(!out.is_error, "{}", out.content);
@@ -830,7 +829,7 @@ mod tests {
             process_id: Some("proc-a".into()),
             ..Default::default()
         };
-        let out = BashTool::default()
+        let out = BashTool
             .execute(
                 serde_json::json!({"command":"echo ok","background":true}),
                 &ctx,
@@ -846,7 +845,7 @@ mod tests {
         if !matches!(super::detected_shell().name, "pwsh" | "powershell") {
             return;
         }
-        let out = BashTool::default()
+        let out = BashTool
             .execute(
                 serde_json::json!({"command": "Set-Content -Path x.rs -Value 'fn main(){}'"}),
                 &ToolCtx {
@@ -868,7 +867,7 @@ mod tests {
             _ => "sleep 5",
         };
         let started = std::time::Instant::now();
-        let out = BashTool::default()
+        let out = BashTool
             .execute(
                 serde_json::json!({"command": command, "timeout_ms": 50}),
                 &ToolCtx {
@@ -918,7 +917,7 @@ mod tests {
              [System.IO.File]::WriteAllText('{marker_str}', \"$PID,$($c.Id)\"); \
              Start-Sleep -Seconds 300"
         );
-        let out = BashTool::default()
+        let out = BashTool
             .execute(
                 // 超时要给足:命令得先把孙进程起来并写完 pid,不然测试拿不到断言对象。
                 serde_json::json!({"command": command, "timeout_ms": 8000}),
@@ -964,7 +963,7 @@ mod tests {
 
     #[test]
     fn description_explains_default_eof_and_interactive_input() {
-        let description = BashTool::default().description();
+        let description = BashTool.description();
         assert!(description.contains("stdin is closed"));
         assert!(description.contains("interactive=true"));
         assert!(description.contains("action=input"));
@@ -977,7 +976,7 @@ mod tests {
             "command": "git status > .kanzei/project/requirements.md",
             "workdir": "subdir"
         });
-        let resources = BashTool::default().resources(&input);
+        let resources = BashTool.resources(&input);
         assert_eq!(resources.len(), 1);
         let resource: serde_json::Value = serde_json::from_str(&resources[0]).unwrap();
         assert_eq!(
@@ -986,7 +985,7 @@ mod tests {
         );
         assert_eq!(resource["workdir"], "subdir");
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool::default().resources_with_ctx(
+            &BashTool.resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "subdir"}),
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
@@ -1001,7 +1000,7 @@ mod tests {
             kanzei_harness::permission::normalize_resource("C:/project/subdir")
         );
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool::default().resources_with_ctx(
+            &BashTool.resources_with_ctx(
                 &serde_json::json!({"command": "git status"}),
                 &ToolCtx {
                     cwd: PathBuf::from("C:/project"),
@@ -1029,7 +1028,7 @@ mod tests {
             ..Default::default()
         };
         let resource: serde_json::Value = serde_json::from_str(
-            &BashTool::default().resources_with_ctx(
+            &BashTool.resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
                 &ctx,
             )[0],
@@ -1070,7 +1069,7 @@ mod tests {
                 ..Default::default()
             },
         ] {
-            let resource = BashTool::default().resources_with_ctx(
+            let resource = BashTool.resources_with_ctx(
                 &serde_json::json!({"command": "git status", "workdir": "crates/foo"}),
                 &ctx,
             )[0]
@@ -1091,7 +1090,7 @@ mod tests {
         // Windows 命令行上限 32767(UTF-16 单元);按 30000 留余量拒绝。
         let long_command = "echo x".to_string() + &"a".repeat(32_000);
         let ctx = ToolCtx::new(std::path::PathBuf::from("."), std::path::PathBuf::from("."));
-        let output = BashTool::default()
+        let output = BashTool
             .execute(
                 serde_json::json!({ "command": long_command, "timeout_ms": 100 }),
                 &ctx,
@@ -1141,9 +1140,7 @@ mod tests {
             "# git commit\nWrite-Output okay",
             "Write-Output @'\nSet-Content file text\n'@",
         ] {
-            let output = BashTool::default()
-                .execute(json!({"command":command}), &ctx)
-                .await;
+            let output = BashTool.execute(json!({"command":command}), &ctx).await;
             assert!(!output.is_error, "{command}: {}", output.content);
         }
         for command in [
@@ -1152,9 +1149,7 @@ mod tests {
             "Write-Output $(Set-Content escaped.txt x)",
             "'text' | Out-File escaped.txt",
         ] {
-            let output = BashTool::default()
-                .execute(json!({"command":command}), &ctx)
-                .await;
+            let output = BashTool.execute(json!({"command":command}), &ctx).await;
             assert!(
                 output.outcome.is_expected_rejection(),
                 "{command}: {}",

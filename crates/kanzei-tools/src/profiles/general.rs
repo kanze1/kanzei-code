@@ -40,14 +40,7 @@ impl Component for GeneralChatScope {
         if !kanzei_harness::is_general_conversation_root(&ctx.project_root) {
             return Ok(());
         }
-        for name in [
-            "req",
-            "defect",
-            "work",
-            "idea",
-            "decision",
-            "test_record",
-        ] {
+        for name in ["req", "defect", "work", "idea", "decision", "test_record"] {
             draft.tools.remove(name);
             draft.deferred_tools.remove(name);
         }

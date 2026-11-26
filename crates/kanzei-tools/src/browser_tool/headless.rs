@@ -38,10 +38,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const RPC_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// 外部浏览器后端入口（无头 Playwright 与已授权 CDP 连接）。
-pub async fn execute_headless(
-    input: BrowserInput,
-    ctx: &kanzei_harness::ToolCtx,
-) -> ToolOutput {
+pub async fn execute_headless(input: BrowserInput, ctx: &kanzei_harness::ToolCtx) -> ToolOutput {
     let backend = if input.connection_id.is_some() || input.action == "connect" {
         Backend::Attached
     } else {

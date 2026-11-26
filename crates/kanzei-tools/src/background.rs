@@ -35,13 +35,13 @@ pub async fn stop_for_project(root: &std::path::Path, id: &str) -> Result<bool, 
 
 mod persistent;
 use lifecycle::{next_id, now_ms, project_hash, registry};
+#[cfg(test)]
+use persistent::save_registry;
 pub use persistent::{
     adopt_persistent, discover_persistent, kill_registered, kill_registered_result,
     mark_registry_failed, PersistentEntry,
 };
 use persistent::{insert_registry_entry, remove_registry_entry};
-#[cfg(test)]
-use persistent::save_registry;
 mod registration;
 #[cfg(test)]
 use registration::append_bounded;
@@ -330,7 +330,7 @@ pub(crate) mod tests {
         run_id: &str,
         process_id: &str,
     ) -> String {
-        let out = crate::bash::BashTool::default()
+        let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({ "command": command, "background": true }),
                 &ctx_for_with_process(root, run_id, process_id),
@@ -371,7 +371,7 @@ pub(crate) mod tests {
         ctx.async_mailbox = Some(kanzei_harness::AsyncMailbox::new(move |n| {
             tx.send(n).map_err(|e| e.to_string())
         }));
-        let output = crate::bash::BashTool::default()
+        let output = crate::bash::BashTool
             .execute(
                 serde_json::json!({"command":"echo CALLBACK_FINAL_OUTPUT","background":true}),
                 &ctx,
@@ -432,7 +432,7 @@ pub(crate) mod tests {
         let shell = crate::shell::detected_shell();
         let separator = if shell.name == "cmd" { " & " } else { "; " };
         let command = format!("echo AUDIT_IDLE_READY{separator}{}", linger());
-        let out = crate::bash::BashTool::default()
+        let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({"command":command,"background":true,"persistent":true}),
                 &ctx_for(&root, "idle-flush"),
@@ -590,7 +590,7 @@ pub(crate) mod tests {
     async fn background_跨轮和并行查询不清理其他owner_停止才回收() {
         let root = temp_project("persist");
         let result = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
-            let persist_id = crate::bash::BashTool::default()
+            let persist_id = crate::bash::BashTool
                 .execute(
                     serde_json::json!({ "command": "node -e \"require('net').createServer().listen(0, '127.0.0.1')\"", "background": true, "persistent": true }),
                     &ctx_for(&root, "run-A"),
@@ -609,7 +609,7 @@ pub(crate) mod tests {
                 .trim()
                 .to_string();
 
-            let default_id = crate::bash::BashTool::default()
+            let default_id = crate::bash::BashTool
                 .execute(
                     serde_json::json!({ "command": "node -e \"require('net').createServer().listen(0, '127.0.0.1')\"", "background": true }),
                     &ctx_for(&root, "run-A"),
@@ -639,7 +639,7 @@ pub(crate) mod tests {
                 .await;
             assert!(!observed.is_error);
             assert!(get(&default_id).unwrap().is_running());
-            let command = crate::bash::BashTool::default()
+            let command = crate::bash::BashTool
                 .execute(
                     serde_json::json!({"command":"echo other-owner"}),
                     &ctx_for(&root, "run-B"),
@@ -672,7 +672,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn persistent_日志落盘_超256k不丢头_退出后可回看() {
         let root = temp_project("logdisk");
-        let out = crate::bash::BashTool::default()
+        let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({
                     "command": "1..3000 | ForEach-Object { 'x' * 100 }",
@@ -710,7 +710,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn persistent_注册表登记_强杀后重开可发现_可接管可杀掉() {
         let root = temp_project("registry");
-        let out = crate::bash::BashTool::default()
+        let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-A"),
@@ -791,7 +791,7 @@ pub(crate) mod tests {
     async fn persistent_项目回收跳过_默认档位照常回收() {
         let root = temp_project("reap");
         let default_id = start_background(&root, linger(), "run-reap").await;
-        let persist_real = crate::bash::BashTool::default()
+        let persist_real = crate::bash::BashTool
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-reap"),
@@ -828,7 +828,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn process_工具_discover_adopt_kill_全链路() {
         let root = temp_project("proc-registry");
-        let out = crate::bash::BashTool::default()
+        let out = crate::bash::BashTool
             .execute(
                 serde_json::json!({ "command": linger(), "background": true, "persistent": true }),
                 &ctx_for(&root, "run-proc"),

@@ -3,8 +3,8 @@
 use super::{
     export_project_data, normalized_project_root, ExportOptions, ProviderPayload, SettingsPayload,
 };
-use crate::settings::settings_save_at_path;
 use crate::projects::{ensure_project_isolated, project_detach};
+use crate::settings::settings_save_at_path;
 use std::path::{Path, PathBuf};
 
 fn isolation_fixture(tag: &str, with_data: bool) -> (PathBuf, PathBuf, PathBuf) {

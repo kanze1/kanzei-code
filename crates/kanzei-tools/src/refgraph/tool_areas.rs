@@ -18,35 +18,10 @@ pub const TOOL_AREAS: &[(&str, &str)] = &[
     ("read", "kanzei-tools/read"),
     ("write", "kanzei-tools/write"),
     ("files", "kanzei-tools/files"),
-    ("symbols", "kanzei-tools/symbols"),
-    ("question", "kanzei-tools/question"),
     ("webfetch", "kanzei-tools/webfetch"),
     ("websearch", "kanzei-tools/websearch"),
     ("browser", "kanzei-tools/browser_tool"),
-    ("latex", "kanzei-tools/latex_tool"),
-    ("plot", "kanzei-tools/plot_tool"),
-    ("prior_art", "kanzei-tools/prior_art"),
-    ("incident", "kanzei-tools/incident"),
-    ("conventions", "kanzei-tools/conventions"),
-    ("architecture", "kanzei-tools/architecture"),
-    ("test_record", "kanzei-tools/test_record"),
-    ("work", "kanzei-tools/work"),
-    ("req", "kanzei-tools/tracker"),
-    ("defect", "kanzei-tools/tracker"),
-    ("idea", "kanzei-tools/tracker"),
-    ("decision", "kanzei-tools/tracker"),
-    ("goal", "kanzei-tools/tracker"),
-    ("source", "kanzei-tools/tracker"),
-    ("finding", "kanzei-tools/tracker"),
     ("task", "kanzei-tools/subagent"),
-    ("frontend_check", "kanzei-tools/frontend"),
-    ("frontend_locate", "kanzei-tools/frontend"),
-    ("research_index", "kanzei-tools/research_index"),
-    ("research_loop", "kanzei-tools/research_loop"),
-    ("research_plan", "kanzei-tools/research_plan"),
-    ("research_runner", "kanzei-tools/research_runner"),
-    ("research_verify", "kanzei-tools/research_verify"),
-    ("research_write", "kanzei-tools/research_write"),
     ("memory_note", "kanzei-memory/memory"),
     ("memory_search", "kanzei-memory/memory"),
     ("memory_add", "kanzei-memory/memory"),
@@ -94,10 +69,6 @@ pub const KEYWORD_AREAS: &[(&[&str], &str)] = &[
         "kanzei-memory/memory",
     ),
     (&["发版", "verify.ps1", "package.ps1", "安装包"], "scripts"),
-    (
-        &["tracker", "需求", "缺陷", "批次", "停车", "取活", "backlog"],
-        "kanzei-tools/tracker",
-    ),
     (&["worktree", "工作树"], "kanzei-tools/worktree"),
 ];
 
@@ -187,7 +158,7 @@ mod tests {
         use kanzei_harness::{Component, HarnessDraft, KanzeiConfig, ProfileKind, ResolveCtx};
         let root = PathBuf::from("C:/kanzei-tool-areas-test");
         let mut names = std::collections::BTreeSet::new();
-        for profile in [ProfileKind::DevAuto] {
+        for profile in [ProfileKind::DevAuto, ProfileKind::DevPair] {
             let ctx = ResolveCtx {
                 profile,
                 cwd: root.clone(),

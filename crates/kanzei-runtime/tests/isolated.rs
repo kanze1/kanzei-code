@@ -24,7 +24,7 @@ mod tests {
             .iter()
             .map(|tool| tool.name())
             .collect();
-        assert_eq!(names.len(), 8);
+        assert_eq!(names.len(), 6);
         for forbidden in [
             "bash",
             "git",

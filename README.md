@@ -1,6 +1,6 @@
 # Kanzei
 
-个人 AI 工作与开发工具。使用 Rust、Tauri 和原生 ESM，支持项目与无项目对话、外部记忆、隔离工作树、工具执行和可追溯交付。
+个人 AI 编码与工作助手。采用精简共享 Rust 底座 + Tauri + 原生 ESM 纯中文桌面外壳，聚焦项目与无项目对话、外部记忆系统、隔离 Git 工作树、核心工具执行与对话伴生文件上下文追溯。
 
 ## 开始使用
 
@@ -8,28 +8,25 @@
 
 支持 Codex 登录、Anthropic API Key、OpenAI 兼容服务及本地 Ollama。可用模型、权限和实际运行状态以当前配置及界面为准。
 
-## 只维护这些文档
+## 核心能力（精简共享底座）
+
+- **共享底座**：`kanzei-base`、`kanzei-llm`、`kanzei-harness`、`kanzei-core`、`kanzei-memory`、`kanzei-tools`、`kanzei-runtime`、`kanzei`（CLI `kz`）、`kanzei-app`（桌面端 `kzapp`）。
+- **记忆系统**：Markdown 真源、`DocStore`、混合检索与失败召回、记忆图谱（`refgraph`）、inbox 自动整理与 `.kanzei/memory/*` 硬保护。
+- **核心工具**：文件读写编辑检索（`read`/`edit`/`insert`/`write`/`glob`/`grep`/`files`）、Shell 与后台进程（`bash`/`process`）、纯净 Git（含 `fmt`/`clippy` 门禁）与工作树隔离、沙箱（`sandbox`）、公网抓取与检索（`webfetch`/`websearch`）、外部 Playwright CDP 浏览器（`browser`）、轻量只读/可写子代理（`task`）。
+- **对话伴生文件上下文抽屉**：在对话页右侧直接追溯本轮触及与 Git 改动的文件，支持对话内 `path:line` 就地定位、单文件 Git Diff 与带磁盘指纹校验的轻量编辑保存。
+- **扩展与运维**：全局 Skills、自定义 Markdown Agent、极简 Goal 循环与应用内自动更新。
+
+## 维护文档
 
 | 文档 | 唯一职责 | 什么时候更新 |
 | --- | --- | --- |
 | [使用手册](docs/使用手册.md) | 用户如何完成常用操作 | 实际操作改变时 |
 | [系统合同](docs/design/system_contracts.md) | 架构、状态真源、调用边界和源码入口 | 所有权或跨模块合同改变时 |
-| [管理工作区方案](docs/design/management_workspace.md) | 尚未实施的下一版管理设计 | 方案改变或实施后收敛时 |
 | [AGENTS](AGENTS.md) | Agent 工程规则 | 工程规则改变时 |
 | [CONTRIBUTING](CONTRIBUTING.md) | 开发、测试与发布操作 | 工具链或门禁改变时 |
 
-本页负责产品说明与导航。两份[架构文档](docs/architecture)服务应用内架构浏览；[运行时状态机](docs/architecture/01_runtime_loop.md)统一维护执行层级、会话监督器、状态转换、资源回收和验证边界。许可证见 [LICENSE](LICENSE.md)。需求、缺陷、验收和长期决策保留在 `.kanzei/project/`，它们是项目数据，不再复制成设计进度报告。
+两份[架构文档](docs/architecture)说明模块边界与运行时状态机。许可证见 [LICENSE](LICENSE.md)。
 
-## 旧资料
+## 开发与本地验证
 
-2026-10-24 停止维护原设计分册、审查、报告、原型和素材说明。已提交版本从 Git 历史恢复，清理前基线为 `a667ffbe`。需要完整导出该版本的旧文档时，可在仓库内执行 `git archive --format=zip --output=../kanzei-docs-a667ffbe.zip a667ffbe docs/`。该入口只恢复已提交内容，不代表未提交原稿已另行备份。
-
-旧台账正文和源码注释中的文档路径保留为历史定位，不再构成现行合同。需要查原方案时，在独立目录恢复对应 Git 版本或解压归档；日常开发从系统合同和当前台账进入。新增内容优先写回上述文档，不再维护逐次审查、交接、版本状态和重复目录。
-
-## 开发
-
-安装 Rust、Windows 原生构建工具和 Node.js 后执行 `npm ci`。本地检查入口是 `scripts/verify.ps1`，详细步骤见贡献指南。正式 UI 使用原生 ESM；React 仅用于开发测试夹具。
-
-## English
-
-Kanzei is a personal AI work and coding tool built with Rust, Tauri and native ESM. It combines project and general conversations, external memory, isolated Git worktrees, tool execution and traceable delivery. Install it from GitHub Releases; the documents above cover usage, architecture, the pending management design, engineering rules and local verification.
+安装 Rust、Windows 原生构建工具和 Node.js 后执行 `npm ci`。本地验证入口是 `scripts/verify.ps1`（全量门禁为 `scripts/verify.ps1 -Full`），详细步骤见 [CONTRIBUTING](CONTRIBUTING.md)。正式 UI 使用原生 ESM；React 仅用于开发测试夹具。

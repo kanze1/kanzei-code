@@ -15,7 +15,14 @@ fn launch_child(root: &Path) -> String {
 async fn assert_cancel_cleanup(drop_caller: bool) {
     let root = super::tests::temp_project("cancel-owner");
     std::fs::write(root.join("child.ps1"), "while (-not (Test-Path release.txt)) { Start-Sleep -Milliseconds 20 }; [IO.File]::WriteAllText('late.txt','late write')").unwrap();
-    std::fs::write(root.join("parent.ps1"), format!("{}; Write-Output OWNER_READY; Start-Sleep -Seconds 300", launch_child(&root))).unwrap();
+    std::fs::write(
+        root.join("parent.ps1"),
+        format!(
+            "{}; Write-Output OWNER_READY; Start-Sleep -Seconds 300",
+            launch_child(&root)
+        ),
+    )
+    .unwrap();
     let ctx = ToolCtx::new(root.clone(), root.clone());
     let cancel = CancellationToken::new();
     let stopping = cancel.clone();
@@ -23,7 +30,7 @@ async fn assert_cancel_cleanup(drop_caller: bool) {
     let running = tokio::spawn(async move {
         scope(
             ProgressHandle::new("cancel-owner".into(), tx),
-            BashTool::default().execute_cancellable(
+            BashTool.execute_cancellable(
                 json!({"command":"& './parent.ps1'", "timeout_ms":300_000}),
                 &ctx,
                 Some(&stopping),
@@ -87,7 +94,7 @@ async fn root_exit_drains_output_without_waiting_for_descendant_pipe_eof() {
     std::fs::write(root.join("child.ps1"), "Start-Sleep -Seconds 30").unwrap();
     std::fs::write(root.join("parent.ps1"), format!("{}; [Console]::Out.WriteLine(('x' * 131072)); [Console]::Out.WriteLine('ROOT_TAIL'); [Console]::Error.WriteLine('ROOT_ERR_TAIL'); exit 0", launch_child(&root))).unwrap();
     let ctx = ToolCtx::new(root.clone(), root.clone());
-    let output = BashTool::default()
+    let output = BashTool
         .execute(
             json!({"command":"& './parent.ps1'", "timeout_ms":10_000}),
             &ctx,

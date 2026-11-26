@@ -114,11 +114,7 @@ impl kanzei_harness::Tool for UiStyleTool {
     }
 }
 
-pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &[
-    "ui_dom",
-    "ui_console",
-    "ui_style",
-];
+pub(crate) const DESKTOP_DEFERRED_TOOLS: &[&str] = &["ui_dom", "ui_console", "ui_style"];
 
 pub(crate) struct FrontendToolsComponent;
 impl kanzei_harness::Component for FrontendToolsComponent {
@@ -130,11 +126,7 @@ impl kanzei_harness::Component for FrontendToolsComponent {
         draft.tools.insert("ui_dom", Arc::new(UiDomTool));
         draft.tools.insert("ui_console", Arc::new(UiConsoleTool));
         draft.tools.insert("ui_style", Arc::new(UiStyleTool));
-        for name in [
-            "ui_dom",
-            "ui_console",
-            "ui_style",
-        ] {
+        for name in ["ui_dom", "ui_console", "ui_style"] {
             draft.permissions.push(kanzei_harness::rule(
                 name,
                 "*",

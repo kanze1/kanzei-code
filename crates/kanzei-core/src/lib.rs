@@ -33,12 +33,11 @@ pub use store::{
     AdmittedInput, ArtifactCleanupPlan, ArtifactFileReport, AvailableMemory, Delivery,
     EpisodeRecord, FunnelCounts, MemoryFeedbackKind, MemoryRecallObservation,
     MemoryRetentionCounts, MemorySourceEvidence, MemoryUsageCounts, RecallEvent, RecallLinkStats,
-    RecallMetrics, Session, SessionArtifactReport,
-    SessionDeletionPlan, SessionDeletionResult, SessionFact, SessionFactEnvelope, SessionFactError,
-    SessionInvariant, SessionProjection, SessionStore, SessionTurnTerminal, ShadowComparison,
-    ShadowVerdictStats, StorageBackupReport, StorageCleanupPlan, StorageCleanupResult,
-    StorageReport, StoreError, StoredEvent, StoredInput, StoredProcess,
-    TypedSessionWriter, SUBAGENT_TRANSCRIPT,
+    RecallMetrics, Session, SessionArtifactReport, SessionDeletionPlan, SessionDeletionResult,
+    SessionFact, SessionFactEnvelope, SessionFactError, SessionInvariant, SessionProjection,
+    SessionStore, SessionTurnTerminal, ShadowComparison, ShadowVerdictStats, StorageBackupReport,
+    StorageCleanupPlan, StorageCleanupResult, StorageReport, StoreError, StoredEvent, StoredInput,
+    StoredProcess, TypedSessionWriter, SUBAGENT_TRANSCRIPT,
 };
 
 // Public domain services. The SQLite implementation stays private.
@@ -51,12 +50,12 @@ pub use store::{
 };
 
 pub use store::{
-    capture_file_preimage, file_checkpoint_rel_path, record_file_postimage,
-    EffectEstimate, EvalCaseSet, InterruptedAssistant, OriginalConversation, RewindFile,
-    RewindPlan, TaskCompatibilityAudit, TaskLegacyProjection, TaskMetricsProjection,
-    TaskProjection, TaskRoundProjection, TaskStatus, ASSISTANT_DRAFT_APPENDED,
-    ASSISTANT_MESSAGE_COMMITTED, ASSISTANT_MESSAGE_INTERRUPTED, FILE_CHECKPOINT_MAX_BYTES,
-    LEGACY_SEEDED, SESSION_EVENT_FORMAT_VERSION, TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION,
+    capture_file_preimage, file_checkpoint_rel_path, record_file_postimage, EffectEstimate,
+    EvalCaseSet, InterruptedAssistant, OriginalConversation, RewindFile, RewindPlan,
+    TaskCompatibilityAudit, TaskLegacyProjection, TaskMetricsProjection, TaskProjection,
+    TaskRoundProjection, TaskStatus, ASSISTANT_DRAFT_APPENDED, ASSISTANT_MESSAGE_COMMITTED,
+    ASSISTANT_MESSAGE_INTERRUPTED, FILE_CHECKPOINT_MAX_BYTES, LEGACY_SEEDED,
+    SESSION_EVENT_FORMAT_VERSION, TASK_CLOSED_EVENT_TYPE, TASK_EVENT_SCHEMA_VERSION,
     TASK_MEMBERSHIP_ADDED_EVENT_TYPE, TASK_STARTED_EVENT_TYPE, TOOL_CALLED, TOOL_RESULT_COMMITTED,
     TOOL_RESULT_INTERRUPTED, TURN_COMPLETED, TURN_FAILED, TURN_STARTED, TURN_STOPPED,
     USER_MESSAGE_COMMITTED,

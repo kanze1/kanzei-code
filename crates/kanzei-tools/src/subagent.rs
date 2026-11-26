@@ -51,9 +51,7 @@ impl Component for WritableSubagentBase {
         draft
             .tools
             .insert("write", Arc::new(crate::write::WriteTool));
-        draft
-            .tools
-            .insert("bash", Arc::new(crate::bash::BashTool::default()));
+        draft.tools.insert("bash", Arc::new(crate::bash::BashTool));
         draft.tools.insert("git", Arc::new(crate::git::GitTool));
         // 读取工具默认放行；写操作继续遵守用户和项目权限规则。
         draft.permissions.extend([
@@ -145,11 +143,10 @@ mod tests {
             .iter()
             .map(|t| t.name())
             .collect();
-        // R-218:只读快照扩容为 read/glob/grep/files/git(5 件)。files 纯只读;
+        // 只读快照为 read/glob/grep/files/git(5 件)。files 纯只读;
         // git 只对 status/diff/log 放行(写 action 不在 Allow 规则里 → 子代理内被拒)。
-        // R-234:symbols 符号视图加入,只读快照 6 件套。
-        assert_eq!(names.len(), 6);
-        for name in ["read", "glob", "grep", "files", "symbols"] {
+        assert_eq!(names.len(), 5);
+        for name in ["read", "glob", "grep", "files"] {
             assert!(names.contains(&name), "missing {name}");
             assert_eq!(
                 snapshot.evaluate(name, "anything"),
@@ -200,8 +197,7 @@ mod tests {
         // R-218:git 进入只读快照但只放行只读 action——工具在场不等于写权限在场。
         assert!(names.contains(&"git"), "git 应在只读快照(只读子命令)");
         assert_eq!(snapshot.evaluate("git", "commit"), Effect::Ask);
-        // R-234:symbols 符号视图加入只读快照(6 件套)。
-        assert_eq!(names.len(), 6, "只读快照工具面: {names:?}");
+        assert_eq!(names.len(), 5, "只读快照工具面: {names:?}");
     }
 
     /// R-176 B1:可写子代理档位含写工具;写工具权限**不预设 Allow**

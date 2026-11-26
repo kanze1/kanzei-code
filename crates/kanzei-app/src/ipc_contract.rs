@@ -300,17 +300,11 @@ pub(crate) mod tests {
             shape(&tool_image),
             "tool_image 的返回形状变了",
         );
-        let file_img = crate::attachments::file_image(
-            root.display().to_string(),
-            "chart.png".into(),
-        )
-        .await
-        .expect("项目图片应能读取");
-        check_contract(
-            "file_image",
-            shape(&file_img),
-            "file_image 的返回形状变了",
-        );
+        let file_img =
+            crate::attachments::file_image(root.display().to_string(), "chart.png".into())
+                .await
+                .expect("项目图片应能读取");
+        check_contract("file_image", shape(&file_img), "file_image 的返回形状变了");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

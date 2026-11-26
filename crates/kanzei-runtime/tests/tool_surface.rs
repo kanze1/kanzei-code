@@ -4,12 +4,12 @@ mod tool_surface_budget {
     use std::path::PathBuf;
     use std::sync::Arc;
 
-    // Includes core's task tool; desktop additionally supplies collaboration_status.
-    const AUTO_RESIDENT_TOOL_BUDGET: usize = 16;
-    const PAIR_RESIDENT_TOOL_BUDGET: usize = 15;
-    // Includes the two Markdown skill discovery/read tools.
-    const AUTO_DEFERRED_TOOL_BUDGET: usize = 19;
-    const PAIR_DEFERRED_TOOL_BUDGET: usize = 20;
+    // Includes core's task tool.
+    const AUTO_RESIDENT_TOOL_BUDGET: usize = 13;
+    const PAIR_RESIDENT_TOOL_BUDGET: usize = 13;
+    // Includes browser, process, sandbox, files, memory_note, memory_stats, skill_list, skill_read.
+    const AUTO_DEFERRED_TOOL_BUDGET: usize = 8;
+    const PAIR_DEFERRED_TOOL_BUDGET: usize = 8;
 
     /// readonly 档:只读分析,面应当明显更小。
     ///
@@ -217,12 +217,18 @@ mod tool_surface_budget {
     }
 
     #[test]
-    fn paired_management_tools_are_discoverable_without_loading_their_schemas() {
+    fn deferred_tools_are_discoverable_without_loading_their_schemas() {
         for profile in [ProfileKind::DevPair, ProfileKind::DevAuto] {
             let snapshot = surface(profile);
             let resident: Vec<_> = snapshot.resident_tools().iter().map(|t| t.name()).collect();
             let catalog = snapshot.deferred_catalog().unwrap();
-            for name in ["req", "defect", "test_record", "memory_note"] {
+            for name in [
+                "memory_note",
+                "memory_stats",
+                "browser",
+                "process",
+                "sandbox",
+            ] {
                 assert!(
                     !resident.contains(&name),
                     "{profile:?} eagerly loads {name}"
@@ -230,11 +236,6 @@ mod tool_surface_budget {
                 assert!(snapshot.is_deferred(name), "{name} must remain available");
                 assert!(catalog.contains(&format!("- {name} —")));
             }
-            assert_eq!(resident.contains(&"work"), profile == ProfileKind::DevAuto);
-            assert_eq!(
-                snapshot.is_deferred("work"),
-                profile == ProfileKind::DevPair
-            );
             for name in [
                 "read",
                 "write",

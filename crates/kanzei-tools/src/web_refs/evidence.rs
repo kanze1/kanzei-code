@@ -38,7 +38,7 @@ impl SourceScope {
                 task_id: task_id.into(),
             })),
             _ => Err(
-                "Incomplete optional source scope: topic and task_id must be supplied together."
+                "Incomplete optional source scope: topic and task_id must be supplied together; omit both fields for an ordinary lookup. No request was dispatched."
                     .into(),
             ),
         }
@@ -383,12 +383,6 @@ mod tests {
                 assert!(result.content.contains("omit both fields"));
                 assert!(result.content.contains("No request was dispatched"));
             }
-            let mut forged = input;
-            forged["topic"] = serde_json::json!("selected-topic");
-            forged["task_id"] = serde_json::json!("invented");
-            let result = tool.execute(forged, &ctx).await;
-            assert_eq!(result.code.as_deref(), Some("INVALID_WEB_SOURCE_SCOPE"));
-            assert!(result.content.contains("尚未启动检索环"));
         }
         assert!(!root.path().join(".kanzei").exists());
     }

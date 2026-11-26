@@ -31,8 +31,8 @@ pub(crate) async fn file_image(project_dir: String, path: String) -> Result<Valu
     let raw = Path::new(&path);
     let rel = if raw.is_absolute() {
         let canon_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
-        let canon_raw = std::fs::canonicalize(raw)
-            .map_err(|error| format!("路径不可解析: {error}"))?;
+        let canon_raw =
+            std::fs::canonicalize(raw).map_err(|error| format!("路径不可解析: {error}"))?;
         canon_raw
             .strip_prefix(&canon_root)
             .map_err(|_| format!("拒绝读取项目根之外的文件: {}", canon_raw.display()))?

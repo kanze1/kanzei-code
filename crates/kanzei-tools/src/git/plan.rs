@@ -154,7 +154,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(plan.affected_crates, vec!["kanzei-app"]);
-        assert_eq!(plan.test_command.as_deref(), Some("cargo test -p kanzei-app"));
+        assert_eq!(
+            plan.test_command.as_deref(),
+            Some("cargo test -p kanzei-app")
+        );
         assert_eq!(plan.safe_stage_set, vec!["crates/kanzei-app/src/lib.rs"]);
         assert!(plan.ready);
         std::fs::remove_dir_all(root).ok();

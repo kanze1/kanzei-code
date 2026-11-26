@@ -507,8 +507,7 @@ fn agent_model_for(
             project_root,
             config: std::sync::Arc::new(merged.clone()),
         };
-        let snapshot =
-            crate::run::assembly::build_run_harness(ctx.profile).resolve(&ctx)?;
+        let snapshot = crate::run::assembly::build_run_harness(ctx.profile).resolve(&ctx)?;
         let agent = snapshot.select_primary_agent(agent.filter(|a| !a.trim().is_empty()))?;
         Ok((agent.name.clone(), agent.model.clone()))
     };
@@ -1195,10 +1194,9 @@ mod tests {
                                 project_root: project.clone(),
                                 config: std::sync::Arc::new(config.clone()),
                             };
-                            let snapshot =
-                                crate::run::assembly::build_run_harness(ctx.profile)
-                                    .resolve(&ctx)
-                                    .unwrap();
+                            let snapshot = crate::run::assembly::build_run_harness(ctx.profile)
+                                .resolve(&ctx)
+                                .unwrap();
                             let agent = snapshot.select_primary_agent(None).unwrap().clone();
                             let reference = kanzei_harness::config::resolve_model_chain(
                                 line.model.as_deref(),

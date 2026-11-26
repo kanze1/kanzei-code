@@ -23,7 +23,6 @@ mod tool_search_deferred_loading;
 
 mod cooperative_halt;
 mod ctrl_c_finalize;
-mod d364_concurrent_doc_add;
 mod d368_concurrent_memory_write;
 mod global_home_guard;
 mod incomplete_stream;
@@ -32,4 +31,3 @@ mod memory_hints_not_persisted;
 mod parallel_scouting_under_serial_writer;
 mod session_execution_owner;
 mod task_cancel_parallel;
-mod worktree_main_root;

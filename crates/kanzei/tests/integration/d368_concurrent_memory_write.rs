@@ -80,7 +80,7 @@ async fn 真bash围栏窗口内并发memory_add等待后落盘不被误回滚() 
     };
     // 桌面自举轮形态:bash 命令(1.5s)与专用 memory 写者并发,收口再取共享锁对账。
     let bash = tokio::spawn(async move {
-        kanzei_tools::bash::BashTool::default()
+        kanzei_tools::bash::BashTool
             .execute(
                 serde_json::json!({ "command": "Start-Sleep -Milliseconds 1500" }),
                 &ctx,

@@ -12,8 +12,7 @@ mod evidence;
 #[cfg(test)]
 pub use evidence::acquisition_for_url;
 pub use evidence::{
-    record_acquisition, record_search, AcquisitionMethod, SourceScope,
-    WebAcquisition, WebArtifact,
+    record_acquisition, record_search, AcquisitionMethod, SourceScope, WebAcquisition, WebArtifact,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
