@@ -3,7 +3,6 @@ import { escapeHtml } from "./04-markdown.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { renderingBackground } from "./01-chat-panes.js";
-import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -54,7 +53,7 @@ export function renderDiffSummary() {
   const deletions = files.reduce((sum, item) => sum + item.deletions, 0);
   label.classList.toggle("hidden", files.length === 0);
   label.innerHTML = files.length
-    ? `  ${files.length} ${escapeHtml(t("文件"))} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
+    ? `  ${files.length} ${escapeHtml("文件")} <span class="diff-add">+${additions}</span>/<span class="diff-del">−${deletions}</span>`
     : "";
   const expanded = files.length > 0 && layoutPref("activity_diff", activeSessionId || "default") === true;
   panel.classList.toggle("hidden", !expanded);
@@ -165,7 +164,7 @@ export function orchPhaseOf(input) {
 export function orchPhaseLabel(phase) {
   // 写成两个字面量调用而不是查表:i18n 冒烟只扫源码里带字符串常量的翻译调用,
   // 查表写法(t(MAP[phase]))会整条绕过 key 覆盖率检查,英文界面上就地漏译。
-  return phase === "scouting" ? t("勘察") : t("复核");
+  return phase === "scouting" ? "勘察" : "复核";
 }
 export function isActivityTool(name) {
   return bgIsTerminal(name);
@@ -299,7 +298,7 @@ export function renderBgSections() {
 export function recordDiffSummary(display) {
   if (display?.kind !== "diff") return;
   diffSummary.set(display.path || `#${diffSummary.size + 1}`, {
-    path: display.path || t("未命名文件"),
+    path: display.path || "未命名文件",
     additions: display.additions || 0,
     deletions: display.deletions || 0,
   });
@@ -344,7 +343,7 @@ export function bgAdd(id, name, summary, input, sessionId = activeSessionId) {
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
-  title.setAttribute("aria-label", t("展开或收起活动详情"));
+  title.setAttribute("aria-label", "展开或收起活动详情");
   title.setAttribute("aria-expanded", "false");
   // 工具名与目标分开呈现:此前拼成一行长文本被 ellipsis 截断,看不出改的是哪个文件、
   // 跑的是哪条命令——"打开也没啥用"的直接原因(R-095 验收 ⑤)。
@@ -421,14 +420,14 @@ export function bgRenderActions(id, entry) {
   };
   if (!entry.done && (entry.type === "agent" || entry.type === "terminal")) {
     const terminalProcessId = entry.input?.process_id ?? entry.input?.processId ?? (entry.name === "process" ? entry.input?.id : null);
-    add(t("停止"), entry.name === "task" || terminalProcessId ? t("只停这一条,不影响本轮其它工具") : t("停止"), async () => {
+    add("停止", entry.name === "task" || terminalProcessId ? "只停这一条,不影响本轮其它工具" : "停止", async () => {
       try {
         // 后台进程有独立句柄可单独停;子代理没有单条停止通道,只能停整轮。
         if (entry.name === "bash" || entry.name === "process") {
           const pid = terminalProcessId;
           if (pid) {
             const stopped = await invoke("run_tool_process_stop", { projectDir: entry.projectDir || currentProject, processId: String(pid) });
-            toast(stopped ? t("已停止该后台终端") : t("已结束"));
+            toast(stopped ? "已停止该后台终端" : "已结束");
             return;
           }
         }
@@ -436,31 +435,31 @@ export function bgRenderActions(id, entry) {
           || (entry.sessionId === activeSessionId ? activeProcessId : null);
         if (entry.name === "task") {
           await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(id) });
-          toast(t("已请求停止该子代理"));
+          toast("已请求停止该子代理");
         } else {
           await invoke("stop_run", { projectDir: currentProject, processId });
-          toast(t("已请求停止"));
+          toast("已请求停止");
         }
       } catch (error) {
-        toastError(`${t("停止失败")}:${error}`);
+        toastError(`${"停止失败"}:${error}`);
       }
     });
   }
   if (entry.done) {
-    add(t("重跑"), t("把这次调用的参数填回输入框,确认后再执行"), () => {
+    add("重跑", "把这次调用的参数填回输入框,确认后再执行", () => {
       // 不直接重放:工具调用有副作用,必须经用户确认。填回输入框是最轻的确认方式。
       const text = `重跑这次调用:${entry.name} ${entry.summary}\n参数:\n${JSON.stringify(entry.input ?? {}, null, 2)}`;
       $("prompt").value = text;
       $("prompt").focus();
-      toast(t("已填入输入框,确认后发送"));
+      toast("已填入输入框,确认后发送");
     });
   }
   if (bgIsTerminal(entry.name)) {
-    add(t("复制"), t("复制完整输出"), async () => {
+    add("复制", "复制完整输出", async () => {
       await navigator.clipboard.writeText(bgPlainText(entry));
-      toast(t("已复制"), { kind: "ok" });
+      toast("已复制", { kind: "ok" });
     });
-    add(t("导出"), t("把完整输出存成文件"), () => {
+    add("导出", "把完整输出存成文件", () => {
       const blob = new Blob([bgPlainText(entry)], { type: "text/plain;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -468,7 +467,7 @@ export function bgRenderActions(id, entry) {
       a.download = `${entry.name}-${id}.txt`.replace(/[^\w.-]/g, "_");
       a.click();
       URL.revokeObjectURL(url);
-      toast(t("已导出"));
+      toast("已导出");
     });
   }
 }
@@ -521,20 +520,20 @@ export function renderDiff(display, { compact = false } = {}) {
   const header = document.createElement("div");
   header.className = "diff-file-header";
   const label = document.createElement("span");
-  label.textContent = `${display.path || t("文件")}  +${display.additions || 0} −${display.deletions || 0}  ${display.language || "text"}`;
+  label.textContent = `${display.path || "文件"}  +${display.additions || 0} −${display.deletions || 0}  ${display.language || "text"}`;
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "ghost mini";
-  toggle.setAttribute("aria-label", t("切换差异并排或统一视图"));
+  toggle.setAttribute("aria-label", "切换差异并排或统一视图");
   toggle.setAttribute("aria-pressed", "false");
-  toggle.textContent = t("并排");
+  toggle.textContent = "并排";
   header.append(label, toggle);
   const body = document.createElement("div");
   body.className = "diff-body";
   const sourceLines = display.lines?.length ? display.lines : (display.diff || "").split("\n").filter(Boolean).map((text) => ({ kind: text[0] === "+" ? "add" : text[0] === "-" ? "del" : "ctx", text: text.slice(1) }));
   const lines = compact ? compactDiffLines(sourceLines) : sourceLines;
   function omittedLabel(count) {
-    return `… ${count} ${t("行上下文已省略")}`;
+    return `… ${count} ${"行上下文已省略"}`;
   }
   function render() {
     body.innerHTML = "";
@@ -599,7 +598,7 @@ export function renderDiff(display, { compact = false } = {}) {
   }
   toggle.addEventListener("click", () => {
     mode = mode === "unified" ? "split" : "unified";
-    toggle.textContent = mode === "unified" ? t("并排") : t("统一");
+    toggle.textContent = mode === "unified" ? "并排" : "统一";
     toggle.setAttribute("aria-pressed", String(mode === "split"));
     render();
   });
@@ -624,7 +623,7 @@ export function appendDisplayBlock(parent, display, { compact = false, name = ""
   } else if (display.kind === "create") {
     const block = document.createElement("div");
     block.className = "tool-display term";
-    block.textContent = `${t("新建")} ${display.path}(${display.bytes} bytes)\n${stripAnsi(display.preview)}`;
+    block.textContent = `${"新建"} ${display.path}(${display.bytes} bytes)\n${stripAnsi(display.preview)}`;
     parent.appendChild(block);
   } else if (display.kind === "truncated" && display.preview) {
     // 原工具没有 display 时后端才发 kind=truncated:没有终端块可保,预览单独成块。
@@ -653,39 +652,39 @@ export function quotaTruncation(display) {
 export function quotaNoticeHeadline(info) {
   switch (String(info?.reason ?? "")) {
     case "artifact_quota_exceeded":
-      return t("工具结果存储已满,本次输出已截断");
+      return "工具结果存储已满,本次输出已截断";
     case "quota_lock_unavailable":
-      return t("工具结果暂时无法外置(存储锁繁忙),本次输出已截断");
+      return "工具结果暂时无法外置(存储锁繁忙),本次输出已截断";
     case "quota_unmeasurable":
-      return t("无法计量工具结果存储,本次输出已截断");
+      return "无法计量工具结果存储,本次输出已截断";
     default:
-      return t("工具结果无法外置,本次输出已截断");
+      return "工具结果无法外置,本次输出已截断";
   }
 }
 
 function quotaReasonLabel(code) {
-  if (code === "artifact_quota_exceeded") return t("工具结果存储达到配额");
-  if (code === "quota_lock_unavailable") return t("存储锁繁忙");
-  if (code === "quota_unmeasurable") return t("存储占用无法计量");
+  if (code === "artifact_quota_exceeded") return "工具结果存储达到配额";
+  if (code === "quota_lock_unavailable") return "存储锁繁忙";
+  if (code === "quota_unmeasurable") return "存储占用无法计量";
   return "";
 }
 
 function quotaNoticeHint(code) {
   if (code === "artifact_quota_exceeded") {
-    return t("释放空间:到「设置 → 存储整理」点「整理存储」(只清理没有被引用的工具结果文件),或在侧栏右键「删除对话…」删掉不再需要的对话,然后重试");
+    return "释放空间:到「设置 → 存储整理」点「整理存储」(只清理没有被引用的工具结果文件),或在侧栏右键「删除对话…」删掉不再需要的对话,然后重试";
   }
   if (code === "quota_lock_unavailable") {
-    return t("存储锁通常只是被并行任务短暂占用,稍后重试即可;不需要清理历史对话");
+    return "存储锁通常只是被并行任务短暂占用,稍后重试即可;不需要清理历史对话";
   }
   if (code === "quota_unmeasurable") {
-    return t("读取工具结果存储目录(.kanzei/artifacts/tool-results)的占用失败,确认该目录可访问、且其中没有符号链接后重试;不需要清理历史对话");
+    return "读取工具结果存储目录(.kanzei/artifacts/tool-results)的占用失败,确认该目录可访问、且其中没有符号链接后重试;不需要清理历史对话";
   }
   return "";
 }
 
 // 计量失败时后端给 null:显示「未知」,不能让 formatBytes 把它画成 "0 B"。
 function quotaBytesText(bytes) {
-  return typeof bytes === "number" && Number.isFinite(bytes) ? formatBytes(bytes) : t("未知");
+  return typeof bytes === "number" && Number.isFinite(bytes) ? formatBytes(bytes) : "未知";
 }
 
 export function renderQuotaNotice(info) {
@@ -701,8 +700,8 @@ export function renderQuotaNotice(info) {
   usage.className = "quota-notice-usage";
   const label = quotaReasonLabel(code);
   const reason = label ? `${label} (${code})` : code;
-  const bits = [`${t("已用")} ${quotaBytesText(info.storage_used_bytes)} / ${t("配额")} ${quotaBytesText(info.quota_bytes)}`];
-  if (reason) bits.push(`${t("原因")}: ${reason}`);
+  const bits = [`${"已用"} ${quotaBytesText(info.storage_used_bytes)} / ${"配额"} ${quotaBytesText(info.quota_bytes)}`];
+  if (reason) bits.push(`${"原因"}: ${reason}`);
   usage.textContent = bits.join("  ");
   box.append(head, usage);
   const hintText = quotaNoticeHint(code);
@@ -819,18 +818,18 @@ export function bgEnd(id, ok, preview, display, outcome, extra = {}) {
     : Date.now() - entry.startedAt;
   const elapsed = formatDuration(ms);
   const statusText = view.state === "noop"
-    ? `↪ ${t("无需修改")}`
+    ? `↪ ${"无需修改"}`
     : view.state === "needs_confirmation"
-      ? `⚠ ${t("需要确认")}`
+      ? `⚠ ${"需要确认"}`
       : view.state === "needs_correction"
-        ? `⚠ ${t("需要修正")}`
+        ? `⚠ ${"需要修正"}`
         : view.state === "blocked_by_workflow"
-          ? `Ⅱ ${t("流程暂缓")}`
+          ? `Ⅱ ${"流程暂缓"}`
         : ok
-          ? `✓ ${t("成功")}`
+          ? `✓ ${"成功"}`
           : timedOut
-            ? `⏱ ${t("超时")}`
-            : `✕ ${t("失败")}`;
+            ? `⏱ ${"超时"}`
+            : `✕ ${"失败"}`;
   entry.meta.textContent = [statusText, elapsed].join("  ");
   // 结构化详情进侧栏内展开区(diff/终端/新建/todo)。
   const d = display;
@@ -891,7 +890,7 @@ export function renderRecoveredTraces(payloads) {
         if (bgQuiet(event.name)) {
           bgStartQuiet(event.id, event.name, event.summary || "", null);
         } else if (!bgEntries.has(event.id)) {
-          bgAdd(event.id, event.name, event.summary || t("历史轨迹"), null, activeSessionId);
+          bgAdd(event.id, event.name, event.summary || "历史轨迹", null, activeSessionId);
           markReplay(event.id);
         }
       } else if (event.kind === "tool.completed") {
@@ -915,12 +914,12 @@ export function renderRecoveredTraces(payloads) {
           ? toolResultSummary(entry.name, { ok: !failed, outcome: event.outcome, code: event.code, preview: event.preview ?? "", input: entry.input ?? undefined }).text
           : "";
         entry.prog.textContent = traceSummary
-          || (failed && event.error ? cleanInline(event.error, toolRoots()) : t("历史轨迹"));
+          || (failed && event.error ? cleanInline(event.error, toolRoots()) : "历史轨迹");
         const seconds = Number(event.durationMs);
         entry.meta.textContent =
           Number.isFinite(seconds) && seconds >= 1000
-            ? `${t("回放")}  ${Math.round(seconds / 1000)}s`
-            : t("回放");
+            ? `${"回放"}  ${Math.round(seconds / 1000)}s`
+            : "回放";
         bgPlace(entry);
         bgRenderActions(event.id, entry);
       }
@@ -947,8 +946,8 @@ export function renderRecoveredTraces(payloads) {
     entry.el.classList.remove("running");
     entry.el.classList.add("err");
     entry.el.dataset.bgStatus = "err";
-    entry.prog.textContent = t("历史轨迹");
-    entry.meta.textContent = `${t("回放")}  ${t("无结果(轮次中断)")}`;
+    entry.prog.textContent = "历史轨迹";
+    entry.meta.textContent = `${"回放"}  ${"无结果(轮次中断)"}`;
     bgPlace(entry);
     bgRenderActions(id, entry);
   }
@@ -1004,8 +1003,8 @@ export function syncDynamicUiLanguage() {
   for (const [id, source] of liveTextSources) {
     const el = $(id);
     if (!el) continue;
-    el.textContent = localizeDynamic(source);
-    el.title = localizeDynamic(source);
+    el.textContent = source;
+    el.title = source;
   }
   if (!$("context-detail")?.classList.contains("hidden")) renderContextDetail();
   renderAutoStatus(autoStopReason);
@@ -1025,15 +1024,15 @@ export function liveSet(id, text) {
   liveTextSources.set(id, source);
   if (!el) return;
   el.classList.remove("hidden");
-  el.textContent = localizeDynamic(source);
-  el.title = localizeDynamic(source);
+  el.textContent = source;
+  el.title = source;
 }
 export function liveIdle(label) {
   const turn = $("live-turn");
   const source = String(label ?? "");
   liveTextSources.set("live-turn", source);
   if (turn) {
-    turn.textContent = localizeDynamic(source);
+    turn.textContent = source;
     turn.classList.remove("hidden");
     turn.classList.add("dim");
   }
@@ -1044,7 +1043,7 @@ export function liveTurn(text) {
   const source = String(text ?? "");
   liveTextSources.set("live-turn", source);
   if (turn) {
-    turn.textContent = localizeDynamic(source);
+    turn.textContent = source;
     turn.classList.remove("hidden");
     turn.classList.remove("dim");
   }
@@ -1210,23 +1209,23 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
   card.classList.remove("hidden");
   const taskList = [...audit.tasks.values()];
   const failures = taskList.filter((task) => task.status === "failed" || task.status === "timeout");
-  const stateLabel = audit.state === "failed" ? t("运行失败") : audit.state === "stopped" ? t("运行已停止") : t("运行完成");
+  const stateLabel = audit.state === "failed" ? "运行失败" : audit.state === "stopped" ? "运行已停止" : "运行完成";
   $("agent-audit-state").textContent = stateLabel;
   const facts = $("agent-audit-facts");
   facts.replaceChildren(
-    auditFact(t("本对话调用"), `${audit.primaryCalls}  ${formatAuditTokens(audit.primaryTokens)} ${t("token")}`),
-    auditFact(t("子代理派发"), String(taskList.length)),
-    auditFact(t("权限询问"), String(audit.permissionPrompts)),
-    auditFact(t("权限拒绝"), String(audit.permissionDenials)),
+    auditFact("本对话调用", `${audit.primaryCalls}  ${formatAuditTokens(audit.primaryTokens)} ${"token"}`),
+    auditFact("子代理派发", String(taskList.length)),
+    auditFact("权限询问", String(audit.permissionPrompts)),
+    auditFact("权限拒绝", String(audit.permissionDenials)),
   );
   const modelRows = $("agent-audit-models");
   modelRows.replaceChildren();
   const modelTitle = document.createElement("div");
   modelTitle.className = "agent-audit-subtitle";
-  modelTitle.textContent = t("模型调用与 token");
+  modelTitle.textContent = "模型调用与 token";
   modelRows.appendChild(modelTitle);
   const models = new Map();
-  const primaryKey = audit.primaryModel || t("未知模型");
+  const primaryKey = audit.primaryModel || "未知模型";
   models.set(primaryKey, { calls: audit.primaryCalls, tokens: audit.primaryTokens });
   for (const task of taskList) {
     const row = models.get(task.model) || { calls: 0, tokens: 0 };
@@ -1237,7 +1236,7 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
   for (const [model, stats] of models) {
     const row = document.createElement("div");
     row.className = "agent-audit-model";
-    row.textContent = `${model}  ${stats.calls} ${t("调用次数")}  ${formatAuditTokens(stats.tokens)} ${t("token")}`;
+    row.textContent = `${model}  ${stats.calls} ${"调用次数"}  ${formatAuditTokens(stats.tokens)} ${"token"}`;
     modelRows.appendChild(row);
   }
   const failureBox = $("agent-audit-failures");
@@ -1246,18 +1245,18 @@ export function renderAgentAudit(sessionId = agentAuditSession || activeSessionI
   if (failures.length) {
     const title = document.createElement("div");
     title.className = "agent-audit-subtitle";
-    title.textContent = t("失败与超时");
+    title.textContent = "失败与超时";
     failureBox.appendChild(title);
     for (const task of failures) {
       const row = document.createElement("div");
       row.className = `agent-audit-failure ${task.status}`;
-      row.textContent = `${task.label || task.id}  ${task.status === "timeout" ? t("超时") : t("失败")}${task.preview ? `  ${task.preview}` : ""}`;
+      row.textContent = `${task.label || task.id}  ${task.status === "timeout" ? "超时" : "失败"}${task.preview ? `  ${task.preview}` : ""}`;
       failureBox.appendChild(row);
     }
   } else {
     const empty = document.createElement("div");
     empty.className = "agent-audit-empty";
-    empty.textContent = t("无失败或超时");
+    empty.textContent = "无失败或超时";
     failureBox.appendChild(empty);
     failureBox.classList.remove("hidden");
   }
@@ -1274,12 +1273,12 @@ export function agentAuditFinish(sessionId, state = "completed") {
 // D-278:子代理就绪文案——设置页 fast 行与侧边栏子代理面板共用同一计算,避免两处漂移。
 // s 来自 fast_model_status 的载荷:managed/ready/model/installed/serviceUp。
 export function fastStatusText(s) {
-  if (!s.managed) return { text: t("fast 指向外部 provider,不由本机托管"), warn: false };
-  if (s.ready) return { text: `✓ ${t("fast 模型就绪")}(${s.model})`, warn: false };
+  if (!s.managed) return { text: "fast 指向外部 provider,不由本机托管", warn: false };
+  if (s.ready) return { text: `✓ ${"fast 模型就绪"}(${s.model})`, warn: false };
   const missing = !s.installed
-    ? t("Ollama 未安装")
+    ? "Ollama 未安装"
     : !s.serviceUp
-      ? t("Ollama 服务未运行")
-      : `${t("模型未拉取")}(${s.model})`;
-  return { text: `⚠ ${missing} — ${t("子代理杂活(记忆整理/快速记录)暂不可用")}`, warn: true };
+      ? "Ollama 服务未运行"
+      : `${"模型未拉取"}(${s.model})`;
+  return { text: `⚠ ${missing} — ${"子代理杂活(记忆整理/快速记录)暂不可用"}`, warn: true };
 }

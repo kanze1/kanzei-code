@@ -3,7 +3,6 @@ import { registerLeaveGuard, leaveGuardStatus, onLeaveGuardChange } from "./00-l
 import { $, defer } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { languageIsEnglish, t } from "./02-i18n.js";
 import { currentProject, currentTheme, log, toast, toastError } from "./03-shell.js";
 
 // ---------- 文件页编辑(UI2-0926 #6「文件浏览要带编辑功能，而且也是做成可拖拽伸缩的」) ----------
@@ -31,16 +30,15 @@ export const READONLY_TEXT = {
   unknown: "后端没有返回内容指纹,无法安全保存(请更新 kzapp)",
 };
 export function readonlyText(code) {
-  return t(READONLY_TEXT[code] ?? READONLY_TEXT.unknown);
+  return READONLY_TEXT[code] ?? READONLY_TEXT.unknown;
 }
 // 后端 Err("READONLY:<code>") → 原因码;其余错误原样。
 function readonlyCodeOf(error) {
   const match = /READONLY:([a-z]+)/.exec(String(error ?? ""));
   return match ? match[1] : null;
 }
-// 「标签:内容」:中文紧贴全角习惯的半角冒号,英文冒号后留一个空格("Save refused: …")。
 function labelled(key, text) {
-  return `${t(key)}${languageIsEnglish() ? ": " : ":"}${text}`;
+  return `${key}:${text}`;
 }
 function errorText(error) {
   const code = readonlyCodeOf(error);
@@ -77,9 +75,8 @@ function defaultMonacoLoader() {
         globalThis.MonacoEnvironment = { ...globalThis.MonacoEnvironment, getWorkerUrl: () => workerUrl };
         window.require(["vs/editor/editor.main"], () => resolve(window.monaco), reject);
       };
-      // The bundled translation is an AMD module: load it after the loader, before the editor.
-      if (languageIsEnglish()) boot();
-      else window.require(["vs/nls.messages.zh-cn"], boot, boot);
+      // 加载内置中文语言包后再启动 Monaco 编辑器。
+      window.require(["vs/nls.messages.zh-cn"], boot, boot);
     };
     script.onerror = () => reject(new Error("monaco loader load failed"));
     document.head.appendChild(script);
@@ -180,12 +177,12 @@ function setText(el, text) {
 }
 function metaText(doc) {
   if (!doc) return "";
-  if (doc.binary) return `${t("二进制文件")}  ${humanSize(doc.size)}`;
+  if (doc.binary) return `${"二进制文件"}  ${humanSize(doc.size)}`;
   const parts = [humanSize(doc.size)];
   if (doc.encoding === "utf-8") parts.push(doc.bom ? "UTF-8 BOM" : "UTF-8");
   parts.push(doc.eol === "crlf" ? "CRLF" : "LF");
-  if (doc.truncated) parts.push(t("已截断预览前 4MB"));
-  if (doc.mixedEol && !doc.readonly) parts.push(`${t("混合换行,保存时统一为")} ${doc.eol === "crlf" ? "CRLF" : "LF"}`);
+  if (doc.truncated) parts.push("已截断预览前 4MB");
+  if (doc.mixedEol && !doc.readonly) parts.push(`${"混合换行,保存时统一为"} ${doc.eol === "crlf" ? "CRLF" : "LF"}`);
   return parts.join("  ");
 }
 export function renderFilesHead() {
@@ -220,24 +217,24 @@ export function renderFilesHead() {
   if (reason) {
     setText($("files-readonly-text"), doc.readonly
       ? labelled("只读", readonlyText(doc.readonly))
-      : `${labelled("保存被拒", readonlyText(doc.blocked))}  ${t("你的修改还在编辑器里,可以复制出来;处理好之后再保存,或放弃修改")}`);
+      : `${labelled("保存被拒", readonlyText(doc.blocked))}  ${"你的修改还在编辑器里,可以复制出来;处理好之后再保存,或放弃修改"}`);
     const goto = $("files-readonly-goto");
     const memory = /^\.kanzei\/memory\//i.test(doc.path);
     show(goto, reason === "managed");
     goto.dataset.view = memory ? "memory" : "documents";
-    setText(goto, memory ? t("打开记忆页") : t("打开需求页"));
+    setText(goto, memory ? "打开记忆页" : "打开需求页");
   }
   // 冲突横幅。
   const conflict = doc.conflict;
   show($("files-conflict"), Boolean(conflict));
   if (conflict) {
     setText($("files-conflict-text"), conflict.exists
-      ? t("磁盘上的文件在你打开之后被改动过(可能是代理或其它程序)。你的修改还在编辑器里,选一个处理方式:")
-      : t("这个文件已在磁盘上被删除。你的修改还在编辑器里:"));
+      ? "磁盘上的文件在你打开之后被改动过(可能是代理或其它程序)。你的修改还在编辑器里,选一个处理方式:"
+      : "这个文件已在磁盘上被删除。你的修改还在编辑器里:");
     show($("files-compare"), conflict.exists);
     $("files-compare").setAttribute("aria-pressed", compare ? "true" : "false");
-    setText($("files-use-disk"), conflict.exists ? t("用磁盘版本") : t("放弃修改"));
-    setText($("files-overwrite"), conflict.exists ? t("覆盖磁盘版本") : t("重新创建"));
+    setText($("files-use-disk"), conflict.exists ? "用磁盘版本" : "放弃修改");
+    setText($("files-overwrite"), conflict.exists ? "覆盖磁盘版本" : "重新创建");
     for (const id of ["files-compare", "files-use-disk", "files-overwrite"]) $(id).disabled = Boolean(doc.saving);
   }
   show($("files-compare-head"), Boolean(compare));
@@ -405,7 +402,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
   try {
     if (!preview) preview = await invoke("file_preview", { projectDir: root, path });
     if (!canApply()) return false;
-    if (!preview || typeof preview !== "object") throw new Error(t("后端没有返回文件内容"));
+    if (!preview || typeof preview !== "object") throw new Error("后端没有返回文件内容");
   } catch (error) {
     if (!canApply()) return false;
     // 重载时读盘失败(多半是刚被删了):编辑器里还有未保存的修改就绝不释放,改成「已删除」冲突让用户选。
@@ -438,11 +435,11 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
     disposeModel(detached);
     filesDoc = doc;
     renderFilesHead();
-    showPlaceholder(`${t("二进制文件")}  ${humanSize(doc.size)}`);
+    showPlaceholder(`${"二进制文件"}  ${humanSize(doc.size)}`);
     void showImageIfAny(doc, isCurrent);
     return true;
   }
-  if (!filesEditor) showPlaceholder(t("正在加载编辑器…"));
+  if (!filesEditor) showPlaceholder("正在加载编辑器…");
   let monaco;
   try {
     await filesLeaveGuard.ready();
@@ -496,7 +493,7 @@ async function loadDoc(root, path, { line = 0, keep = false, note = "", preview:
     applyingDisk = false;
   }
   if (draft) {
-    toast(t("已恢复未保存的修改"), { kind: "info" });
+    toast("已恢复未保存的修改", { kind: "info" });
     scheduleDraftPersist(); // 草稿与磁盘现状一致(没变脏)就清掉磁盘副本,仍有差异就刷新一次
   }
   syncNote = note;
@@ -516,16 +513,16 @@ export async function confirmLeaveDirty(where = "switch") {
     const blocked = doc.blocked;
     const closing = where === "close";
     const choice = await confirmDialog(blocked ? {
-      title: t("未保存的修改"),
-      message: `${doc.path} ${t("有未保存的修改,但保存被拒")}`,
-      list: [readonlyText(blocked), closing ? t("关闭会丢掉这些修改;要留着就先取消,把内容复制出来。") : t("切换会丢掉这些修改;要留着就先取消,把内容复制出来。")],
-      okText: t("不保存"),
+      title: "未保存的修改",
+      message: `${doc.path} ${"有未保存的修改,但保存被拒"}`,
+      list: [readonlyText(blocked), closing ? "关闭会丢掉这些修改;要留着就先取消,把内容复制出来。" : "切换会丢掉这些修改;要留着就先取消,把内容复制出来。"],
+      okText: "不保存",
       danger: true,
     } : {
-      title: t("未保存的修改"),
-      message: `${doc.path} ${closing ? t("有未保存的修改。关闭前要保存吗?") : t("有未保存的修改。切换前要保存吗?")}`,
-      okText: t("保存"),
-      safeText: t("不保存"),
+      title: "未保存的修改",
+      message: `${doc.path} ${closing ? "有未保存的修改。关闭前要保存吗?" : "有未保存的修改。切换前要保存吗?"}`,
+      okText: "保存",
+      safeText: "不保存",
     });
     if (choice === false) return false; // 取消:留在原文件,树高亮不动
     if (filesDoc !== doc) return false;
@@ -568,7 +565,7 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
   }
   if (doc.conflict && !overwrite) {
     // 冲突未决时普通保存一定被拒:明说该点哪里,不让 Ctrl+S 静默失败。
-    toast(t("磁盘上的版本已变:先在横幅里选「覆盖磁盘版本」或「用磁盘版本」"), { kind: "warn" });
+    toast("磁盘上的版本已变:先在横幅里选「覆盖磁盘版本」或「用磁盘版本」", { kind: "warn" });
     $("files-overwrite")?.focus?.();
     return false;
   }
@@ -585,10 +582,10 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
     if (filesDoc !== doc) return false;
     if (result?.status === "conflict") {
       doc.conflict = { hash: result.hash ?? null, exists: result.exists !== false };
-      if (overwrite) toast(t("磁盘上的版本又变了,已刷新冲突信息,请重新选择"), { kind: "warn" });
+      if (overwrite) toast("磁盘上的版本又变了,已刷新冲突信息,请重新选择", { kind: "warn" });
       return false;
     }
-    if (result?.status !== "saved") throw new Error(t("后端没有确认写入"));
+    if (result?.status !== "saved") throw new Error("后端没有确认写入");
     doc.hash = result.hash;
     doc.size = Number(result.size) || 0;
     doc.mtimeMs = result.mtimeMs ?? null;
@@ -600,7 +597,7 @@ export async function saveFilesDoc({ overwrite = false } = {}) {
     void clearDiskDraft(doc.root, doc.path);
     if (version !== model.getAlternativeVersionId()) scheduleDraftPersist(); // 保存期间又打了字:那部分仍是未保存,草稿要重新落盘
     syncNote = "";
-    toast(result.evidence ? `${t("已保存")}  ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : t("已保存"), { kind: "ok" });
+    toast(result.evidence ? `${"已保存"}  ${labelled("被覆盖的磁盘版本已留证", result.evidence)}` : "已保存", { kind: "ok" });
     hooks.onSaved(doc.path);
     return true;
   } catch (error) {
@@ -635,9 +632,9 @@ export async function discardFilesChanges() {
   if (!filesDoc || !isFilesDirty()) return false;
   const doc = filesDoc;
   const ok = await confirmDialog({
-    title: t("放弃修改"),
-    message: `${t("放弃对这个文件的未保存修改,恢复成磁盘上的版本?")} ${filesDoc.path}`,
-    okText: t("放弃修改"),
+    title: "放弃修改",
+    message: `${"放弃对这个文件的未保存修改,恢复成磁盘上的版本?"} ${filesDoc.path}`,
+    okText: "放弃修改",
     danger: true,
   });
   if (ok !== true || filesDoc !== doc) return false;
@@ -744,7 +741,7 @@ export async function filesWatchTick() {
     }
     // 刚读到的就是新版本:交给 loadDoc 直接用,不再读第二次(第二次读盘途中打的字会被盖掉);
     // ifClean 兜住余下的 await——那期间变脏就进冲突态。
-    await loadDoc(doc.root, doc.path, { keep: true, note: t("已从磁盘更新"), preview, ifClean: true });
+    await loadDoc(doc.root, doc.path, { keep: true, note: "已从磁盘更新", preview, ifClean: true });
     return true;
   } catch {
     return false; // 轮询失败不打扰;下一拍再试
@@ -788,7 +785,7 @@ export function resetFilesDoc() {
   show($("files-image"), false);
   const placeholder = $("files-placeholder");
   if (placeholder) {
-    placeholder.textContent = t("选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明");
+    placeholder.textContent = "选择左侧文件查看内容 目录行显示聚合度量 「用途说明」用 fast 模型生成一句话说明";
     show(placeholder, true);
   }
 }
@@ -807,7 +804,7 @@ const hydratedRoots = new Set(); // 已经从磁盘读回过草稿的树
 function draftFailed(error) {
   if (draftWarned) return;
   draftWarned = true;
-  log(`${t("草稿落盘失败")}:${error}`, "warn");
+  log(`${"草稿落盘失败"}:${error}`, "warn");
 }
 function queueDraftIo(task) {
   draftIo = draftIo.then(task, task);
@@ -873,7 +870,7 @@ export async function hydrateFilesDrafts(root = filesRoot()) {
     drafts.set(key, { content: item.content, hash: typeof item.hash === "string" ? item.hash : null, bom: Boolean(item.bom), eol: item.eol === "crlf" ? "crlf" : "lf" });
     added += 1;
   }
-  if (added) toast(`${added} ${t("个文件有上次没保存的草稿,树上已标出,打开该文件即可恢复")}`, { kind: "info" });
+  if (added) toast(`${added} ${"个文件有上次没保存的草稿,树上已标出,打开该文件即可恢复"}`, { kind: "info" });
   return added;
 }
 
@@ -886,7 +883,7 @@ const filesLeaveGuard = registerLeaveGuard({
   dirty: isFilesDirty,
   flush: persistDraftNow,
   leave: () => confirmLeaveDirty("close"),
-  error: error => log(`${t("关窗确认不可用")}:${error}`, "warn"),
+  error: error => log(`${"关窗确认不可用"}:${error}`, "warn"),
 });
 const syncCloseGuard = () => filesLeaveGuard.sync();
 onLeaveGuardChange(() => { if (filesDoc) applyReadonly(filesDoc); });
@@ -897,22 +894,22 @@ export async function createNewFile() {
   if (!root) return false;
   const base = filesDoc?.path?.includes("/") ? filesDoc.path.slice(0, filesDoc.path.lastIndexOf("/") + 1) : "";
   const value = await inputDialog({
-    title: t("新建文件"),
-    message: t("相对项目根的路径;父目录不存在会自动创建"),
+    title: "新建文件",
+    message: "相对项目根的路径;父目录不存在会自动创建",
     value: base,
     placeholder: "src/new_file.rs",
-    okText: t("创建文件"),
+    okText: "创建文件",
   });
   if (value == null || root !== filesRoot()) return false;
   const path = toProjectRel(value, root);
   if (!path || path.endsWith("/")) {
-    toast(t("请填写文件名"), { kind: "warn" });
+    toast("请填写文件名", { kind: "warn" });
     return false;
   }
   try {
     const result = await invoke("file_write", { projectDir: root, path, content: "", expectedHash: null, bom: false, evidence: false });
     if (root !== filesRoot()) return false;
-    if (result?.status === "conflict") toast(t("文件已存在,已直接打开"), { kind: "info" });
+    if (result?.status === "conflict") toast("文件已存在,已直接打开", { kind: "info" });
     else toast(labelled("已创建", path), { kind: "ok" });
     hooks.onCreated(path);
   } catch (error) {
@@ -956,9 +953,4 @@ defer(() => {
     void saveFilesDoc();
   });
   window.addEventListener("focus", () => void filesWatchTick());
-  // 切语言:头部、横幅按钮、只读原因条的文字都是渲染点 t() 写的(没有 data-i18n-key),Monaco 的只读提示也是。
-  document.addEventListener("kz:language", () => {
-    if (filesDoc) applyReadonly(filesDoc);
-    renderFilesHead();
-  });
 });

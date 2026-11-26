@@ -1,7 +1,6 @@
 import { $, defer } from "./00-dom.js";
 import { confirmDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { memoryProject as currentProject } from "./03-memory-scope.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { toolResultSummary } from "./05-tool-summary.js";
@@ -33,7 +32,7 @@ defer(() => {
       list.replaceChildren();
       const intro = document.createElement("div");
       intro.className = "memory-reader-empty";
-      intro.innerHTML = `<strong>${t("直接说明你想怎么改")}</strong><p>${t("可以讨论内容、精简条目，或合并重复记忆。")}</p>`;
+      intro.innerHTML = `<strong>${"直接说明你想怎么改"}</strong><p>${"可以讨论内容、精简条目，或合并重复记忆。"}</p>`;
       list.appendChild(intro);
     }
     for (const turn of chat.turns) {
@@ -49,7 +48,7 @@ defer(() => {
       const { row, body } = cached;
       if (cached.text !== turn.text) {
         if (turn.role === "user") body.textContent = turn.text;
-        else renderMarkdownInto(body, turn.text || t("正在处理…"));
+        else renderMarkdownInto(body, turn.text || "正在处理…");
         cached.text = turn.text;
       }
       if (turn.changes?.length && cached.changes !== turn.changes) {
@@ -57,7 +56,7 @@ defer(() => {
         const changes = document.createElement("details");
         changes.className = "memory-chat-changes";
         const summary = document.createElement("summary");
-        summary.textContent = `${t("修改记录")}  ${turn.changes.length}`;
+        summary.textContent = `${"修改记录"}  ${turn.changes.length}`;
         changes.appendChild(summary);
         for (const change of turn.changes) {
           const item = document.createElement("p");
@@ -79,9 +78,9 @@ defer(() => {
     context.replaceChildren();
     if (chat.target) {
       const label = document.createElement("span");
-      label.textContent = `${t(chat.target.scope === "global" ? "全局记忆" : "项目记忆")} ${chat.target.id}  ${chat.target.title || ""}`;
+      label.textContent = `${chat.target.scope === "global" ? "全局记忆" : "项目记忆"} ${chat.target.id}  ${chat.target.title || ""}`;
       const clear = document.createElement("button");
-      clear.type = "button"; clear.className = "ghost mini"; clear.textContent = t("取消选择");
+      clear.type = "button"; clear.className = "ghost mini"; clear.textContent = "取消选择";
       clear.addEventListener("click", () => { chat.target = null; render(); });
       context.append(label, clear);
     }
@@ -104,14 +103,14 @@ defer(() => {
     if (chat.loading || (chat.loaded && !chat.externalRequest)) { render(); return chat.loading; }
     clearTimeout(chat.recoveryTimer);
     if (recovery && (project !== currentProject || $("memory-chat").classList.contains("hidden") || !$("view-memory").classList.contains("active"))) return;
-    if (!chat.loaded) chat.status = t("正在加载对话…");
+    if (!chat.loaded) chat.status = "正在加载对话…";
     render();
     chat.loading = (async () => {
       try {
         const result = await invoke("memory_chat_history", { projectDir: project });
         chat.turns = result.messages || []; chat.loaded = true; chat.request = result.requestId || null;
         chat.externalRequest = Boolean(chat.request);
-        chat.status = chat.request ? t("正在处理…") : "";
+        chat.status = chat.request ? "正在处理…" : "";
         if (chat.externalRequest) chat.recoveryTimer = setTimeout(() => { void load(project, true); }, 1500);
         else if (recovery) document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
       } catch (error) { chat.status = String(error); }
@@ -148,7 +147,7 @@ defer(() => {
     const message = input.value.trim();
     if (!project || !message || chat.request || !chat.loaded) return;
     const request = crypto.randomUUID();
-    chat.request = request; chat.status = t("正在处理…"); chat.draft = ""; input.value = "";
+    chat.request = request; chat.status = "正在处理…"; chat.draft = ""; input.value = "";
     chat.turns.push({ role: "user", text: message });
     const reply = { role: "assistant", text: "", changes: [] };
     chat.turns.push(reply);
@@ -156,7 +155,7 @@ defer(() => {
     channel.onmessage = payload => {
       if (chat.request !== request) return;
       if (payload.type === "text") reply.text += payload.text;
-      if (payload.type === "tool") chat.status = `${t("正在处理…")} ${payload.name}`;
+      if (payload.type === "tool") chat.status = `${"正在处理…"} ${payload.name}`;
       scheduleRender(project);
     };
     render(); list.scrollTop = list.scrollHeight;
@@ -164,8 +163,8 @@ defer(() => {
       const result = await invoke("memory_chat_send", { projectDir: project, requestId: request, message,
         target: chat.target ? { scope: chat.target.scope, id: chat.target.id } : null, onEvent: channel });
       reply.text = result.text; reply.changes = result.changes || [];
-      chat.status = result.error ? result.error : result.stopped ? t("已停止") : t("处理完成");
-    } catch (error) { reply.text = `${t("处理失败")}: ${error}`; chat.status = t("处理失败"); }
+      chat.status = result.error ? result.error : result.stopped ? "已停止" : "处理完成";
+    } catch (error) { reply.text = `${"处理失败"}: ${error}`; chat.status = "处理失败"; }
     finally {
       chat.request = null;
       if (project === currentProject) render();
@@ -177,7 +176,7 @@ defer(() => {
     const project = currentProject;
     const chat = conversation(project);
     if (!project || chat.request || !chat.turns.length) return;
-    if (!(await confirmDialog({ title: t("清空管理对话?"), message: t("这段对话的全部记录会被删除，记忆条目不受影响。"), okText: t("清空"), danger: true }))) return;
+    if (!(await confirmDialog({ title: "清空管理对话?", message: "这段对话的全部记录会被删除，记忆条目不受影响。", okText: "清空", danger: true }))) return;
     try {
       await invoke("memory_chat_reset", { projectDir: project });
       chat.turns = [];
@@ -192,7 +191,7 @@ defer(() => {
     if (!chat.request) return;
     try {
       await invoke("memory_chat_stop", { projectDir: project, requestId: chat.request });
-      chat.status = t("正在停止…");
+      chat.status = "正在停止…";
     } catch (error) { chat.status = String(error); }
     if (project === currentProject) render();
   });

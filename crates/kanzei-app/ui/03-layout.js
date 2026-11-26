@@ -9,7 +9,6 @@
 import { bindFrames, installSplit, refreshFrames, setFrameStore } from "./00-frame.js";
 import { $, defer } from "./00-dom.js";
 import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
-import { t } from "./02-i18n.js";
 
 const CACHE_KEY = "kz-ui-layout";
 const FLUSH_MS = 400;
@@ -169,11 +168,11 @@ defer(() => {
   // 文案按当前语言译好传入,词条键一并传入(切语言时经 data-i18n-* 重译)。
   installSplit($("sidebar"), {
     id: "sidebar", side: "right", min: 220, max: 460, key: "kz-sidebar-width",
-    title: t("拖动调整面板宽度"), titleKey: "拖动调整面板宽度", ariaLabel: t("调整面板宽度"), ariaKey: "调整面板宽度",
+    title: "拖动调整面板宽度", titleKey: "拖动调整面板宽度", ariaLabel: "调整面板宽度", ariaKey: "调整面板宽度",
   });
   installSplit($("log-panel"), {
     id: "log", side: "top", min: 80, max: () => Math.round(window.innerHeight * 0.6),
-    title: t("拖动调整面板高度"), titleKey: "拖动调整面板高度", ariaLabel: t("调整面板高度"), ariaKey: "调整面板高度",
+    title: "拖动调整面板高度", titleKey: "拖动调整面板高度", ariaLabel: "调整面板高度", ariaKey: "调整面板高度",
   });
   // UI2-0926 #6:文件树与编辑器之间。上限按文件页自身宽度算,给编辑器留至少 360px(侧栏开合、后台任务侧栏
   // 停靠都会改变文件页宽度);文件页隐藏时量不到宽度,退回窗口一半。
@@ -183,12 +182,12 @@ defer(() => {
       const layoutWidth = $("files-layout")?.getBoundingClientRect?.().width || 0;
       return layoutWidth > 0 ? Math.max(200, Math.round(layoutWidth - 360)) : Math.round(window.innerWidth * 0.5);
     },
-    title: t("拖动调整文件树宽度  双击复位"), titleKey: "拖动调整文件树宽度  双击复位",
-    ariaLabel: t("调整文件树宽度"), ariaKey: "调整文件树宽度",
+    title: "拖动调整文件树宽度  双击复位", titleKey: "拖动调整文件树宽度  双击复位",
+    ariaLabel: "调整文件树宽度", ariaKey: "调整文件树宽度",
   });
   installSplit(document.querySelector("#view-memory .memory-list-pane"), {
     id: "memory", side: "right", min: 200, max: 520,
-    title: t("拖动调整面板宽度"), titleKey: "拖动调整面板宽度", ariaLabel: t("调整面板宽度"), ariaKey: "调整面板宽度",
+    title: "拖动调整面板宽度", titleKey: "拖动调整面板宽度", ariaLabel: "调整面板宽度", ariaKey: "调整面板宽度",
   });
   void uiPrefsLoad().then((prefs) => adoptLayout(prefs?.ui_layout));
   window.addEventListener("pagehide", flushLayout);

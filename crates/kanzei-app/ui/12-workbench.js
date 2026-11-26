@@ -2,7 +2,6 @@ import { openMenu } from "./00-surface.js";
 import { isGeneralChat, syncGeneralChatView } from "./03-general-scope.js";
 import { $, defer } from "./00-dom.js";
 import { invoke, listen } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, processItems, sessionStates, navigate_view, syncBackBars, toastError } from "./03-shell.js";
 import { active_space, switch_workspace, workspace_switch_pending } from "./03-workspaces.js";
 import { enterProject, lastProjectPrefs, projectDisplayName, removeProject, renameProject, shortProjectPath } from "./09-sessions.js";
@@ -30,7 +29,7 @@ export function workbenchNavigationGuard() {
 }
 export function setBrowsingProject(path) { browsingProject = path || null; }
 export function workbenchProject() { return browsingProject || (isGeneralChat() ? null : currentProject || lastProjectPrefs.current); }
-export function lineAuthorityLabel(item) { return item?.worktree_path ? t("独立任务") : t("主对话"); }
+export function lineAuthorityLabel(item) { return item?.worktree_path ? "独立任务" : "主对话"; }
 
 export function renderWorkspace(snapshot = lastWorkspaceSnapshot) {
   const root = $("workspace-projects");
@@ -40,8 +39,8 @@ export function renderWorkspace(snapshot = lastWorkspaceSnapshot) {
   if (!projects.length) {
     const empty = node("div", "workspace-empty");
     empty.append(
-      node("p", "", t("还没有添加项目")),
-      node("p", "dim", t("添加一个已有文件夹或新建项目以开始对话。")),
+      node("p", "", "还没有添加项目"),
+      node("p", "dim", "添加一个已有文件夹或新建项目以开始对话。"),
     );
     root.append(empty);
     return;
@@ -54,20 +53,20 @@ export function renderWorkspace(snapshot = lastWorkspaceSnapshot) {
     const menuBtn = action("⋯", (event) => {
       event.stopPropagation();
       openMenu(event.currentTarget, [
-        { label: t("打开对话"), onSelect: () => void openProjectSpace(project.path, "chat") },
-        { label: `${t("重命名项目")}…`, onSelect: () => void renameProject(project.path).then(() => refreshWorkspace()) },
+        { label: "打开对话", onSelect: () => void openProjectSpace(project.path, "chat") },
+        { label: `${"重命名项目"}…`, onSelect: () => void renameProject(project.path).then(() => refreshWorkspace()) },
         "separator",
-        { label: `${t("移除项目")}…`, danger: true, onSelect: () => void removeProject(project.path).then(() => refreshWorkspace()) },
+        { label: `${"移除项目"}…`, danger: true, onSelect: () => void removeProject(project.path).then(() => refreshWorkspace()) },
       ], { placement: "bottom-end", label: project.name || projectDisplayName(project.path) });
     }, "ghost mini");
-    menuBtn.title = t("项目操作");
+    menuBtn.title = "项目操作";
     head.append(titleBtn, menuBtn);
 
     const meta = node("div", "workspace-card-meta dim");
     const runningCount = Number(project.running_lines) || 0;
     const statusText = project.error
-      ? t("项目目录暂时不可访问")
-      : runningCount > 0 ? `${runningCount} ${t("条运行中")}` : t("空闲");
+      ? "项目目录暂时不可访问"
+      : runningCount > 0 ? `${runningCount} ${"条运行中"}` : "空闲";
     meta.append(
       node("span", `workspace-card-status${runningCount > 0 ? " running" : ""}`, statusText),
       node("span", "workspace-card-path", shortProjectPath(project.path)),
@@ -89,7 +88,7 @@ export async function refreshWorkspace() {
     renderProjectActivity();
     return snapshot;
   } catch (error) {
-    if (generation === workspaceRefreshGeneration) toastError(`${t("工作区刷新失败")}: ${error}`);
+    if (generation === workspaceRefreshGeneration) toastError(`${"工作区刷新失败"}: ${error}`);
     return null;
   }
 }
@@ -121,7 +120,7 @@ export function reconcileWorkbenchView(view) {
   document.body.dataset.projectPreview = String(view === "project");
   const path = workbenchProject();
   const name = $("project-space-name");
-  if (name) name.textContent = path ? projectDisplayName(path) : t("未选择项目");
+  if (name) name.textContent = path ? projectDisplayName(path) : "未选择项目";
   for (const button of document.querySelectorAll(".workbench-project-link")) {
     const selected = !global && active_space === "dev-auto" && button.dataset.path === path;
     button.classList.toggle("active", selected);
@@ -132,7 +131,7 @@ export function reconcileWorkbenchView(view) {
   $("workbench-home")?.classList.toggle("active", view === "workspace");
   if (view !== "project") setAttentionNavActive(false);
   syncBackBars();
-  syncGeneralChatView(view, t);
+  syncGeneralChatView(view);
 }
 /// 「待我处理」页(项目概览的收件箱页签)开着时,侧栏高亮「待我处理」这一项,项目行与会话行不再充当当前位置(D12)。
 /// 25-softwire.js 每次重画时按当前页签调用;离开概览视图时 reconcileWorkbenchView 清掉。
@@ -200,8 +199,8 @@ export function renderProjectActivity() {
     const dot = button.querySelector(".workbench-project-approval");
     if (dot) dot.hidden = !approvals;
     if (approvals) button.dataset.approval = "true"; else delete button.dataset.approval;
-    const label = t(activityLabels[state]) + (count ? `  ${count} ${t("待我处理")}` : "")
-      + (approvals ? `  ${approvals} ${t("条对话等你批准")}` : "") + (loading ? `  ${t("正在打开")}` : "");
+    const label = activityLabels[state] + (count ? `  ${count} ${"待我处理"}` : "")
+      + (approvals ? `  ${approvals} ${"条对话等你批准"}` : "") + (loading ? `  ${"正在打开"}` : "");
     button.title = `${path}\n${label}`;
     button.setAttribute("aria-label", `${projectDisplayName(path)}  ${label}`);
   }
@@ -243,7 +242,7 @@ export async function openProjectSpace(path, view = "chat", options = {}) {
     if (generation !== projectNavigationGeneration) return false;
     await enterProject(prefs, { view, activate: options.activate, isCurrent: () => generation === projectNavigationGeneration });
     return generation === projectNavigationGeneration;
-  } catch (error) { toastError(`${t("切换项目失败")}: ${error}`); return false; }
+  } catch (error) { toastError(`${"切换项目失败"}: ${error}`); return false; }
   finally { if (generation === projectNavigationGeneration) { openingProject = null; renderProjectActivity(); } }
 }
 
@@ -277,9 +276,9 @@ defer(() => {
   // 「项目」标题右侧的「＋」:添加已有文件夹 / 新建项目(与所有项目页头两个按钮同一实现,点它们本人);零项目时这是侧栏唯一入口。
   $("workbench-add-project")?.addEventListener("click", (event) => {
     openMenu(event.currentTarget, [
-      { label: t("添加项目文件夹…"), onSelect: () => $("project-add")?.click() },
-      { label: t("新建项目…"), onSelect: () => $("project-init")?.click() },
-    ], { placement: "bottom-end", label: t("添加项目") });
+      { label: "添加项目文件夹…", onSelect: () => $("project-add")?.click() },
+      { label: "新建项目…", onSelect: () => $("project-init")?.click() },
+    ], { placement: "bottom-end", label: "添加项目" });
   });
   void listen("kz:workspace-invalidated", () => refreshWorkspaceSoon());
   setInterval(() => {

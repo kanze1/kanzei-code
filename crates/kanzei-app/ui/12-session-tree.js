@@ -14,7 +14,6 @@
 import { closeSurface, isSurfaceOpen, openPopover } from "./00-surface.js";
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { localizedStage, t } from "./02-i18n.js";
 import { layoutPref, onLayoutChange, setLayoutPref } from "./03-layout.js";
 import {
   activeProcessId, activeSessionId, currentProject, ensureChatView, expandSidebar, processItems, sessionStates, toast,
@@ -43,7 +42,7 @@ const el = (tag, className, text) => {
 /// 没有标题的对话段:后端落的兜底标题与界面兜底名是同一句「未命名对话」,英文界面按词表翻译(用户自己起的标题原样)。
 export function segmentTitle(title) {
   const raw = String(title ?? "").trim();
-  return raw && raw !== "未命名对话" ? raw : t("未命名对话");
+  return raw && raw !== "未命名对话" ? raw : "未命名对话";
 }
 
 // ---------- 偏好 ----------
@@ -70,7 +69,7 @@ export function forgetSessionPrefs(project, id) {
 
 // ---------- 行模型 ----------
 export function kindWord(kind) {
-  return kind === "conversation" ? t("对话") : kind === "discussion" ? t("讨论") : t("独立任务");
+  return kind === "conversation" ? "对话" : kind === "discussion" ? "讨论" : "独立任务";
 }
 const LEGACY_LABEL = /^(默认|p\d*|d|主对话|讨论|独立任务|对话|新对话|未命名对话)(?:\s+\d+)?$/;
 export function sessionKindOf(item) {
@@ -83,7 +82,7 @@ export function sessionDisplayName(item) {
   if (title) return title;
   const label = String(item.label ?? "").trim();
   if (label && (item.title_custom || !LEGACY_LABEL.test(label))) return label;
-  return t("新对话");
+  return "新对话";
 }
 export function sessionTime(item) {
   const value = item.updated_at ?? item.updatedAt;
@@ -94,10 +93,10 @@ export function relativeTime(ms, now = Date.now()) {
   if (!ms) return "";
   const diff = Math.max(0, now - ms);
   const minute = 60000;
-  if (diff < minute) return t("刚刚");
-  if (diff < 60 * minute) return `${Math.floor(diff / minute)} ${t("分钟前")}`;
-  if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))} ${t("小时前")}`;
-  if (diff < 14 * 24 * 60 * minute) return `${Math.floor(diff / (24 * 60 * minute))} ${t("天前")}`;
+  if (diff < minute) return "刚刚";
+  if (diff < 60 * minute) return `${Math.floor(diff / minute)} ${"分钟前"}`;
+  if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))} ${"小时前"}`;
+  if (diff < 14 * 24 * 60 * minute) return `${Math.floor(diff / (24 * 60 * minute))} ${"天前"}`;
   return new Date(ms).toLocaleDateString();
 }
 
@@ -180,12 +179,12 @@ function rowNeedsEye(row) {
 }
 function rowTitle(row, activity, approval = false) {
   const lines = [row.name];
-  if (row.lifecycle === "closed") lines.push(t("已关闭的对话,只读查看"));
+  if (row.lifecycle === "closed") lines.push("已关闭的对话,只读查看");
   if (row.branch) lines.push(row.branch);
   const when = relativeTime(row.updatedAt);
   if (when) lines.push(when);
-  if (activity.state !== "idle") lines.push(localizedStage(activity.label));
-  if (approval) lines.push(t("有权限请求在等你批准"));
+  if (activity.state !== "idle") lines.push(activity.label);
+  if (approval) lines.push("有权限请求在等你批准");
   return lines.join("\n");
 }
 
@@ -269,7 +268,7 @@ export function syncRowActivity(wrap) {
     const when = relativeTime(row.updatedAt);
     if (when && wrap._time.textContent !== when) wrap._time.textContent = when;
   }
-  const description = `${t("对话")}${activity.state !== "idle" ? `  ${localizedStage(activity.label)}` : ""}${approval ? `  ${t("等你批准")}` : ""}`;
+  const description = `${"对话"}${activity.state !== "idle" ? `  ${activity.label}` : ""}${approval ? `  ${"等你批准"}` : ""}`;
   if (button.getAttribute("aria-description") !== description) button.setAttribute("aria-description", description);
 }
 
@@ -305,11 +304,11 @@ export function wrapProjectRow(path, linkButton) {
 }
 
 function moreButton(path, hidden) {
-  const button = el("button", "workbench-session-more", `${t("更多")} (${hidden})…`);
+  const button = el("button", "workbench-session-more", `${"更多"} (${hidden})…`);
   button.type = "button";
   button.dataset.act = "more";
   button.dataset.project = path;
-  button.title = t("对话与历史");
+  button.title = "对话与历史";
   return button;
 }
 function noteRow(text) {
@@ -347,7 +346,7 @@ export function renderSidebarSessions() {
     group._row.dataset.pinned = String(projectPinned(path));
     group._link.setAttribute("aria-expanded", String(open));
     list.hidden = !open;
-    list.setAttribute("aria-label", `${name}  ${t("对话")}`);
+    list.setAttribute("aria-label", `${name}  ${"对话"}`);
     if (!open) {
       if (list.firstChild) list.replaceChildren();
       signatures.delete(path);
@@ -363,7 +362,7 @@ export function renderSidebarSessions() {
     const state = remote.get(path);
     const status = !rows.length ? (local ? "" : state?.error ? "error" : state?.items ? "empty" : "loading") : "";
     const signature = JSON.stringify([
-      visible.map((row) => [row.id, row.name, row.kind, row.pinned, row.custom]), hidden, status, t("独立任务"),
+      visible.map((row) => [row.id, row.name, row.kind, row.pinned, row.custom]), hidden, status, "独立任务",
     ]);
     if (signatures.get(path) === signature) {
       // 行没变:不重建,但把行上挂的数据换成这一轮的新值(运行态/分支等来自最新的进程列表),再对一遍运行态点。
@@ -374,9 +373,9 @@ export function renderSidebarSessions() {
     const focusKey = focusKeyIn(list);
     const children = visible.map((row) => buildSessionRow(row));
     if (hidden > 0) children.push(moreButton(path, hidden));
-    if (status === "loading") children.push(noteRow(t("加载中…")));
-    else if (status === "error") children.push(noteRow(t("对话列表读取失败")));
-    else if (status === "empty") children.push(noteRow(t("暂无对话")));
+    if (status === "loading") children.push(noteRow("加载中…"));
+    else if (status === "error") children.push(noteRow("对话列表读取失败"));
+    else if (status === "empty") children.push(noteRow("暂无对话"));
     list.replaceChildren(...children);
     restoreFocus(list, focusKey);
   }
@@ -393,14 +392,14 @@ function renderGeneralSessions() {
   const rows = orderRows(project);
   const visible = rows.filter((row, index) => index < SESSION_VISIBLE || row.id === activeProcessId || rowNeedsEye(row));
   const state = remote.get(project);
-  const signature = JSON.stringify([visible.map(row => [row.id, row.name, row.pinned]), rows.length, state?.error, t("对话")]);
+  const signature = JSON.stringify([visible.map(row => [row.id, row.name, row.pinned]), rows.length, state?.error, "对话"]);
   const key = `general:${project}`;
   if (signatures.get(key) === signature) { refreshRowData(list, visible); return; }
   signatures.set(key, signature);
   const focus = focusKeyIn(list);
   const children = visible.map(row => buildSessionRow(row));
   if (rows.length > visible.length) children.push(moreButton(project, rows.length - visible.length));
-  if (!rows.length && state?.error) children.push(noteRow(t("对话列表读取失败")));
+  if (!rows.length && state?.error) children.push(noteRow("对话列表读取失败"));
   list.replaceChildren(...children);
   restoreFocus(list, focus);
 }
@@ -468,7 +467,7 @@ export function closedName(entry) {
   const title = String(entry.title ?? "").trim();
   if (title) return title;
   const ordinal = Number(entry.ordinal) || 0;
-  return `${t("对话")}${ordinal ? ` ${ordinal}` : ""}`;
+  return `${"对话"}${ordinal ? ` ${ordinal}` : ""}`;
 }
 export function loadClosedSessions(project, { force = false } = {}) {
   if (!project) return Promise.resolve();
@@ -504,7 +503,7 @@ export function dropClosedSessions(project) {
 /// 分组头 + (展开时)已关闭的行。侧栏项目下与历史弹层里共用;没有已关闭对话就什么都不画。
 function closedGroup(project, { history = false } = {}) {
   const items = closedSessionsOf(project);
-  if (!items.length) return closedCache.get(project)?.error ? [noteRow(t("历史对话读取失败"))] : [];
+  if (!items.length) return closedCache.get(project)?.error ? [noteRow("历史对话读取失败")] : [];
   const open = closedOpen(project);
   const toggle = el("button", `workbench-closed-toggle${history ? " in-history" : ""}`);
   toggle.type = "button";
@@ -513,8 +512,8 @@ function closedGroup(project, { history = false } = {}) {
   toggle.setAttribute("aria-expanded", String(open));
   const caret = el("span", "workbench-closed-caret");
   caret.setAttribute("aria-hidden", "true");
-  toggle.append(caret, document.createTextNode(`${t("已关闭")} (${items.length})`));
-  toggle.title = t("历史对话可查看、重命名或删除");
+  toggle.append(caret, document.createTextNode(`${"已关闭"} (${items.length})`));
+  toggle.title = "历史对话可查看、重命名或删除";
   if (!open) return [toggle];
   const visible = history ? items : items.slice(0, 4);
   return [toggle, ...visible.map((entry) => buildSessionRow(closedRow(project, entry), { history })),
@@ -559,10 +558,10 @@ export function historyElement() {
   historyNode = el("div", "k-surface k-popover project-session-menu hidden");
   historyNode.id = "session-history";
   historyNode.setAttribute("role", "dialog");
-  historyNode.setAttribute("aria-label", t("对话与历史"));
+  historyNode.setAttribute("aria-label", "对话与历史");
   historyNode.dataset.i18nAriaLabel = "对话与历史";
   const head = el("div", "session-history-head");
-  const title = el("strong", "session-history-title", t("对话与历史"));
+  const title = el("strong", "session-history-title", "对话与历史");
   title.id = "session-history-title";
   title.dataset.i18nKey = "对话与历史";
   const project = el("span", "session-history-project dim");
@@ -571,9 +570,9 @@ export function historyElement() {
   const discussion = el("button", "ghost mini");
   discussion.type = "button";
   discussion.dataset.act = "new-discussion";
-  discussion.title = t("新对话");
+  discussion.title = "新对话";
   discussion.dataset.i18nTitle = "新对话";
-  const discussionLabel = el("span", "", t("新对话"));
+  const discussionLabel = el("span", "", "新对话");
   discussionLabel.dataset.i18nKey = "新讨论";
   discussion.append("＋ ", discussionLabel);
   head.append(title, project, spacer, discussion);
@@ -582,8 +581,8 @@ export function historyElement() {
   body.setAttribute("role", "list");
   const search = el("input", "session-history-search");
   search.type = "search";
-  search.placeholder = t("搜索名称或项目");
-  search.setAttribute("aria-label", t("搜索对话"));
+  search.placeholder = "搜索名称或项目";
+  search.setAttribute("aria-label", "搜索对话");
   search.autocomplete = "off";
   search.addEventListener("input", () => { historySignature = ""; paintHistory(); body.scrollTop = 0; });
   historyNode.append(head, search, body);
@@ -624,14 +623,14 @@ function buildSegmentRow({ owner, item }) {
   wrap.dataset.key = `${owner.project}\u001f${owner.id}\u001f${item.sequence}`;
   const button = el("button", "workbench-session-link");
   button.type = "button";
-  const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${t("条")})` : "";
+  const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${"条"})` : "";
   const name = el("span", "workbench-session-name", `${segmentTitle(item.title)}${count}`);
   const tag = el("span", "workbench-session-tag", owner.name);
   tag.setAttribute("aria-hidden", "true");
   button.append(name, tag);
   const created = Number(item.created_at);
   const when = created > 0 ? relativeTime(created) : String(item.updated_at ?? "");
-  button.title = [segmentTitle(item.title), `${t("历史")}  ${owner.name}`, when].filter(Boolean).join("\n");
+  button.title = [segmentTitle(item.title), `${"历史"}  ${owner.name}`, when].filter(Boolean).join("\n");
   button.setAttribute("aria-haspopup", "menu");
   wrap.append(button);
   return wrap;
@@ -642,14 +641,14 @@ function paintHistory() {
   const projects = project ? [project] : [...new Set([generalChatRoot(), ...(lastProjectPrefs.projects ?? []), currentProject].filter(Boolean))];
   const query = node._search.value;
   const general = isGeneralChat(project);
-  node._head.querySelector(".session-history-title").textContent = t(project ? "对话与历史" : "搜索对话");
+  node._head.querySelector(".session-history-title").textContent = project ? "对话与历史" : "搜索对话";
   node._head.querySelector("[data-act='new-discussion']").hidden = !project;
   const newDiscussion = node.querySelector("[data-act='new-discussion'] span");
-  if (newDiscussion) { newDiscussion.textContent = t(general ? "新对话" : "新讨论"); newDiscussion.dataset.i18nKey = general ? "新对话" : "新讨论"; }
+  if (newDiscussion) { newDiscussion.textContent = general ? "新对话" : "新讨论"; newDiscussion.dataset.i18nKey = general ? "新对话" : "新讨论"; }
   const groups = projects.map(path => {
     void loadRemoteSessions(path);
     void loadClosedSessions(path);
-    const name = isGeneralChat(path) ? t("无项目对话") : projectDisplayName(path);
+    const name = isGeneralChat(path) ? "无项目对话" : projectDisplayName(path);
     const includeClosed = !project || Boolean(query.trim());
     const rows = orderRows(path, buildRows(path, { includeClosed })).filter(row => matchesConversation(row, query, name));
     const segments = segmentRows(path).filter(entry => matchesConversation({ name: segmentTitle(entry.item.title) }, query, name));
@@ -661,9 +660,9 @@ function paintHistory() {
       group.rows.map(row => [row.identity, row.name, row.lifecycle, row.pinned]),
       group.segments.map(({ owner, item }) => [owner.id, item.sequence, item.title, item.message_count]),
       group.histories.map(({ owner, resource }) => [owner.id, resource.hasMore, Boolean(resource.request), resource.error]),
-      closedSignature(group.path), remote.get(group.path)?.error]), t("独立任务"),
+      closedSignature(group.path), remote.get(group.path)?.error]), "独立任务",
   ]);
-  node._project.textContent = project ? (general ? t("无项目对话") : projectDisplayName(project)) : t("所有对话");
+  node._project.textContent = project ? (general ? "无项目对话" : projectDisplayName(project)) : "所有对话";
   if (signature === historySignature) { refreshRowData(node._body, groups.flatMap(group => group.rows)); return; }
   historySignature = signature;
   const body = node._body;
@@ -673,22 +672,22 @@ function paintHistory() {
     if (!project && (group.rows.length || group.segments.length)) children.push(el("div", "session-history-heading", group.name));
     children.push(...group.rows.map(row => buildSessionRow(row, { history: true })));
     if (group.segments.length) {
-      children.push(el("div", "session-history-heading", t("更早的历史对话")), ...group.segments.map(buildSegmentRow));
+      children.push(el("div", "session-history-heading", "更早的历史对话"), ...group.segments.map(buildSegmentRow));
     }
     for (const { owner, resource } of group.histories) {
       if (!resource.hasMore && !resource.error) continue;
-      const more = el("button", "ghost session-history-more", `${owner.label || owner.id}  ${t(resource.error ? "重试" : "加载更早记录")}`);
+      const more = el("button", "ghost session-history-more", `${owner.label || owner.id}  ${resource.error ? "重试" : "加载更早记录"}`);
       more.type = "button"; more.disabled = Boolean(resource.request); more.dataset.historyOwner = owner.id;
       more.addEventListener("click", () => void loadEarlierConversations(owner.id, group.path));
-      if (resource.error) children.push(noteRow(`${t("对话列表读取失败")}: ${resource.error}`));
+      if (resource.error) children.push(noteRow(`${"对话列表读取失败"}: ${resource.error}`));
       children.push(more);
     }
     if (project && !query.trim()) children.push(...closedGroup(group.path, { history: true }));
-    if (remote.get(group.path)?.error || closedCache.get(group.path)?.error) children.push(noteRow(`${group.name}  ${t("对话列表读取失败")}`));
+    if (remote.get(group.path)?.error || closedCache.get(group.path)?.error) children.push(noteRow(`${group.name}  ${"对话列表读取失败"}`));
   }
   if (!children.length) {
     const loading = projects.some(path => remote.get(path)?.loading || closedCache.get(path)?.loading);
-    children.push(noteRow(t(loading ? "加载中…" : query.trim() ? "未找到对话" : "暂无对话")));
+    children.push(noteRow(loading ? "加载中…" : query.trim() ? "未找到对话" : "暂无对话"));
   }
   const scroll = body.scrollTop;
   body.replaceChildren(...children);
@@ -733,7 +732,7 @@ export function sessionPaletteEntries(project = currentProject) {
     const activity = rowActivity(row);
     return {
       label: row.name,
-      detail: `${kindWord(row.kind)}${activity.state !== "idle" ? `  ${localizedStage(activity.label)}` : ""}`,
+      detail: `${kindWord(row.kind)}${activity.state !== "idle" ? `  ${activity.label}` : ""}`,
       run: () => { closeSessionHistory(); void openSession(project, row.id); },
     };
   });
@@ -751,7 +750,7 @@ export async function activateRow(wrap) {
     return;
   }
   closeSessionHistory();
-  if (!await openSession(project, processId)) toast(t("没有打开这段对话"));
+  if (!await openSession(project, processId)) toast("没有打开这段对话");
 }
 
 defer(() => {

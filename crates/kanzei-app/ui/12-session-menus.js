@@ -13,7 +13,6 @@ import { $, defer } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { discardSessionPane } from "./01-chat-panes.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, activeProcessId, toast } from "./03-shell.js";
 import "./04-structured-parse.js";
 import { openProjectModelsDialog } from "./08-project-models.js";
@@ -45,9 +44,9 @@ function rowRunning(row) {
 async function copyText(text, label) {
   try {
     await navigator.clipboard.writeText(String(text));
-    toast(`${t("已复制")}:${label}`, { kind: "ok" });
+    toast(`${"已复制"}:${label}`, { kind: "ok" });
   } catch (error) {
-    failure(`${t("复制失败")}:${error}`);
+    failure(`${"复制失败"}:${error}`);
   }
 }
 /// 列表变了之后让两处视图(侧栏树、历史弹层)和对话页头一起跟上。
@@ -97,8 +96,8 @@ export async function renameSession(project, id) {
   const row = liveRow(project, id);
   if (!row) return;
   const value = await inputDialog({
-    title: t("重命名对话"),
-    message: t("留空则恢复默认名称"),
+    title: "重命名对话",
+    message: "留空则恢复默认名称",
     value: row.name,
     placeholder: kindWord(row.kind),
     maxLength: 60, // 与后端 naming.rs 的 TITLE_MAX_CHARS 一致
@@ -110,7 +109,7 @@ export async function renameSession(project, id) {
     await invoke("process_rename", { projectDir: project, processId: id, title });
   } catch (error) { failure(error); return; }
   await refreshAfterChange(project);
-  toast(title ? t("已重命名") : t("已恢复默认名称"), { kind: "ok" });
+  toast(title ? "已重命名" : "已恢复默认名称", { kind: "ok" });
 }
 export function toggleSessionPin(project, id) {
   const row = liveRow(project, id);
@@ -153,18 +152,18 @@ export async function deleteSession(project, id) {
   const row = liveRow(project, id);
   if (!row || !row.capabilities.delete) return;
   if (rowRunning(row)) {
-    toast(t("运行中,先停止再删除对话"), { kind: "warn" });
+    toast("运行中,先停止再删除对话", { kind: "warn" });
     return;
   }
   const current = sameProject(project, currentProject) && id === activeProcessId;
-  const list = [t("对话消息、工具调用与结果"), t("运行轨迹与子代理记录")];
-  if (row.worktree) list.push(t("独立任务的工作树:已合并且干净的才会回收,有独有内容的会保留"));
-  list.push(t("保留:用量统计、已提炼的记忆、需求与缺陷记录"));
+  const list = ["对话消息、工具调用与结果", "运行轨迹与子代理记录"];
+  if (row.worktree) list.push("独立任务的工作树:已合并且干净的才会回收,有独有内容的会保留");
+  list.push("保留:用量统计、已提炼的记忆、需求与缺陷记录");
   const ok = await confirmDialog({
-    title: t("删除对话"),
-    message: `「${row.name}」${current ? ` ${t("(当前打开的对话)")}` : ""}\n${t("删除后无法恢复。")}`,
+    title: "删除对话",
+    message: `「${row.name}」${current ? ` ${"(当前打开的对话)"}` : ""}\n${"删除后无法恢复。"}`,
     list,
-    okText: t("删除"),
+    okText: "删除",
     danger: true,
   });
   if (!ok) return;
@@ -180,14 +179,14 @@ export async function deleteSession(project, id) {
   await refreshAfterChange(project);
   // 工作树因有未合并内容被保留时,后端回执里写了保留在哪:原样给用户(不静默)。
   const kept = typeof outcome === "string" && outcome.includes("仍保留") ? outcome : "";
-  toast(kept || `${t("已删除")}:${row.name}`, { kind: kept ? "warn" : "ok" });
+  toast(kept || `${"已删除"}:${row.name}`, { kind: kept ? "warn" : "ok" });
 }
 /// 清空主对话:主对话不能注销,只删它的全部对话段(留下一个空的对话)。
 export async function clearMainConversation(project, id) {
   const row = liveRow(project, id);
   if (!row) return;
   if (rowRunning(row)) {
-    toast(t("运行中,先停止再清空对话"), { kind: "warn" });
+    toast("运行中,先停止再清空对话", { kind: "warn" });
     return;
   }
   let segments = [];
@@ -196,11 +195,11 @@ export async function clearMainConversation(project, id) {
     segments = (items ?? []).flatMap((item) => item.sequences ?? [item.sequence]).filter((value) => Number.isFinite(Number(value)));
   } catch (error) { failure(error); return; }
   if (!segments.length) {
-    toast(t("这段对话本来就是空的"));
+    toast("这段对话本来就是空的");
     return;
   }
   await deleteConversationsForProcess(id, segments, {
-    project, title: t("清空对话"), subject: row.name, okText: t("清空"),
+    project, title: "清空对话", subject: row.name, okText: "清空",
   });
 }
 export async function closeSession(project, id) {
@@ -208,17 +207,17 @@ export async function closeSession(project, id) {
   if (!row || !row.worktree) return;
   if (sameProject(project, currentProject)) { await closeParallelProcess(id); return; }
   const warning = rowRunning(row)
-    ? t("独立任务仍在运行，关闭会先停止它，等它收尾。")
-    : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。");
+    ? "独立任务仍在运行，关闭会先停止它，等它收尾。"
+    : "关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。";
   if (!await confirmDialog({
-    title: t("关闭独立任务"),
-    message: `「${row.name}」\n${warning}\n${t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")}`,
-    okText: t("关闭独立任务"),
+    title: "关闭独立任务",
+    message: `「${row.name}」\n${warning}\n${"关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。"}`,
+    okText: "关闭独立任务",
     danger: true,
   })) return;
   try {
     await invoke("process_close", { processId: id });
-  } catch (error) { failure(`${t("关闭独立任务失败")}:${error}`); return; }
+  } catch (error) { failure(`${"关闭独立任务失败"}:${error}`); return; }
   discardSessionPane(row.session_id);
   await refreshAfterChange(project);
 }
@@ -262,8 +261,8 @@ async function exportProjectData(path) {
     const result = await invoke("export_project_data", {
       options: { projectDir: path, outputDir, includeMemory: true, includeRequirements: true, includeDefects: true, includeConfig: true },
     });
-    toast(`${t("导出完成")}: ${result.path}`, { kind: "ok" });
-  } catch (error) { failure(`${t("导出失败")}:${error}`); }
+    toast(`${"导出完成"}: ${result.path}`, { kind: "ok" });
+  } catch (error) { failure(`${"导出失败"}:${error}`); }
 }
 
 // ---------- 菜单 ----------
@@ -331,21 +330,21 @@ async function exportSession(row, format) {
   try {
     const messages = await invoke("conversation_display_get", { projectDir: row.project, processId: row.id, sequence: null });
     const markdown = conversationMarkdown({ name: row.name, project: row.project, sessionId: row.session_id, messages });
-    if (format === "copy") { await copyText(markdown, t("复制为 Markdown")); return; }
+    if (format === "copy") { await copyText(markdown, "复制为 Markdown"); return; }
     const content = format === "summary"
       ? (await invoke("summarize_chat", { projectDir: row.project, transcript: markdown })).summary
       : markdown;
-    const name = row.name + (format === "summary" ? `-${t("摘要")}` : "");
+    const name = row.name + (format === "summary" ? `-${"摘要"}` : "");
     const saved = await invoke("save_conversation_export", { name, content });
-    if (saved) toast(`${t("导出完成")}: ${saved}`, { kind: "ok" });
-  } catch (error) { failure(`${t("导出失败")}: ${error}`); }
+    if (saved) toast(`${"导出完成"}: ${saved}`, { kind: "ok" });
+  } catch (error) { failure(`${"导出失败"}: ${error}`); }
 }
 function openSessionExport(point, host, row) {
   showMenu(point, host, [
-    { label: t("保存为 Markdown…"), onSelect: () => void exportSession(row, "markdown") },
-    { label: t("复制为 Markdown"), onSelect: () => void exportSession(row, "copy") },
-    { label: t("生成摘要并导出…"), onSelect: () => void exportSession(row, "summary") },
-  ], { label: t("导出对话") });
+    { label: "保存为 Markdown…", onSelect: () => void exportSession(row, "markdown") },
+    { label: "复制为 Markdown", onSelect: () => void exportSession(row, "copy") },
+    { label: "生成摘要并导出…", onSelect: () => void exportSession(row, "summary") },
+  ], { label: "导出对话" });
 }
 
 // 常用动作保持一屏；复制、排序、交付与外部工具放到二级菜单。
@@ -354,7 +353,7 @@ function compactContextMenu(point, host, items, options, primaryLabels) {
   const details = items.filter(item => item === "separator" || (item && !primaryLabels.includes(item.label)));
   return showMenu(point, host, [
     ...primary.filter(item => !item.danger),
-    { label: `${t("更多操作")}…`, onSelect: () => showMenu(point, host, details, options) },
+    { label: `${"更多操作"}…`, onSelect: () => showMenu(point, host, details, options) },
     "separator",
     ...primary.filter(item => item.danger),
   ], options);
@@ -374,31 +373,31 @@ export async function openSessionContextMenu(wrap, point, host) {
   const here = sameProject(project, currentProject) && id === activeProcessId && document.body.dataset.view === "chat";
   const group = orderRows(project).filter((candidate) => candidate.capabilities.reorder && candidate.pinned === live.pinned);
   const index = group.findIndex((candidate) => candidate.id === id);
-  const runningWhy = running ? t("运行中,先停止再删除") : "";
+  const runningWhy = running ? "运行中,先停止再删除" : "";
   const items = [
-    { label: t("打开"), disabled: here, onSelect: () => void openSession(project, id) },
-    { label: t("新对话"), onSelect: () => void newDiscussionIn(project) },
+    { label: "打开", disabled: here, onSelect: () => void openSession(project, id) },
+    { label: "新对话", onSelect: () => void newDiscussionIn(project) },
     "separator",
-    { label: `${t("重命名")}…`, kbd: "F2", onSelect: () => afterDialog(wrap.dataset.key, renameSession(project, id)) },
-    live.capabilities.reorder && { label: live.pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleSessionPin(project, id) },
-    live.capabilities.reorder && { label: t("上移"), kbd: "Alt+↑", disabled: index <= 0, onSelect: () => moveSession(project, id, -1) },
-    live.capabilities.reorder && { label: t("下移"), kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => moveSession(project, id, 1) },
+    { label: `${"重命名"}…`, kbd: "F2", onSelect: () => afterDialog(wrap.dataset.key, renameSession(project, id)) },
+    live.capabilities.reorder && { label: live.pinned ? "取消置顶" : "置顶", onSelect: () => toggleSessionPin(project, id) },
+    live.capabilities.reorder && { label: "上移", kbd: "Alt+↑", disabled: index <= 0, onSelect: () => moveSession(project, id, -1) },
+    live.capabilities.reorder && { label: "下移", kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => moveSession(project, id, 1) },
     "separator",
-    !general && { label: t("在资源管理器中打开"), onSelect: () => void revealPath(project, id) },
+    !general && { label: "在资源管理器中打开", onSelect: () => void revealPath(project, id) },
     ...(general ? [] : toolItems(tools, (tool) => void openWithTool(tool, project, id))),
     "separator",
-    { label: t("复制对话名"), onSelect: () => void copyText(live.name, live.name) },
-    { label: t("导出…"), onSelect: () => openSessionExport(point, host, live) },
-    { label: t("复制对话 ID"), onSelect: () => void copyText(live.session_id, t("对话 ID")) },
-    live.worktree && { label: t("复制工作树路径"), onSelect: () => void copyText(live.worktree, t("工作树路径")) },
-    live.branch && { label: t("复制分支名"), desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
+    { label: "复制对话名", onSelect: () => void copyText(live.name, live.name) },
+    { label: "导出…", onSelect: () => openSessionExport(point, host, live) },
+    { label: "复制对话 ID", onSelect: () => void copyText(live.session_id, "对话 ID") },
+    live.worktree && { label: "复制工作树路径", onSelect: () => void copyText(live.worktree, "工作树路径") },
+    live.branch && { label: "复制分支名", desc: live.branch, onSelect: () => void copyText(live.branch, live.branch) },
     "separator",
-    task && { label: `${t("关闭独立任务")}…`, danger: true, onSelect: () => afterDialog(wrap.dataset.key, closeSession(project, id)) },
-    { label: `${t("删除对话")}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
+    task && { label: `${"关闭独立任务"}…`, danger: true, onSelect: () => afterDialog(wrap.dataset.key, closeSession(project, id)) },
+    { label: `${"删除对话"}…`, danger: true, disabled: running, desc: runningWhy || undefined, onSelect: () => afterDialog(wrap.dataset.key, deleteSession(project, id)) },
   ];
   return compactContextMenu(point, host, items, { label: live.name, focusKey: wrap.dataset.key }, [
-    `${t("重命名")}…`, t("置顶"), t("取消置顶"),
-    t("导出…"), `${t("关闭独立任务")}…`, `${t("删除对话")}…`,
+    `${"重命名"}…`, "置顶", "取消置顶",
+    "导出…", `${"关闭独立任务"}…`, `${"删除对话"}…`,
   ]);
 }
 
@@ -413,30 +412,30 @@ export async function openProjectContextMenu(row, point, host) {
   const running = projectRunningCount(path);
   const name = projectDisplayName(path);
   const items = [
-    { label: t("打开"), onSelect: () => void openProjectSpace(path, "chat") },
-    { label: t("新对话"), onSelect: () => void newDiscussionIn(path) },
+    { label: "打开", onSelect: () => void openProjectSpace(path, "chat") },
+    { label: "新对话", onSelect: () => void newDiscussionIn(path) },
     "separator",
-    { label: `${t("重命名项目")}…`, kbd: "F2", desc: t("只改显示名,不改磁盘文件夹"), onSelect: () => afterDialog(`project\u001f${path}`, renameProject(path)) },
-    { label: pinned ? t("取消置顶") : t("置顶"), onSelect: () => toggleProjectPin(path) },
-    { label: t("上移"), kbd: "Alt+↑", disabled: index <= 0, onSelect: () => void moveProject(path, -1) },
-    { label: t("下移"), kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => void moveProject(path, 1) },
+    { label: `${"重命名项目"}…`, kbd: "F2", desc: "只改显示名,不改磁盘文件夹", onSelect: () => afterDialog(`project\u001f${path}`, renameProject(path)) },
+    { label: pinned ? "取消置顶" : "置顶", onSelect: () => toggleProjectPin(path) },
+    { label: "上移", kbd: "Alt+↑", disabled: index <= 0, onSelect: () => void moveProject(path, -1) },
+    { label: "下移", kbd: "Alt+↓", disabled: index < 0 || index >= group.length - 1, onSelect: () => void moveProject(path, 1) },
     "separator",
-    { label: t("在资源管理器中打开"), onSelect: () => void revealPath(path) },
+    { label: "在资源管理器中打开", onSelect: () => void revealPath(path) },
     ...toolItems(tools, (tool) => void openWithTool(tool, path)),
-    { label: t("复制路径"), desc: shortProjectPath(path), onSelect: () => void copyText(path, t("项目路径")) },
+    { label: "复制路径", desc: shortProjectPath(path), onSelect: () => void copyText(path, "项目路径") },
     "separator",
-    { label: `${t("项目模型")}…`, onSelect: () => void openProjectModelsDialog(path, { name }) },
-    { label: `${t("导出工作资料")}…`, onSelect: () => void exportProjectData(path) },
+    { label: `${"项目模型"}…`, onSelect: () => void openProjectModelsDialog(path, { name }) },
+    { label: `${"导出工作资料"}…`, onSelect: () => void exportProjectData(path) },
     "separator",
     {
-      label: `${t("移除项目")}…`, danger: true, disabled: running > 0,
-      desc: running > 0 ? t("有运行中的对话,先停止它们") : t("只解除登记,不删除磁盘文件"),
+      label: `${"移除项目"}…`, danger: true, disabled: running > 0,
+      desc: running > 0 ? "有运行中的对话,先停止它们" : "只解除登记,不删除磁盘文件",
       onSelect: () => afterDialog(`project\u001f${path}`, removeProject(path).then(() => { dropRemoteSessions(path); invalidateSessionTree(); })),
     },
   ];
   return compactContextMenu(point, host, items, { label: name, focusKey: `project\u001f${path}` }, [
-    t("新对话"), `${t("重命名项目")}…`, t("置顶"), t("取消置顶"),
-    t("在资源管理器中打开"), `${t("移除项目")}…`,
+    "新对话", `${"重命名项目"}…`, "置顶", "取消置顶",
+    "在资源管理器中打开", `${"移除项目"}…`,
   ]);
 }
 
@@ -460,11 +459,11 @@ function openEntryMenu(entry, point, host) {
 function openClosedMenu(entry, point, host) {
   const name = entry.dataset.title || "";
   return showMenu(point, host, [
-    { label: t("查看(只读)"), onSelect: () => void activateRow(entry) },
-    { label: `${t("重命名")}…`, kbd: "F2", onSelect: () => afterDialog(entry.dataset.key, renameSession(entry.dataset.project, entry.dataset.processId)) },
-    { label: t("复制对话名"), onSelect: () => void copyText(name, name) },
+    { label: "查看(只读)", onSelect: () => void activateRow(entry) },
+    { label: `${"重命名"}…`, kbd: "F2", onSelect: () => afterDialog(entry.dataset.key, renameSession(entry.dataset.project, entry.dataset.processId)) },
+    { label: "复制对话名", onSelect: () => void copyText(name, name) },
     "separator",
-    { label: `${t("删除对话")}…`, danger: true, onSelect: () => afterDialog(entry.dataset.key, deleteSession(entry.dataset.project, entry.dataset.processId)) },
+    { label: `${"删除对话"}…`, danger: true, onSelect: () => afterDialog(entry.dataset.key, deleteSession(entry.dataset.project, entry.dataset.processId)) },
   ], { label: name, focusKey: entry.dataset.key });
 }
 function openSegmentMenu(entry, point, host) {
@@ -473,10 +472,10 @@ function openSegmentMenu(entry, point, host) {
   const sequences = JSON.parse(entry.dataset.seqs || "[]");
   const title = entry.dataset.title;
   return showMenu(point, host, [
-    { label: t("查看(只读)"), onSelect: () => void activateRow(entry) },
+    { label: "查看(只读)", onSelect: () => void activateRow(entry) },
     "separator",
     {
-      label: `${t("删除这段历史")}…`, danger: true,
+      label: `${"删除这段历史"}…`, danger: true,
       onSelect: () => afterDialog(entry.dataset.key, deleteConversationsForProcess(processId, sequences, { project, subject: title })),
     },
   ], { label: title, focusKey: entry.dataset.key });

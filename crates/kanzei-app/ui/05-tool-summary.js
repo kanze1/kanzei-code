@@ -7,7 +7,7 @@
 // 实时(kz:tool-end 带 content)与历史(conversation_get 的正文)喂进来的是同一份文本,
 // 走同一个摘要器,两边显示逐字一致。纯解析都在 04-structured-parse.js,这里只做
 // 「按工具取哪些事实、怎么说成人话」。
-import { localizedDocStatus, t } from "./02-i18n.js";
+import { statusWord } from "./04-status-words.js";
 import { currentProject, processItems } from "./03-shell.js";
 import {
   cleanInline,
@@ -67,7 +67,7 @@ export function toolResultSplit(content, isError) {
   let idx = lines.findIndex(informative);
   // 全篇只有 "exit code: 0" 时仍然显示它,别把唯一的结果吞成"完成"。
   if (idx < 0) idx = lines.findIndex((line) => line.trim());
-  if (idx < 0) return { text: isError ? t("失败") : t("完成"), rest: "" };
+  if (idx < 0) return { text: isError ? "失败" : "完成", rest: "" };
   const head = lines[idx].trim();
   const cut = head.length > TOOL_PREVIEW_MAX;
   const text = cut ? `${head.slice(0, TOOL_PREVIEW_MAX - 1)}…` : head;
@@ -135,9 +135,9 @@ export function inlineCodeParts(part) {
 function countText(n, many, one) {
   return Number(n) === 1 && typeof n === "number" ? one : fillTemplate(many, { n: typeof n === "number" ? formatCount(n) : n });
 }
-const outputLines = (n) => countText(n, t("输出 {n} 行"), t("输出 1 行"));
-const filesCount = (n) => countText(n, t("{n} 个文件"), t("1 个文件"));
-const resultsCount = (n) => countText(n, t("{n} 条结果"), t("1 条结果"));
+const outputLines = (n) => countText(n, "输出 {n} 行", "输出 1 行");
+const filesCount = (n) => countText(n, "{n} 个文件", "1 个文件");
+const resultsCount = (n) => countText(n, "{n} 条结果", "1 条结果");
 
 // ---------- 通用 ----------
 const nonEmpty = (lines) => lines.filter((line) => line.trim());
@@ -151,8 +151,8 @@ function lineCountOf(s) {
 function countFallback(s) {
   const lines = lineCountOf(s);
   if (lines >= 2) return outputLines(lines);
-  if (Number.isFinite(s.bytes) && s.bytes > 0) return fillTemplate(t("输出 {size}"), { size: formatByteSize(s.bytes) });
-  return s.ok ? t("完成") : t("失败");
+  if (Number.isFinite(s.bytes) && s.bytes > 0) return fillTemplate("输出 {size}", { size: formatByteSize(s.bytes) });
+  return s.ok ? "完成" : "失败";
 }
 /// 取第一条像人话的信息行(跳过空行、exit code: 0 与 [tool_…] 机器标记);否则计数。
 function genericSummary(s) {
@@ -186,35 +186,35 @@ function summarizeRead(s) {
   const head = firstLine(s.lines).trim();
   let m;
   if ((m = head.match(/^\[image\] .*\(([^,()]+), (\d+) bytes\)/))) {
-    return { groups: [t("图片"), formatByteSize(m[2])], key: "read.image" };
+    return { groups: ["图片", formatByteSize(m[2])], key: "read.image" };
   }
   if ((m = head.match(/^pdf: (\d+) pages; showing (\d+)-(\d+)/))) {
     return {
-      groups: [fillTemplate(t("PDF 第 {from}–{to} 页"), { from: m[2], to: m[3] }), fillTemplate(t("共 {total} 页"), { total: formatCount(m[1]) })],
+      groups: [fillTemplate("PDF 第 {from}–{to} 页", { from: m[2], to: m[3] }), fillTemplate("共 {total} 页", { total: formatCount(m[1]) })],
       key: "read.pdf",
     };
   }
   if ((m = head.match(/^notebook: (\d+) cells.*showing (\d+)-(\d+)/))) {
     return {
-      groups: [fillTemplate(t("第 {from}–{to} 格"), { from: m[2], to: m[3] }), fillTemplate(t("共 {total} 格"), { total: formatCount(m[1]) })],
+      groups: [fillTemplate("第 {from}–{to} 格", { from: m[2], to: m[3] }), fillTemplate("共 {total} 格", { total: formatCount(m[1]) })],
       key: "read.notebook",
     };
   }
   if ((m = head.match(/^\(last (\d+) lines of ([^)]+)\)/))) {
-    return { groups: [fillTemplate(t("末尾 {n} 行"), { n: formatCount(m[1]) }), fillTemplate(t("文件 {size}"), { size: m[2] })], key: "read.tail" };
+    return { groups: [fillTemplate("末尾 {n} 行", { n: formatCount(m[1]) }), fillTemplate("文件 {size}", { size: m[2] })], key: "read.tail" };
   }
   if ((m = head.match(/^\(empty range: (?:file|PDF text) has (\d+) lines/))) {
-    return { groups: [t("空范围"), fillTemplate(t("文件共 {total} 行"), { total: formatCount(m[1]) })], key: "read.empty" };
+    return { groups: ["空范围", fillTemplate("文件共 {total} 行", { total: formatCount(m[1]) })], key: "read.empty" };
   }
-  const range = (from, to) => fillTemplate(t("第 {from}–{to} 行"), { from: formatCount(from), to: formatCount(to) });
-  const total = (value) => fillTemplate(t("共 {total} 行"), { total: formatCount(value) });
-  const whole = (value) => fillTemplate(t("全文 {total} 行"), { total: formatCount(value) });
+  const range = (from, to) => fillTemplate("第 {from}–{to} 行", { from: formatCount(from), to: formatCount(to) });
+  const total = (value) => fillTemplate("共 {total} 行", { total: formatCount(value) });
+  const whole = (value) => fillTemplate("全文 {total} 行", { total: formatCount(value) });
   if (s.fromPreview) {
     // 旧后端只给首行 + 行数:按 limit 推断是否截断。
     const from = Number(s.previewFirst.match(/^\s*(\d+)\t/)?.[1]);
     if (!Number.isFinite(from)) return null;
     const limit = Number(s.input.limit) > 0 ? Number(s.input.limit) : 2000;
-    if (s.lineCount === limit + 1) return { groups: [range(from, from + limit - 1), t("未读完")], key: "read.partial" };
+    if (s.lineCount === limit + 1) return { groups: [range(from, from + limit - 1), "未读完"], key: "read.partial" };
     const to = from + s.lineCount - 1;
     return { groups: from === 1 ? [whole(to)] : [range(from, to), total(to)], key: from === 1 ? "read.full" : "read.range" };
   }
@@ -224,16 +224,16 @@ function summarizeRead(s) {
   const to = numbered[numbered.length - 1];
   const cut = s.text.match(/\.\.\. \(truncated at line (\d+)(?: of (\d+))?;/);
   if (cut?.[2]) return { groups: [range(from, to), total(cut[2])], key: "read.truncated" };
-  if (cut || s.truncated) return { groups: [range(from, to), t("未读完")], key: "read.partial" };
+  if (cut || s.truncated) return { groups: [range(from, to), "未读完"], key: "read.partial" };
   if (s.input.tail || from === 1) return { groups: [whole(to)], key: "read.full" };
   return { groups: [range(from, to), total(to)], key: "read.range" };
 }
 
 function summarizeGrep(s) {
   const head = firstLine(s.lines).trim();
-  if (/^\(no matches/.test(head)) return { groups: [t("无匹配")], key: "grep.none" };
+  if (/^\(no matches/.test(head)) return { groups: ["无匹配"], key: "grep.none" };
   if (s.fromPreview) return { groups: [resultsCount(s.lineCount)], key: "grep.degraded" };
-  const matchesText = (n, plus) => countText(plus ? `${formatCount(n)}+` : Number(n), t("{n} 处匹配"), t("1 处匹配"));
+  const matchesText = (n, plus) => countText(plus ? `${formatCount(n)}+` : Number(n), "{n} 处匹配", "1 处匹配");
   const filesText = (n, plus) => filesCount(plus ? `${formatCount(n)}+` : Number(n));
   const totals = s.text.match(/\(total (\d+) matches in (\d+) files\)/);
   if (totals) return { groups: [matchesText(totals[1]), filesText(totals[2])], key: "grep.count" };
@@ -256,54 +256,54 @@ function summarizeGrep(s) {
 
 function summarizeGlob(s) {
   const head = firstLine(s.lines).trim();
-  if (/^\(no files match/.test(head)) return { groups: [t("无匹配文件")], key: "glob.none" };
+  if (/^\(no files match/.test(head)) return { groups: ["无匹配文件"], key: "glob.none" };
   if (s.fromPreview) return { groups: [filesCount(s.lineCount)], key: "glob.degraded" };
   const files = s.lines.filter((line) => line.trim() && !/^\.\.\. \(\d+ more;/.test(line) && !/^\(scan capped/.test(line)).length;
   const more = Number(s.text.match(/^\.\.\. \((\d+) more;/m)?.[1]) || 0;
   const groups = [filesCount(files + more)];
-  if (/^\(scan capped/m.test(s.text)) groups.push(t("扫描已封顶"));
+  if (/^\(scan capped/m.test(s.text)) groups.push("扫描已封顶");
   return { groups, key: "glob.files" };
 }
 
 function summarizeSymbols(s) {
   const head = firstLine(s.lines).trim();
   let m;
-  if (/^\((?:no symbols|no public symbols|no \.rs files|no supported source files)/.test(head)) return { groups: [t("无符号")], key: "symbols.none" };
+  if (/^\((?:no symbols|no public symbols|no \.rs files|no supported source files)/.test(head)) return { groups: ["无符号"], key: "symbols.none" };
   // 历史 callers of 正文也是词法候选,回放时使用相同的准确标识。
-  if (/^\(no callers of/.test(head)) return { groups: [t("无文本候选")], key: "symbols.none" };
+  if (/^\(no callers of/.test(head)) return { groups: ["无文本候选"], key: "symbols.none" };
   if ((m = head.match(/^(?:text candidates for|callers of) `[^`]*` \((\d+) hits?\)/))) {
-    return { groups: [countText(Number(m[1]), t("{n} 条文本候选"), t("1 条文本候选"))], key: "symbols.text_candidates" };
+    return { groups: [countText(Number(m[1]), "{n} 条文本候选", "1 条文本候选")], key: "symbols.text_candidates" };
   }
   if ((m = s.text.match(/definition of `[^`]*` \((\d+) hits?\)/))) {
-    return { groups: [countText(Number(m[1]), t("{n} 处定义"), t("1 处定义"))], key: "symbols.define" };
+    return { groups: [countText(Number(m[1]), "{n} 处定义", "1 处定义")], key: "symbols.define" };
   }
-  if (/^\(no definition of/.test(head)) return { groups: [t("未找到定义")], key: "symbols.none" };
+  if (/^\(no definition of/.test(head)) return { groups: ["未找到定义"], key: "symbols.none" };
   if ((m = head.match(/^repo map \(crates: \d+, modules: (\d+), public_symbols: (\d+)\)/))) {
     return {
-      groups: [fillTemplate(t("{n} 个模块"), { n: formatCount(m[1]) }), fillTemplate(t("{n} 个符号"), { n: formatCount(m[2]) })],
+      groups: [fillTemplate("{n} 个模块", { n: formatCount(m[1]) }), fillTemplate("{n} 个符号", { n: formatCount(m[2]) })],
       key: "symbols.map",
     };
   }
-  if (s.fromPreview) return { groups: [fillTemplate(t("{n} 行"), { n: formatCount(s.lineCount) })], key: "symbols.degraded" };
+  if (s.fromPreview) return { groups: [fillTemplate("{n} 行", { n: formatCount(s.lineCount) })], key: "symbols.degraded" };
   // 符号行形如 `  pub fn name:12` / `     fn name:12`(vis 为 "pub" 或两个空格)。
   const symbols = s.lines.filter((line) => /^ {2}(?:pub| {2}) \S+ \S.*:\d+$/.test(line)).length;
   const files = s.lines.filter((line) => line.startsWith("== ")).length;
   if (!symbols) return null;
-  const groups = [fillTemplate(t("{n} 个符号"), { n: formatCount(symbols) })];
+  const groups = [fillTemplate("{n} 个符号", { n: formatCount(symbols) })];
   if (files > 1) groups.push(filesCount(files));
   return { groups, key: "symbols.list" };
 }
 
 function summarizeFiles(s) {
   const head = firstLine(s.lines).trim();
-  if (/^\(no files\)/.test(head)) return { groups: [t("无文件")], key: "files.none" };
+  if (/^\(no files\)/.test(head)) return { groups: ["无文件"], key: "files.none" };
   if (s.fromPreview) return null;
   const top = /^files by line count/.test(head);
   const items = s.lines.filter((line) => line.trim()
     && !/^files by line count/.test(line)
     && !/^\S.*\/ {2}\(\d+ files, /.test(line)).length;
   return {
-    groups: [top ? filesCount(items) : fillTemplate(t("文件地图  {n} 项"), { n: formatCount(items) })],
+    groups: [top ? filesCount(items) : fillTemplate("文件地图  {n} 项", { n: formatCount(items) })],
     key: "files",
   };
 }
@@ -326,11 +326,11 @@ function summarizeEdit(s) {
     const times = replaced > 1 ? replaced : 1;
     const diff = lineDiffCounts(s.input.old_string, s.input.new_string);
     const groups = [[add(diff.additions * times), txt(" "), del(diff.deletions * times)]];
-    if (times > 1) groups.push(fillTemplate(t("替换 {n} 处"), { n: formatCount(times) }));
+    if (times > 1) groups.push(fillTemplate("替换 {n} 处", { n: formatCount(times) }));
     return { groups, key: "edit.input" };
   }
-  if (Number.isFinite(replaced)) return { groups: [fillTemplate(t("已替换 {n} 处"), { n: formatCount(replaced) })], key: "edit.replaced" };
-  if (/^inserted content/m.test(s.text)) return { groups: [t("已插入")], key: "edit.inserted" };
+  if (Number.isFinite(replaced)) return { groups: [fillTemplate("已替换 {n} 处", { n: formatCount(replaced) })], key: "edit.replaced" };
+  if (/^inserted content/m.test(s.text)) return { groups: ["已插入"], key: "edit.inserted" };
   return null;
 }
 
@@ -338,14 +338,14 @@ function summarizeWrite(s) {
   const content = typeof s.input.content === "string" ? s.input.content : null;
   const lines = content !== null ? lineTotal(content.replace(/\n$/, "")) : null;
   if (s.display?.kind === "create") {
-    const size = lines !== null ? fillTemplate(t("{n} 行"), { n: formatCount(lines) }) : formatByteSize(s.display.bytes);
-    return { groups: [t("新建"), size], key: "write.create" };
+    const size = lines !== null ? fillTemplate("{n} 行", { n: formatCount(lines) }) : formatByteSize(s.display.bytes);
+    return { groups: ["新建", size], key: "write.create" };
   }
   const counts = editCounts(s);
   if (counts) return { groups: [[add(counts.additions), txt(" "), del(counts.deletions)]], key: "write.diff" };
-  if (lines !== null) return { groups: [fillTemplate(t("写入 {n} 行"), { n: formatCount(lines) })], key: "write.lines" };
+  if (lines !== null) return { groups: [fillTemplate("写入 {n} 行", { n: formatCount(lines) })], key: "write.lines" };
   const bytes = Number(s.text.match(/^wrote (\d+) bytes/m)?.[1]);
-  if (Number.isFinite(bytes)) return { groups: [fillTemplate(t("写入 {size}"), { size: formatByteSize(bytes) })], key: "write.bytes" };
+  if (Number.isFinite(bytes)) return { groups: [fillTemplate("写入 {size}", { size: formatByteSize(bytes) })], key: "write.bytes" };
   return null;
 }
 
@@ -362,8 +362,8 @@ function bashHighlight(s, bodyLines, failed) {
     failedTests += Number(hit[2]);
   }
   if (sawTests) {
-    const passText = fillTemplate(t("{n} 通过"), { n: formatCount(passed) });
-    return failedTests ? [fillTemplate(t("{n} 失败"), { n: formatCount(failedTests) }), passText] : [passText];
+    const passText = fillTemplate("{n} 通过", { n: formatCount(passed) });
+    return failedTests ? [fillTemplate("{n} 失败", { n: formatCount(failedTests) }), passText] : [passText];
   }
   // 取第一条**具体**的编译错误;"could not compile … due to N previous errors" 只贡献计数。
   const compileError = bodyLines.map((line) => line.trim())
@@ -371,21 +371,21 @@ function bashHighlight(s, bodyLines, failed) {
   const errorCount = Number(body.match(/could not compile .* due to (\d+) previous errors?/)?.[1]);
   if (compileError) {
     const groups = [[code(clipText(cleanInline(compileError, s.roots), 60))]];
-    if (errorCount > 1) groups.push(fillTemplate(t("{n} 个编译错误"), { n: formatCount(errorCount) }));
+    if (errorCount > 1) groups.push(fillTemplate("{n} 个编译错误", { n: formatCount(errorCount) }));
     return groups;
   }
-  if (errorCount) return [fillTemplate(t("{n} 个编译错误"), { n: formatCount(errorCount) })];
+  if (errorCount) return [fillTemplate("{n} 个编译错误", { n: formatCount(errorCount) })];
   const warnings = Number(body.match(/generated (\d+) warnings?/)?.[1]);
-  if (warnings) return [fillTemplate(t("{n} 个警告"), { n: formatCount(warnings) })];
+  if (warnings) return [fillTemplate("{n} 个警告", { n: formatCount(warnings) })];
   const commit = bodyLines.map((line) => line.trim().match(/^\[([\w/.-]+)(?: \([^)]*\))? ([0-9a-f]{7,})\] (.+)$/)).find(Boolean);
   if (commit) return [[code(commit[2]), txt(` ${clipText(cleanInline(commit[3], s.roots), 60)}`)]];
   if (bodyLines.some((line) => /^To \S/.test(line.trim()))) {
     const pushed = bodyLines.map((line) => line.match(/->\s+(\S+)\s*$/)).find(Boolean);
-    if (pushed) return [fillTemplate(t("已推送 {ref}"), { ref: pushed[1] })];
+    if (pushed) return [fillTemplate("已推送 {ref}", { ref: pushed[1] })];
   }
   const jsTests = Number(body.match(/(\d+) passing\b/)?.[1] ?? body.match(/Tests:\s+(?:\d+ failed, )?(\d+) passed/)?.[1]);
-  if (jsTests) return [fillTemplate(t("{n} 通过"), { n: formatCount(jsTests) })];
-  if (!failed && bodyLines.some((line) => /^\s*Finished\b/.test(line))) return [t("编译完成")];
+  if (jsTests) return [fillTemplate("{n} 通过", { n: formatCount(jsTests) })];
+  if (!failed && bodyLines.some((line) => /^\s*Finished\b/.test(line))) return ["编译完成"];
   if (failed) {
     const reason = proseLine(bodyLines, s.roots, { max: 80, test: /error|failed|panicked|exception|错误|失败/i })
       || bodyLines.map((line) => cleanInline(line, s.roots)).find((line) => line && !looksLikeNoise(line) && /error|failed|panicked|exception|错误|失败/i.test(line) && line.length <= 80);
@@ -402,7 +402,7 @@ function summarizeBash(s) {
   const display = s.display?.kind === "terminal" ? s.display : null;
   if (display?.background || /^background: true$/m.test(s.text)) {
     const id = display?.processId ?? s.text.match(/^process_id: (\S+)/m)?.[1] ?? "";
-    return { groups: [t("后台运行"), id ? [code(id)] : null], key: "bash.background" };
+    return { groups: ["后台运行", id ? [code(id)] : null], key: "bash.background" };
   }
   const timedOut = Boolean(display?.timeout) || /^timeout: true\b/m.test(s.text);
   const exitLine = s.text.match(/^exit code: (\S+)/m)?.[1];
@@ -411,15 +411,15 @@ function summarizeBash(s) {
   // 不能在这里吞成空摘要或「输出 N 行」。
   if (!s.ok && !timedOut && (exit === undefined || exit === null)) return null;
   const groups = [];
-  if (timedOut) groups.push(t("超时"), t("已终止"));
-  else if (exit !== undefined && exit !== null) groups.push(fillTemplate(t("退出码 {code}"), { code: exit }));
+  if (timedOut) groups.push("超时", "已终止");
+  else if (exit !== undefined && exit !== null) groups.push(fillTemplate("退出码 {code}", { code: exit }));
   const durAt = groups.length;
   const bodyLines = s.lines.filter((line) => !/^exit code: \S+$/.test(line.trim())
     && !/^timeout: true\b/.test(line.trim())
     && !/^\[(?:no output captured before timeout|partial (?:stdout|stderr) before timeout|stderr|stdout truncated at 1 MiB|stderr truncated at 1 MiB)\]$/.test(line.trim()));
   const body = bodyLines.join("\n").trim();
   if (body === "(no output)") {
-    groups.push(t("无输出"));
+    groups.push("无输出");
     return { groups, durAt, key: "bash" };
   }
   if (!body && !s.fromPreview) return { groups, durAt, key: "bash" };
@@ -436,17 +436,17 @@ function summarizeProcess(s) {
   const head = firstLine(s.lines).trim();
   const action = String(s.input.action ?? "");
   let m;
-  if (/^\(no background processes\)/.test(head)) return { groups: [t("无后台终端")], key: "process.none" };
-  if ((m = head.match(/^stopped (\S+)/))) return { groups: [[txt(`${t("已停止")} `), code(m[1])]], key: "process.stop" };
-  if (/was already finished/.test(head)) return { groups: [t("已结束")], key: "process.stop" };
+  if (/^\(no background processes\)/.test(head)) return { groups: ["无后台终端"], key: "process.none" };
+  if ((m = head.match(/^stopped (\S+)/))) return { groups: [[txt(`${"已停止"} `), code(m[1])]], key: "process.stop" };
+  if (/was already finished/.test(head)) return { groups: ["已结束"], key: "process.stop" };
   if (action === "list" || /^\S+ \[(?:running|exited\(|terminated)/.test(head)) {
     const count = s.lines.filter((line) => /^\S+ \[(?:running|exited\(-?\d+\)|terminated)\]/.test(line)).length;
-    return { groups: [fillTemplate(t("{n} 个后台终端"), { n: formatCount(count) })], key: "process.list" };
+    return { groups: [fillTemplate("{n} 个后台终端", { n: formatCount(count) })], key: "process.list" };
   }
   const state = head.match(/^state: (\S+)/)?.[1];
   const body = s.lines.filter((line) => !/^state: /.test(line) && !/^\[(?:earlier output dropped|memory output bounded|persistent log on disk)/.test(line.trim()));
   const groups = [];
-  if (state) groups.push(state === "running" ? t("运行中") : state);
+  if (state) groups.push(state === "running" ? "运行中" : state);
   const last = proseLine(body, s.roots, { last: true, max: 80 });
   if (last) groups.push(last);
   else if (nonEmpty(body).length && !/^\(no output yet\)$/.test(body.join("").trim())) groups.push(outputLines(nonEmpty(body).length));
@@ -460,7 +460,7 @@ function summarizeGit(s) {
   // Read-only Git calls can successfully report that this project has no own repository.
   // Preserve that fact before interpreting status/diff/log output as actual repository data.
   if (/^not (?:a|an independent) git repository:/.test(head)) {
-    return { groups: [t("本项目不是 Git 仓库")], title: cleanInline(s.text, s.roots), key: "git.unavailable" };
+    return { groups: ["本项目不是 Git 仓库"], title: cleanInline(s.text, s.roots), key: "git.unavailable" };
   }
   if (/^committed verified staged set/.test(head) || action === "commit") {
     const subject = s.lines.map((line) => line.match(/^([0-9a-f]{7,40}) (.+)$/)).find(Boolean);
@@ -478,17 +478,17 @@ function summarizeGit(s) {
     }
     return { groups, key: "git.commit" };
   }
-  if ((m = s.text.match(/staged (\d+) file/))) return { groups: [fillTemplate(t("已暂存 {n} 个文件"), { n: formatCount(m[1]) })], key: "git.stage" };
-  if (/^\[finalize\] complete/.test(head)) return { groups: [t("测试通过"), t("已提交")], key: "git.finalize" };
+  if ((m = s.text.match(/staged (\d+) file/))) return { groups: [fillTemplate("已暂存 {n} 个文件", { n: formatCount(m[1]) })], key: "git.stage" };
+  if (/^\[finalize\] complete/.test(head)) return { groups: ["测试通过", "已提交"], key: "git.finalize" };
   if ((m = head.match(/^fast-forwarded (\S+): (\S+) -> (\S+)/))) {
     return { groups: [[txt(`${m[1]} → `), code(m[3].slice(0, 8))]], key: "git.ff" };
   }
   if (action === "status" || /^## /.test(head) || /^\(clean worktree\)/.test(head)) {
     const changes = s.lines.filter((line) => line.trim() && !/^## /.test(line) && !/^\(clean worktree\)/.test(line)).length;
-    return { groups: [changes ? fillTemplate(t("{n} 处改动"), { n: formatCount(changes) }) : t("工作区干净")], key: "git.status" };
+    return { groups: [changes ? fillTemplate("{n} 处改动", { n: formatCount(changes) }) : "工作区干净"], key: "git.status" };
   }
   if (action === "diff" || /^diff --git /m.test(s.text)) {
-    if (/^\(no diff\)/.test(head)) return { groups: [t("无差异")], key: "git.diff" };
+    if (/^\(no diff\)/.test(head)) return { groups: ["无差异"], key: "git.diff" };
     const files = parseUnifiedDiff(s.text);
     const additions = files.reduce((total, file) => total + file.additions, 0);
     const deletions = files.reduce((total, file) => total + file.deletions, 0);
@@ -498,8 +498,8 @@ function summarizeGit(s) {
     };
   }
   if (action === "log") {
-    if (/^\(no commits\)/.test(head)) return { groups: [t("无提交")], key: "git.log" };
-    return { groups: [fillTemplate(t("{n} 条提交"), { n: formatCount(nonEmpty(s.lines).length) })], key: "git.log" };
+    if (/^\(no commits\)/.test(head)) return { groups: ["无提交"], key: "git.log" };
+    return { groups: [fillTemplate("{n} 条提交", { n: formatCount(nonEmpty(s.lines).length) })], key: "git.log" };
   }
   return null;
 }
@@ -511,8 +511,8 @@ function summarizeWebfetch(s) {
   const groups = [`HTTP ${status}`];
   if (!s.fromPreview) {
     const body = s.text.split("\n").slice(1).join("\n").replace(/…\(截断\)\s*$/, "").trim();
-    groups.push(fillTemplate(t("{n} 字"), { n: formatCount([...body].length) }));
-    if (/…\(截断\)\s*$/.test(s.text)) groups.push(t("已截断"));
+    groups.push(fillTemplate("{n} 字", { n: formatCount([...body].length) }));
+    if (/…\(截断\)\s*$/.test(s.text)) groups.push("已截断");
   }
   return { groups, key: "webfetch" };
 }
@@ -522,13 +522,13 @@ function summarizeWebsearch(s) {
   if (parsed?.backend === "model_native") {
     const query = cleanInline(parsed.query || "", s.roots);
     return {
-      groups: [t("搜索结果"), query ? clipText(query, 48) : t("搜索结果")],
+      groups: ["搜索结果", query ? clipText(query, 48) : "搜索结果"],
       key: "websearch.native",
     };
   }
   const facts = websearchFacts(parsed);
   if (facts) {
-    if (!facts.count) return { groups: [t("无结果")], key: "websearch" };
+    if (!facts.count) return { groups: ["无结果"], key: "websearch" };
     const first = cleanInline(facts.firstTitle, s.roots);
     return { groups: [resultsCount(facts.count), first ? clipText(first, 40) : null], key: "websearch" };
   }
@@ -538,18 +538,18 @@ function summarizeWebsearch(s) {
 
 function summarizeTask(s) {
   if (/\(超时,未产出结果\)|subagent hit the \d+s wall-clock/.test(s.text)) {
-    return { groups: [t("超时"), t("未产出结果")], key: "task.timeout" };
+    return { groups: ["超时", "未产出结果"], key: "task.timeout" };
   }
   const value = parseJsonish(s.text);
   if (value?.state === "waiting" && value.delivery === "automatic") {
-    return { groups: [t("等待结果"), t("完成后自动唤醒")], key: "task.waiting" };
+    return { groups: ["等待结果", "完成后自动唤醒"], key: "task.waiting" };
   }
   const jobs = Array.isArray(value) ? value : Array.isArray(value?.jobs) ? value.jobs : value?.job ? [value.job] : value?.state ? [value] : null;
   if (jobs) {
-    if (!jobs.length) return { groups: [t("暂无完成结果")], key: "task.empty" };
+    if (!jobs.length) return { groups: ["暂无完成结果"], key: "task.empty" };
     const states = { queued: "等待结果", waiting: "等待结果", waiting_user: "等待答复", running: "运行中", stopping: "停止中", stopped: "已停止", done: "已完成", failed: "失败", blocked: "已阻塞" };
     const statuses = [...new Set(jobs.map(job => states[job.state]).filter(Boolean))];
-    if (statuses.length) return { groups: statuses.map(t), key: "task.status" };
+    if (statuses.length) return { groups: statuses, key: "task.status" };
   }
   for (const line of s.lines) {
     if (/^\s*(?:```|~~~)/.test(line)) continue;
@@ -564,49 +564,49 @@ function summarizeTask(s) {
 function summarizeQuestion(s) {
   const decision = s.display;
   if (decision?.kind === "autonomous_decision") {
-    const label = decision.status === "decided" ? t("自主决定") : decision.status === "needs_input" ? t("待补充事实") : t("模型决策中");
+    const label = decision.status === "decided" ? "自主决定" : decision.status === "needs_input" ? "待补充事实" : "模型决策中";
     return { groups: [`${label}: ${clipText(cleanInline(decision.resolution?.answer || decision.question, s.roots), 60)}`], key: "question" };
   }
   // D-764③:作答结果除答案行还带引擎签发的凭证行,摘要只认答案那一行;
   // 旧写法 [\s\S]* 会把凭证整段吞进「用户回答」气泡里。
   const answer = s.text.match(/^User answer: ([^\n]*)/m)?.[1];
   if (answer === undefined) return null;
-  return { groups: [fillTemplate(t("用户回答: {answer}"), { answer: clipText(cleanInline(answer, s.roots), 60) })], key: "question" };
+  return { groups: [fillTemplate("用户回答: {answer}", { answer: clipText(cleanInline(answer, s.roots), 60) })], key: "question" };
 }
 
 function summarizeTracker(s) {
   const head = firstLine(s.lines).trim();
   const action = String(s.input.action ?? "");
   let m;
-  if ((m = head.match(/^added ([A-Z]+-\d+)/))) return { groups: [[txt(`${t("新增")} `), code(m[1])]], key: "tracker.add" };
-  if (/^no-op:/.test(head)) return { groups: [t("无变化")], key: "tracker.noop" };
+  if ((m = head.match(/^added ([A-Z]+-\d+)/))) return { groups: [[txt(`${"新增"} `), code(m[1])]], key: "tracker.add" };
+  if (/^no-op:/.test(head)) return { groups: ["无变化"], key: "tracker.noop" };
   if ((m = head.match(/^updated: (\S+) \[([^\]]+)\]/))) {
     const change = s.text.match(/^变更: (.*)$/m)?.[1] ?? "";
     const status = change.match(/(?:^|; )状态: \S+ → (\S+?)(?:;|$)/)?.[1]
       ?? (typeof s.input.status === "string" ? s.input.status : null);
-    if (status) return { groups: [[code(m[1]), txt(` → ${localizedDocStatus(status)}`)]], key: "tracker.status" };
+    if (status) return { groups: [[code(m[1]), txt(` → ${statusWord(status)}`)]], key: "tracker.status" };
     let keys = [...change.matchAll(/(?:^|; )([^:;→\s][^:;→]{0,19}): /g)].map((hit) => hit[1].trim());
     if (!keys.length && s.input.fields && typeof s.input.fields === "object") keys = Object.keys(s.input.fields);
     keys = [...new Set(keys)].slice(0, 3);
     return {
-      groups: [[code(m[1]), txt(` ${keys.length ? `${t("已更新")} ${keys.join("、")}` : t("已更新")}`)]],
+      groups: [[code(m[1]), txt(` ${keys.length ? `${"已更新"} ${keys.join("、")}` : "已更新"}`)]],
       key: "tracker.update",
     };
   }
-  if ((m = head.match(/^reopened (\S+)/))) return { groups: [[txt(`${t("已重开")} `), code(m[1])]], key: "tracker.reopen" };
-  if ((m = head.match(/^reordered (\d+)/))) return { groups: [fillTemplate(t("已重排 {n} 条"), { n: formatCount(m[1]) })], key: "tracker.reorder" };
-  if ((m = head.match(/^archived (\d+) terminal/))) return { groups: [fillTemplate(t("已归档 {n} 条"), { n: formatCount(m[1]) })], key: "tracker.archive" };
+  if ((m = head.match(/^reopened (\S+)/))) return { groups: [[txt(`${"已重开"} `), code(m[1])]], key: "tracker.reopen" };
+  if ((m = head.match(/^reordered (\d+)/))) return { groups: [fillTemplate("已重排 {n} 条", { n: formatCount(m[1]) })], key: "tracker.reorder" };
+  if ((m = head.match(/^archived (\d+) terminal/))) return { groups: [fillTemplate("已归档 {n} 条", { n: formatCount(m[1]) })], key: "tracker.archive" };
   const json = parseJsonish(s.text);
   const list = trackerListFacts(json);
   if (list) {
-    const groups = [fillTemplate(t("{n} 条"), { n: formatCount(list.total) }), fillTemplate(t("{n} 条可执行"), { n: formatCount(list.executable) })];
-    if (list.deadlocked) groups.push(t("全部阻塞"));
+    const groups = [fillTemplate("{n} 条", { n: formatCount(list.total) }), fillTemplate("{n} 条可执行", { n: formatCount(list.executable) })];
+    if (list.deadlocked) groups.push("全部阻塞");
     return { groups, key: "tracker.list", tone: list.deadlocked ? "warn" : undefined };
   }
   const entry = trackerEntryFacts(json);
   if (entry) {
     return {
-      groups: [[code(entry.id), txt(` ${localizedDocStatus(entry.status)}`)], clipText(cleanInline(entry.title, s.roots), 40)],
+      groups: [[code(entry.id), txt(` ${statusWord(entry.status)}`)], clipText(cleanInline(entry.title, s.roots), 40)],
       key: "tracker.get",
     };
   }
@@ -614,14 +614,14 @@ function summarizeTracker(s) {
   const mismatch = mismatchFacts(json);
   if (mismatch) {
     return {
-      groups: [mismatch.count ? fillTemplate(t("不一致 {n}"), { n: formatCount(mismatch.count) }) : t("无不一致")],
+      groups: [mismatch.count ? fillTemplate("不一致 {n}", { n: formatCount(mismatch.count) }) : "无不一致"],
       key: "tracker.audit",
       tone: mismatch.count ? "warn" : undefined,
     };
   }
   if (action === "list" && /^\{/.test(head)) {
     const count = countOccurrences(s.text, '"lifecycle_status"');
-    if (count) return { groups: [fillTemplate(t("{n} 条"), { n: `${formatCount(count)}+` })], key: "tracker.list.partial" };
+    if (count) return { groups: [fillTemplate("{n} 条", { n: `${formatCount(count)}+` })], key: "tracker.list.partial" };
   }
   return null;
 }
@@ -630,7 +630,7 @@ function summarizeWork(s) {
   const action = String(s.input.action ?? "");
   if (action === "handoff") {
     const local = ["work_item", "batch"].includes(s.input.handoff_scope);
-    return { groups: [local ? t("交付记录已登记") : t("交付记录已提交")], key: "work.handoff" };
+    return { groups: [local ? "交付记录已登记" : "交付记录已提交"], key: "work.handoff" };
   }
   const json = parseJsonish(s.text);
   const facts = workFacts(json) ?? (() => {
@@ -638,38 +638,38 @@ function summarizeWork(s) {
     return decision ? { decision, id: s.text.match(/"selected":\s*\{[\s\S]*?"id":\s*"([^"]+)"/)?.[1] ?? "", title: "" } : null;
   })();
   if (!facts) return null;
-  if (facts.claimed) return { groups: [[txt(`${t("已领取")} `), code(facts.claimed)]], key: "work.claim" };
+  if (facts.claimed) return { groups: [[txt(`${"已领取"} `), code(facts.claimed)]], key: "work.claim" };
   const item = (label) => [[txt(`${label} `), facts.id ? code(facts.id) : null], facts.title ? clipText(cleanInline(facts.title, s.roots), 40) : null];
   switch (facts.decision) {
-    case "resume": return { groups: item(t("继续")), key: "work.next" };
-    case "start": return { groups: item(t("开始")), key: "work.next" };
-    case "blocked": return { groups: [t("全部阻塞")], key: "work.next", tone: "warn" };
-    case "wip_violation": return { groups: [t("WIP 冲突")], key: "work.next", tone: "warn" };
-    case "empty": return { groups: [t("无可执行条目")], key: "work.next" };
+    case "resume": return { groups: item("继续"), key: "work.next" };
+    case "start": return { groups: item("开始"), key: "work.next" };
+    case "blocked": return { groups: ["全部阻塞"], key: "work.next", tone: "warn" };
+    case "wip_violation": return { groups: ["WIP 冲突"], key: "work.next", tone: "warn" };
+    case "empty": return { groups: ["无可执行条目"], key: "work.next" };
     default: return null;
   }
 }
 
 function testStatusLabel(status) {
-  if (status === "passed") return t("通过");
-  if (status === "failed") return t("失败");
-  if (status === "running") return t("运行中");
-  if (status === "skipped") return t("跳过");
+  if (status === "passed") return "通过";
+  if (status === "failed") return "失败";
+  if (status === "running") return "运行中";
+  if (status === "skipped") return "跳过";
   return status;
 }
 function summarizeTestRecord(s) {
   const head = firstLine(s.lines).trim();
   const id = head.match(/^recorded (T-\d+)/)?.[1];
   if (!id && !/^recorded\b/.test(head)) return null;
-  const idPart = id ? [txt(`${t("已记录")} `), code(`T-…${id.slice(-4)}`)] : [txt(t("已记录"))];
+  const idPart = id ? [txt(`${"已记录"} `), code(`T-…${id.slice(-4)}`)] : [txt("已记录")];
   const summaryText = String(s.input.summary ?? "");
   const passed = Number(summaryText.match(/(\d+) passed/)?.[1]);
   const failed = Number(summaryText.match(/(\d+) failed/)?.[1]);
   const groups = [idPart];
   if (Number.isFinite(passed)) {
     const total = passed + (Number.isFinite(failed) ? failed : 0);
-    if (failed > 0) groups.push(fillTemplate(t("{n} 失败"), { n: formatCount(failed) }), `${formatCount(passed)}/${formatCount(total)}`);
-    else groups.push(fillTemplate(t("{n} 通过"), { n: `${formatCount(passed)}/${formatCount(total)}` }));
+    if (failed > 0) groups.push(fillTemplate("{n} 失败", { n: formatCount(failed) }), `${formatCount(passed)}/${formatCount(total)}`);
+    else groups.push(fillTemplate("{n} 通过", { n: `${formatCount(passed)}/${formatCount(total)}` }));
   } else if (typeof s.input.status === "string" && s.input.status) {
     groups.push(testStatusLabel(s.input.status));
   }
@@ -678,20 +678,20 @@ function summarizeTestRecord(s) {
 
 function summarizeMemorySearch(s) {
   const head = firstLine(s.lines).trim();
-  if (/^\(no memory matched/.test(head)) return { groups: [t("无匹配记忆")], key: "memory_search.none" };
+  if (/^\(no memory matched/.test(head)) return { groups: ["无匹配记忆"], key: "memory_search.none" };
   const hits = s.lines.map((line) => line.match(/^[A-Z]+-\d+ \[[^\]]+\] (.+?)(?: — |$)/)).filter(Boolean);
   if (!hits.length) return null;
   const first = cleanInline(hits[0][1], s.roots);
-  return { groups: [fillTemplate(t("{n} 条记忆"), { n: formatCount(hits.length) }), first ? clipText(first, 40) : null], key: "memory_search" };
+  return { groups: [fillTemplate("{n} 条记忆", { n: formatCount(hits.length) }), first ? clipText(first, 40) : null], key: "memory_search" };
 }
 function summarizeMemoryNote(s) {
   const head = firstLine(s.lines).trim();
   let m;
   if ((m = s.text.match(/pending notes: (\d+)/))) {
-    return { groups: [t("已记入待整理"), fillTemplate(t("待整理 {n} 条"), { n: formatCount(m[1]) })], key: "memory_note" };
+    return { groups: ["已记入待整理", fillTemplate("待整理 {n} 条", { n: formatCount(m[1]) })], key: "memory_note" };
   }
-  if (/^noted as duplicate/.test(head)) return { groups: [t("与已有记忆重复,未记录")], key: "memory_note.duplicate" };
-  if ((m = head.match(/^corrected (\S+)/))) return { groups: [[txt(`${t("已更正")} `), code(m[1])]], key: "memory_note.correct" };
+  if (/^noted as duplicate/.test(head)) return { groups: ["与已有记忆重复,未记录"], key: "memory_note.duplicate" };
+  if ((m = head.match(/^corrected (\S+)/))) return { groups: [[txt(`${"已更正"} `), code(m[1])]], key: "memory_note.correct" };
   return null;
 }
 /// memory_add/update/promote/merge/stale/inbox_*:首行动词 → 人话 + 编号。
@@ -699,43 +699,43 @@ function summarizeMemoryChange(s) {
   const head = firstLine(s.lines).trim();
   let m;
   const idPart = (label, id) => ({ groups: [[txt(`${label} `), code(id)]], key: `memory.${s.name}` });
-  if ((m = head.match(/^added (\S+)/))) return idPart(t("新增"), m[1]);
-  if ((m = head.match(/^updated (\S+)/))) return idPart(t("更新"), m[1]);
-  if ((m = head.match(/^promoted (\S+)/))) return idPart(t("晋升"), m[1]);
-  if ((m = head.match(/^merged (\S+)/))) return idPart(t("合并入"), m[1]);
-  if ((m = head.match(/^staled (\S+)/))) return idPart(t("标记过时"), m[1]);
-  if (/^inbox cleared/.test(head)) return { groups: [t("待整理已清空")], key: "memory.inbox" };
-  if (/^discarded inbox note/.test(head)) return { groups: [t("已丢弃待整理条目")], key: "memory.inbox" };
+  if ((m = head.match(/^added (\S+)/))) return idPart("新增", m[1]);
+  if ((m = head.match(/^updated (\S+)/))) return idPart("更新", m[1]);
+  if ((m = head.match(/^promoted (\S+)/))) return idPart("晋升", m[1]);
+  if ((m = head.match(/^merged (\S+)/))) return idPart("合并入", m[1]);
+  if ((m = head.match(/^staled (\S+)/))) return idPart("标记过时", m[1]);
+  if (/^inbox cleared/.test(head)) return { groups: ["待整理已清空"], key: "memory.inbox" };
+  if (/^discarded inbox note/.test(head)) return { groups: ["已丢弃待整理条目"], key: "memory.inbox" };
   return null;
 }
 
 function summarizeArchitecture(s) {
   const head = firstLine(s.lines).trim();
   let m;
-  if (/^Draft only/.test(head)) return { groups: [t("草稿(未写入)")], key: "architecture" };
-  if (/^updated /.test(head)) return { groups: [t("已更新架构索引")], key: "architecture" };
-  if (/^validation: ok\b/m.test(s.text)) return { groups: [t("校验通过")], key: "architecture" };
+  if (/^Draft only/.test(head)) return { groups: ["草稿(未写入)"], key: "architecture" };
+  if (/^updated /.test(head)) return { groups: ["已更新架构索引"], key: "architecture" };
+  if (/^validation: ok\b/m.test(s.text)) return { groups: ["校验通过"], key: "architecture" };
   if ((m = s.text.match(/^validation: (\d+) issue/m))) {
-    return { groups: [fillTemplate(t("{n} 个问题"), { n: formatCount(m[1]) })], key: "architecture", tone: "warn" };
+    return { groups: [fillTemplate("{n} 个问题", { n: formatCount(m[1]) })], key: "architecture", tone: "warn" };
   }
   return null;
 }
 function summarizeConventions(s) {
   const head = firstLine(s.lines).trim();
-  if (/^patched /.test(head)) return { groups: [t("已更新规范")], key: "conventions" };
+  if (/^patched /.test(head)) return { groups: ["已更新规范"], key: "conventions" };
   const start = s.lines.findIndex((line) => line.trim() === "headings:");
   if (start < 0) return null;
   const end = s.lines.findIndex((line, index) => index > start && line.trim() === "---");
   const headings = s.lines.slice(start + 1, end < 0 ? undefined : end).filter((line) => /^ {2}#/.test(line)).length;
-  return { groups: [fillTemplate(t("{n} 节"), { n: formatCount(headings) })], key: "conventions" };
+  return { groups: [fillTemplate("{n} 节", { n: formatCount(headings) })], key: "conventions" };
 }
 // UI2-0926 #8:browser 由引擎路由到网页预览面板或无头浏览器,结果首行写明走了哪边
 // (`backend: pane(用户可见)` / `backend: headless`);新动作 screenshot/press/scroll/wait/eval。
 // ⎿ 行 = 动作 · 主机(或文件名)· 面板/无头。旧版无头结果(没有 backend 行)照旧显示「截图 主机」。
 const BROWSER_ACTION_LABELS = {
-  open: () => t("打开"), screenshot: () => t("截图"), dom: () => t("读 DOM"), console: () => t("控制台"),
-  click: () => t("点击"), type: () => t("输入"), press: () => t("按键"), scroll: () => t("滚动"),
-  wait: () => t("等待"), eval: () => t("执行脚本"),
+  open: () => "打开", screenshot: () => "截图", dom: () => "读 DOM", console: () => "控制台",
+  click: () => "点击", type: () => "输入", press: () => "按键", scroll: () => "滚动",
+  wait: () => "等待", eval: () => "执行脚本",
 };
 export function browserBackendOf(text) {
   return String(text ?? "").match(/^backend:\s*(pane|headless)\b/m)?.[1] ?? null;
@@ -747,37 +747,37 @@ function summarizeBrowser(s) {
   const urlText = (typeof s.input.url === "string" && s.input.url) || s.text.match(/\burl:\s*([^\s)]+)/i)?.[1] || "";
   const host = urlParts(urlText)?.host ?? "";
   if (!backend) {
-    if (/^浏览器已打开并截图/.test(head)) return { groups: [t("截图"), host ? [code(host)] : null], key: "browser.screenshot" };
+    if (/^浏览器已打开并截图/.test(head)) return { groups: ["截图", host ? [code(host)] : null], key: "browser.screenshot" };
     return null;
   }
   const action = String(s.input.action ?? "").trim().toLowerCase();
   const path = typeof s.input.path === "string" && s.input.path ? s.input.path.split(/[\\/]/).pop() : "";
-  const where = host || path || (typeof s.input.html === "string" && s.input.html ? t("代码片段") : "");
-  const label = BROWSER_ACTION_LABELS[action]?.() ?? (action || t("浏览器"));
+  const where = host || path || (typeof s.input.html === "string" && s.input.html ? "代码片段" : "");
+  const label = BROWSER_ACTION_LABELS[action]?.() ?? (action || "浏览器");
   return {
-    groups: [label, where ? [code(where)] : null, backend === "pane" ? t("面板") : t("无头")],
+    groups: [label, where ? [code(where)] : null, backend === "pane" ? "面板" : "无头"],
     key: `browser.${BROWSER_ACTION_LABELS[action] ? action : "result"}`,
   };
 }
 function summarizeFrontend(s) {
   const head = firstLine(s.lines).trim();
   let m;
-  if ((m = head.match(/^(\d+) 处定义/))) return { groups: [countText(Number(m[1]), t("{n} 处定义"), t("1 处定义"))], key: "frontend" };
-  if (/结构完整/.test(head)) return { groups: [t("通过")], key: "frontend" };
-  if ((m = s.text.match(/(\d+) 个问题/))) return { groups: [fillTemplate(t("{n} 个问题"), { n: formatCount(m[1]) })], key: "frontend", tone: "warn" };
+  if ((m = head.match(/^(\d+) 处定义/))) return { groups: [countText(Number(m[1]), "{n} 处定义", "1 处定义")], key: "frontend" };
+  if (/结构完整/.test(head)) return { groups: ["通过"], key: "frontend" };
+  if ((m = s.text.match(/(\d+) 个问题/))) return { groups: [fillTemplate("{n} 个问题", { n: formatCount(m[1]) })], key: "frontend", tone: "warn" };
   return null;
 }
 function summarizeDeliver(s) {
   if (s.display?.kind === "file") {
-    return { groups: [[txt(`${t("已交付")} `), code(String(s.display.name ?? ""))], formatByteSize(s.display.bytes)], key: "deliver" };
+    return { groups: [[txt(`${"已交付"} `), code(String(s.display.name ?? ""))], formatByteSize(s.display.bytes)], key: "deliver" };
   }
   const m = firstLine(s.lines).trim().match(/^\[delivered\] (.+?) \((\d+) bytes\)/);
-  return m ? { groups: [[txt(`${t("已交付")} `), code(m[1])], formatByteSize(m[2])], key: "deliver" } : null;
+  return m ? { groups: [[txt(`${"已交付"} `), code(m[1])], formatByteSize(m[2])], key: "deliver" } : null;
 }
 function summarizeCollaboration(s) {
   if (!Array.isArray(s.display?.conversations) || !Array.isArray(s.display?.worktrees)) return null;
-  return { groups: [countText(s.display.conversations.length, t("{n} 个对话"), t("1 个对话")),
-    countText(s.display.worktrees.length, t("{n} 个工作树"), t("1 个工作树"))], key: "collaboration_status" };
+  return { groups: [countText(s.display.conversations.length, "{n} 个对话", "1 个对话"),
+    countText(s.display.worktrees.length, "{n} 个工作树", "1 个工作树")], key: "collaboration_status" };
 }
 
 const TRACKER_TOOLS = ["req", "defect", "idea", "decision", "source", "finding"];
@@ -830,22 +830,22 @@ export function toolGateFailure(s) {
   const head = firstLine(s.lines).trim();
   let m;
   if (s.code === "USER_DECLINED" || /^\(user declined\)$|^permission request declined by user\b/.test(head)) {
-    return { groups: [t("已拒绝")], key: "gate.declined" };
+    return { groups: ["已拒绝"], key: "gate.declined" };
   }
   if (/^tool call cancelled because a previous permission request was declined/.test(head)) {
-    return { groups: [t("已取消"), t("前一项权限被拒绝")], key: "gate.declined-chain" };
+    return { groups: ["已取消", "前一项权限被拒绝"], key: "gate.declined-chain" };
   }
   if ((m = head.match(/^permission denied by ruleset: (\S+) on `/))) {
-    return { groups: [[txt(`${t("被权限规则拒绝")} `), code(m[1])]], key: "gate.ruleset" };
+    return { groups: [[txt(`${"被权限规则拒绝"} `), code(m[1])]], key: "gate.ruleset" };
   }
   if (/^permission requires user approval: \S+ on `/.test(head)) {
-    return { groups: [t("需要批准"), t("自主运行已跳过")], key: "gate.noninteractive" };
+    return { groups: ["需要批准", "自主运行已跳过"], key: "gate.noninteractive" };
   }
   if (s.code === "INVALID_TOOL_INPUT" || /^Invalid input for tool `/.test(head)) {
     const field = s.text.match(/缺少必填参数 `([^`\n]+)`/)?.[1] ?? s.text.match(/missing field `([^`\n]+)`/)?.[1];
-    return { groups: [t("入参无效"), field ? [txt(`${t("缺少参数")} `), code(field)] : null], key: "gate.invalid-input" };
+    return { groups: ["入参无效", field ? [txt(`${"缺少参数"} `), code(field)] : null], key: "gate.invalid-input" };
   }
-  if (/^cancelled: run stopped by user/.test(head)) return { groups: [t("已停止")], key: "gate.cancelled" };
+  if (/^cancelled: run stopped by user/.test(head)) return { groups: ["已停止"], key: "gate.cancelled" };
   return null;
 }
 
@@ -854,7 +854,7 @@ export const TOOL_FAIL_SUMMARIZERS = {
   bash: summarizeBash,
   // 超时角色:屏障砍掉、什么都没产出,与「跑了但失败」分开说;其余失败走切分。
   task: (s) => (/\(超时,未产出结果\)|subagent hit the \d+s wall-clock/.test(s.text)
-    ? { groups: [t("超时"), t("未产出结果")], key: "task.timeout" }
+    ? { groups: ["超时", "未产出结果"], key: "task.timeout" }
     : null),
   read(s) {
     if (s.code === "READ_PATH_NOT_FOUND" || /^path not found: /.test(firstLine(s.lines).trim())) {
@@ -862,11 +862,11 @@ export const TOOL_FAIL_SUMMARIZERS = {
       const fromText = firstLine(s.lines).trim().match(/^path not found: (.+[^…])$/)?.[1] ?? "";
       const rawPath = typeof s.input.path === "string" ? s.input.path : fromText;
       const path = rawPath ? displayPath(rawPath, s.roots) : "";
-      return { groups: [t("路径不存在"), path ? [code(path)] : null], key: "read.missing" };
+      return { groups: ["路径不存在", path ? [code(path)] : null], key: "read.missing" };
     }
     const lines = s.text.match(/the file has (\d+) lines/)?.[1];
     if (s.code === "READ_RANGE_OUT_OF_BOUNDS" && lines) {
-      return { groups: [t("超出范围"), fillTemplate(t("文件共 {total} 行"), { total: formatCount(lines) })], key: "read.range-error" };
+      return { groups: ["超出范围", fillTemplate("文件共 {total} 行", { total: formatCount(lines) })], key: "read.range-error" };
     }
     return null;
   },
@@ -972,12 +972,12 @@ export function toolResultSummary(name, ctx = {}) {
   if (storage?.kind === "externalized" || display?.kind === "artifact") {
     const size = Number(display?.bytes ?? storage?.bytes);
     return finish({
-      groups: [fillTemplate(t("输出较大  {size}  已外置"), { size: Number.isFinite(size) ? formatByteSize(size) : "?" })],
+      groups: [fillTemplate("输出较大  {size}  已外置", { size: Number.isFinite(size) ? formatByteSize(size) : "?" })],
       key: "artifact",
     }, "summary", { rest: fullRest });
   }
-  if (state === "noop") return finish({ groups: [t("无需修改")], key: "noop" }, "summary", { rest: fullRest });
-  if (state === "blocked_by_workflow") return finish({ groups: [t("流程暂缓"), t("先完成当前批次的验证与收尾")], key: "workflow-blocked" }, "summary", { rest: cleanPaths(text, roots) });
+  if (state === "noop") return finish({ groups: ["无需修改"], key: "noop" }, "summary", { rest: fullRest });
+  if (state === "blocked_by_workflow") return finish({ groups: ["流程暂缓", "先完成当前批次的验证与收尾"], key: "workflow-blocked" }, "summary", { rest: cleanPaths(text, roots) });
   if (state !== "success") {
     const gate = toolGateFailure(s);
     if (gate) return finish(gate, "summary", { rest: fullRest });
@@ -1035,19 +1035,19 @@ function pickString(input, ...keys) {
 }
 const TRACKER_ACTION_LABELS = {
   // 参数列是「要做的动作」,英文用祈使式 Add;结果列的「新增 R-1」是已发生,英文 Added。
-  add: () => t("新增条目"),
-  update: () => t("更新条目"),
-  close: () => t("关闭"),
-  reopen: () => t("重开"),
-  list: () => t("列表"),
-  get: () => t("查看"),
-  reorder: () => t("重排"),
+  add: () => "新增条目",
+  update: () => "更新条目",
+  close: () => "关闭",
+  reopen: () => "重开",
+  list: () => "列表",
+  get: () => "查看",
+  reorder: () => "重排",
 };
 /// 正则:顶层 `|` 分出 ≥3 个分支时显示首个分支 + 「等 N 项」,否则截头。
 function smartPattern(pattern) {
   const branches = splitAlternation(pattern);
   if (branches.length >= 3) {
-    return `${clipText(branches[0], 24)} ${fillTemplate(t("等 {n} 项"), { n: branches.length })}`;
+    return `${clipText(branches[0], 24)} ${fillTemplate("等 {n} 项", { n: branches.length })}`;
   }
   return clipText(pattern, 40);
 }
@@ -1088,8 +1088,8 @@ export const TOOL_ARG_SUMMARIZERS = {
   conventions: (input, roots) => pathArg(input, roots) ?? { text: pickString(input, "action") },
   architecture: (input, roots) => pathArg(input, roots) ?? { text: pickString(input, "action") },
   symbols(input, roots) {
-    if (input.define) return { text: fillTemplate(t("定义 {name}"), { name: input.define }), code: true };
-    if (input.callers) return { text: fillTemplate(t("文本候选 {name}"), { name: input.callers }), code: true };
+    if (input.define) return { text: fillTemplate("定义 {name}", { name: input.define }), code: true };
+    if (input.callers) return { text: fillTemplate("文本候选 {name}", { name: input.callers }), code: true };
     if (input.crate) return { text: `crate ${input.crate}${input.module ? `::${input.module}` : ""}`, code: true };
     const path = pickString(input, "path");
     const shown = path ? displayPath(path, roots) : "";
@@ -1127,12 +1127,12 @@ export const TOOL_ARG_SUMMARIZERS = {
     const action = input.action && typeof input.action === "object" ? input.action : input;
     const queries = Array.isArray(action.queries) ? action.queries.map((item) => pickString(item, "q")).filter(Boolean) : [];
     const query = pickString(action, "query", "q") || queries.join("  ");
-    return query ? { text: `“${clipText(query, 60)}”`, title: query } : { text: t("搜索结果"), title: t("搜索结果") };
+    return query ? { text: `“${clipText(query, 60)}”`, title: query } : { text: "搜索结果", title: "搜索结果" };
   },
   task(input) {
     const action = pickString(input, "action");
     const labels = { wait: "等待结果", collect: "收集结果", get: "查看", list: "列表" };
-    if (labels[action]) return { text: t(labels[action]), title: [action, pickString(input, "id")].filter(Boolean).join(" ") };
+    if (labels[action]) return { text: labels[action], title: [action, pickString(input, "id")].filter(Boolean).join(" ") };
     const prompt = pickString(input, "prompt").split(/\r?\n/).find((line) => line.trim()) ?? "";
     const text = pickString(input, "description") || prompt.trim() || pickString(input, "role");
     return text ? { text: clipText(text, 48), title: pickString(input, "description", "prompt", "role") } : null;
@@ -1154,10 +1154,10 @@ export const TOOL_ARG_SUMMARIZERS = {
   work(input) {
     const action = pickString(input, "action");
     const id = pickString(input, "id");
-    if (action === "next") return { text: t("取下一项") };
-    if (action === "claim") return { text: [t("领取"), id].filter(Boolean).join(" ") };
-    if (action === "handoff") return { text: t("登记交付记录") };
-    if (action === "reconcile") return { text: t("对账") };
+    if (action === "next") return { text: "取下一项" };
+    if (action === "claim") return { text: ["领取", id].filter(Boolean).join(" ") };
+    if (action === "handoff") return { text: "登记交付记录" };
+    if (action === "reconcile") return { text: "对账" };
     return { text: [action, id].filter(Boolean).join(" ") };
   },
   test_record: (input) => ({ text: clipText(pickString(input, "title", "id"), 60) }),
@@ -1168,11 +1168,11 @@ export const TOOL_ARG_SUMMARIZERS = {
     const action = pickString(input, "action");
     if (action === "commit" || action === "finalize") {
       const message = pickString(input, "message").split(/\r?\n/)[0] ?? "";
-      return { text: message ? `${t("提交")}  ${clipText(message, 40)}` : t("提交"), title: pickString(input, "message") };
+      return { text: message ? `${"提交"}  ${clipText(message, 40)}` : "提交", title: pickString(input, "message") };
     }
     if (action === "stage") {
       const files = Array.isArray(input.files) ? input.files.length : 0;
-      return { text: fillTemplate(t("暂存 {n} 个文件"), { n: files }) };
+      return { text: fillTemplate("暂存 {n} 个文件", { n: files }) };
     }
     return { text: action };
   },
@@ -1183,7 +1183,7 @@ export const TOOL_ARG_SUMMARIZERS = {
     // UI2-0926 #8:新参数 html(内联片段)、key(按键)、expression(执行脚本);没有目标时退到选择器。
     const target = url ? urlSummary(url)
       : path ? path.split(/[\\/]/).pop()
-        : pickString(input, "html") ? t("代码片段")
+        : pickString(input, "html") ? "代码片段"
           : pickString(input, "key") || clipText(pickString(input, "expression"), 40) || pickString(input, "selector", "text");
     return { text: [action, target].filter(Boolean).join(" "), title: url || path || undefined, code: Boolean(target) };
   },

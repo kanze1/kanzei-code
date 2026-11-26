@@ -1,5 +1,4 @@
 import { confirmDialog as surfaceConfirmDialog, inputDialog as surfaceInputDialog, setSurfaceTranslator } from "./00-surface.js";
-import { t } from "./02-i18n.js";
 // D-418:统一确认弹窗(替代浏览器原生 window.confirm)。
 // options: { title, message, list?: string[], okText?, safeText?, danger?: boolean }
 // 返回 Promise<boolean|string>;确认 resolve(true),safeText 按钮 resolve("safe"),
@@ -14,4 +13,4 @@ export function setConfirmDialog(value) { confirmDialog = value; }
 export let inputDialog = (options) => surfaceInputDialog(options);
 export function setInputDialog(value) { inputDialog = value; }
 // 弹层模块零 import,翻译函数从这里注入(包一层:02-i18n 在循环依赖里可能尚未求值完)。
-setSurfaceTranslator((key) => t(key));
+setSurfaceTranslator((key) => key);

@@ -2,7 +2,6 @@ import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { readJson, writeJson } from "./00-ui-primitives.js";
-import { t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -94,7 +93,7 @@ export async function refreshEffectiveModel() {
     effectiveError = String(error);
     effectivePending = false;
     announce("kz-effective-model", null);
-    log(`${t("模型解析失败")}:${error}`, "warn");
+    log(`${"模型解析失败"}:${error}`, "warn");
     return null;
   }
 }
@@ -111,7 +110,7 @@ export function syncModelSelectToActiveLine() {
 // make a partial catalog look like a successful refresh.
 export function reportModelCatalogErrors(errors) {
   if (errors.length > 0) {
-    toastError(`${t("模型列表获取失败")}:${errors.map(({ provider, message }) => `${provider}: ${message}`).join("; ")}`);
+    toastError(`${"模型列表获取失败"}:${errors.map(({ provider, message }) => `${provider}: ${message}`).join("; ")}`);
   }
 }
 
@@ -128,9 +127,9 @@ export async function loadModels() {
       announce("kz-model-catalog", modelCatalog);
       reportModelCatalogErrors(errors);
     }
-    if (errors.length === 0) log(`${t("模型列表已刷新")}(${modelCatalog.length} 个可选)`);
+    if (errors.length === 0) log(`${"模型列表已刷新"}(${modelCatalog.length} 个可选)`);
   } catch (err) {
-    reportPersistentError(`${t("模型列表获取失败")}:${err}`);
+    reportPersistentError(`${"模型列表获取失败"}:${err}`);
   }
   await refreshEffectiveModel();
 }
@@ -155,7 +154,7 @@ export async function setLineModel(value) {
     await queueProcessUpdate(processId, { model: value });
     updateLocalProcessItem(processId, { model: value || null });
   } catch (error) {
-    reportPersistentError(`${t("对话模型保存失败")}:${error}`);
+    reportPersistentError(`${"对话模型保存失败"}:${error}`);
   }
   if (activeProcessId === processId) await refreshEffectiveModel();
 }
@@ -173,7 +172,7 @@ export async function setLineReasoning(value) {
     await queueProcessUpdate(processId, { reasoning: value });
     updateLocalProcessItem(processId, { reasoning: value || null });
   } catch (error) {
-    reportPersistentError(`${t("对话思考强度保存失败")}:${error}`);
+    reportPersistentError(`${"对话思考强度保存失败"}:${error}`);
   }
   if (activeProcessId === processId) await refreshEffectiveModel();
 }
@@ -193,10 +192,10 @@ export async function promoteLineModelToProject() {
   try {
     await invoke("project_models_save", { projectDir: currentProject, set: { [role]: resolved }, unset: [] });
   } catch (error) {
-    toastError(`${t("保存失败")}: ${error}`);
+    toastError(`${"保存失败"}: ${error}`);
     return false;
   }
-  toast(t("已保存到本项目"), { kind: "ok" });
+  toast("已保存到本项目", { kind: "ok" });
   await setLineModel("");
   announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
   return true;
@@ -209,10 +208,10 @@ export async function promoteLineReasoningToProject() {
   try {
     await invoke("project_models_save", { projectDir: currentProject, set: { reasoning: value }, unset: [] });
   } catch (error) {
-    toastError(`${t("保存失败")}: ${error}`);
+    toastError(`${"保存失败"}: ${error}`);
     return false;
   }
-  toast(t("已保存到本项目"), { kind: "ok" });
+  toast("已保存到本项目", { kind: "ok" });
   await setLineReasoning("");
   announce("kz-model-config-changed", { scope: "project", projectDir: currentProject, silent: true });
   return true;
@@ -249,9 +248,9 @@ export async function migrateLegacyModelPrefs() {
     localStorage.removeItem(prefKey("model"));
     localStorage.removeItem("kz-model");
     localStorage.removeItem(prefKey("manual-models"));
-    log(`${t("已迁移旧模型偏好到后端")}:${JSON.stringify(patch)}`);
+    log(`${"已迁移旧模型偏好到后端"}:${JSON.stringify(patch)}`);
   } catch (error) {
-    reportPersistentError(`${t("旧模型偏好迁移失败")}:${error}`);
+    reportPersistentError(`${"旧模型偏好迁移失败"}:${error}`);
   }
 }
 export function manualModels() {
@@ -267,7 +266,7 @@ export function addManualModel(id) {
     updateLocalProcessItem(defaultProcess.id, { manual_models: list });
     return queueProcessUpdate(defaultProcess.id, { manualModels: list })
       .then(() => refreshProcesses())
-      .catch((error) => reportPersistentError(`${t("手填模型保存失败")}:${error}`));
+      .catch((error) => reportPersistentError(`${"手填模型保存失败"}:${error}`));
   }
   // 默认进程未就绪(极端时序),退回 localStorage 暂存,由迁移函数下次接手。
   writeJson(prefKey("manual-models"), list);

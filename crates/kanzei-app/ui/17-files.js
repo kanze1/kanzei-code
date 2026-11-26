@@ -1,6 +1,5 @@
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, log, processItems, toastError } from "./03-shell.js";
 import {
   confirmLeaveDirty, filesDirtyPaths, filesDoc, filesTreeRoot, humanSize, hydrateFilesDrafts, initFilesEditor, openFileDoc,
@@ -87,7 +86,7 @@ export async function refreshFiles() {
     renderFileKnowledge(filesActivePath);
   } catch (err) {
     if (root !== currentRoot()) return;
-    const message = `${t("文件树加载失败")}:${err}`;
+    const message = `${"文件树加载失败"}:${err}`;
     if (filesSnapshotData) {
       // 静默刷新失败:旧树还在,日志面板给原因和重试。
       toastError(message, { retry: refreshFiles });
@@ -167,10 +166,10 @@ function syncTreeSelect(force = false) {
     node.textContent = label;
     select.append(node);
   };
-  option("", t("主项目"));
-  for (const line of lines) option(line.path, `${t("独立任务")}  ${line.label}`);
+  option("", "主项目");
+  for (const line of lines) option(line.path, `${"独立任务"}  ${line.label}`);
   // 选着的那条线已经关掉(不在清单里了):选项保留着,别让下拉悄悄跳回主项目。
-  if (current && !lines.some((line) => samePath(line.path, current))) option(current, `${t("独立任务")}  ${baseName(current)}`);
+  if (current && !lines.some((line) => samePath(line.path, current))) option(current, `${"独立任务"}  ${baseName(current)}`);
   select.value = current ?? "";
 }
 /// 换树。有未保存修改先问(保存 / 不保存 / 取消);取消则下拉还原。新树里也有当前打开的那个文件时接着打开它。
@@ -247,7 +246,7 @@ export function buildFilesTree(snapshot) {
 function renderFilesToolbar() {
   const sortKey = filesSortByLines ? "排序:行数" : "排序:名称";
   const node = $("files-sort-label");
-  if (node) node.textContent = t(sortKey);
+  if (node) node.textContent = sortKey;
 }
 
 // 树区的说明块:loading / error(带重试)/ 空 / 筛选无命中。
@@ -270,7 +269,7 @@ function filesStateBlock(kind, title, detail = "", retry = null) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "ghost mini";
-    button.textContent = t("重试");
+    button.textContent = "重试";
     button.addEventListener("click", retry);
     box.append(button);
   }
@@ -285,8 +284,8 @@ export function renderFilesTree() {
   if (!tree) return;
   if (!snapshot) {
     tree.replaceChildren();
-    if (filesLoad.state === "error") tree.append(filesStateBlock("error", t("文件树加载失败"), filesLoad.error, () => void refreshFiles()));
-    else if (filesLoad.state === "loading") tree.append(filesStateBlock("loading", `${t("正在读取文件")}…`));
+    if (filesLoad.state === "error") tree.append(filesStateBlock("error", "文件树加载失败", filesLoad.error, () => void refreshFiles()));
+    else if (filesLoad.state === "loading") tree.append(filesStateBlock("loading", `${"正在读取文件"}…`));
     $("files-summary").textContent = "";
     return;
   }
@@ -297,12 +296,12 @@ export function renderFilesTree() {
   const match = filesMatcher(filesFilter);
   const shown = match ? snapshot.files.filter((file) => match(file.path)) : snapshot.files;
   $("files-summary").textContent = match
-    ? `${shown.length} ${t("个匹配")} / ${total.files} ${t("个文件")}`
-    : `${total.files} ${t("个文件")}  ${humanSize(total.size)}  ${total.lines} ${t("行")}`;
+    ? `${shown.length} ${"个匹配"} / ${total.files} ${"个文件"}`
+    : `${total.files} ${"个文件"}  ${humanSize(total.size)}  ${total.lines} ${"行"}`;
   if (!shown.length) {
     tree.append(match
-      ? filesStateBlock("empty", t("没有匹配的文件"), filesFilter.trim())
-      : filesStateBlock("empty", t("没有找到文件"), t("目录是空的,或者文件都被 .gitignore 忽略了")));
+      ? filesStateBlock("empty", "没有匹配的文件", filesFilter.trim())
+      : filesStateBlock("empty", "没有找到文件", "目录是空的,或者文件都被 .gitignore 忽略了"));
     return;
   }
   renderFilesDir(tree, buildFilesTree({ files: shown }), 0, snapshot, filesDirtyPaths(), Boolean(match));
@@ -358,7 +357,7 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
     name.textContent = `${dir.name}/`;
     const measure = document.createElement("span");
     measure.className = "files-measure";
-    measure.textContent = `${stat.files}  ${humanSize(stat.size)}  ${stat.lines} ${t("行")}`;
+    measure.textContent = `${stat.files}  ${humanSize(stat.size)}  ${stat.lines} ${"行"}`;
     row.append(arrow, name, measure);
     const toggleDir = () => {
       if (forceOpen) return; // 筛选中目录一律展开,清掉筛选后恢复各自的展开状态
@@ -398,14 +397,14 @@ export function renderFilesDir(container, node, depth, snapshot, dirtyPaths = ne
     const measure = document.createElement("span");
     measure.className = "files-measure";
     measure.textContent = file.oversized
-      ? `${humanSize(file.size)} ${t("过大未计")}`
+      ? `${humanSize(file.size)} ${"过大未计"}`
       : file.lines != null
-        ? `${humanSize(file.size)}  ${file.lines} ${t("行")}`
+        ? `${humanSize(file.size)}  ${file.lines} ${"行"}`
         : file.chars != null
-          ? `${humanSize(file.size)}  ${file.chars} ${t("字")}`
+          ? `${humanSize(file.size)}  ${file.chars} ${"字"}`
           : humanSize(file.size);
     row.append(name, measure);
-    if (dirty) row.setAttribute("aria-label", `${row.textContent}  ${t("未保存")}`);
+    if (dirty) row.setAttribute("aria-label", `${row.textContent}  ${"未保存"}`);
     const openFile = () => openFilePreview(file);
     row.addEventListener("click", openFile);
     row.addEventListener("keydown", (e) => {
@@ -474,19 +473,6 @@ defer(() => {
 defer(() => {
   window.addEventListener("focus", () => {
     if (viewActive() && Date.now() - filesLoadedAt > 5000) void refreshFiles();
-  });
-});
-// 切语言:工具栏按钮、树选择器的文字是渲染点 t() 写的,跟着重画。
-defer(() => {
-  document.addEventListener("kz:project-knowledge", event => {
-    if (event.detail?.project !== filesSnapshotData?.knowledge?.project_root) return;
-    filesSnapshotData = null;
-    filesLoadedAt = 0;
-    if (viewActive()) void refreshFiles();
-  });
-  document.addEventListener("kz:language", () => {
-    syncTreeSelect(true);
-    renderFilesTree();
   });
 });
 // UX-012:主窗口关掉了 Tauri 默认的拖放处理(main.rs),页面里的 HTML5 拖放才收得到事件;代价是文件落在没人处理

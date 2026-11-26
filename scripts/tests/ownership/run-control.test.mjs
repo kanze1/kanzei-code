@@ -136,28 +136,6 @@ const prefsWrites = h => h.calls.filter(call => call.command === "ui_prefs_set")
 const runtimeWrites = h => h.calls.filter(call => call.command === "auto_state_update");
 const evidence = (name, value) => console.log(JSON.stringify({ evidence: name, source: "working tree", ...value }));
 
-test("priority action retains its original project while the initial read is pending", async () => {
-  const h = await harness({ work_priority: { "project-A": "defect-first", "project-B": "defect-first" } });
-  h.init('$("work-priority-select").addEventListener'); h.get("work-priority-select").value = "requirement-first"; h.emit("work-priority-select", "change");
-  await drain(); h.setProject("project-B"); h.resolveGet(); await drain();
-  evidence("priority captured project", { durable: h.durable(), calls: h.calls });
-  assert.equal(h.durable().work_priority["project-A"], "requirement-first");
-  assert.equal(h.durable().work_priority["project-B"], "defect-first");
-});
-test("initial priority read cannot overwrite a newer user selection", async () => {
-  const h = await harness({ work_priority: { "project-A": "defect-first" } });
-  h.auto.syncWorkPriorityControl(); h.init('$("work-priority-select").addEventListener');
-  h.get("work-priority-select").value = "requirement-first"; h.emit("work-priority-select", "change"); h.resolveGet(); await drain();
-  evidence("priority generation", { value: h.get("work-priority-select").value, durable: h.durable() });
-  assert.equal(h.get("work-priority-select").value, "requirement-first");
-});
-test("two independent windows preserve both project priority edits", async () => {
-  const initial = { work_priority: { "project-A": "defect-first", "project-B": "defect-first" } }, backend = { value: clone(initial) };
-  const a = await harness(initial, { backend }), b = await harness(initial, { project: "project-B", backend });
-  for (const h of [a, b]) { await h.ready(); h.init('$("work-priority-select").addEventListener'); h.get("work-priority-select").value = "requirement-first"; h.emit("work-priority-select", "change"); await drain(); }
-  evidence("priority window deltas", { durable: backend.value, a: prefsWrites(a), b: prefsWrites(b) });
-  assert.equal(backend.value.work_priority["project-A"], "requirement-first"); assert.equal(backend.value.work_priority["project-B"], "requirement-first");
-});
 test("different process edits preserve the other window's auto state", async () => {
   const initial = autoFixture({ "p|B": { enabled: false, paused: false, mode: "dev-pair" } }), backend = { value: clone(initial) };
   const a = await harness(initial, { backend }), b = await harness(initial, { backend });
@@ -272,15 +250,6 @@ test("initial continue prompt hydrate cannot replay an older value after a real 
   assert.equal(h.get("continue-prompt").value, "new typed intent"); assert.equal(h.auto.continuePrompt(), "new typed intent");
   assert.equal(h.durable().continue_prompt, "new typed intent");
 });
-test("fresh priority hydrate feeds the actual background continuation request", async () => {
-  const h = await harness({ work_priority: { "project-A": "requirement-first" } });
-  h.auto.syncWorkPriorityControl(); await h.ready(); h.setProcesses([item()]);
-  assert.equal(h.get("work-priority-select").value, "requirement-first");
-  await h.runtime.sendAutoToSession("fixture intent", "session-A");
-  const request = h.calls.find(call => call.command === "run_prompt");
-  evidence("background priority", { request, visible: h.get("work-priority-select").value, cache: clone(h.core.uiPrefsCache.work_priority) });
-  assert(request, "actual continuation request was emitted"); assert.equal(request.args.workPriority, "requirement-first");
-});
 test("hiding file completion invalidates the in-flight lookup", async () => {
   const h = await harness({}, { holdLookups: true }); h.core.promptBox.value = "@src"; h.core.promptBox.setSelectionRange(4, 4);
   const loading = h.runtime.refreshFileSuggestions(); await drain(); h.runtime.hideFileSuggestions();
@@ -301,13 +270,10 @@ test("a typed but unblurred continue prompt is preserved by initial hydrate", as
   h.get("continue-prompt").value = "new draft before blur"; h.emit("continue-prompt", "input"); h.resolveGet(); await drain();
   assert.equal(h.get("continue-prompt").value, "new draft before blur"); assert.equal(prefsWrites(h).length, 0);
 });
-test("unchanged prompt hydrate and legacy priority fallback retain their existing contracts", async () => {
+test("unchanged prompt hydrate retains its existing contract", async () => {
   const h = await harness({ continue_prompt: "stored custom intent" });
   h.init('const stored = (localStorage.getItem("kz-continue-prompt")'); h.resolveGet(); await drain();
   assert.equal(h.auto.continuePrompt(), "stored custom intent");
-  h.storage.set("kz-work-priority:project-A", "requirement-first"); h.setProcesses([item()]);
-  await h.runtime.sendAutoToSession("fallback control", "session-A");
-  assert.equal(h.calls.find(call => call.command === "run_prompt").args.workPriority, "requirement-first");
 });
 test("a late line receipt cannot resurrect an actually retired process", async () => {
   const h = await harness(autoFixture(), { holdAuto: true }); await h.ready(); h.setProcesses([item()]);

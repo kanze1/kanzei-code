@@ -1,7 +1,6 @@
 import { $, defer } from "./00-dom.js";
 import { confirmDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 
 const node = (tag, cls, text) => { const element = document.createElement(tag); if (cls) element.className = cls; if (text != null) element.textContent = text; return element; };
 const sourceLabels = { builtin: "内置", personal: "自定义", codex: "Codex", claude: "Claude", agents: "Agents" };
@@ -26,19 +25,19 @@ function syncEditor() {
   for (const id of ["skills-refresh", "skills-import", "skills-create", "skills-generate-open"]) $(id).disabled = busy;
 }
 async function canReplaceDraft() {
-  return !dirty() || await confirmDialog({ title: t("放弃尚未保存的修改？"), message: t("当前技能草稿尚未保存。"), okText: t("放弃修改") });
+  return !dirty() || await confirmDialog({ title: "放弃尚未保存的修改？", message: "当前技能草稿尚未保存。", okText: "放弃修改" });
 }
 function displayEditor(skill = null, generation = false) {
   editing += 1; selected = skill; busy = false; error();
   $("skills-editor").hidden = false;
-  $("skills-editor-title").textContent = t(skill ? skill.editable ? "编辑 Skill" : "查看 Skill" : generation ? "AI 生成 Skill" : "创建 Skill");
+  $("skills-editor-title").textContent = skill ? skill.editable ? "编辑 Skill" : "查看 Skill" : generation ? "AI 生成 Skill" : "创建 Skill";
   $("skills-generation").hidden = !generation;
   $("skills-generation-prompt").value = "";
   $("skill-name").value = skill?.name || "";
   $("skill-description").value = skill?.description || "";
   $("skill-instructions").value = skill?.instructions || "";
   $("skill-manual-only").checked = !!skill?.manualOnly;
-  $("skills-editor-source").textContent = skill ? `${t(sourceLabels[skill.source] || "外部")}  $${skill.id}` : t("保存后在所有对话中可用");
+  $("skills-editor-source").textContent = skill ? `${sourceLabels[skill.source] || "外部"}  $${skill.id}` : "保存后在所有对话中可用";
   original = signature(); syncEditor(); renderList();
   $("skills-scroll").scrollTop = 0;
   (generation ? $("skills-generation-prompt") : skill ? $("skill-instructions") : $("skill-name")).focus({ preventScroll: true });
@@ -63,14 +62,14 @@ function renderList() {
     row.classList.toggle("selected", selected?.id === skill.id);
     const details = node("button", "skill-library-details"); details.type = "button";
     const headline = node("span", "skill-library-headline");
-    headline.append(node("strong", "", t(skill.displayName || skill.name)), node("small", "skill-source", t(sourceLabels[skill.source] || "外部")));
-    details.append(headline, node("span", "dim skill-library-description", t(skill.description)));
+    headline.append(node("strong", "", skill.displayName || skill.name), node("small", "skill-source", sourceLabels[skill.source] || "外部"));
+    details.append(headline, node("span", "dim skill-library-description", skill.description));
     if (entries.filter(entry => entry.name === skill.name).length > 1) details.append(node("small", "dim", `$${skill.id}`));
-    if (skill.manualOnly) details.append(node("small", "dim", t("仅手动调用")));
+    if (skill.manualOnly) details.append(node("small", "dim", "仅手动调用"));
     details.addEventListener("click", () => void openSkill(skill.id));
     const label = node("label", "skill-switch");
     const toggle = node("input"); toggle.type = "checkbox"; toggle.checked = skill.enabled; toggle.disabled = busy;
-    toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `${t("启用技能")} ${skill.name}`);
+    toggle.setAttribute("role", "switch"); toggle.setAttribute("aria-label", `${"启用技能"} ${skill.name}`);
     label.append(toggle, node("span", "skill-switch-track"));
     toggle.addEventListener("change", async () => {
       if (busy) { toggle.checked = skill.enabled; return; }
@@ -78,24 +77,24 @@ function renderList() {
       for (const input of list.querySelectorAll("input")) input.disabled = true;
       try {
         entries = await invoke("skills_set_enabled", { name: skill.id, enabled: next });
-        status(t("全局设置已保存"));
+        status("全局设置已保存");
         document.dispatchEvent(new CustomEvent("kz:skills-changed"));
       } catch (failure) { toggle.checked = skill.enabled; status(String(failure)); }
       finally { busy = false; syncEditor(); renderList(); }
     });
     row.append(details, label); list.append(row);
   }
-  if (!matches.length) list.append(node("p", "skills-empty dim", t(query || filter !== "all" ? "没有匹配的技能" : "还没有技能，创建或导入一个开始使用。")));
+  if (!matches.length) list.append(node("p", "skills-empty dim", query || filter !== "all" ? "没有匹配的技能" : "还没有技能，创建或导入一个开始使用。"));
   $("skills-library-list").setAttribute("aria-busy", String(busy));
 }
 export async function refreshSkills() {
   if (busy) return;
-  const token = ++loading; status(t("正在读取…"));
+  const token = ++loading; status("正在读取…");
   try {
     const skills = await invoke("skills_list");
     if (token !== loading) return;
     entries = skills;
-    status(t("{n} 个技能，{enabled} 个已启用").replace("{n}", entries.length).replace("{enabled}", entries.filter(skill => skill.enabled).length));
+    status("{n} 个技能，{enabled} 个已启用".replace("{n}", entries.length).replace("{enabled}", entries.filter(skill => skill.enabled).length));
     renderList();
   } catch (failure) { if (token === loading) status(String(failure)); }
 }
@@ -104,7 +103,7 @@ async function saveSkill(event) {
   busy = true; loading += 1; error(); syncEditor(); renderList();
   try {
     const saved = await invoke("skills_save", { draft: fields(), expectedHash: selected?.revision || null });
-    displayEditor(saved); status(t("Skill 已保存，所有对话都可使用"));
+    displayEditor(saved); status("Skill 已保存，所有对话都可使用");
     document.dispatchEvent(new CustomEvent("kz:skills-changed"));
     await refreshSkills();
   } catch (failure) { error(String(failure)); }
@@ -115,16 +114,16 @@ async function generateSkill() {
   const description = $("skills-generation-prompt").value.trim();
   if (!description) { $("skills-generation-prompt").focus(); return; }
   const token = ++editing; busy = true; error(); syncEditor(); renderList();
-  $("skills-generate").textContent = t("正在生成…");
+  $("skills-generate").textContent = "正在生成…";
   try {
     const draft = await invoke("skills_generate", { description });
     if (token !== editing) return;
     $("skill-name").value = draft.name; $("skill-description").value = draft.description; $("skill-instructions").value = draft.instructions;
-    status(t("草稿已生成，检查后保存"));
+    status("草稿已生成，检查后保存");
   } catch (failure) { if (token === editing) error(String(failure)); }
   finally {
     if (token === editing) { busy = false; syncEditor(); renderList(); }
-    $("skills-generate").textContent = t("生成草稿");
+    $("skills-generate").textContent = "生成草稿";
   }
 }
 async function importSkill() {
@@ -133,18 +132,18 @@ async function importSkill() {
     const directory = await invoke("export_pick_dir"); if (!directory) return;
     busy = true; loading += 1; syncEditor();
     const skill = await invoke("skills_import", { directory });
-    displayEditor(skill); await refreshSkills(); status(t("Skill 已导入，引用资料已保留"));
+    displayEditor(skill); await refreshSkills(); status("Skill 已导入，引用资料已保留");
   } catch (failure) { status(String(failure)); }
   finally { busy = false; syncEditor(); }
 }
 async function deleteSkill() {
   if (busy || !selected?.editable) return;
   const skill = selected;
-  if (!await confirmDialog({ title: t("删除 Skill？"), message: `$${skill.name}  ${t("删除后将从所有对话的技能列表中移除。")}`, okText: t("删除"), danger: true })) return;
+  if (!await confirmDialog({ title: "删除 Skill？", message: `$${skill.name}  ${"删除后将从所有对话的技能列表中移除。"}`, okText: "删除", danger: true })) return;
   busy = true; loading += 1; syncEditor(); error();
   try {
     entries = await invoke("skills_delete", { name: skill.id, expectedHash: skill.revision });
-    editing += 1; $("skills-editor").hidden = true; selected = null; status(t("Skill 已删除"));
+    editing += 1; $("skills-editor").hidden = true; selected = null; status("Skill 已删除");
     document.dispatchEvent(new CustomEvent("kz:skills-changed"));
   } catch (failure) { error(String(failure)); }
   finally { busy = false; syncEditor(); renderList(); }
@@ -170,7 +169,7 @@ defer(() => {
       const copied = await invoke("skills_duplicate", { name: source.id, newName: name });
       displayEditor(copied);
       $("skill-description").value = draft.description; $("skill-instructions").value = draft.instructions; $("skill-manual-only").checked = draft.manualOnly;
-      await refreshSkills(); status(t("已复制为自定义 Skill"));
+      await refreshSkills(); status("已复制为自定义 Skill");
     } catch (failure) { error(String(failure)); }
     finally { busy = false; syncEditor(); renderList(); }
   });

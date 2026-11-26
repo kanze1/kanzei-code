@@ -3,7 +3,6 @@ import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { inputDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, reasoningLabel, toast, toastError } from "./03-shell.js";
 import { MANUAL_MODEL_PATTERN, MANUAL_MODEL_SENTINEL, manualModels, modelCatalog, modelCatalogProject, reportModelCatalogErrors } from "./08-models.js";
 
@@ -41,24 +40,24 @@ export function diffProjectModels(loaded, draft) {
 
 function fieldTitle(key) {
   return {
-    primary: ["primary", t("主循环")],
-    fast: ["fast", t("子代理/杂活")],
-    compact: ["compact", t("压缩纪要")],
-    reasoning: [t("思考强度"), ""],
-    codexFastMode: ["Codex Fast mode", t("仅对 Codex 生效")],
+    primary: ["primary", "主循环"],
+    fast: ["fast", "子代理/杂活"],
+    compact: ["compact", "压缩纪要"],
+    reasoning: ["思考强度", ""],
+    codexFastMode: ["Codex Fast mode", "仅对 Codex 生效"],
   }[key];
 }
 
 function displayValue(key, value) {
   if (key === "reasoning") return reasoningLabel(value);
-  if (key === "codexFastMode") return value ? t("开") : t("关");
+  if (key === "codexFastMode") return value ? "开" : "关";
   return value ?? "—";
 }
 
 function inheritLabel(key, field) {
   const value = displayValue(key, field?.inherited);
-  if (field?.inheritedFollowsPrimary) return `${t("跟随 primary")}  ${value}`;
-  return field?.inheritedSource === "global" ? `${t("继承全局")}  ${value}` : `${t("继承内置默认")}  ${value}`;
+  if (field?.inheritedFollowsPrimary) return `${"跟随 primary"}  ${value}`;
+  return field?.inheritedSource === "global" ? `${"继承全局"}  ${value}` : `${"继承内置默认"}  ${value}`;
 }
 
 function option(value, label) {
@@ -79,9 +78,9 @@ function fillModelOptions(select, key, field, catalogIds, keep) {
   };
   add(field?.project ?? "");
   for (const id of catalogIds) add(id);
-  for (const id of manualModels()) add(id, `${id}(${t("手填")})`);
-  if (keep && keep !== INHERIT) add(keep, `${keep}(${t("手填")})`);
-  nodes.push(option(MANUAL_MODEL_SENTINEL, t("＋ 手填模型…")));
+  for (const id of manualModels()) add(id, `${id}(${"手填"})`);
+  if (keep && keep !== INHERIT) add(keep, `${keep}(${"手填"})`);
+  nodes.push(option(MANUAL_MODEL_SENTINEL, "＋ 手填模型…"));
   select.replaceChildren(...nodes);
   select.value = keep;
 }
@@ -91,7 +90,7 @@ function fillFixedOptions(select, key, field, keep) {
   if (key === "reasoning") {
     for (const level of REASONING_LEVELS) nodes.push(option(level, reasoningLabel(level)));
   } else {
-    nodes.push(option("on", t("开")), option("off", t("关")));
+    nodes.push(option("on", "开"), option("off", "关"));
   }
   select.replaceChildren(...nodes);
   select.value = keep;
@@ -108,12 +107,12 @@ function syncRow(row) {
   // 继承时按这一键真正的回落说话:跟随 primary / 内置默认 / 全局。
   const field = row._field;
   state.textContent = !inherit
-    ? t("项目覆盖")
+    ? "项目覆盖"
     : field?.inheritedFollowsPrimary
-      ? t("跟随 primary")
+      ? "跟随 primary"
       : field?.inheritedSource === "builtin"
-        ? t("继承内置默认")
-        : t("继承全局");
+        ? "继承内置默认"
+        : "继承全局";
   reset.hidden = inherit;
   row.dataset.state = state.dataset.state;
 }
@@ -141,7 +140,7 @@ function renderRow(key, field, catalogIds) {
   const reset = document.createElement("button");
   reset.type = "button";
   reset.className = "link-btn pm-reset";
-  reset.textContent = t("恢复继承");
+  reset.textContent = "恢复继承";
   head.append(label, state, reset);
   const select = document.createElement("select");
   select.id = `pm-${key}`;
@@ -153,15 +152,15 @@ function renderRow(key, field, catalogIds) {
   select.addEventListener("change", async () => {
     if (select.value === MANUAL_MODEL_SENTINEL) {
       const input = ((await inputDialog({
-        title: t("填 provider:model,例如 deepseek:deepseek-chat"),
+        title: "填 provider:model,例如 deepseek:deepseek-chat",
       })) || "").trim();
       if (!MANUAL_MODEL_PATTERN.test(input)) {
-        if (input) toast(t("格式应为 provider:model"));
+        if (input) toast("格式应为 provider:model");
         select.value = last;
         syncRow(row);
         return;
       }
-      const node = option(input, `${input}(${t("手填")})`);
+      const node = option(input, `${input}(${"手填"})`);
       select.insertBefore(node, select.lastElementChild ?? null);
       select.value = input;
     }
@@ -198,7 +197,7 @@ async function refreshCatalog(projectDir, token) {
   try {
     catalog = await invoke("models_list", { projectDir });
   } catch (error) {
-    if (dialogState?.token === token) toastError(`${t("模型列表获取失败")}:${error}`);
+    if (dialogState?.token === token) toastError(`${"模型列表获取失败"}:${error}`);
     return;
   }
   if (dialogState?.token !== token) return;
@@ -231,7 +230,7 @@ export async function openProjectModelsDialog(projectDir = currentProject, { nam
   try {
     view = await invoke("project_models_get", { projectDir });
   } catch (error) {
-    toastError(`${t("项目模型配置读取失败")}:${error}`);
+    toastError(`${"项目模型配置读取失败"}:${error}`);
     return null;
   }
   const cached = modelCatalogProject === projectDir;
@@ -274,12 +273,12 @@ async function saveProjectModels() {
   try {
     await invoke("project_models_save", { projectDir: state.projectDir, set, unset });
   } catch (error) {
-    toastError(`${t("保存失败")}: ${error}`);
+    toastError(`${"保存失败"}: ${error}`);
     return;
   } finally {
     button.disabled = false;
   }
-  toast(t("已保存到本项目"), { kind: "ok" });
+  toast("已保存到本项目", { kind: "ok" });
   closeSurface(state.handle ?? $("project-models-overlay"));
   document.dispatchEvent(new CustomEvent("kz-model-config-changed", { detail: { scope: "project", projectDir: state.projectDir } }));
 }

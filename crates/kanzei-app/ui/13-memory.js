@@ -6,7 +6,7 @@ import { isImeComposing } from "./00-ui-primitives.js";
 import { on, replayExperienceFacts } from "./01-runtime-events.js";
 import { uiConsoleLog } from "./00-console.js";
 import { invoke } from "./00-ipc.js";
-import { languageIsEnglish, localizedDocStatus, t } from "./02-i18n.js";
+import { statusWord } from "./04-status-words.js";
 import { currentProject, navigate_view, toast, toastError } from "./03-shell.js";
 import { richText } from "./04-structured.js";
 import { lastProjectPrefs, projectDisplayName } from "./09-sessions.js";
@@ -35,26 +35,44 @@ const memoryArchivedCache = new Map();
 const MEMORY_SEARCH_LIMIT = 30;
 const MEMORY_FILTER_KEYS = { "memory-scope-filter": "scope", "memory-category-filter": "category", "memory-status-filter": "status", "memory-sort-filter": "sort" };
 
+export const CONTEXT_BILL_LABELS = Object.freeze({
+  "agent/system": "系统提示词",
+  "core/env": "运行环境",
+  "core/preferences": "已保存偏好",
+  "core/project-state": "项目状态",
+  "core/skills": "技能清单",
+  "skills/invoked": "本轮调用技能",
+  "development/control": "开工控制",
+  "memory/hints": "记忆提示",
+  "tools/catalog": "延迟工具目录",
+  "tools/schema": "工具参数定义",
+});
+
+export function contextBillLabel(name) {
+  const raw = String(name ?? "");
+  if (raw.startsWith("tools/loaded:")) return `已加载工具 ${raw.slice("tools/loaded:".length)}`;
+  return CONTEXT_BILL_LABELS[raw] || raw;
+}
+
 // 状态/分类枚举 → 展示词(04-status-words.js 那一张表);option value、CSS 类与回传后端的参数仍是原始枚举。
-const memoryWord = (value) => localizedDocStatus(value);
+const memoryWord = (value) => statusWord(value);
 // 条目「来源」是自由文本(「inbox note 2026-08-07」「memory-manager」「user」…):把里面的内部词换成展示词,日期/编号原样留着。
 const MEMORY_SOURCE_WORDS = [
-  [/\binbox note\b/g, "待整理", "Pending"], [/\binbox\b/g, "待整理", "Pending"], [/\bmemory-manager\b/g, "记忆管理子代理", "Memory subagent"],
-  [/\bquarantine\b/g, "隔离区", "Quarantine"], [/\bmigration\b/g, "迁移", "Migration"], [/^user\b/, "用户", "User"],
+  [/\binbox note\b/g, "待整理"], [/\binbox\b/g, "待整理"], [/\bmemory-manager\b/g, "记忆管理子代理"],
+  [/\bquarantine\b/g, "隔离区"], [/\bmigration\b/g, "迁移"], [/^user\b/, "用户"],
 ];
 function memorySourceText(source) {
-  const english = languageIsEnglish();
   let text = String(source ?? "");
-  for (const [pattern, zh, en] of MEMORY_SOURCE_WORDS) text = text.replace(pattern, () => (english ? en : zh));
+  for (const [pattern, zh] of MEMORY_SOURCE_WORDS) text = text.replace(pattern, () => zh);
   return text;
 }
 
 function memoryFilterDefinitions() {
   return [
-    ["memory-scope-filter", [["project", t("项目记忆")], ["global", t("全局记忆")], ["all", t("全部")]]],
-    ["memory-category-filter", [["all", t("全部分类")], ...["fact", "sop", "habit", "preference"].map((category) => [category, memoryWord(category)])]],
-    ["memory-status-filter", [["active", memoryWord("active")], ["candidate", memoryWord("candidate")], ["shadow", memoryWord("shadow")], ["archived", memoryWord("archived")], ["all", t("全部(未归档)")]]],
-    ["memory-sort-filter", [["updated", t("最近更新")], ["hits", t("命中最多")], ["title", t("标题")], ["id", t("ID")]]],
+    ["memory-scope-filter", [["project", "项目记忆"], ["global", "全局记忆"], ["all", "全部"]]],
+    ["memory-category-filter", [["all", "全部分类"], ...["fact", "sop", "habit", "preference"].map((category) => [category, memoryWord(category)])]],
+    ["memory-status-filter", [["active", memoryWord("active")], ["candidate", memoryWord("candidate")], ["shadow", memoryWord("shadow")], ["archived", memoryWord("archived")], ["all", "全部(未归档)"]]],
+    ["memory-sort-filter", [["updated", "最近更新"], ["hits", "命中最多"], ["title", "标题"], ["id", "ID"]]],
   ];
 }
 
@@ -71,18 +89,6 @@ function setupMemoryManagerFilters() {
     }
     select.value = memoryManagerFilters[key];
     select.addEventListener("change", () => void onMemoryFilterChange(select, key));
-  }
-}
-
-// 切换语言后选项文案跟着换(选项只在首次建一次,不重算就会一直停在建时的语言)。
-function relabelMemoryManagerFilters() {
-  for (const [id, options] of memoryFilterDefinitions()) {
-    const select = $(id);
-    if (!select) continue;
-    for (const [value, label] of options) {
-      const option = [...select.options].find((item) => item.value === value);
-      if (option) option.textContent = label;
-    }
   }
 }
 
@@ -122,9 +128,9 @@ export async function confirmLeaveMemoryDetail() {
   const box = $("memory-detail");
   const title = box?.querySelector(".memory-detail-title")?.textContent?.trim();
   const ok = await confirmDialog({
-    title: t("放弃未保存的修改?"),
-    message: `${title ? `「${title}」` : ""}${t("有改动还没保存，离开后会丢失。")}`,
-    okText: t("放弃修改"),
+    title: "放弃未保存的修改?",
+    message: `${title ? `「${title}」` : ""}${"有改动还没保存，离开后会丢失。"}`,
+    okText: "放弃修改",
     danger: true,
   });
   if (ok && box) delete box.dataset.dirty;
@@ -193,8 +199,8 @@ function setupMemoryProjectPicker() {
   let select = $("memory-project-picker");
   if (!select) {
     const bar = document.createElement("div"); bar.className = "memory-project-bar";
-    const label = document.createElement("label"); label.textContent = t("记忆管理"); label.htmlFor = "memory-project-picker";
-    select = document.createElement("select"); select.id = "memory-project-picker"; select.setAttribute("aria-label", t("管理全局或项目记忆"));
+    const label = document.createElement("label"); label.textContent = "记忆管理"; label.htmlFor = "memory-project-picker";
+    select = document.createElement("select"); select.id = "memory-project-picker"; select.setAttribute("aria-label", "管理全局或项目记忆");
     bar.append(label, select); $("view-memory").prepend(bar);
     select.addEventListener("change", async () => {
       const choice = select.value;
@@ -208,7 +214,7 @@ function setupMemoryProjectPicker() {
     });
   }
   select.replaceChildren();
-  for (const [value, title] of [["@global", t("全局记忆")], ...known.map(project => [project, projectDisplayName(project)])]) {
+  for (const [value, title] of [["@global", "全局记忆"], ...known.map(project => [project, projectDisplayName(project)])]) {
     const option = document.createElement("option"); option.value = value; option.textContent = title; select.append(option);
   }
   select.value = memoryManagerFilters.scope === "global" ? "@global" : memoryProject;
@@ -233,7 +239,7 @@ export async function refreshMemory({ force = false } = {}) {
     ++memoryListGeneration;
     clearMemorySearch();
     hideMemoryDetail();
-    if (project) $("memory-reader-empty").innerHTML = `<strong>${t("选择一条记忆")}</strong><p>${t("在这里阅读全文，或通过管理对话修改。")}</p>`;
+    if (project) $("memory-reader-empty").innerHTML = `<strong>${"选择一条记忆"}</strong><p>${"在这里阅读全文，或通过管理对话修改。"}</p>`;
     document.dispatchEvent(new CustomEvent("kz:memory-project", { detail: { project } }));
     for (const id of ["memory-recalls", "memory-list", "memory-candidates", "memory-value-flags", "memory-arch"]) $(id)?.replaceChildren();
     renderMemoryPendingState();
@@ -253,7 +259,7 @@ export async function refreshMemory({ force = false } = {}) {
     if (!$("memory-insights")?.classList.contains("hidden")) void loadMemoryDiagnostics();
   } catch (err) {
     if (project !== memoryProject || generation !== memoryRefreshGeneration) return;
-    toastError(`${t("记忆页加载失败")}:${err}`, { retry: refreshMemory });
+    toastError(`${"记忆页加载失败"}:${err}`, { retry: refreshMemory });
   }
 }
 
@@ -274,7 +280,7 @@ async function loadMemoryDiagnostics() {
     }));
     if (project !== memoryProject || diagnosticsPending !== request) return;
     const errors = results.filter(result => result.status === "rejected");
-    if (errors.length) toastError(`${t("记忆页加载失败")}: ${errors.map(result => result.reason).join("; ")}`, { retry: loadMemoryDiagnostics });
+    if (errors.length) toastError(`${"记忆页加载失败"}: ${errors.map(result => result.reason).join("; ")}`, { retry: loadMemoryDiagnostics });
     else diagnosticsProject = project;
   })().finally(() => { if (diagnosticsPending === request) diagnosticsPending = null; });
   diagnosticsPending = request;
@@ -343,7 +349,7 @@ async function loadMemoryPending() {
   if (control.status === "fulfilled") replayExperienceFacts(control.value?.experience_facts);
   renderMemoryCandidates(memoryPending.notes);
   renderMemoryPendingState();
-  if (notes.status === "rejected") toastError(`${t("记忆页加载失败")}:${notes.reason}`, { retry: loadMemoryPending });
+  if (notes.status === "rejected") toastError(`${"记忆页加载失败"}:${notes.reason}`, { retry: loadMemoryPending });
 }
 
 // 待整理数同时写在页签角标和顶栏「全部整理」上;没有可整理的笔记时按钮置灰,不再让人点一个空转的 LLM 调用。
@@ -356,7 +362,7 @@ function renderMemoryPendingState() {
     tabCount.hidden = !count;
   }
   const buttonCount = $("memory-consolidate-count");
-  if (buttonCount) buttonCount.textContent = memoryConsolidating ? ` ${t("整理中…")}` : count ? ` (${count})` : "";
+  if (buttonCount) buttonCount.textContent = memoryConsolidating ? ` ${"整理中…"}` : count ? ` (${count})` : "";
   const button = $("memory-consolidate-btn");
   if (button) button.disabled = !memoryProject || memoryConsolidating || memoryJobActive(memoryProject) || (loaded && !count);
   syncMemoryNotice();
@@ -379,7 +385,7 @@ function memoryFailureNotice() {
   if (batch?.job?.status === "cancelled") return null;
   if (!batch || batch.status !== "failed" || batch.batch_id === memoryFailureDismissed) return null;
   const reason = batch.failure_reason ? `:${batch.failure_reason}` : "";
-  return { text: `${t("上次整理没有成功")}${reason}`, label: t("重试整理"), run: () => $("memory-consolidate-btn")?.click(), kind: "err", batchId: batch.batch_id };
+  return { text: `${"上次整理没有成功"}${reason}`, label: "重试整理", run: () => $("memory-consolidate-btn")?.click(), kind: "err", batchId: batch.batch_id };
 }
 
 function syncMemoryNotice() {
@@ -410,7 +416,7 @@ export const INCIDENT_CLASS_LABELS = Object.freeze({
 
 export function formatIncidentDuration(metrics) {
   const samples = Number(metrics?.repair_duration_samples ?? 0);
-  if (!samples) return t("暂无");
+  if (!samples) return "暂无";
   const average = Number(metrics?.repair_duration_ms_average ?? 0);
   if (average < 1000) return `${Math.round(average)}ms`;
   return `${(average / 1000).toFixed(1)}s`;
@@ -517,7 +523,7 @@ function memoryConsolidationFailure(report) {
 }
 
 function memoryConsolidationMessage(report, completed) {
-  return ({ cancelled: t("整理已停止，可继续"), busy: t("已有整理作业在运行"), incomplete: t("整理未完成，可继续"), interrupted: t("上次整理中断，可继续") })[report?.status] || completed;
+  return ({ cancelled: "整理已停止，可继续", busy: "已有整理作业在运行", incomplete: "整理未完成，可继续", interrupted: "上次整理中断，可继续" })[report?.status] || completed;
 }
 
 // R-124:待整理笔记。笔记是运行中顺手记下的原料,不会自己入库——
@@ -530,7 +536,7 @@ export function renderMemoryCandidates(list) {
   const items = Array.isArray(list) ? list : [];
   if (count) count.textContent = items.length ? `  ${items.length}` : "";
   if (!items.length) {
-    box.innerHTML = `<p class="dim">${t("暂无待整理条目")}</p>`;
+    box.innerHTML = `<p class="dim">${"暂无待整理条目"}</p>`;
     return;
   }
   for (const item of items) {
@@ -544,7 +550,7 @@ export function renderMemoryCandidates(list) {
     head.className = "memory-candidate-head";
     const shownSummary = stripMemoryFingerprint(item.summary);
     head.innerHTML =
-      `<span class="memory-candidate-hint">${escapeHtml(item.hint ? memoryWord(item.hint) : t("待整理"))}</span>` +
+      `<span class="memory-candidate-hint">${escapeHtml(item.hint ? memoryWord(item.hint) : "待整理")}</span>` +
       `<span class="memory-candidate-summary">${escapeHtml(shownSummary)}</span>`;
     head.title = shownSummary;
     // UI-0926 #10:候选正文是 markdown(列表/代码/路径),按 markdown 渲染而不是原文堆字。
@@ -556,17 +562,17 @@ export function renderMemoryCandidates(list) {
     const adopt = document.createElement("button");
     adopt.type = "button";
     adopt.className = "primary mini";
-    adopt.textContent = t("采纳");
-    adopt.title = t("只让记忆管理子代理提炼这一条");
+    adopt.textContent = "采纳";
+    adopt.title = "只让记忆管理子代理提炼这一条";
     if (scope !== "project" || !key) {
       adopt.disabled = true;
-      adopt.title = t("只有项目记忆的待整理条目可以单条采纳");
+      adopt.title = "只有项目记忆的待整理条目可以单条采纳";
     }
     const drop = document.createElement("button");
     drop.type = "button";
     drop.className = "ghost mini danger";
-    drop.textContent = t("丢弃");
-    drop.title = t("直接移出待整理,不再进入提炼范围");
+    drop.textContent = "丢弃";
+    drop.title = "直接移出待整理,不再进入提炼范围";
     drop.disabled = !key;
     adopt.addEventListener("click", async () => {
       const project = memoryProject;
@@ -576,11 +582,11 @@ export function renderMemoryCandidates(list) {
         const result = await invoke("memory_consolidate_note", { projectDir: project, scope, summary: key, requestId: crypto.randomUUID() });
         const failure = memoryConsolidationFailure(result?.report);
         if (failure) throw new Error(failure);
-        toast(memoryConsolidationMessage(result?.report, t("这一条已整理")));
+        toast(memoryConsolidationMessage(result?.report, "这一条已整理"));
       } catch (err) {
         adopt.disabled = false;
         drop.disabled = false;
-        toastError(`${t("提炼失败")}:${err?.message ?? err}`);
+        toastError(`${"提炼失败"}:${err?.message ?? err}`);
       } finally {
         if (project === memoryProject) void refreshMemory({ force: true });
       }
@@ -589,10 +595,10 @@ export function renderMemoryCandidates(list) {
       const project = memoryProject;
       try {
         await invoke("memory_note_discard", { projectDir: project, scope, fingerprint: key });
-        toast(t("已丢弃"));
+        toast("已丢弃");
         if (project === memoryProject) void refreshMemory({ force: true });
       } catch (err) {
-        toastError(`${t("丢弃失败")}:${err}`);
+        toastError(`${"丢弃失败"}:${err}`);
       }
     });
     actions.append(adopt, drop);
@@ -617,20 +623,20 @@ export function renderMemoryValueFlags(data) {
   if (staleArchived > 0) {
     const p = document.createElement("p");
     p.className = "memory-flags-head stale-archived";
-    p.textContent = `${t("已归档待复查")} (${staleArchived})`;
+    p.textContent = `${"已归档待复查"} (${staleArchived})`;
     box.appendChild(p);
   }
   if (!total) {
     const empty = document.createElement("p");
     empty.className = "dim";
-    empty.textContent = t("暂无需要复查的使用记录");
+    empty.textContent = "暂无需要复查的使用记录";
     box.appendChild(empty);
     return;
   }
   if (zero.length) {
     const h = document.createElement("p");
     h.className = "memory-flags-head";
-    h.textContent = `${t("多次注入但未记录正文读取")} (${zero.length})`;
+    h.textContent = `${"多次注入但未记录正文读取"} (${zero.length})`;
     box.appendChild(h);
     for (const item of zero) {
       const row = document.createElement("button");
@@ -639,7 +645,7 @@ export function renderMemoryValueFlags(data) {
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(displayMemoryTitle(item.title))}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled}  ${t("注入")} ${item.injected}  ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
+        `<span class="dim">${"召回"} ${item.recalled}  ${"注入"} ${item.injected}  ${"正文读取"} ${item.read_observed ? item.read : "未知"}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -647,7 +653,7 @@ export function renderMemoryValueFlags(data) {
   if (recur.length) {
     const h = document.createElement("p");
     h.className = "memory-flags-head";
-    h.textContent = `${t("高频召回")} (${recur.length})`;
+    h.textContent = `${"高频召回"} (${recur.length})`;
     box.appendChild(h);
     for (const item of recur) {
       const row = document.createElement("button");
@@ -656,7 +662,7 @@ export function renderMemoryValueFlags(data) {
       row.innerHTML =
         `<span class="memory-row-id">${escapeHtml(item.id)}</span>` +
         `<span class="memory-row-title">${escapeHtml(displayMemoryTitle(item.title))}</span>` +
-        `<span class="dim">${t("召回")} ${item.recalled}  ${t("注入")} ${item.injected}  ${t("正文读取")} ${item.read_observed ? item.read : t("未知")}</span>`;
+        `<span class="dim">${"召回"} ${item.recalled}  ${"注入"} ${item.injected}  ${"正文读取"} ${item.read_observed ? item.read : "未知"}</span>`;
       row.addEventListener("click", () => openMemoryDetailById(item.scope, item.id));
       box.appendChild(row);
     }
@@ -685,7 +691,7 @@ export async function openMemoryDetailById(scope, id) {
     }
   } catch (err) {
     if (project !== memoryProject || generation !== memoryListGeneration) return;
-    toastError(`${t("记忆条目加载失败")}:${err}`);
+    toastError(`${"记忆条目加载失败"}:${err}`);
   }
 }
 
@@ -701,7 +707,7 @@ async function openMemorySearchHit(hit) {
     showMemoryDetail(scope, { ...entry, scope }, { readOnly: Boolean(entry.archived), reveal: !memoryChatTabActive() });
   } catch (err) {
     if (project !== memoryProject) return;
-    toastError(`${t("记忆条目加载失败")}:${err}`);
+    toastError(`${"记忆条目加载失败"}:${err}`);
   }
 }
 
@@ -715,12 +721,12 @@ export function renderMemoryRecalls(data) {
   if (!box) return;
   box.innerHTML = "";
   const rounds = data?.rounds ?? [];
-  rate.textContent = rounds.length ? `  ${t("最近")} ${rounds.length} ${t("次检索")}` : "";
+  rate.textContent = rounds.length ? `  ${"最近"} ${rounds.length} ${"次检索"}` : "";
   if (!rounds.length) {
-    box.innerHTML = `<p class="dim">${t("暂无检索记录。下一次运行或搜索后可在这里查看。")}</p>`;
+    box.innerHTML = `<p class="dim">${"暂无检索记录。下一次运行或搜索后可在这里查看。"}</p>`;
     return;
   }
-  const triggers = { memory_search: t("任务检索"), event_recall: t("失败触发"), user_search: t("手动搜索") };
+  const triggers = { memory_search: "任务检索", event_recall: "失败触发", user_search: "手动搜索" };
   for (const round of rounds) {
     const item = document.createElement("details");
     item.className = "memory-recall";
@@ -728,24 +734,24 @@ export function renderMemoryRecalls(data) {
     const head = document.createElement("summary");
     head.className = "memory-recall-head";
     const hits = round.hits ?? [];
-    head.textContent = `${new Date(round.at).toLocaleString()}  ${triggers[round.trigger_type] || round.trigger_type}  ${hits.length} ${t("条命中")}`;
+    head.textContent = `${new Date(round.at).toLocaleString()}  ${triggers[round.trigger_type] || round.trigger_type}  ${hits.length} ${"条命中"}`;
     const prompt = document.createElement("div");
     prompt.className = "memory-recall-prompt dim";
-    prompt.textContent = `${round.prompt_head || round.query || t("未知")}  ${t("运行")} ${round.run_id || t("未知")}  ${t("轮次")} ${round.episode_id ?? t("未关联")}`;
+    prompt.textContent = `${round.prompt_head || round.query || "未知"}  ${"运行"} ${round.run_id || "未知"}  ${"轮次"} ${round.episode_id ?? "未关联"}`;
     const query = document.createElement("p");
     query.className = "dim";
-    query.textContent = `${t("检索词")}: ${round.query || t("未知")}  ${round.policy_action}  ${round.total_ms} ms`;
+    query.textContent = `${"检索词"}: ${round.query || "未知"}  ${round.policy_action}  ${round.total_ms} ms`;
     item.append(head, prompt, query);
     if (!hits.length) {
       const empty = document.createElement("p");
       empty.className = "dim";
-      empty.textContent = t("本次检索没有命中记忆");
+      empty.textContent = "本次检索没有命中记忆";
       item.appendChild(empty);
     }
     for (const hit of hits) {
       const row = document.createElement("div");
       row.className = `memory-recall-hit${hit.read === true ? " read" : ""}`;
-      const state = !hit.injected ? t("未注入") : hit.read === true ? t("已读取正文") : hit.read === false ? t("已注入  尚未记录正文读取") : t("已注入  历史读取未知");
+      const state = !hit.injected ? "未注入" : hit.read === true ? "已读取正文" : hit.read === false ? "已注入  尚未记录正文读取" : "已注入  历史读取未知";
       row.innerHTML =
         `<span class="memory-recall-id">${escapeHtml(hit.id)}</span>` +
         `<span class="memory-recall-title">${escapeHtml(displayMemoryTitle(hit.title))}</span>` +
@@ -829,7 +835,7 @@ export async function loadMemoryList(scope, category, { preserveSelection = fals
     }
   } catch (err) {
     if (project !== memoryProject || generation !== memoryListGeneration) return;
-    toastError(`${t("记忆条目加载失败")}:${err}`);
+    toastError(`${"记忆条目加载失败"}:${err}`);
   }
 }
 
@@ -843,10 +849,10 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
   // 整页重绘会把滚动位置冲回顶部:保存/刷新后的重绘回到原位,换筛选才回顶。
   const scrollTop = keepScroll ? container.scrollTop : 0;
   container.innerHTML = "";
-  count.textContent = `${entries.length} ${t("条")}`;
-  state.textContent = search ? `${t("搜索")}「${memorySearchQuery}」` : archivedView ? t("已归档  只读，可恢复") : "";
+  count.textContent = `${entries.length} ${"条"}`;
+  state.textContent = search ? `${"搜索"}「${memorySearchQuery}」` : archivedView ? "已归档  只读，可恢复" : "";
   if (!entries.length) {
-    container.innerHTML = `<p class="dim">${t(search ? "没有命中的记忆" : archivedView ? "没有已归档的记忆" : "该筛选暂无记忆")}</p>`;
+    container.innerHTML = `<p class="dim">${search ? "没有命中的记忆" : archivedView ? "没有已归档的记忆" : "该筛选暂无记忆"}</p>`;
     return;
   }
   for (const entry of entries) {
@@ -860,14 +866,14 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
     row.dataset.scope = entry.scope || memoryManagerFilters.scope;
     row.title = displayMemoryTitle(entry.title) || entry.id;
     row.classList.toggle("selected", entry.id === memoryCurrentEntryId && row.dataset.scope === memorySelection.scope);
-    const lastHit = entry.last_hit_at ? `${t("最近命中")} ${new Date(entry.last_hit_at).toLocaleDateString()}` : t("从未命中");
-    const recallMeta = (entry.recalled ?? 0) > 0 ? `${t("召回")} ${entry.recalled}  ${t("注入")} ${entry.injected ?? 0}  ${t("正文读取")} ${entry.read_observed ? entry.read : t("未知")}` : "";
+    const lastHit = entry.last_hit_at ? `${"最近命中"} ${new Date(entry.last_hit_at).toLocaleDateString()}` : "从未命中";
+    const recallMeta = (entry.recalled ?? 0) > 0 ? `${"召回"} ${entry.recalled}  ${"注入"} ${entry.injected ?? 0}  ${"正文读取"} ${entry.read_observed ? entry.read : "未知"}` : "";
     const snippet = stripMemoryFingerprint(search ? entry.snippet : entry.description);
     // 「启用」是常态,不给它画徽标;候选/试运行/已归档才值得在行上标出来。
     const badge = entry.status && entry.status !== "active" ? `<span class="memory-status-badge ${escapeHtml(entry.status)}">${escapeHtml(memoryWord(entry.status))}</span>` : "";
-    const flags = `${dormant ? `<em class="memory-dormant-flag">${t("长期未用，已降级")}</em>  ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${t("多次注入但未记录正文读取")}</em>  ` : ""}`;
-    const scopeWord = t(MEMORY_SCOPE_WORDS[entry.scope || memoryManagerFilters.scope] ?? "项目记忆");
-    const metaText = [`${scopeWord}/${memoryWord(entry.category)}`, `${t("命中")} ${entry.hits ?? 0}`, recallMeta, lastHit, entry.updated || ""].filter(Boolean).join("  ");
+    const flags = `${dormant ? `<em class="memory-dormant-flag">${"长期未用，已降级"}</em>  ` : ""}${zeroRead ? `<em class="memory-zero-read-flag">${"多次注入但未记录正文读取"}</em>  ` : ""}`;
+    const scopeWord = MEMORY_SCOPE_WORDS[entry.scope || memoryManagerFilters.scope] ?? "项目记忆";
+    const metaText = [`${scopeWord}/${memoryWord(entry.category)}`, `${"命中"} ${entry.hits ?? 0}`, recallMeta, lastHit, entry.updated || ""].filter(Boolean).join("  ");
     row.innerHTML =
       `<span class="memory-row-top"><span class="memory-row-id">${escapeHtml(entry.id)}</span><span class="memory-row-title">${escapeHtml(displayMemoryTitle(entry.title) || entry.id)}</span>${badge}</span>` +
       `<span class="dim memory-row-description">${escapeHtml(snippet)}</span>` +
@@ -888,7 +894,7 @@ export function renderMemoryList(entries, { search = false, keepScroll = false, 
   if (search && truncated) {
     const note = document.createElement("p");
     note.className = "dim memory-list-note";
-    note.textContent = `${t("只显示前")} ${entries.length} ${t("条，换个更具体的关键词缩小范围")}`;
+    note.textContent = `${"只显示前"} ${entries.length} ${"条，换个更具体的关键词缩小范围"}`;
     container.appendChild(note);
   }
   container.scrollTop = scrollTop;
@@ -900,12 +906,12 @@ async function restoreMemoryEntry(project, scope, id, status, title) {
     await invoke("memory_entry_restore", { projectDir: project, scope, id, status });
     if (project !== memoryProject) return;
     dismissMemoryNotice();
-    toast(`${t("已恢复")}「${title || id}」`);
+    toast(`${"已恢复"}「${title || id}」`);
     memoryCurrentEntryId = null;
     hideMemoryDetail();
     document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
   } catch (err) {
-    toastError(`${t("恢复失败")}:${err}`);
+    toastError(`${"恢复失败"}:${err}`);
   }
 }
 
@@ -916,7 +922,7 @@ function dropMemoryRow(scope, id) {
   row.remove();
   const remaining = document.querySelectorAll("#memory-list .memory-row").length;
   const count = $("memory-list-count");
-  if (count) count.textContent = `${remaining} ${t("条")}`;
+  if (count) count.textContent = `${remaining} ${"条"}`;
 }
 
 export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false } = {}) {
@@ -953,7 +959,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const close = document.createElement("button");
   close.type = "button";
   close.className = "ghost mini";
-  close.textContent = t("关闭详情");
+  close.textContent = "关闭详情";
   close.addEventListener("click", async () => {
     if (!(await confirmLeaveMemoryDetail())) return;
     memoryCurrentEntryId = null;
@@ -964,22 +970,22 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const meta = document.createElement("div");
   meta.className = "memory-detail-meta";
   // 来源与引用里的条目编号/路径做成可点 chip(R-/D- 跳条目,路径开文件)。
-  const scopeWord = (entry.scope || scope) === "global" ? t("全局记忆") : t("项目记忆");
+  const scopeWord = (entry.scope || scope) === "global" ? "全局记忆" : "项目记忆";
   meta.replaceChildren(
-    document.createTextNode(`${entry.id}  ${scopeWord} / ${memoryWord(entry.category)}  ${memoryWord(entry.status)}  ${t("来源")} `),
-    richText(memorySourceText(entry.source) || t("未知")),
+    document.createTextNode(`${entry.id}  ${scopeWord} / ${memoryWord(entry.category)}  ${memoryWord(entry.status)}  ${"来源"} `),
+    richText(memorySourceText(entry.source) || "未知"),
   );
-  if (entry.refs && entry.refs.length) meta.append(document.createTextNode(`  ${t("引用来源")} `), richText(entry.refs.join(" ")));
+  if (entry.refs && entry.refs.length) meta.append(document.createTextNode(`  ${"引用来源"} `), richText(entry.refs.join(" ")));
   if (readOnly) {
     const badge = document.createElement("span");
     badge.className = "memory-readonly-badge";
-    badge.textContent = t("已归档(只读)");
+    badge.textContent = "已归档(只读)";
     meta.append(document.createTextNode("  "), badge);
   }
   const profile = document.createElement("p");
   profile.className = "dim memory-profile";
-  const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : t("从未命中");
-  profile.textContent = `${t("累计命中")} ${entry.hits ?? 0}  ${t("最近命中")} ${lastHit}  ${t("更新")} ${entry.updated || t("未知")}`;
+  const lastHit = entry.last_hit_at ? new Date(entry.last_hit_at).toLocaleString() : "从未命中";
+  profile.textContent = `${"累计命中"} ${entry.hits ?? 0}  ${"最近命中"} ${lastHit}  ${"更新"} ${entry.updated || "未知"}`;
   const field = (labelText, control, tag = "label") => {
     const wrapper = document.createElement(tag);
     wrapper.className = "memory-detail-field";
@@ -991,11 +997,11 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   };
   const title = document.createElement("input");
   title.value = entry.title;
-  title.setAttribute("aria-label", t("记忆标题"));
+  title.setAttribute("aria-label", "记忆标题");
   const desc = document.createElement("textarea");
   desc.rows = 2;
   desc.value = entry.description;
-  desc.setAttribute("aria-label", t("召回钩子"));
+  desc.setAttribute("aria-label", "召回钩子");
   const recall = document.createElement("p");
   recall.className = "memory-recall-description";
   recall.textContent = stripMemoryFingerprint(entry.description);
@@ -1015,13 +1021,13 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
     const restore = document.createElement("button");
     restore.type = "button";
     restore.className = "primary";
-    restore.textContent = t("恢复为启用");
-    restore.title = t("搬回记忆库,重新参与检索与注入");
+    restore.textContent = "恢复为启用";
+    restore.title = "搬回记忆库,重新参与检索与注入";
     restore.addEventListener("click", () => void restoreMemoryEntry(project, scope, entry.id, "active", entry.title));
     const readOnlyActions = document.createElement("div");
     readOnlyActions.className = "memory-detail-actions";
     readOnlyActions.append(restore);
-    box.append(heading, meta, profile, recall, field(t("正文"), bodyBox, "div"), readOnlyActions);
+    box.append(heading, meta, profile, recall, field("正文", bodyBox, "div"), readOnlyActions);
     restoreReaderScroll();
     return;
   }
@@ -1029,12 +1035,12 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const metadata = document.createElement("details");
   metadata.className = "memory-meta-editor";
   const metadataSummary = document.createElement("summary");
-  metadataSummary.textContent = t("编辑标题、召回条件与区域");
-  metadata.append(metadataSummary, field(t("标题"), title), field(t("召回钩子"), desc), renderMemoryAreaRow(project, scope, entry));
+  metadataSummary.textContent = "编辑标题、召回条件与区域";
+  metadata.append(metadataSummary, field("标题", title), field("召回钩子", desc), renderMemoryAreaRow(project, scope, entry));
   const save = document.createElement("button");
   save.type = "button";
   save.className = "primary";
-  save.textContent = t("保存修改");
+  save.textContent = "保存修改";
   save.addEventListener("click", async () => {
     try {
       const body = readMemoryBody(bodyBox, bodyText);
@@ -1047,13 +1053,13 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
         body,
         status: null,
       });
-      toast(t("记忆已保存"));
+      toast("记忆已保存");
       if (project !== memoryProject) return;
       delete box.dataset.dirty;
       memoryCurrentEntryId = entry.id;
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
-      toastError(`${t("记忆保存失败")}:${err}`);
+      toastError(`${"记忆保存失败"}:${err}`);
     }
   });
   const setStatus = (status) => invoke("memory_entry_save", { projectDir: project, scope, id: entry.id, title: null, description: null, body: null, status });
@@ -1061,24 +1067,24 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const enableBtn = document.createElement("button");
   enableBtn.type = "button";
   enableBtn.className = "ghost";
-  enableBtn.textContent = t("立即启用");
-  enableBtn.title = t("直接启用,不等记忆管理子代理按证据晋升");
+  enableBtn.textContent = "立即启用";
+  enableBtn.title = "直接启用,不等记忆管理子代理按证据晋升";
   enableBtn.addEventListener("click", async () => {
     try {
       await setStatus("active");
       if (project !== memoryProject) return;
-      toast(t("已启用"));
+      toast("已启用");
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
-      toastError(`${t("记忆保存失败")}:${err}`);
+      toastError(`${"记忆保存失败"}:${err}`);
     }
   });
   // 「标记失效」实际是归档(搬进 archive/,不再检索与注入):名字照实写,并给撤销与「已归档」视图。
   const archiveBtn = document.createElement("button");
   archiveBtn.type = "button";
   archiveBtn.className = "ghost";
-  archiveBtn.textContent = t("归档");
-  archiveBtn.title = t("移出检索与注入,文件保留在「已归档」里,随时可以恢复");
+  archiveBtn.textContent = "归档";
+  archiveBtn.title = "移出检索与注入,文件保留在「已归档」里,随时可以恢复";
   archiveBtn.addEventListener("click", async () => {
     if (!(await confirmLeaveMemoryDetail())) return;
     try {
@@ -1087,32 +1093,32 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       dropMemoryRow(scope, entry.id);
-      showMemoryNotice(`${t("已归档")}「${displayMemoryTitle(entry.title) || entry.id}」`, {
-        label: t("撤销归档"),
+      showMemoryNotice(`${"已归档"}「${displayMemoryTitle(entry.title) || entry.id}」`, {
+        label: "撤销归档",
         run: () => void restoreMemoryEntry(project, scope, entry.id, entry.status, entry.title),
       });
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
-      toastError(`${t("记忆保存失败")}:${err}`);
+      toastError(`${"记忆保存失败"}:${err}`);
     }
   });
   const deleteBtn = document.createElement("button");
   deleteBtn.type = "button";
   deleteBtn.className = "ghost danger";
-  deleteBtn.textContent = t("删除");
-  deleteBtn.title = t("从磁盘删除该记忆文件,不可撤销");
+  deleteBtn.textContent = "删除";
+  deleteBtn.title = "从磁盘删除该记忆文件,不可撤销";
   deleteBtn.addEventListener("click", async () => {
-    if (!(await confirmDialog({ title: t("确认删除"), message: `「${displayMemoryTitle(entry.title) || entry.id}」(${entry.id})?${t("此操作不可撤销")}`, okText: t("删除"), danger: true }))) return;
+    if (!(await confirmDialog({ title: "确认删除", message: `「${displayMemoryTitle(entry.title) || entry.id}」(${entry.id})?${"此操作不可撤销"}`, okText: "删除", danger: true }))) return;
     try {
       await invoke("memory_entry_delete", { projectDir: project, scope, id: entry.id });
       if (project !== memoryProject) return;
-      toast(t("已删除"));
+      toast("已删除");
       memoryCurrentEntryId = null;
       hideMemoryDetail();
       dropMemoryRow(scope, entry.id);
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
-      toastError(`${t("删除失败")}:${err}`);
+      toastError(`${"删除失败"}:${err}`);
     }
   });
   const actions = document.createElement("div");
@@ -1122,10 +1128,10 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   feedbackStatus.setAttribute("role", "status");
   const feedbackActions = document.createElement("div");
   feedbackActions.className = "memory-detail-actions";
-  const feedbackLabels = { adopted: t("已采用"), corrected: t("不准确"), cleared: t("撤销评价") };
+  const feedbackLabels = { adopted: "已采用", corrected: "不准确", cleared: "撤销评价" };
   const renderFeedback = (usage = {}) => {
     const current = usage.feedback_revision === entry.revision ? feedbackLabels[usage.last_feedback] : "";
-    feedbackStatus.textContent = `${t("被检索考虑")} ${usage.opportunities ?? 0}  ${t("采用反馈")} ${usage.adopted ?? 0}  ${t("纠正反馈")} ${usage.corrected ?? 0}${current ? `  ${current}` : ""}`;
+    feedbackStatus.textContent = `${"被检索考虑"} ${usage.opportunities ?? 0}  ${"采用反馈"} ${usage.adopted ?? 0}  ${"纠正反馈"} ${usage.corrected ?? 0}${current ? `  ${current}` : ""}`;
   };
   renderFeedback(entry.usage);
   for (const [kind, label] of Object.entries(feedbackLabels)) {
@@ -1136,7 +1142,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
     button.textContent = label;
     button.disabled = !entry.revision;
     button.addEventListener("click", async () => {
-      if (memoryDetailDirty()) { toast(t("请先保存记忆修改")); return; }
+      if (memoryDetailDirty()) { toast("请先保存记忆修改"); return; }
       feedbackActions.querySelectorAll("button").forEach((item) => { item.disabled = true; });
       try {
         const usage = await invoke("memory_entry_feedback", { projectDir: project, scope, id: entry.id, expectedRevision: entry.revision, kind });
@@ -1145,7 +1151,7 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
         renderFeedback(usage);
         memoryEntryCache.clear();
         await loadMemoryList(memoryManagerFilters.scope, memoryManagerFilters.category, { preserveSelection: true });
-      } catch (error) { toastError(`${t("记忆反馈保存失败")}:${error}`); }
+      } catch (error) { toastError(`${"记忆反馈保存失败"}:${error}`); }
       finally { feedbackActions.querySelectorAll("button").forEach((item) => { item.disabled = false; }); }
     });
     feedbackActions.append(button);
@@ -1153,12 +1159,12 @@ export function showMemoryDetail(scope, entry, { reveal = true, readOnly = false
   const discuss = document.createElement("button");
   discuss.type = "button";
   discuss.className = "ghost";
-  discuss.textContent = t("用对话修改");
+  discuss.textContent = "用对话修改";
   discuss.addEventListener("click", () => { showMemoryTab("chat"); $("memory-chat-input")?.focus(); });
   actions.append(save, discuss);
   if (!entry.review_required && (entry.status === "candidate" || entry.status === "shadow")) actions.append(enableBtn);
   actions.append(archiveBtn, deleteBtn);
-  box.append(heading, meta, profile, recall, field(t("正文"), bodyBox, "div"), metadata, feedbackStatus, feedbackActions, actions);
+  box.append(heading, meta, profile, recall, field("正文", bodyBox, "div"), metadata, feedbackStatus, feedbackActions, actions);
   restoreReaderScroll();
 }
 
@@ -1169,7 +1175,7 @@ function renderMemoryAreaRow(project, scope, entry) {
   row.className = "memory-area-row";
   const label = document.createElement("span");
   label.className = "memory-detail-label";
-  label.textContent = t("区域");
+  label.textContent = "区域";
   const list = document.createElement("span");
   list.className = "memory-area-list";
   const fieldAreas = (entry.areas ?? []).map((area) => ({ area: `area:${area}`, provenance: "field", via: null }));
@@ -1182,7 +1188,7 @@ function renderMemoryAreaRow(project, scope, entry) {
     if (!shown.length && !pending) {
       const none = document.createElement("span");
       none.className = "dim";
-      none.textContent = t("未归类");
+      none.textContent = "未归类";
       list.append(none);
     }
     for (const item of shown) {
@@ -1193,7 +1199,7 @@ function renderMemoryAreaRow(project, scope, entry) {
       name.textContent = String(item.area || "").replace(/^area:/, "");
       const why = document.createElement("em");
       why.className = "memory-area-why";
-      const provenanceLabel = { field: t("字段"), path: t("路径"), tool: t("工具"), via: t("经由"), keyword: t("关键词") }[item.provenance] ?? "";
+      const provenanceLabel = { field: "字段", path: "路径", tool: "工具", via: "经由", keyword: "关键词" }[item.provenance] ?? "";
       why.textContent = item.provenance === "via" && item.via ? `${provenanceLabel} ${item.via}` : provenanceLabel;
       chip.append(name, why);
       list.append(chip);
@@ -1210,28 +1216,28 @@ function renderMemoryAreaRow(project, scope, entry) {
   renderChips(inferred, { pending: !inferred && Boolean(memoryAreaProvider) });
   const select = document.createElement("select");
   select.id = "memory-area-select";
-  select.setAttribute("aria-label", t("选择代码区域"));
+  select.setAttribute("aria-label", "选择代码区域");
   const pending = document.createElement("option");
   pending.value = "";
-  pending.textContent = t("选择区域…");
+  pending.textContent = "选择区域…";
   select.append(pending);
   const setBtn = document.createElement("button");
   setBtn.type = "button";
   setBtn.className = "ghost mini";
-  setBtn.textContent = t("设为区域");
+  setBtn.textContent = "设为区域";
   const clearBtn = document.createElement("button");
   clearBtn.type = "button";
   clearBtn.className = "ghost mini";
-  clearBtn.textContent = t("清除区域");
+  clearBtn.textContent = "清除区域";
   clearBtn.disabled = !(entry.areas ?? []).length;
   const saveArea = async (areas) => {
     try {
       await invoke("memory_entry_save", { projectDir: project, scope, id: entry.id, title: null, description: null, body: null, status: null, area: areas });
       if (project !== memoryProject) return;
-      toast(areas.length ? t("区域已保存") : t("区域已清除"));
+      toast(areas.length ? "区域已保存" : "区域已清除");
       document.dispatchEvent(new CustomEvent("kz:memory-changed", { detail: { project } }));
     } catch (err) {
-      toastError(`${t("区域保存失败")}:${err}`);
+      toastError(`${"区域保存失败"}:${err}`);
     }
   };
   setBtn.addEventListener("click", () => {
@@ -1278,7 +1284,7 @@ export function renderMemoryBodyRead(container, bodyText, project) {
   const text = String(bodyText ?? "");
   const article = document.createElement("article");
   article.className = "memory-body-document markdown";
-  renderMarkdownInto(article, stripMemoryFingerprint(text) || t("无正文"));
+  renderMarkdownInto(article, stripMemoryFingerprint(text) || "无正文");
   for (const link of article.querySelectorAll("a.md-path")) link.dataset.projectDir = project || "";
   container.appendChild(article);
   // 编辑入口:阅读视图是默认态,编辑时提供取消,避免误入 textarea 后只能刷新页面恢复阅读。
@@ -1287,16 +1293,16 @@ export function renderMemoryBodyRead(container, bodyText, project) {
   const editBtn = document.createElement("button");
   editBtn.type = "button";
   editBtn.className = "ghost mini";
-  editBtn.textContent = t("编辑正文");
+  editBtn.textContent = "编辑正文";
   editBtn.addEventListener("click", () => {
     const ta = document.createElement("textarea");
     ta.rows = 16;
     ta.value = readMemoryBody(container, text);
-    ta.setAttribute("aria-label", t("记忆正文"));
+    ta.setAttribute("aria-label", "记忆正文");
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "ghost mini";
-    cancel.textContent = t("取消编辑");
+    cancel.textContent = "取消编辑";
     cancel.addEventListener("click", () => renderMemoryBodyRead(container, text, project));
     container.replaceChildren(ta, cancel);
   });
@@ -1344,11 +1350,6 @@ defer(() => {
     if (document.body.dataset.view === "memory") void refreshMemory({ force: true });
     else memoryInvalidated = true;
   });
-  // 切换语言:下拉选项只在首次建一次,文案跟着换;提示条与待整理状态按新语言重写。
-  document.addEventListener("kz:language", () => {
-    relabelMemoryManagerFilters();
-    renderMemoryPendingState();
-  });
   // 没有项目时的空态:直接在这里添加(复用侧栏那个按钮),研究档下还能一步回开发档。
   // 新建记忆:没有表单——到管理对话里说明要记住什么,由记忆管理子代理整理成条目(它会先查重、再写召回钩子)。
   $("memory-new-btn")?.addEventListener("click", () => {
@@ -1358,7 +1359,7 @@ defer(() => {
     const chatInput = $("memory-chat-input");
     if (!chatInput) return;
     if (!chatInput.value.trim()) {
-      chatInput.value = t("请帮我新增一条记忆：");
+      chatInput.value = "请帮我新增一条记忆：";
       chatInput.dispatchEvent(new Event("input"));
     }
     chatInput.focus();
@@ -1390,7 +1391,7 @@ defer(() => {
       document.dispatchEvent(new CustomEvent("kz:memory-search-hits", { detail: { project, ids: hits.map((hit) => hit.id), query } }));
     } catch (err) {
       if (project !== memoryProject || generation !== memoryListGeneration) return;
-      toastError(`${t("记忆检索失败")}:${err}`);
+      toastError(`${"记忆检索失败"}:${err}`);
     }
   };
   // 点「刷新」:普通列表整体重载;搜索结果态下重跑这次搜索(后台刷新不会动结果列表,这里是用户明确要新结果)。
@@ -1439,10 +1440,10 @@ defer(() => {
       const result = await invoke("memory_consolidate", { projectDir: project, requestId: crypto.randomUUID() });
       // 整理失败(模型不可用、批次没进展)后端仍返回报告而不是报错:把原因说出来并给重试,不再只说「尚有草稿」。
       const failure = memoryConsolidationFailure(result?.report);
-      if (failure) toastError(`${t("整理失败")}:${failure}`, { retry: consolidate });
-      else toast(memoryConsolidationMessage(result?.report, result?.pending ? t("还有待整理条目没处理完") : t("待整理条目已全部整理")));
+      if (failure) toastError(`${"整理失败"}:${failure}`, { retry: consolidate });
+      else toast(memoryConsolidationMessage(result?.report, result?.pending ? "还有待整理条目没处理完" : "待整理条目已全部整理"));
     } catch (err) {
-      toastError(`${t("整理失败")}:${err}`, { retry: consolidate });
+      toastError(`${"整理失败"}:${err}`, { retry: consolidate });
     } finally {
       memoryConsolidating = false;
       void refreshMemoryJobStatus();

@@ -1,7 +1,6 @@
 // App-level event routing and lifecycle coordination. This is not a foundation module.
 import { subscribeRuntimeEvent } from "./00-event-subscriptions.js";
 import { applyRuntimeSnapshot, setSessionDetails } from "./00-session-state.js";
-import { t } from "./02-i18n.js";
 import { beginStreamResponse, chatAbortRunningFor, commitStreamResponse, markPreviousRunErrors } from "./05-chat-render.js";
 import {
   activeSessionId,
@@ -183,11 +182,11 @@ export function refreshExperienceWorkbench(event) {
 export function handleExperienceEvent(payload) {
   const event = payload && typeof payload === "object" ? payload : null;
   if (!event?.event_id || !event.session_id || !event.event_type) {
-    log(`${t("忽略无效体验事件")}:missing_identity`, "warn");
+    log(`${"忽略无效体验事件"}:missing_identity`, "warn");
     return;
   }
   if (event.schema_version !== 1) {
-    log(`${t("忽略未知体验事件版本")}:${event.schema_version}`, "warn");
+    log(`${"忽略未知体验事件版本"}:${event.schema_version}`, "warn");
     return;
   }
   if (!rememberExperienceEvent(event)) return;
@@ -197,7 +196,7 @@ export function handleExperienceEvent(payload) {
     // Animation subscriptions are a subset of the event contract. Legal task
     // and permission facts remain in the projection without flooding the log.
     if (!EXPERIENCE_KNOWN_EVENTS.has(event.event_type) && !/^(memory|research)_/.test(event.event_type)) {
-      log(`${t("未知体验事件")}:${event.event_type}`, "warn");
+      log(`${"未知体验事件"}:${event.event_type}`, "warn");
     }
     return;
   }
@@ -236,7 +235,7 @@ export function on(event, handler) {
     // 除了权限询问(它有专门的缺省会话归属逻辑),所有运行事件都必须带 sessionId。
     // 没有身份就不能安全地投影到当前对话,宁可只留下后端持久事实也不能串线。
     if (!SESSIONLESS_EVENTS.has(event) && !sessionId) {
-      log(`${t("丢弃无 session_id 的运行事件")}:${event}`, "warn");
+      log(`${"丢弃无 session_id 的运行事件"}:${event}`, "warn");
       return;
     }
     if (event === "kz:lifecycle") { handler(eventPayload); return; }
@@ -250,7 +249,7 @@ export function on(event, handler) {
     if (event === "kz:turn" && sessionId) {
       withSessionRender(sessionId, beginStreamResponse);
       if (eventPayload.payload?.step === 1) markPreviousRunErrors(sessionId);
-      if (takeAwaitingUser(sessionId) && sessionId === activeSessionId && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
+      if (takeAwaitingUser(sessionId) && sessionId === activeSessionId && autoStopReason === "模型在等你回答") setAutoStopReason("");
       transitionSession(sessionId, "running", {
         roundResult: null,
       });
@@ -387,7 +386,7 @@ export function on(event, handler) {
         }
         void refreshConversationLists();
         refreshProcesses();
-        log(`${t("后台对话控制事件已路由")}:${event} ${sessionId}`);
+        log(`${"后台对话控制事件已路由"}:${event} ${sessionId}`);
         return;
       }
     }

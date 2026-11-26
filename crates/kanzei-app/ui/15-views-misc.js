@@ -15,7 +15,6 @@ import { $ } from "./00-dom.js";
 import { activePane, appendToPane, discardSessionPane, messages, promptBox, resetPane, showPane } from "./01-chat-panes.js";
 import { confirmDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -145,7 +144,7 @@ export function openRuntimeDiagram(title, source, { path = null, sourceLine = 1 
 defer(() => {
   $("viewer-close").addEventListener("click", () => closeSurface($("viewer-overlay")));
   setDiagramHost({
-    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${t("图源码")}  ${path || title}`, source, { line, startLine }),
+    openSource: ({ title, source, line, startLine, path }) => openRuntimeSource(`${"图源码"}  ${path || title}`, source, { line, startLine }),
     openLarge: ({ title, source, path, sourceLine }) => openRuntimeDiagram(title, source, { path, sourceLine }),
     toast: (text, kind) => toast(text, { kind }),
   });
@@ -174,7 +173,7 @@ export function renderChangeBar(status) {
     return;
   }
   bar.classList.remove("hidden");
-  $("change-bar-repo").textContent = `${files.length} ${t("个文件")}`;
+  $("change-bar-repo").textContent = `${files.length} ${"个文件"}`;
   $("change-bar-add").textContent = `+${additions}`;
   $("change-bar-del").textContent = `−${deletions}`;
   box.classList.toggle("hidden", !changeBarOpen);
@@ -197,12 +196,12 @@ export function renderChangeBar(status) {
     if (file.untracked) {
       const tag = document.createElement("span");
       tag.className = "change-file-tag dim";
-      tag.textContent = t("未跟踪");
+      tag.textContent = "未跟踪";
       row.appendChild(tag);
     } else if (file.binary) {
       const tag = document.createElement("span");
       tag.className = "change-file-tag dim";
-      tag.textContent = t("二进制");
+      tag.textContent = "二进制";
       row.appendChild(tag);
     } else {
       const add = document.createElement("span");
@@ -247,11 +246,11 @@ export function renderGitChip(status) {
   chip.dataset.repo = repo;
   if (status?.toplevel) chip.dataset.toplevel = status.toplevel;
   else delete chip.dataset.toplevel;
-  chip.textContent = t("无 Git");
+  chip.textContent = "无 Git";
   const why = repo === "parent"
-    ? fillTemplate(t("本项目只是位于上级仓库 {path} 内,不是独立的 Git 仓库"), { path: status.toplevel ?? "" })
-    : t("本项目不是 Git 仓库");
-  const label = `${why}:${t("独立任务/工作树、提交与改动统计不可用")}`;
+    ? fillTemplate("本项目只是位于上级仓库 {path} 内,不是独立的 Git 仓库", { path: status.toplevel ?? "" })
+    : "本项目不是 Git 仓库";
+  const label = `${why}:${"独立任务/工作树、提交与改动统计不可用"}`;
   chip.title = label;
   chip.setAttribute("aria-label", label);
 }
@@ -261,18 +260,18 @@ export function openGitChipMenu() {
   const parent = chip.dataset.repo === "parent";
   // 说明放在标题行(不可点),菜单里只有一个动作——首项就是能做的事,键盘焦点不会落在一行说明上。
   return openMenu(chip, [
-    { heading: `${parent ? t("位于上级仓库内,不是独立仓库") : t("此目录不是 Git 仓库")}:${t("独立任务/工作树、提交与改动统计不可用")}` },
+    { heading: `${parent ? "位于上级仓库内,不是独立仓库" : "此目录不是 Git 仓库"}:${"独立任务/工作树、提交与改动统计不可用"}` },
     {
-      label: t("初始化并首次提交"),
-      desc: t("建库、写好忽略规则并提交一次,之后就能新建独立任务"),
+      label: "初始化并首次提交",
+      desc: "建库、写好忽略规则并提交一次,之后就能新建独立任务",
       onSelect: () => void initProjectGit({ nested: parent, commit: true }),
     },
     {
-      label: t("仅初始化 Git"),
-      desc: t("建库并写好运行时文件的忽略规则"),
+      label: "仅初始化 Git",
+      desc: "建库并写好运行时文件的忽略规则",
       onSelect: () => void initProjectGit({ nested: parent }),
     },
-  ], { placement: "top-start", label: t("Git 状态") });
+  ], { placement: "top-start", label: "Git 状态" });
 }
 defer(() => {
   $("ctx-git")?.addEventListener("click", () => openGitChipMenu());
@@ -300,7 +299,7 @@ export async function refreshGit(processId = activeProcessId) {
     $("status-git").textContent = g.branch
       ? `⎇ ${g.branch}${g.changes ? ` +${g.changes}` : ""}`
       : "";
-    $("status-git").title = g.last ? `${t("最近提交")}:${g.last}` : "";
+    $("status-git").title = g.last ? `${"最近提交"}:${g.last}` : "";
     renderChangeBar(g);
     renderGitChip(g);
     // 项目根的 git_status 与缓存的项目事实对不上(agent 刚 init / 提交过):横幅与开线入口别再按旧事实拦人(UX-129)。
@@ -463,7 +462,7 @@ export function renderTrimmedHint(pane) {
     if (existing) existing.remove();
     return;
   }
-  const label = `${t("较早的")} ${dropped} ${t("条已移出视图以保持流畅")}`;
+  const label = `${"较早的"} ${dropped} ${"条已移出视图以保持流畅"}`;
   if (existing) {
     existing.textContent = label;
     return;
@@ -483,7 +482,7 @@ export function renderEarlierHint() {
     if (existing) existing.remove();
     return;
   }
-  const label = `${t("载入更早的消息")}  ${t("还有")} ${remaining} ${t("条")}`;
+  const label = `${"载入更早的消息"}  ${"还有"} ${remaining} ${"条"}`;
   if (existing) {
     existing.textContent = label;
     // 补齐一窗是前插:已有的提示条会被新内容压到中间。挪回顶部(它是入口,必须在最上面)。
@@ -503,14 +502,14 @@ export const EMPTY_STATE_LOGO = '<img src="assets/kanzei.svg" width="42" height=
 export function emptyStateMarkup() {
   return `<div class="empty-state"><div class="empty-welcome"><div class="empty-copy">`
     + `<div class="empty-brand"><div class="logo-mark" aria-hidden="true">${EMPTY_STATE_LOGO}</div><span>kanzei</span></div>`
-    + `<h1 data-i18n-key="开始一段对话">${t("开始一段对话")}</h1>`
-    + `<p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">${t("描述任务，或添加图片与 PDF。")}</p>`
-    + `<p class="hint empty-auto-hint" data-i18n-key="长期目标可在「更多」中使用「长期维护与开发」持续推进。">${t("长期目标可在「更多」中使用「长期维护与开发」持续推进。")}</p>`
+    + `<h1 data-i18n-key="开始一段对话">${"开始一段对话"}</h1>`
+    + `<p class="hint" data-i18n-key="描述任务，或添加图片与 PDF。">${"描述任务，或添加图片与 PDF。"}</p>`
+    + `<p class="hint empty-auto-hint" data-i18n-key="长期目标可在「更多」中使用「长期维护与开发」持续推进。">${"长期目标可在「更多」中使用「长期维护与开发」持续推进。"}</p>`
     // 与 index.html 的静态空态同一套键位(真实键位:Enter 发送、Shift+Enter 换行;Ctrl+Enter 也能发,不单列)。
-    + `<div class="empty-shortcuts"><span><kbd>Enter</kbd><span data-i18n-key="发送">${t("发送")}</span></span>`
-    + `<span><kbd>Shift + Enter</kbd><span data-i18n-key="换行">${t("换行")}</span></span>`
-    + `<span><kbd>Ctrl/Cmd + P</kbd><span data-i18n-key="命令面板">${t("命令面板")}</span></span>`
-    + `<span><kbd>Ctrl + F</kbd><span data-i18n-key="搜索对话">${t("搜索对话")}</span></span></div></div>`
+    + `<div class="empty-shortcuts"><span><kbd>Enter</kbd><span data-i18n-key="发送">${"发送"}</span></span>`
+    + `<span><kbd>Shift + Enter</kbd><span data-i18n-key="换行">${"换行"}</span></span>`
+    + `<span><kbd>Ctrl/Cmd + P</kbd><span data-i18n-key="命令面板">${"命令面板"}</span></span>`
+    + `<span><kbd>Ctrl + F</kbd><span data-i18n-key="搜索对话">${"搜索对话"}</span></span></div></div>`
     + `</div></div>`;
 }
 
@@ -622,16 +621,16 @@ export function renderMessageParts(items) {
             ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
             : [];
           const query = String(action.query ?? queries.map((item) => item.q).join("  ") ?? "");
-          const input = queries.length ? { queries } : { query: query || t("搜索结果") };
+          const input = queries.length ? { queries } : { query: query || "搜索结果" };
           const block = buildToolBlock("web_search", input);
           if (raw.id) block.wrap.dataset.toolCallId = String(raw.id);
           mountToolBlock(block);
           fillToolBlock(block, {
             ok: true,
             outcome: "success",
-            preview: t("搜索结果"),
+            preview: "搜索结果",
             input,
-            content: JSON.stringify({ backend: "model_native", query: query || t("搜索结果"), results: [] }),
+            content: JSON.stringify({ backend: "model_native", query: query || "搜索结果", results: [] }),
           });
         } else if (part.kind === "citations") {
           appendCitations(part.raw, lastAssistantElement);
@@ -649,7 +648,7 @@ export function renderMessageParts(items) {
         continue;
       }
       if (message.role === "user" && ["image", "document"].includes(part.type)) {
-        addUserMessage("", [{ file_name:part.file_name || (part.type === "image" ? t("图片") : "PDF"), media_type:part.media_type, data:part.data }]);
+        addUserMessage("", [{ file_name:part.file_name || (part.type === "image" ? "图片" : "PDF"), media_type:part.media_type, data:part.data }]);
         continue;
       }
       if (part.type !== "text" || !part.text?.trim()) continue;
@@ -681,7 +680,7 @@ export function renderMessageParts(items) {
     block.wrap.classList.remove("running");
     // 与实时停止收尾(chatAbortRunning)同形:标 interrupted,工具组标签据此计「N 中断」。
     block.wrap.classList.add("interrupted");
-    block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+    block.result.textContent = `⎿ ${"无结果(轮次中断)"}`;
     block.result.classList.remove("hidden");
     syncToolGroupOf(block);
   }
@@ -752,11 +751,11 @@ export async function loadConversation(sequence = null, switchGeneration = null,
     renderRecoveredTraces(toolTraces);
     applyRecoveredToolDurations(toolTraces);
   renderRecoveredTurnReceipts(traces, activePane, appendToPane);
-    log(`${t("已恢复")} ${history.length} ${t("条")} ${t("历史消息")} ${toolTraces.length} ${t("组工具轨迹")}`);
+    log(`${"已恢复"} ${history.length} ${"条"} ${"历史消息"} ${toolTraces.length} ${"组工具轨迹"}`);
   } catch (err) {
     if (!isCurrent()) return;
-    addMessage("error", `${t("历史消息恢复失败")}:${err}`);
-    toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+    addMessage("error", `${"历史消息恢复失败"}:${err}`);
+    toastError(`${"历史消息恢复失败"}:${err}`, { retry: () => {
       if (isCurrent()) return loadConversation(sequence, switchGeneration, true);
     } });
   }
@@ -790,15 +789,15 @@ export function historyTranscript(items, limit = 300) {
   const shown = list.slice(-limit);
   const blocks = [];
   if (shown.length < list.length) {
-    blocks.push(`> ${fillTemplate(t("只显示最后 {shown} 条消息,共 {total} 条"), { shown: shown.length, total: list.length })}`);
+    blocks.push(`> ${fillTemplate("只显示最后 {shown} 条消息,共 {total} 条", { shown: shown.length, total: list.length })}`);
   }
   for (const message of shown) {
-    const who = t(messageSourceLabels[messageSource(message)] || messageSourceLabels.unspecified);
+    const who = messageSourceLabels[messageSource(message)] || messageSourceLabels.unspecified;
     const lines = [];
     // 连续的工具调用并成一行,免得一条消息里十几次调用占满一屏。
     let tools = [];
     const flushTools = () => {
-      if (tools.length) lines.push(`> ${t("调用工具")} ${tools.map((name) => `\`${name}\``).join(" ")}`);
+      if (tools.length) lines.push(`> ${"调用工具"} ${tools.map((name) => `\`${name}\``).join(" ")}`);
       tools = [];
     };
     for (const part of message.parts ?? []) {
@@ -806,12 +805,12 @@ export function historyTranscript(items, limit = 300) {
       flushTools();
       if (part.type === "text" && part.text?.trim()) {
         lines.push(message.role === "assistant" ? stripInternalHandoff(part.text.trim()) : part.text.trim());
-      } else if (["image", "document"].includes(part.type)) lines.push(`> ${part.type === "image" ? t("图片") : "PDF"}`);
+      } else if (["image", "document"].includes(part.type)) lines.push(`> ${part.type === "image" ? "图片" : "PDF"}`);
     }
     flushTools();
     if (lines.length) blocks.push(`**${who}**\n\n${lines.join("\n\n")}`);
   }
-  return blocks.join("\n\n---\n\n") || t("这段对话没有可显示的文字");
+  return blocks.join("\n\n---\n\n") || "这段对话没有可显示的文字";
 }
 export async function openConversationForProcess(processId, sequence, { project = currentProject, title = "" } = {}) {
   const isCurrent = viewerRequest();
@@ -819,13 +818,13 @@ export async function openConversationForProcess(processId, sequence, { project 
   try {
     history = await invoke("conversation_display_get", { projectDir: project, processId, sequence });
   } catch (err) {
-    if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+    if (isCurrent()) toastError(`${"历史消息恢复失败"}:${err}`, { retry: () => {
       if (isCurrent()) return openConversationForProcess(processId, sequence, { project, title });
     } });
     return;
   }
   if (!isCurrent()) return;
-  openRuntimeMarkdown(`${title || t("历史对话")}  ${t("只读")}`, historyTranscript(history));
+  openRuntimeMarkdown(`${title || "历史对话"}  ${"只读"}`, historyTranscript(history));
 }
 /// 已关闭(注销)线路的对话:只读查看(UX-035)。会话 id 是进程 id 的纯函数,注销后 conversation_list / conversation_get 照样取得到。
 /// 一条线可能有好几段(开过新对话):最近的几段由新到旧拼成一份文字稿,每段一个小标题。
@@ -833,7 +832,7 @@ export async function openClosedConversation(project, entry, title = "") {
   const processId = entry?.id;
   if (!processId) return;
   const isCurrent = viewerRequest();
-  const name = title || entry.title || t("已关闭的对话");
+  const name = title || entry.title || "已关闭的对话";
   const blocks = [];
   try {
     const { items: list } = await invoke("conversation_page", { projectDir: project, processId, limit: 5 });
@@ -846,13 +845,13 @@ export async function openClosedConversation(project, entry, title = "") {
     }
     if (!blocks.length) blocks.push(historyTranscript(await invoke("conversation_display_get", { projectDir: project, processId, sequence: null })));
   } catch (err) {
-    if (isCurrent()) toastError(`${t("历史消息恢复失败")}:${err}`, { retry: () => {
+    if (isCurrent()) toastError(`${"历史消息恢复失败"}:${err}`, { retry: () => {
       if (isCurrent()) return openClosedConversation(project, entry, title);
     } });
     return;
   }
   if (!isCurrent()) return;
-  openRuntimeMarkdown(`${name}  ${t("已关闭")}  ${t("只读")}`, blocks.join("\n\n---\n\n"));
+  openRuntimeMarkdown(`${name}  ${"已关闭"}  ${"只读"}`, blocks.join("\n\n---\n\n"));
 }
 
 /// 删除落地后按线路收拾主区。被删的段可能正显示在某个 pane 里(当前段,或用户打开过的
@@ -886,7 +885,7 @@ async function settleDeletedConversationView(processId, target, clearedCurrent) 
 /// 删什么、留什么;运行中先拒绝并写明原因。「安全整理」已不挂在删除上,移到 设置 → 存储整理。
 export async function deleteConversationsForProcess(processId, sequences, { project = currentProject, title = "", subject = "", okText = "" } = {}) {
   if (!sequences.length) {
-    toast(t("没有可删除的对话段"));
+    toast("没有可删除的对话段");
     return;
   }
   const local = project === currentProject;
@@ -894,19 +893,19 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
   // 后端持 lifecycle 锁再判一次;这里先挡住,不白弹一次确认框。
   const target = local ? historyProcessItem(processId) : null;
   if (target && processRunning(target)) {
-    toast(t("运行中,先停止再删除对话"), { kind: "warn" });
+    toast("运行中,先停止再删除对话", { kind: "warn" });
     return;
   }
   const confirmed = await confirmDialog({
-    title: title || t("删除历史对话"),
-    message: `${subject ? `「${subject}」\n` : ""}${fillTemplate(t("将删除 {count} 段对话"), { count: sequences.length })}${t("，此操作不可撤销")}`,
+    title: title || "删除历史对话",
+    message: `${subject ? `「${subject}」\n` : ""}${fillTemplate("将删除 {count} 段对话", { count: sequences.length })}${"，此操作不可撤销"}`,
     list: [
-      t("对话消息、工具调用与结果"),
-      t("运行轨迹、子代理记录与压缩摘要"),
-      t("这段对话里已结束输入的原文"),
-      t("保留:用量统计、已提炼的记忆与需求记录"),
+      "对话消息、工具调用与结果",
+      "运行轨迹、子代理记录与压缩摘要",
+      "这段对话里已结束输入的原文",
+      "保留:用量统计、已提炼的记忆与需求记录",
     ],
-    okText: okText || t("删除"),
+    okText: okText || "删除",
     danger: true,
   });
   if (!confirmed) return;
@@ -917,7 +916,7 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
     // 后端持 lifecycle 锁判定该线在跑(前端预检时 kz:turn 还没到):给与预检同一句已翻译的
     // 提示,不把后端的中文原文甩进英文界面,也不给「重试」——停下之前重试只会再被拒。
     if (String(err).includes("对话运行中")) {
-      toast(t("运行中,先停止再删除对话"), { kind: "warn" });
+      toast("运行中,先停止再删除对话", { kind: "warn" });
       return;
     }
     toastError(String(err), { retry: () => deleteConversationsForProcess(processId, sequences, { project, title, subject, okText }) });
@@ -927,7 +926,7 @@ export async function deleteConversationsForProcess(processId, sequences, { proj
   const outcome = typeof result === "number" ? { segments: sequences.length } : (result ?? {});
   const clearedCurrent = Boolean(outcome.cleared_current);
   if (local) await settleDeletedConversationView(processId, target, clearedCurrent);
-  toast(`${t("已删除")} ${outcome.segments ?? sequences.length} ${t("段对话")}${clearedCurrent ? `  ${t("当前对话已删除")}` : ""}`, { kind: "ok" });
+  toast(`${"已删除"} ${outcome.segments ?? sequences.length} ${"段对话"}${clearedCurrent ? `  ${"当前对话已删除"}` : ""}`, { kind: "ok" });
   conversationChecked.delete(processId);
   invalidateConversationHistory(project, processId);
   if (local) await refreshConversationLists();
@@ -966,7 +965,7 @@ export function renderLineConversationHistory(processId) {
   const signature = JSON.stringify([
     String(conversationErrorsByProcess.get(processId) ?? ""),
     (conversationItemsByProcess.get(processId) ?? []).map((item) => [item.sequence, item.title, item.message_count]),
-    lineHistoryOpen.has(processId), currentProject, t("历史对话"), conversationHistory(currentProject, processId).hasMore, Boolean(conversationHistory(currentProject, processId).request),
+    lineHistoryOpen.has(processId), currentProject, "历史对话", conversationHistory(currentProject, processId).hasMore, Boolean(conversationHistory(currentProject, processId).request),
   ]);
   if (el._historySignature === signature) return;
   el._historySignature = signature;
@@ -976,7 +975,7 @@ export function renderLineConversationHistory(processId) {
   if (error) {
     // 一行说清失败,原始错误进 tooltip(长错误不在侧栏铺开)。
     el.classList.remove("empty");
-    el.textContent = t("历史对话加载失败");
+    el.textContent = "历史对话加载失败";
     el.title = String(error);
     return;
   }
@@ -993,14 +992,14 @@ export function renderLineConversationHistory(processId) {
   head.type = "button";
   head.className = "parallel-history-head";
   head.setAttribute("aria-expanded", open ? "true" : "false");
-  head.title = t("展开或收起该对话的历史");
+  head.title = "展开或收起该对话的历史";
   const caret = document.createElement("span");
   caret.className = "parallel-history-caret";
   caret.setAttribute("aria-hidden", "true");
   caret.textContent = "▸";
   const label = document.createElement("span");
   label.className = "parallel-history-label";
-  label.textContent = `${t("历史对话")} ${items.length}`;
+  label.textContent = `${"历史对话"} ${items.length}`;
   head.append(caret, label);
   head.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1021,7 +1020,7 @@ export function renderLineConversationHistory(processId) {
     row.className = "parallel-history-row";
     row.tabIndex = 0;
     row.setAttribute("role", "button");
-    row.title = t("点击只读查看  右键可删除这段历史");
+    row.title = "点击只读查看  右键可删除这段历史";
     row.dataset.ctx = "segment";
     row.dataset.project = currentProject;
     row.dataset.processId = processId;
@@ -1032,7 +1031,7 @@ export function renderLineConversationHistory(processId) {
     const title = document.createElement("span");
     title.className = "title";
     // 条数缺失(旧后端/桩)时不写「(undefined 条)」。
-    const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${t("条")})` : "";
+    const count = Number.isFinite(item.message_count) ? ` (${item.message_count} ${"条"})` : "";
     title.textContent = `${segmentTitle(item.title)}${count}`;
     row.append(title);
     const view = () => void openConversationForProcess(processId, item.sequence, { title: item.title });
@@ -1046,7 +1045,7 @@ export function renderLineConversationHistory(processId) {
   const history = conversationHistory(currentProject, processId);
   if (history.hasMore) {
     const more = document.createElement("button"); more.type = "button"; more.className = "ghost mini";
-    more.textContent = t("加载更早记录"); more.disabled = Boolean(history.request);
+    more.textContent = "加载更早记录"; more.disabled = Boolean(history.request);
     more.addEventListener("click", () => void loadEarlierConversations(processId)); body.append(more);
   }
   el.appendChild(body);
@@ -1097,7 +1096,7 @@ export async function refreshConversationLists() {
   // 「对话与历史」弹层的「更早的历史对话」读的是这份缓存:开着就跟着刷新(内容不变不重建)。
   syncHistoryIfOpen();
   if (errors.length) {
-    const message = `${t("历史对话加载失败")}:${errors.join("; ")}`;
+    const message = `${"历史对话加载失败"}:${errors.join("; ")}`;
     log(message, "warn");
     toastError(message, { retry: refreshConversationLists });
   }
@@ -1113,24 +1112,24 @@ defer(() => {
   const button = $("storage-cleanup");
   if (!button) return;
   const run = async () => {
-    if (!currentProject) { toast(t("先选择一个项目")); return; }
+    if (!currentProject) { toast("先选择一个项目"); return; }
     const result = $("storage-cleanup-result");
     button.disabled = true;
-    if (result) result.textContent = `${t("整理存储")}…`;
+    if (result) result.textContent = `${"整理存储"}…`;
     try {
       const cleanup = await invoke("conversation_cleanup", { projectDir: currentProject });
       const failures = [...(cleanup.artifact_cleanup_errors ?? []), ...(cleanup.backup_cleanup_errors ?? [])];
       if (failures.length) {
-        if (result) result.textContent = t("存储整理部分失败");
-        toastError(`${t("存储整理部分失败")}\n${failures.join("\n")}`, { retry: run });
+        if (result) result.textContent = "存储整理部分失败";
+        toastError(`${"存储整理部分失败"}\n${failures.join("\n")}`, { retry: run });
         return;
       }
-      const text = `${t("存储整理完成,释放")} ${formatByteSize(cleanup.actual_freed_bytes ?? 0)}`;
+      const text = `${"存储整理完成,释放"} ${formatByteSize(cleanup.actual_freed_bytes ?? 0)}`;
       if (result) result.textContent = text;
       toast(text, { kind: "ok" });
     } catch (err) {
       if (result) result.textContent = String(err);
-      toastError(`${t("存储整理失败")}: ${String(err)}`, { retry: run });
+      toastError(`${"存储整理失败"}: ${String(err)}`, { retry: run });
     } finally {
       button.disabled = false;
     }
@@ -1192,7 +1191,7 @@ export async function clearCurrentContext() {
   if (currentProject === owner.projectDir && activeSessionId === owner.sessionId) {
     showFreshConversation();
     await refreshConversationLists();
-    toast(t("上下文已清理，历史记录已保留"), { kind: "ok" });
+    toast("上下文已清理，历史记录已保留", { kind: "ok" });
   } else {
     discardSessionPane(owner.sessionId);
   }
@@ -1211,7 +1210,7 @@ async function startConversationOnNewLine() {
   // 页面纹丝不动(UX-005 / D14)。已在对话页是空操作;「先讨论」(26-project-conversations.js)等调用方都走这里。
   ensureChatView();
   showFreshConversation();
-  toast(t("新对话"));
+  toast("新对话");
 }
 
 /// 「新对话」唯一入口:侧栏按钮、命令面板、Ctrl/Cmd+Shift+N 都汇到 #new-chat 的 click。

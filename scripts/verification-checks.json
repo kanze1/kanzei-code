@@ -12,8 +12,7 @@
       "crates/**",
       "scripts/architecture-boundaries*",
       "AGENTS.md",
-      "CONTRIBUTING.md",
-      ".github/workflows/ci.yml"
+      "CONTRIBUTING.md"
     ],
     "resources": [
       "cargo"
@@ -34,24 +33,6 @@
     ]
   },
   {
-    "key": "context_inspection",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-context-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/07-context-*.js",
-      "crates/kanzei-app/ui/context.css",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
     "key": "verify_policy",
     "inputs": "always",
     "program": "node",
@@ -61,7 +42,6 @@
     "paths": [
       "scripts/verify*",
       "scripts/verification-checks.json",
-      ".github/workflows/ci.yml",
       "scripts/package.ps1"
     ]
   },
@@ -106,86 +86,6 @@
     ]
   },
   {
-    "key": "parallel_lines_regression",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/parallel-lines-regression.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/06-*.js",
-      "crates/kanzei-app/ui/05-subagents.js",
-      "crates/kanzei-app/ui/31-work-selection.js",
-      "crates/kanzei-app/ui/20-lines.js"
-    ]
-  },
-  {
-    "key": "ui_a11y",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-a11y-smoke.mjs"
-    ]
-  },
-  {
-    "key": "ui_cyan_interactions",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-cyan-interactions-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/08-model*.js",
-      "crates/kanzei-app/ui/17-*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/06-*.js"
-    ]
-  },
-  {
-    "key": "ui_memory_graph",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-memory-graph-smoke.mjs",
-      "--browser"
-    ],
-    "resources": [
-      "browser"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/24-memory-graph*.js",
-      "crates/kanzei-app/ui/24-graph-view.js"
-    ]
-  },
-  {
-    "key": "ui_i18n",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-i18n-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/*.js",
-      "crates/kanzei-app/ui/index.html"
-    ]
-  },
-  {
-    "key": "ui_markdown",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-markdown-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-*.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/19-structured-navigation.js"
-    ]
-  },
-  {
     "key": "design_freshness",
     "inputs": "always",
     "program": "node",
@@ -203,60 +103,49 @@
     ]
   },
   {
-    "key": "metrics_build",
+    "key": "ps1_bom",
     "inputs": "always",
-    "program": "cargo",
+    "program": "node",
     "args": [
-      "build",
-      "-q",
-      "-p",
-      "kanzei"
+      "scripts/check-ps1-bom.mjs"
+    ]
+  },
+  {
+    "key": "ipc_signatures",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/sync-ipc-contract.mjs",
+      "--check"
     ],
     "paths": [
-      "crates/**/*.rs",
-      "crates/**/Cargo.toml",
+      "crates/kanzei-app/src/**/*.rs",
+      "crates/kanzei-app/src/command_registry.json",
+      "crates/kanzei-app/build*",
+      "crates/kanzei-app/Cargo.toml",
       "Cargo.toml",
       "Cargo.lock",
-      ".cargo/**",
-      "rust-toolchain*"
+      "scripts/ipc*",
+      "scripts/sync-ipc-contract.mjs"
     ],
     "resources": [
       "cargo"
     ]
   },
   {
-    "key": "metrics_regression",
-    "inputs": "always",
-    "depends_on": [
-      "metrics_build"
-    ],
-    "program": "powershell",
-    "args": [
-      "-NoProfile",
-      "-File",
-      "scripts/metrics-regression-gate.ps1",
-      "-Root",
-      "."
-    ],
-    "paths": [
-      ".cargo/**",
-      "Cargo.lock",
-      "Cargo.toml",
-      "crates/**/*.rs",
-      "crates/**/Cargo.toml",
-      "docs/design/metrics_baseline.md",
-      "rust-toolchain*",
-      "scripts/metrics-baseline.json",
-      "scripts/metrics-regression-gate.ps1",
-      "scripts/tests/verification/metrics-gate.mjs"
-    ]
-  },
-  {
-    "key": "ps1_bom",
+    "key": "ipc_event_contract",
     "inputs": "always",
     "program": "node",
     "args": [
-      "scripts/check-ps1-bom.mjs"
+      "scripts/ipc-event-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ipc_arguments",
+    "inputs": "always",
+    "program": "node",
+    "args": [
+      "scripts/ipc-arguments-smoke.mjs"
     ]
   },
   {
@@ -268,107 +157,122 @@
     ],
     "paths": [
       "crates/kanzei-app/ui/*.js",
-      "crates/kanzei-app/mobile-pwa/*.js",
+      "crates/kanzei-app/ui/*.css",
       "scripts/*.mjs",
       "eslint.config.js"
     ]
   },
   {
-    "key": "ui_columns",
+    "key": "ui_a11y",
     "inputs": "frontend",
     "program": "node",
     "args": [
-      "scripts/ui-column-layout-smoke.mjs"
+      "scripts/ui-a11y-smoke.mjs"
+    ]
+  },
+  {
+    "key": "ui_foundation_boundaries",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "scripts/ui-foundation-boundaries-smoke.mjs"
     ],
     "paths": [
-      "crates/kanzei-app/ui/05-*.js",
-      "crates/kanzei-app/ui/06-*.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/31-work-selection.js"
-    ],
-    "resources": [
-      "browser"
+      "crates/kanzei-app/ui/*.js",
+      "crates/kanzei-app/ui/index.html"
     ]
   },
   {
-    "key": "ui_narrow_layout",
+    "key": "ui_structured_contract",
     "inputs": "frontend",
     "program": "node",
     "args": [
-      "scripts/ui-narrow-layout-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_project_resource_events",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-project-resource-events-smoke.mjs"
+      "--experimental-vm-modules",
+      "scripts/ui-structured-contract-smoke.mjs"
     ],
     "paths": [
-      "crates/kanzei-app/ui/01-project-resources.js",
-      "crates/kanzei-app/ui/11-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/14-*.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
+      "crates/kanzei-app/ui/04-structured*.js"
     ]
   },
   {
-    "key": "ui_file_link_menu",
+    "key": "ui_markdown",
     "inputs": "frontend",
     "program": "node",
     "args": [
-      "scripts/ui-file-link-menu-smoke.mjs"
+      "scripts/ui-markdown-smoke.mjs"
     ],
     "paths": [
       "crates/kanzei-app/ui/04-*.js",
       "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/06-deliveries.js",
-      "crates/kanzei-app/ui/09-sessions.js",
-      "crates/kanzei-app/ui/17-*.js",
-      "crates/kanzei-app/ui/19-structured-navigation.js",
-      "crates/kanzei-app/ui/24-preview.js",
-      "crates/kanzei-app/ui/29-general-chat.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/01-chat-panes.js"
-    ],
-    "resources": [
-      "browser"
+      "crates/kanzei-app/ui/19-structured-navigation.js"
     ]
   },
   {
-    "key": "ui_optional_modules",
+    "key": "ui_math",
     "inputs": "frontend",
     "program": "node",
     "args": [
-      "scripts/ui-optional-modules-smoke.mjs"
+      "scripts/ui-math-smoke.mjs"
     ],
     "paths": [
-      "crates/kanzei-app/ui/13-memory*.js",
-      "crates/kanzei-app/ui/16-mobile.js",
-      "crates/kanzei-app/ui/23-*.js",
-      "crates/kanzei-app/ui/24-*.js",
-      "crates/kanzei-app/ui/22-*.js",
-      "crates/kanzei-app/ui/vendor/pixi/**",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
+      "crates/kanzei-app/ui/04-markdown.js",
+      "crates/kanzei-app/ui/04-math.js",
+      "crates/kanzei-app/ui/vendor/katex/**"
     ]
   },
   {
-    "key": "ipc_event_contract",
-    "inputs": "always",
+    "key": "ui_session_stage",
+    "inputs": "frontend",
     "program": "node",
     "args": [
-      "scripts/ipc-event-smoke.mjs"
+      "--experimental-vm-modules",
+      "scripts/ui-session-stage-smoke.mjs"
+    ],
+    "paths": [
+      "crates/kanzei-app/ui/09-*.js",
+      "crates/kanzei-app/ui/12-*.js",
+      "crates/kanzei-app/ui/01-core.js",
+      "crates/kanzei-app/ui/03-shell.js",
+      "crates/kanzei-app/ui/00-event-subscriptions.js"
+    ]
+  },
+  {
+    "key": "ui_general_chat_owner",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-general-chat-owner-smoke.mjs"
+    ],
+    "paths": [
+      "crates/kanzei-app/ui/29-general-chat.js",
+      "crates/kanzei-app/ui/08-compose*.js",
+      "crates/kanzei-app/ui/12-*.js",
+      "crates/kanzei-app/ui/03-shell.js",
+      "crates/kanzei-app/ui/03-general-scope.js",
+      "crates/kanzei-app/ui/09-sessions.js",
+      "crates/kanzei-app/ui/15-views-misc.js"
+    ]
+  },
+  {
+    "key": "ui_state_ownership",
+    "inputs": "frontend",
+    "program": "node",
+    "args": [
+      "--experimental-vm-modules",
+      "scripts/ui-state-ownership-smoke.mjs"
+    ],
+    "paths": [
+      "crates/kanzei-app/ui/00-*.js",
+      "crates/kanzei-app/ui/01-*.js",
+      "crates/kanzei-app/ui/03-*.js",
+      "crates/kanzei-app/ui/05-chat-render.js",
+      "crates/kanzei-app/ui/07-events.js",
+      "crates/kanzei-app/ui/08-*.js",
+      "crates/kanzei-app/ui/09-sessions.js",
+      "crates/kanzei-app/ui/12-workbench.js",
+      "crates/kanzei-app/ui/15-views-misc.js",
+      "crates/kanzei-app/ui/16-settings.js"
     ]
   },
   {
@@ -392,13 +296,6 @@
     "args": [
       "clippy",
       "--workspace",
-      "--",
-      "-D",
-      "warnings"
-    ],
-    "ci_args": [
-      "clippy",
-      "--workspace",
       "--all-targets",
       "--",
       "-D",
@@ -406,816 +303,6 @@
     ],
     "resources": [
       "cargo"
-    ]
-  },
-  {
-    "key": "ipc_signatures",
-    "inputs": "always",
-    "program": "node",
-    "args": [
-      "scripts/sync-ipc-contract.mjs",
-      "--check"
-    ],
-    "paths": [
-      "crates/kanzei-app/src/**/*.rs",
-      "crates/kanzei-app/build*",
-      "crates/kanzei-app/Cargo.toml",
-      "Cargo.toml",
-      "Cargo.lock",
-      "scripts/ipc*",
-      "scripts/sync-ipc-contract.mjs"
-    ],
-    "resources": [
-      "cargo"
-    ]
-  },
-  {
-    "key": "ipc_arguments",
-    "inputs": "always",
-    "program": "node",
-    "args": [
-      "scripts/ipc-arguments-smoke.mjs"
-    ]
-  },
-  {
-    "key": "ui_connectivity",
-    "inputs": "always",
-    "program": "node",
-    "args": [
-      "scripts/ui-connectivity.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/mobile-pwa/**",
-      "scripts/ui-key-paths.json",
-      "scripts/ui-preview/**"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_runtime",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-runtime-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/*.js",
-      "crates/kanzei-app/ui/index.html",
-      "crates/kanzei-app/fixtures/**",
-      "crates/kanzei-app/mobile-pwa/**"
-    ]
-  },
-  {
-    "key": "ui_foundation_boundaries",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-foundation-boundaries-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/*.js",
-      "crates/kanzei-app/ui/index.html"
-    ]
-  },
-  {
-    "key": "ui_state_admission",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-state-admission-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/*.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_workbench_browser",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-workbench-browser-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/11-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/09-sessions.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-workspaces.js",
-      "crates/kanzei-app/ui/workbench.css"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_workbench_resource_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-workbench-resource-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/30-*.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/workbench.css"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_session_navigation_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-session-navigation-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_session_stage",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-session-stage-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/22-activity-state.js",
-      "crates/kanzei-app/ui/01-core.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/00-event-subscriptions.js"
-    ]
-  },
-  {
-    "key": "ui_general_chat_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-general-chat-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/29-general-chat.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/30-*.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-general-scope.js",
-      "crates/kanzei-app/ui/00-dom.js",
-      "crates/kanzei-app/ui/00-ipc.js",
-      "crates/kanzei-app/ui/00-dialogs.js",
-      "crates/kanzei-app/ui/01-chat-panes.js",
-      "crates/kanzei-app/ui/00-ui-primitives.js",
-      "crates/kanzei-app/ui/00-ui-preferences.js",
-      "crates/kanzei-app/ui/02-i18n.js",
-      "crates/kanzei-app/ui/00-surface.js",
-      "crates/kanzei-app/ui/03-layout.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/08-auto.js",
-      "crates/kanzei-app/ui/05-subagents.js",
-      "crates/kanzei-app/ui/08-models.js",
-      "crates/kanzei-app/ui/25-softwire-model.js",
-      "crates/kanzei-app/ui/20-lines.js",
-      "crates/kanzei-app/ui/09-sessions.js",
-      "crates/kanzei-app/ui/03-workspaces.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/workbench.css"
-    ]
-  },
-  {
-    "key": "ui_conversation_history_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-conversation-history-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_conversation_action_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-conversation-action-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-conversation-actions.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_browser_contracts",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-browser-contracts-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-resource-types.js",
-      "crates/kanzei-app/ui/04-status-words.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/04-*.js",
-      "crates/kanzei-app/ui/13-memory.js",
-      "crates/kanzei-app/ui/02-i18n.js",
-      "crates/kanzei-app/ui/05-tool-summary.js",
-      "crates/kanzei-app/ui/04-structured*.js",
-      "crates/kanzei-app/ui/06-deliveries.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/05-subagents.js",
-      "crates/kanzei-app/ui/01-core.js",
-      "crates/kanzei-app/ui/06-side-policy.js",
-      "crates/kanzei-app/ui/06-agent-panel.js",
-      "crates/kanzei-app/ui/22-*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/26-work-tree.js",
-      "crates/kanzei-app/ui/26-tree-view.js",
-      "crates/kanzei-app/ui/30-management-tree.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/familiar-workspace.css",
-      "crates/kanzei-app/ui/26-work-plan.js",
-      "crates/kanzei-app/ui/26-project-conversations.js",
-      "crates/kanzei-app/ui/11-docs-list.js",
-      "crates/kanzei-app/ui/style.css",
-      "scripts/ui-browser-contracts-smoke.mjs",
-      "scripts/tests/browser-contracts/**"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_structured_contract",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-structured-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-structured*.js"
-    ]
-  },
-  {
-    "key": "ui_math",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-math-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/04-math.js",
-      "crates/kanzei-app/ui/vendor/katex/**"
-    ]
-  },
-  {
-    "key": "ui_math_browser",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-math-browser-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/04-math.js",
-      "crates/kanzei-app/ui/vendor/katex/**",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/01-chat-panes.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_code_blocks",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-code-blocks-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/04-code-blocks.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/24-preview.js",
-      "crates/kanzei-app/ui/04-diagram.js",
-      "crates/kanzei-app/ui/01-chat-panes.js",
-      "crates/kanzei-app/ui/02-i18n.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_quote_blocks",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-quote-blocks-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/04-quote-blocks.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/01-chat-panes.js",
-      "crates/kanzei-app/ui/02-i18n.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_async_input",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-async-input-smoke.mjs"
-    ],
-    "paths": [
-      "scripts/ui-async-input-smoke.mjs",
-      "crates/kanzei-app/ui/09-sessions.js",
-      "crates/kanzei-app/ui/01-runtime-events.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/30-workspace-model.js",
-      "crates/kanzei-app/ui/31-work-selection.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/00-ipc.js",
-      "crates/kanzei-app/ui/01-project-resources.js",
-      "crates/kanzei-app/ui/01-chat-panes.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_diagram_owner",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-diagram-owner-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/04-diagram.js",
-      "crates/kanzei-app/ui/19-arch.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_activity_contract",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-activity-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/22-activity-state.js"
-    ]
-  },
-  {
-    "key": "ui_familiar_workspace",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-familiar-workspace-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/30-*.js",
-      "crates/kanzei-app/ui/26-tree-view.js",
-      "crates/kanzei-app/ui/26-work-tree.js",
-      "crates/kanzei-app/ui/31-*.js",
-      "crates/kanzei-app/ui/14-docs-actions.js",
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/24-preview.js",
-      "crates/kanzei-app/ui/12-workbench.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-memory-scope.js",
-      "crates/kanzei-app/ui/familiar-workspace.css"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_feedback_polish",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-feedback-polish-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-*.js",
-      "crates/kanzei-app/ui/06-*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/22-activity-state.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_visual_polish",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-visual-polish-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-workbench.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/06-activity.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_conversation_redesign",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-conversation-redesign-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/30-*.js",
-      "crates/kanzei-app/ui/31-*.js",
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/06-*.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/01-core.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_composer_cleanup",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-composer-cleanup-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/31-work-selection.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-memory-scope.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_skills",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-skills-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/28-*.js",
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-workbench.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/32-skills.js",
-      "crates/kanzei-app/ui/skills.css"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_chat_question",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-chat-question-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/25-*.js",
-      "crates/kanzei-app/ui/29-general-chat.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-general-scope.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_deleted_general_inbox",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-deleted-general-inbox-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/29-general-chat.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/03-general-scope.js",
-      "crates/kanzei-app/ui/01-core.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_work_map",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--test",
-      "scripts/ui-work-map-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/26-work-map*",
-      "crates/kanzei-app/ui/work-map.css",
-      "crates/kanzei-app/ui/26-work-tree.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "scripts/ui-work-map-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_reply_timer_browser",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-reply-timer-browser-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-*.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_project_conversations",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-project-conversations-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/26-project-conversations.js",
-      "crates/kanzei-app/ui/06-agent-panel.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/12-workbench.js",
-      "crates/kanzei-app/ui/14-docs-actions.js",
-      "crates/kanzei-app/ui/03-workspaces.js",
-      "crates/kanzei-app/ui/02-i18n.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/project-conversations.css"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_input_resources",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-input-resources-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/04-markdown.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/24-preview.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_files_editor",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-files-editor-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/17-*.js",
-      "crates/kanzei-app/ui/24-preview.js",
-      "crates/kanzei-app/ui/vendor/monaco/**"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_qa_defects",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-qa-defects-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/12-session-menus.js",
-      "crates/kanzei-app/ui/21-palette.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/06-activity.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/01-core.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_harness_actions",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-harness-actions-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/06-activity.js",
-      "crates/kanzei-app/ui/27-*.js",
-      "crates/kanzei-app/ui/03-shell.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_audit_first_regressions",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-audit-first-regressions.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/05-*.js",
-      "crates/kanzei-app/ui/06-*.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/25-*.js"
-    ]
-  },
-  {
-    "key": "ui_backlog_maintenance",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-backlog-maintenance-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/09-*.js",
-      "crates/kanzei-app/ui/26-*.js",
-      "crates/kanzei-app/ui/14-docs-actions.js",
-      "crates/kanzei-app/ui/12-*.js",
-      "crates/kanzei-app/ui/11-*.js",
-      "crates/kanzei-app/ui/05-*.js",
-      "crates/kanzei-app/ui/06-activity.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/02-i18n.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/01-project-resources.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_design_audit_repairs",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-design-audit-repairs-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/16-settings.js",
-      "crates/kanzei-app/ui/08-compose*.js",
-      "crates/kanzei-app/ui/27-agent-team.js",
-      "crates/kanzei-app/ui/30-management.js",
-      "crates/kanzei-app/ui/00-leave-guard.js",
-      "crates/kanzei-app/ui/03-shell.js",
-      "crates/kanzei-app/ui/00-composer-drafts.js",
-      "crates/kanzei-app/ui/03-workspaces.js",
-      "crates/kanzei-app/ui/01-project-resources.js",
-      "crates/kanzei-app/ui/02-i18n.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_requirements",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-requirement-contract-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/14-docs-actions.js",
-      "crates/kanzei-app/ui/12-docs-pages.js",
-      "crates/kanzei-app/ui/26-requirement-research.js"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_diagram",
-    "inputs": "diagram",
-    "program": "node",
-    "args": [
-      "scripts/ui-diagram-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ],
-    "paths": [
-      "docs/**/*.md",
-      "crates/kanzei-tools/src/arch_diagram*",
-      "crates/kanzei-tools/tests/fixtures/arch_diagram/**",
-      "crates/kanzei-app/ui/04-diagram.js",
-      "crates/kanzei-app/ui/19-arch.js",
-      "crates/kanzei-app/ui/vendor/mermaid/**",
-      "crates/kanzei-tools/src/arch_diagram/**"
     ]
   },
   {
@@ -1229,114 +316,6 @@
     "resources": [
       "cargo",
       "host"
-    ]
-  },
-  {
-    "key": "ui_window_chrome",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-window-chrome-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/30-window-chrome.js",
-      "crates/kanzei-app/ui/window-chrome.css",
-      "crates/kanzei-app/ui/30-workspace-ui.js",
-      "crates/kanzei-app/tauri.conf.json",
-      "crates/kanzei-app/capabilities/main-window-chrome.json",
-      "scripts/ui-window-chrome-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_conversation_media_time",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-conversation-media-time-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/src/conversation.rs",
-      "crates/kanzei-app/src/conversation_timing.rs",
-      "crates/kanzei-app/src/run/persistence.rs",
-      "crates/kanzei-app/src/runtime_events.rs",
-      "crates/kanzei-app/ui/04-attachment-preview.js",
-      "crates/kanzei-app/ui/05-turn-receipts.js",
-      "crates/kanzei-app/ui/conversation-media-time.css",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "scripts/ui-conversation-media-time-smoke.mjs"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "ui_state_ownership",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "--experimental-vm-modules",
-      "scripts/ui-state-ownership-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/00-*.js",
-      "crates/kanzei-app/ui/01-*.js",
-      "crates/kanzei-app/ui/02-*.js",
-      "crates/kanzei-app/ui/03-*.js",
-      "crates/kanzei-app/ui/05-chat-render.js",
-      "crates/kanzei-app/ui/07-events.js",
-      "crates/kanzei-app/ui/08-*.js",
-      "crates/kanzei-app/ui/09-sessions.js",
-      "crates/kanzei-app/ui/12-workbench.js",
-      "crates/kanzei-app/ui/15-views-misc.js",
-      "crates/kanzei-app/ui/16-settings.js",
-      "crates/kanzei-app/ui/24-schedules.js"
-    ]
-  },
-  {
-    "key": "desktop_workbench",
-    "inputs": "frontend",
-    "program": "node",
-    "args": [
-      "scripts/ui-desktop-workbench-smoke.mjs"
-    ],
-    "paths": [
-      "crates/kanzei-app/ui/**",
-      "scripts/ui-desktop-workbench-smoke.mjs",
-      "scripts/ui-preview/**"
-    ],
-    "resources": [
-      "browser"
-    ]
-  },
-  {
-    "key": "qq_native_build",
-    "inputs": "rust",
-    "program": "cargo",
-    "args": [
-      "build",
-      "-p",
-      "kanzei-app"
-    ],
-    "paths": [
-      "crates/kanzei-app/src/qq/**",
-      "crates/kanzei-app/src/bili/**",
-      "crates/kanzei-app/src/login_qr.rs",
-      "crates/kanzei-app/src/initiative/**",
-      "scripts/ui-initiative-native-smoke.mjs",
-      "scripts/ui-qq-native-smoke.mjs",
-      "scripts/ui-social-native-smoke.mjs",
-      "crates/kanzei-tools/src/profiles/social.rs",
-      "crates/kanzei-tools/src/sandbox.rs",
-      "scripts/sandbox-helper.py",
-      "crates/kanzei-runtime/src/lib.rs",
-      "crates/kanzei-harness/src/home.rs",
-      "crates/kanzei-app/src/general_chat.rs"
-    ],
-    "resources": [
-      "cargo"
     ]
   }
 ]

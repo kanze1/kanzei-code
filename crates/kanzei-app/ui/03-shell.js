@@ -6,7 +6,6 @@ import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { renderingBackground } from "./01-chat-panes.js";
 import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
-import { I18N_EN, localizeDynamic, t } from "./02-i18n.js";
 import { fillTemplate, parseErrorText } from "./04-structured-parse.js";
 import { renderErrorDetail } from "./04-structured.js";
 import { fastStatusText } from "./06-activity.js";
@@ -81,7 +80,7 @@ export function isRootView(view) { return Boolean(views[view]?.root); }
 // 它自己有「对话 · 概览」页签这一对来回出口;栈与 Esc / Alt+← / 鼠标侧键照常对它生效。要给它加返回条,先让概览页让出高度。
 const BARLESS_VIEWS = new Set(Object.keys(views).filter(view => views[view].barless));
 // 各页真正滚动的那一层:离开时记 scrollTop,返回时在页面数据回来后复原。
-export function viewLabel(view) { return t(views[view]?.label || view); }
+export function viewLabel(view) { return views[view]?.label || view; }
 function navSnapshot(view) {
   return { view, project: workbenchProject() || currentProject || null, processId: activeProcessId, space: active_space, scroll: 0 };
 }
@@ -187,7 +186,7 @@ function restoreScrollAfter(view, loading) {
   Promise.resolve(loading).then(apply, apply);
 }
 function notifyViewUnavailable() {
-  toast(t("当前空间不提供这个页面,请先在侧栏切换空间"));
+  toast("当前空间不提供这个页面,请先在侧栏切换空间");
 }
 
 // 非对话页头:JS 统一注入常驻「← 返回」(写明去向),不逐个视图改 HTML。
@@ -215,9 +214,9 @@ export function syncBackBars() {
   const back = bar.querySelector(".view-back");
   const label = target ? viewLabel(target.view) : "";
   bar.hidden = !target;
-  back.textContent = `← ${t("返回")}${label ? `  ${label}` : ""}`;
+  back.textContent = `← ${"返回"}${label ? `  ${label}` : ""}`;
   // 去向写进模板(英文是「Back to X」,不能把「返回」和页名硬拼成「Back Chat」)。
-  const backName = label ? fillTemplate(t("返回 {page}"), { page: label }) : t("返回");
+  const backName = label ? fillTemplate("返回 {page}", { page: label }) : "返回";
   back.title = `${backName} (Esc / Alt+←)`;
   back.setAttribute("aria-label", backName);
   back.setAttribute("aria-keyshortcuts", "Escape Alt+ArrowLeft");
@@ -261,7 +260,6 @@ defer(() => {
     event.preventDefault();
     if (backAvailable() && !surfaceBlocksNav()) void navigate_back();
   });
-  document.addEventListener("kz:language", () => syncBackBars());
   // 切视图后焦点不能掉到 body(UX-124):原来那一页里聚焦的元素随旧视图隐藏,键盘用户只好从页首重新 Tab。
   document.addEventListener("kz:view-changed", (event) => focusMainAfterViewChange(event.detail?.view));
   // 侧栏「新对话」在非对话页(需求 / 概览 / 文件…)点下去:动作照旧由 startNewConversation 做,这里负责把页面带回对话,
@@ -357,9 +355,7 @@ defer(() => {
 // 长错误走 toastError → 日志面板,不交给会自动消失的 toast。kind: info|ok|warn|err。
 export let errorRetry = null;
 export function toast(text, { kind = "info", action } = {}) {
-  const source = String(text);
-  const translated = Object.prototype.hasOwnProperty.call(I18N_EN, source) ? t(source) : source;
-  return surfaceToast(localizeDynamic(translated), { kind, action });
+  return surfaceToast(String(text), { kind, action });
 }
 export function reportPersistentError(text, { retry = null } = {}) {
   log(text, "err");
@@ -367,7 +363,7 @@ export function reportPersistentError(text, { retry = null } = {}) {
   $("log-retry").classList.toggle("hidden", typeof retry !== "function");
   $("log-toggle").classList.add("has-error");
   toast(String(text).split("\n")[0].slice(0, 180), {
-    kind: "err", action: { label: t("查看日志"), onClick: () => setLogPanelOpen(true) },
+    kind: "err", action: { label: "查看日志", onClick: () => setLogPanelOpen(true) },
   });
 }
 export function toastError(text, options = {}) {
@@ -428,7 +424,7 @@ export function playRunNotice(kind) {
       oscillator.stop(now + index * 0.11 + 0.11);
     });
   } catch (error) {
-    log(`${t("完成提示音不可用")}:${error}`, "warn");
+    log(`${"完成提示音不可用"}:${error}`, "warn");
   }
 }
 
@@ -443,28 +439,28 @@ export async function ensureNotificationPermission() {
   if (notificationPermissionPrompted) return false;
   notificationPermissionPrompted = true;
   if (!("Notification" in window)) {
-    explainNotificationFallback(t("当前环境不支持系统通知，完成提示将保留在应用内"));
+    explainNotificationFallback("当前环境不支持系统通知，完成提示将保留在应用内");
     return false;
   }
   if (Notification.permission === "granted") return true;
   if (Notification.permission === "denied") {
-    explainNotificationFallback(t("系统通知未开启，任务正常执行；完成提示将保留在应用内"));
+    explainNotificationFallback("系统通知未开启，任务正常执行；完成提示将保留在应用内");
     return false;
   }
   try {
     const permission = await Notification.requestPermission();
-    if (permission !== "granted") explainNotificationFallback(t("系统通知权限未授予，完成提示将保留在应用内"));
+    if (permission !== "granted") explainNotificationFallback("系统通知权限未授予，完成提示将保留在应用内");
     return permission === "granted";
   } catch (error) {
-    explainNotificationFallback(`${t("系统通知权限请求失败")}:${error}`);
+    explainNotificationFallback(`${"系统通知权限请求失败"}:${error}`);
     return false;
   }
 }
 
 export function notifyRunState(kind, text) {
   flashStatusDot(kind);
-  const labels = { completed: t("运行完成"), failed: t("运行失败"), stopped: t("运行已停止") };
-  const label = labels[kind] || t("运行状态");
+  const labels = { completed: "运行完成", failed: "运行失败", stopped: "运行已停止" };
+  const label = labels[kind] || "运行状态";
   toast(`${label}: ${text}`);
   playRunNotice(kind);
   if (!document.hasFocus() || document.hidden) {
@@ -473,7 +469,7 @@ export function notifyRunState(kind, text) {
       try {
         new Notification(label, { body: text, tag: "kanzei-run-state" });
       } catch (error) {
-        log(`${t("系统通知不可用")}:${error}`, "warn");
+        log(`${"系统通知不可用"}:${error}`, "warn");
       }
     }
   }
@@ -524,7 +520,7 @@ export function syncSidebar() {
   if (rail) {
     rail.classList.toggle("active", !sidebarCollapsed);
     rail.setAttribute("aria-expanded", sidebarCollapsed ? "false" : "true");
-    rail.title = localizeDynamic(sidebarCollapsed ? "打开侧栏" : "收起侧栏");
+    rail.title = sidebarCollapsed ? "打开侧栏" : "收起侧栏";
   }
 }
 
@@ -615,7 +611,7 @@ export function log(text, cls = "") {
   const line = document.createElement("div");
   line.className = `log-line ${cls}`;
   const time = new Date().toTimeString().slice(0, 8);
-  line.textContent = `${time}  ${localizeDynamic(text)}`;
+  line.textContent = `${time}  ${text}`;
   if (cls === "err") {
     const detail = logErrorDetail(text);
     if (detail) line.append(detail);
@@ -642,7 +638,7 @@ function logErrorDetail(text) {
     const details = document.createElement("details");
     details.className = "sv-log-error";
     const summary = document.createElement("summary");
-    summary.textContent = t("错误详情");
+    summary.textContent = "错误详情";
     details.append(summary, renderErrorDetail(candidate));
     return details;
   }
@@ -674,14 +670,14 @@ defer(() => {
   $("log-copy").addEventListener("click", async () => {
     const text = $("log-lines").innerText.trim();
     if (!text) {
-      toast(t("暂无可复制的运行日志"));
+      toast("暂无可复制的运行日志");
       return;
     }
     try {
       await navigator.clipboard.writeText(text);
-      toast(t("运行日志已复制"), { kind: "ok" });
+      toast("运行日志已复制", { kind: "ok" });
     } catch (error) {
-      toastError(`${t("复制运行日志失败")}:${error}`);
+      toastError(`${"复制运行日志失败"}:${error}`);
     }
   });
 });
@@ -736,7 +732,7 @@ export function renderTurnActivity() {
   setDataIfChanged($("turn-activity-glyph"), "state", phase === "waiting" ? "waiting" : activity);
   // 文案复用状态栏的存源(不新增文案),切语言时照样经 localizeDynamic 重算。
   const label = $("turn-activity-label");
-  const text = activity === "attention" ? t("待你回复") : localizeDynamic(statusTextSource) || t("运行中");
+  const text = activity === "attention" ? "待你回复" : statusTextSource || "运行中";
   if (label && label.textContent !== text) label.textContent = text;
   renderTurnElapsed();
 }
@@ -779,10 +775,10 @@ export function setStatus(text, isRunning) {
   statusTextSource = String(text ?? "");
   statusRunning = !!isRunning;
   const awaiting = activityKey() === "attention";
-  $("status-text").textContent = localizeDynamic(statusTextSource);
-  if (awaiting) $("status-text").textContent = t("待你回复");
-  $("status-mode").textContent = statusRunning ? t("运行中") : t("空闲");
-  if (awaiting) $("status-mode").textContent = t("待你回复");
+  $("status-text").textContent = statusTextSource;
+  if (awaiting) $("status-text").textContent = "待你回复";
+  $("status-mode").textContent = statusRunning ? "运行中" : "空闲";
+  if (awaiting) $("status-mode").textContent = "待你回复";
   // 去重:空闲时两格都是「空闲」、刚开跑时都是「运行中」——同一个词不在状态栏并排写两遍。
   $("status-text").classList.toggle("hidden", $("status-text").textContent === $("status-mode").textContent);
   syncElapsed();
@@ -879,7 +875,7 @@ export function syncElapsed() {
     const secs = Math.floor(clockElapsedMs(clock) / 1000);
     renderTurnElapsed();
     if (!clock.firstSignal && secs > 0 && secs % 15 === 0) {
-      log(`${t("仍在等待模型首个响应")}(${t("已")} ${secs}s)——${t("订阅高峰或网络较慢时属正常")};${t("超时上限")} 15s ${t("连接")} / 180s ${t("读")}`, "warn");
+      log(`${"仍在等待模型首个响应"}(${"已"} ${secs}s)——${"订阅高峰或网络较慢时属正常"};${"超时上限"} 15s ${"连接"} / 180s ${"读"}`, "warn");
     }
   }, 1000);
   renderTurnElapsed();
@@ -896,7 +892,7 @@ export function markFirstSignal() {
   if (clock && !clock.firstSignal) {
     clock.firstSignal = true;
     firstSignal = true;
-    log(`${t("模型开始响应")}(${(clockElapsedMs(clock) / 1000).toFixed(1)}s)`);
+    log(`${"模型开始响应"}(${(clockElapsedMs(clock) / 1000).toFixed(1)}s)`);
   }
 }
 
@@ -925,8 +921,8 @@ export function applySessionMeta(sessionId) {
 // UI-0926 #3:思考档的显示名(输入框芯片、菜单、状态栏共用一份)。off = 不发档位,交给服务商。
 export function reasoningLabel(value) {
   return {
-    off: t("服务商默认"), none: t("无"), low: t("低"), medium: t("中"),
-    high: t("高"), xhigh: t("超高"), max: t("最大"),
+    off: "服务商默认", none: "无", low: "低", medium: "中",
+    high: "高", xhigh: "超高", max: "最大",
   }[value] ?? String(value ?? "");
 }
 // 状态栏 = 上一轮**实际**使用的「模型 · 思考档 · ⚡ · profile」(kz:meta 取自真正发出去的请求参数)。
@@ -937,14 +933,14 @@ export function formatRunMeta(meta) {
   if (meta.reasoning && meta.reasoning !== "off") parts.push(reasoningLabel(meta.reasoning));
   if (meta.codexFastMode) parts.push("⚡\uFE0E"); // 文字字形,随状态栏文字色(彩色 emoji 不受主题控制)
   // ProfileKind 的各现役档位均显示本地化名称；未知新档位保留服务端名称。
-  if (meta.profile) parts.push({ "dev-auto": t("长期维护与开发"), "dev-pair": t("结伴开发"), research: t("研究"), readonly: t("只读"), isolated: t("隔离执行") }[meta.profile] ?? meta.profile);
+  if (meta.profile) parts.push({ "dev-auto": "长期维护与开发", "dev-pair": "结伴开发", research: "研究", readonly: "只读", isolated: "隔离执行" }[meta.profile] ?? meta.profile);
   return parts.filter(Boolean).join("  ");
 }
 export function showRunMeta(meta) {
   const status = $("status-model");
   if (!status) return;
   status.textContent = formatRunMeta(meta);
-  status.title = t("上一轮实际使用");
+  status.title = "上一轮实际使用";
 }
 export let ctxTokens = 0;
 export let ctxPending = false;
@@ -961,10 +957,10 @@ export function renderTokens() {
   const usage = tokens.input + tokens.output === 0
     ? ""
     : [
-      `${t("本轮输入")} ${compactTokens(tokens.input)}`,
-      tokens.cacheRead > 0 ? `${t("缓存读")} ${compactTokens(tokens.cacheRead)}` : "",
-      tokens.cacheWrite > 0 ? `${t("缓存写")} ${compactTokens(tokens.cacheWrite)}` : "",
-      `${t("本轮输出")} ${compactTokens(tokens.output)}`,
+      `${"本轮输入"} ${compactTokens(tokens.input)}`,
+      tokens.cacheRead > 0 ? `${"缓存读"} ${compactTokens(tokens.cacheRead)}` : "",
+      tokens.cacheWrite > 0 ? `${"缓存写"} ${compactTokens(tokens.cacheWrite)}` : "",
+      `${"本轮输出"} ${compactTokens(tokens.output)}`,
     ].filter(Boolean).join("  ");
   let head = "";
   const bar = $("ctx-bar");
@@ -973,26 +969,26 @@ export function renderTokens() {
   button.classList.toggle("ctx-warn", pct !== null && pct >= 70);
   if (ctxTokens > 0) {
     const k = (ctxTokens / 1000).toFixed(1);
-    const pending = ctxPending ? ` (${t("等待模型")})` : "";
+    const pending = ctxPending ? ` (${"等待模型"})` : "";
     if (ctxLimit) {
-      head = `${t("上下文")} ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)${pending}`;
+      head = `${"上下文"} ${k}k/${Math.round(ctxLimit / 1000)}k (${pct}%)${pending}`;
       // 进度条:容量占用一眼可见,≥70% 变警示色;压缩由运行器的实际预算决定。
       bar.classList.remove("hidden");
       bar.classList.toggle("warn", pct >= 70);
       bar.classList.toggle("pending", ctxPending);
       $("ctx-bar-fill").style.width = `${Math.min(pct, 100)}%`;
-      bar.title = `${t("上下文")} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%)`;
+      bar.title = `${"上下文"} ${k}k / ${Math.round(ctxLimit / 1000)}k(${pct}%)`;
     } else {
-      head = `${t("上下文")} ${k}k${pending}`;
+      head = `${"上下文"} ${k}k${pending}`;
       bar.classList.add("hidden");
     }
   } else {
     bar.classList.add("hidden");
-    head = ctxPending ? `${t("上下文")} ${t("等待模型")}` : "";
+    head = ctxPending ? `${"上下文"} ${"等待模型"}` : "";
   }
-  button.textContent = ctxTokens > 0 ? `${t("上下文")} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : t("上下文");
+  button.textContent = ctxTokens > 0 ? `${"上下文"} ${pct === null ? compactTokens(ctxTokens) : `${pct}%`}` : "上下文";
   button.classList.toggle("hidden", !activeSessionId);
-  button.title = [head, usage, t("点击查看上下文成分")].filter(Boolean).join("  ");
+  button.title = [head, usage, "点击查看上下文成分"].filter(Boolean).join("  ");
   const detail = $("runtime-context");
   detail.textContent = "";
   for (const [cls, value, lead] of [["ctx-main", head, ""], ["ctx-usage", usage, head ? "  " : ""]]) {
@@ -1015,19 +1011,19 @@ export function setRunning(value, statusText) {
   // #send 是图标按钮:空闲态的悬停提示与读屏名称同样走 t()(英文界面念 "Send",不念中文字面量)。
   // 动态值写回 data-i18n-*,切语言时由 applyDataI18nKeys 按它重算,不会被 index.html 的静态「发送」冲掉。
   send.dataset.i18nTitle = send.dataset.i18nAriaLabel = value ? "运行中可插入或排队，按交付方式发送" : "发送";
-  send.title = value ? t("运行中可插入或排队，按交付方式发送") : t("发送");
-  send.setAttribute("aria-label", value ? t("运行中可插入或排队，按交付方式发送") : t("发送"));
+  send.title = value ? "运行中可插入或排队，按交付方式发送" : "发送";
+  send.setAttribute("aria-label", value ? "运行中可插入或排队，按交付方式发送" : "发送");
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.toggle("hidden", !value);
-  stop.textContent = t("停止");
+  stop.textContent = "停止";
   syncNewChatEnabled();
   // 同一条线已在运行时的纠偏(process_list 轮询、逐事件投影)保留本轮细分相位;
   // 新开跑、换线、从停止中/等下一轮回到运行才重置为等首 token。
   const keepPhase = value && wasRunning && TURN_DETAIL_PHASES.has(turnPhase) && turnPhaseSession === activeSessionId;
   if (!keepPhase) turnPhase = value ? "waiting" : "idle";
   turnPhaseSession = activeSessionId;
-  setStatus(statusText ?? (value ? t("运行中") : t("空闲")), value);
+  setStatus(statusText ?? (value ? "运行中" : "空闲"), value);
 }
 
 /// 「新对话」按钮不再因运行而禁用。原先运行中/鞭挞轮间整段禁用,点击被浏览器静默
@@ -1048,7 +1044,7 @@ export function syncNewChatEnabled() {
   // 只在键变了时写:title 可能已被悬停提示层接管(移走),每个进度事件都写回会冒出原生提示。
   if (fresh.dataset.i18nTitle === titleKey) return;
   fresh.dataset.i18nTitle = titleKey;
-  fresh.title = t(titleKey);
+  fresh.title = titleKey;
 }
 
 /// 活动线是否「还没停」:运行中、停止中、鞭挞轮间等待,或续跑定时器已排上。
@@ -1069,10 +1065,10 @@ export function setStopping(statusText) {
   stop.disabled = false;
   stop.classList.remove("hidden");
   stop.disabled = true;
-  stop.textContent = t("停止中…");
+  stop.textContent = "停止中…";
   syncNewChatEnabled();
   turnPhase = "stopping";
-  setStatus(statusText ?? t("停止中…"), true);
+  setStatus(statusText ?? "停止中…", true);
 }
 
 // 鞭挞在两轮之间等待时，后端会话已经结束本轮但自动续跑定时器仍可取消。
@@ -1082,17 +1078,17 @@ export function setRunPending(statusText) {
   const stop = $("stop");
   stop.disabled = false;
   stop.classList.remove("hidden");
-  stop.textContent = t("停止鞭挞");
+  stop.textContent = "停止鞭挞";
   syncNewChatEnabled();
   turnPhase = "pending";
-  setStatus(statusText ?? t("等待下一轮"), false);
+  setStatus(statusText ?? "等待下一轮", false);
 }
 
 export function clearRunPending() {
   runControlPending = false;
   const stop = $("stop");
   stop.classList.toggle("hidden", !running);
-  stop.textContent = t("停止");
+  stop.textContent = "停止";
   syncNewChatEnabled();
   if (!running) turnPhase = "idle";
   renderTurnActivity();
@@ -1116,8 +1112,8 @@ function renderTheme(theme) {
   const btn = $("theme-toggle");
   if (btn) {
     // D-405:activitybar 图标按钮,不显示文本;用太阳/月亮图标表达当前主题。
-    btn.setAttribute("aria-label", theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题"));
-    btn.title = theme === "light" ? t("切换到暗色主题") : t("切换到亮色主题");
+    btn.setAttribute("aria-label", theme === "light" ? "切换到暗色主题" : "切换到亮色主题");
+    btn.title = theme === "light" ? "切换到暗色主题" : "切换到亮色主题";
   }
   const sun = $("theme-icon-sun");
   const moon = $("theme-icon-moon");
@@ -1174,12 +1170,12 @@ export async function refreshFastStatusBar() {
   const st = fastStatusText(s);
   const short = st
     ? s.ready
-      ? `✓ ${t("fast 模型就绪")}`
+      ? `✓ ${"fast 模型就绪"}`
       : !s.installed
-        ? `⚠ ${t("Ollama 未安装")}`
+        ? `⚠ ${"Ollama 未安装"}`
         : !s.serviceUp
-          ? `⚠ ${t("Ollama 服务未运行")}`
-          : `⚠ ${t("模型未拉取")}`
+          ? `⚠ ${"Ollama 服务未运行"}`
+          : `⚠ ${"模型未拉取"}`
     : "";
   el.textContent = short;
   el.classList.remove("hidden");

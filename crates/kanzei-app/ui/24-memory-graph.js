@@ -10,7 +10,7 @@
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
-import { localizedDocStatus, t } from "./02-i18n.js";
+import { statusWord } from "./04-status-words.js";
 import { toastError } from "./03-shell.js";
 import { memoryProject as currentProject } from "./03-memory-scope.js";
 import {
@@ -111,7 +111,7 @@ function statusLine(text) {
 /** 没有悬停时状态栏该显示的话:图形渲染不可用时带上原因。 */
 function restingStatus() {
   const unavailable = graphState.graphFailed && !graphState.textView;
-  return unavailable ? `${t("图形渲染不可用,已显示文本视图")}  ${summaryText()}` : summaryText();
+  return unavailable ? `${"图形渲染不可用,已显示文本视图"}  ${summaryText()}` : summaryText();
 }
 
 function currentFilters() {
@@ -190,10 +190,10 @@ async function loadAndRender({ force = false } = {}) {
   const project = currentProject;
   const generation = ++graphState.generation;
   if (!project) {
-    statusLine(t("先在左侧「项目」里添加并选择一个目录"));
+    statusLine("先在左侧「项目」里添加并选择一个目录");
     return;
   }
-  if (graphState.payloadProject !== project) statusLine(t("正在构建记忆图谱…"));
+  if (graphState.payloadProject !== project) statusLine("正在构建记忆图谱…");
   const epoch = graphState.epoch;
   try {
     const payload = await loadPayload(project, { force });
@@ -203,8 +203,8 @@ async function loadAndRender({ force = false } = {}) {
     await render();
   } catch (err) {
     if (project !== currentProject || generation !== graphState.generation) return;
-    statusLine(`${t("记忆图谱加载失败")}:${err}`);
-    toastError(`${t("记忆图谱加载失败")}:${err}`, { retry: () => loadAndRender({ force: true }) });
+    statusLine(`${"记忆图谱加载失败"}:${err}`);
+    toastError(`${"记忆图谱加载失败"}:${err}`, { retry: () => loadAndRender({ force: true }) });
   }
 }
 
@@ -260,7 +260,7 @@ async function ensureGraphView() {
       nodeLabel: nodeLabelFor,
       labelPriority,
       linkStyle,
-      relLabel: (rel) => t(REL_KEYS[rel] ?? "关联"),
+      relLabel: (rel) => REL_KEYS[rel] ?? "关联",
       // crate 分组在 cloneForRender 里按载荷算好挂在节点上(clusterId):这两个回调每 tick / 每帧对每个节点调一次。
       clusterOf: (node) => (node.kind === "memory" || node.kind === "module" ? node.clusterId ?? null : undefined),
       hullGroup: (node) => (node.kind === "memory" || node.kind === "module" || node.kind === "crate" ? node.clusterId ?? null : null),
@@ -303,8 +303,8 @@ async function ensureGraphView() {
 function summaryText() {
   const { nodes, links } = graphState.shown;
   const memories = nodes.filter((n) => n.kind === "memory").length;
-  const base = `${nodes.length} ${t("个节点")}  ${links.length} ${t("条关系")}  ${memories} ${t("条记忆")}`;
-  return graphState.settleMs == null ? base : `${base}  ${t("布局")} ${graphState.settleMs} ms`;
+  const base = `${nodes.length} ${"个节点"}  ${links.length} ${"条关系"}  ${memories} ${"条记忆"}`;
+  return graphState.settleMs == null ? base : `${base}  ${"布局"} ${graphState.settleMs} ms`;
 }
 
 function cloneForRender(subgraph) {
@@ -379,24 +379,24 @@ async function render() {
   });
   view.select(graphState.selectedId);
   view.highlight(graphState.hits.filter((id) => subgraph.nodes.some((n) => n.id === id)));
-  statusLine(`${summaryText()}  ${t("布局中…")}`);
+  statusLine(`${summaryText()}  ${"布局中…"}`);
 }
 
 function syncCanvasLabel(subgraph) {
   const host = $("memory-graph-canvas");
   if (!host) return;
-  host.setAttribute("aria-label", `${t("记忆图谱")}:${subgraph.nodes.length} ${t("个节点")}、${subgraph.links.length} ${t("条关系")}`);
-  host.title = t("键盘:+ / - 缩放,0 适配视图,Esc 退出邻域");
+  host.setAttribute("aria-label", `${"记忆图谱"}:${subgraph.nodes.length} ${"个节点"}、${subgraph.links.length} ${"条关系"}`);
+  host.title = "键盘:+ / - 缩放,0 适配视图,Esc 退出邻域";
 }
 
 // ---------- 悬停 / 点击 / 邻域 ----------
 
 function aboutLine(node) {
   const edges = (graphState.payload?.edges ?? []).filter((edge) => edge.source === node.id && edge.rel === "about");
-  if (!edges.length) return t("未归类");
+  if (!edges.length) return "未归类";
   return edges
     .slice(0, 2)
-    .map((edge) => `${areaName(edge.target)}(${t(PROVENANCE_KEYS[edge.provenance] ?? "关键词")}${edge.via ? ` ${edge.via}` : ""})`)
+    .map((edge) => `${areaName(edge.target)}(${PROVENANCE_KEYS[edge.provenance] ?? "关键词"}${edge.via ? ` ${edge.via}` : ""})`)
     .join("、");
 }
 
@@ -437,10 +437,10 @@ function describeHover(node) {
   const parts = [node.kind === "crate" || node.kind === "module" ? areaName(node.id) : node.id];
   if (node.title && node.title !== node.id && node.kind !== "crate" && node.kind !== "module") parts.push(String(node.title).slice(0, 48));
   if (node.kind === "memory") {
-    parts.push([localizedDocStatus(node.category), node.archived ? t("已归档") : localizedDocStatus(node.status)].filter(Boolean).join("/"));
-    parts.push(`${t("关于")} ${aboutLine(node)}`);
+    parts.push([statusWord(node.category), node.archived ? "已归档" : statusWord(node.status)].filter(Boolean).join("/"));
+    parts.push(`${"关于"} ${aboutLine(node)}`);
   } else {
-    parts.push(t(KIND_KEYS[node.kind] ?? "记忆"));
+    parts.push(KIND_KEYS[node.kind] ?? "记忆");
   }
   const text = parts.join("  ");
   statusLine(text);
@@ -483,7 +483,7 @@ async function openMemoryNode(node) {
     showMemoryDetail(node.scope, { ...entry, scope: node.scope }, { readOnly: Boolean(entry.archived) });
   } catch (err) {
     if (project !== currentProject) return;
-    toastError(`${t("记忆条目加载失败")}:${err}`);
+    toastError(`${"记忆条目加载失败"}:${err}`);
   }
 }
 
@@ -542,8 +542,8 @@ function button(text, onClick, className = "ghost mini") {
 function prefillMergeChat(node, members) {
   const ids = members.map((m) => m.id).join(" ");
   const input = $("memory-chat-input");
-  const common = node.kind === "fingerprint" ? `${t("共同指纹")} ${node.title}` : `${t("共同主题")} ${node.title}`;
-  if (input) input.value = `${t("合并这些重复记忆")}:${ids}(${common})`;
+  const common = node.kind === "fingerprint" ? `${"共同指纹"} ${node.title}` : `${"共同主题"} ${node.title}`;
+  if (input) input.value = `${"合并这些重复记忆"}:${ids}(${common})`;
   showMemoryTab("chat");
   input?.focus();
 }
@@ -566,34 +566,34 @@ export function renderGraphNodeDetail(node) {
   const title = document.createElement("div");
   title.className = "memory-detail-title";
   title.textContent = node.kind === "crate" || node.kind === "module" ? areaName(node.id) : node.title || node.id;
-  head.append(title, button(t("关闭详情"), () => {
+  head.append(title, button("关闭详情", () => {
     releaseMemoryDetail();
     graphState.selectedId = null;
     graphState.graph?.select(null);
   }));
   const meta = document.createElement("div");
   meta.className = "memory-detail-meta";
-  const metaParts = [t(KIND_KEYS[node.kind] ?? "记忆")];
+  const metaParts = [KIND_KEYS[node.kind] ?? "记忆"];
   if (node.kind !== "crate" && node.kind !== "module") metaParts.unshift(node.id);
-  if (node.status) metaParts.push(localizedDocStatus(node.status));
-  if (node.archived) metaParts.push(t("已归档"));
+  if (node.status) metaParts.push(statusWord(node.status));
+  if (node.archived) metaParts.push("已归档");
   meta.textContent = metaParts.join("  ");
   const actions = document.createElement("div");
   actions.className = "memory-graph-node-actions";
   const groups = relationGroups(node);
   const memberMemories = [...groups.values()].flat().filter((r) => r.other.kind === "memory").map((r) => r.other);
   if (node.kind === "crate" || node.kind === "module") {
-    actions.append(button(t("只看该区域"), () => setAreaFilter(node.id)));
+    actions.append(button("只看该区域", () => setAreaFilter(node.id)));
   } else if (node.kind === "fingerprint" || node.kind === "subject") {
-    actions.append(button(t("用对话合并"), () => prefillMergeChat(node, memberMemories), "ghost"));
+    actions.append(button("用对话合并", () => prefillMergeChat(node, memberMemories), "ghost"));
   }
-  if (!graphState.ego || graphState.ego.center !== node.id) actions.append(button(t("看邻域"), () => enterEgo(node.id, 2)));
+  if (!graphState.ego || graphState.ego.center !== node.id) actions.append(button("看邻域", () => enterEgo(node.id, 2)));
   const relations = document.createElement("div");
   relations.className = "memory-graph-relations";
   for (const [rel, items] of groups) {
     const section = document.createElement("section");
     const heading = document.createElement("h3");
-    heading.textContent = `${t(REL_KEYS[rel] ?? "关联")} (${items.length})`;
+    heading.textContent = `${REL_KEYS[rel] ?? "关联"} (${items.length})`;
     section.append(heading);
     const list = document.createElement("ul");
     for (const { other, outgoing, edge } of items.slice(0, 40)) {
@@ -603,7 +603,7 @@ export function renderGraphNodeDetail(node) {
       link.className = "memory-graph-relation";
       link.dataset.nodeId = other.id;
       const name = other.kind === "crate" || other.kind === "module" ? areaName(other.id) : other.id;
-      const provenance = edge.provenance ? `(${t(PROVENANCE_KEYS[edge.provenance] ?? "关键词")})` : "";
+      const provenance = edge.provenance ? `(${PROVENANCE_KEYS[edge.provenance] ?? "关键词"})` : "";
       link.textContent = `${outgoing ? "→" : "←"} ${name}${provenance} ${other.kind === "memory" || other.kind === "requirement" || other.kind === "defect" || other.kind === "decision" ? String(other.title ?? "").slice(0, 40) : ""}`;
       link.addEventListener("click", () => void clickNode(other.id));
       item.append(link);
@@ -621,7 +621,7 @@ export function renderGraphNodeDetail(node) {
   if (!groups.size) {
     const empty = document.createElement("p");
     empty.className = "dim";
-    empty.textContent = t("没有关系");
+    empty.textContent = "没有关系";
     relations.append(empty);
   }
   box.append(head, meta, actions, relations);
@@ -637,7 +637,7 @@ function fillAreaSelect() {
   const modules = (graphState.payload?.areas ?? []).filter((area) => area.kind === "module" && area.memories > 0);
   const all = document.createElement("option");
   all.value = "";
-  all.textContent = t("全部区域");
+  all.textContent = "全部区域";
   const children = [all];
   for (const crate of crates) {
     const group = document.createElement("optgroup");
@@ -673,14 +673,14 @@ function renderLegend({ rebuild = false } = {}) {
   if (!legend || (legend.children.length && !rebuild)) return;
   legend.replaceChildren();
   const items = [
-    ["fact", localizedDocStatus("fact")],
-    ["sop", localizedDocStatus("sop")],
-    ["habit", localizedDocStatus("habit")],
-    ["preference", localizedDocStatus("preference")],
-    ["context", t("需求/缺陷/决策/文档")],
-    ["crate", t("代码区域")],
-    ["module", t("模块")],
-    ["concept", t("共享指纹/主题")],
+    ["fact", statusWord("fact")],
+    ["sop", statusWord("sop")],
+    ["habit", statusWord("habit")],
+    ["preference", statusWord("preference")],
+    ["context", "需求/缺陷/决策/文档"],
+    ["crate", "代码区域"],
+    ["module", "模块"],
+    ["concept", "共享指纹/主题"],
   ];
   for (const [kind, text] of items) {
     const item = document.createElement("span");
@@ -694,7 +694,7 @@ function renderLegend({ rebuild = false } = {}) {
   }
   const note = document.createElement("span");
   note.className = "memory-graph-legend-note";
-  note.textContent = t("实心=启用  空心=候选  半透明=归档  虚线=推断/提及  双击进入邻域");
+  note.textContent = "实心=启用  空心=候选  半透明=归档  虚线=推断/提及  双击进入邻域";
   legend.append(note);
 }
 
@@ -711,7 +711,7 @@ function renderTextView(subgraph) {
     item.dataset.memoryId = node.id;
     item.dataset.nodeId = node.id;
     item.className = `memory-graph-tree-memory${node.id === graphState.selectedId ? " selected" : ""}${graphState.hits.includes(node.id) ? " hit" : ""}`;
-    item.textContent = `${node.id}  ${node.title ?? ""}  ${[localizedDocStatus(node.category), node.archived ? t("已归档") : localizedDocStatus(node.status)].filter(Boolean).join("/")}`;
+    item.textContent = `${node.id}  ${node.title ?? ""}  ${[statusWord(node.category), node.archived ? "已归档" : statusWord(node.status)].filter(Boolean).join("/")}`;
     item.addEventListener("click", () => void clickNode(node.id));
     return item;
   };
@@ -731,7 +731,7 @@ function renderTextView(subgraph) {
   const children = [];
   for (const group of groups) {
     const total = group.memories.length + group.modules.reduce((sum, m) => sum + m.memories.length, 0);
-    const [item, list] = branch(group.id ? group.label : t("未归类"), total);
+    const [item, list] = branch(group.id ? group.label : "未归类", total);
     for (const module of group.modules) {
       const [moduleItem, moduleList] = branch(module.label, module.memories.length);
       moduleList.append(...module.memories.map(memoryItem));
@@ -743,7 +743,7 @@ function renderTextView(subgraph) {
   if (!children.length) {
     const empty = document.createElement("li");
     empty.className = "dim";
-    empty.textContent = t("该筛选暂无记忆");
+    empty.textContent = "该筛选暂无记忆";
     children.push(empty);
   }
   tree.replaceChildren(...children);
@@ -820,7 +820,7 @@ defer(() => {
     const el = document.querySelector(`#memory-graph-pane button[data-layer="${layer}"]`);
     if (!el) continue;
     el.setAttribute("aria-pressed", String(graphState.layers.has(layer)));
-    el.textContent = t(LAYER_KEYS[layer]);
+    el.textContent = LAYER_KEYS[layer];
     el.addEventListener("click", () => {
       if (graphState.layers.has(layer)) graphState.layers.delete(layer);
       else graphState.layers.add(layer);

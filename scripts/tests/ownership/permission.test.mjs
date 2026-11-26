@@ -203,13 +203,6 @@ test("an A read error retry cannot silently read a different project", async t =
   assert.equal(h.calls.length, count, "retry must verify the original project before IPC");
 });
 
-test("language redraw cannot rebind old A rows to current project B", async t => {
-  const h = await harness(); t.after(h.close);
-  await h.settings.loadPermissionRules(); h.project(B); h.language(); await flush();
-  await h.remove().click();
-  assert.deepEqual(h.rules.get(B), [ruleB], "language redraw must preserve the rendered project's ownership");
-});
-
 async function remembered(h) {
   h.events.askQueueFor("session-a").push({ id: 1, sessionId: "session-a", kind: "permission", action: ruleA.action, resource: ruleA.resource });
   h.events.pumpAsk(); await h.events.answerAsk("always");

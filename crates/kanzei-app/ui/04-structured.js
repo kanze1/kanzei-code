@@ -11,7 +11,7 @@
 // - 不用 DocumentFragment(冒烟的假 DOM 没有);模块顶层不碰 document。
 // - 跳转不直接依赖 11/13/17/19:点击走 structuredNav,真实实现由 19-research.js 注册,
 //   冒烟可以换成 spy。
-import { localizedDocStatus, t } from "./02-i18n.js";
+import { statusWord } from "./04-status-words.js";
 import { setDiagramHost } from "./04-diagram.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import {
@@ -53,7 +53,7 @@ export function setStructuredNav(partial) {
 }
 // 图节点点击(04-diagram.js,零 import)走同一套导航:调用时才取 structuredNav,冒烟换成 spy 照样命中。
 setDiagramHost({
-  t: (key) => t(key),
+  t: (key) => key,
   openPath: (path, line) => structuredNav.openPath(path, line),
   openRef: (id) => structuredNav.openRef(id),
 });
@@ -66,7 +66,7 @@ function el(tag, className = "", text = null) {
 }
 /// 界面标签:写入 data-i18n-key,语言切换时由 applyDataI18nKeys 就地重算。
 function label(tag, className, key) {
-  const node = el(tag, className, t(key));
+  const node = el(tag, className, key);
   node.dataset.i18nKey = key;
   return node;
 }
@@ -112,7 +112,7 @@ export function refChip(id) {
   const button = el("button", "sv-chip sv-ref", value);
   button.type = "button";
   button.dataset.ref = value;
-  button.title = `${t("跳转到")} ${value}`;
+  button.title = `${"跳转到"} ${value}`;
   button.addEventListener("click", (event) => {
     event?.stopPropagation?.();
     structuredNav.openRef(value);
@@ -139,7 +139,7 @@ export function pathChip(raw, { line = null, endLine = null, absolute = false } 
   if (!absolute && target === full && isAbsolutePath(full) && roots().some((root) => relativeToRoot(full, root) !== null && relativeToRoot(full, root) !== ".")) {
     button.classList.add("is-worktree");
     button.dataset.tree = "worktree";
-    button.title = `${t("独立任务的工作树")}\n${button.title}`;
+    button.title = `${"独立任务的工作树"}\n${button.title}`;
   }
   button.dataset.path = target;
   if (line) button.dataset.line = String(line);
@@ -316,7 +316,7 @@ function jsonToolbar(value) {
     void copyText(raw);
   });
   const details = el("details", "sv-raw");
-  details.append(label("summary", "", "原始 JSON"), el("pre", "sv-str-block", raw.length > 8000 ? `${raw.slice(0, 8000)}\n…(${t("已截断")})` : raw));
+  details.append(label("summary", "", "原始 JSON"), el("pre", "sv-str-block", raw.length > 8000 ? `${raw.slice(0, 8000)}\n…(${"已截断"})` : raw));
   tools.append(copy, details);
   return tools;
 }
@@ -339,8 +339,8 @@ function jsonNode(value, key, depth, state) {
   const summary = el("summary");
   if (keyed) summary.append(jsonKey(key), document.createTextNode(": "));
   const count = Array.isArray(value)
-    ? `[] ${fillTemplate(t("{n} 项"), { n: entries.length })}`
-    : `{} ${fillTemplate(t("{n} 个字段"), { n: entries.length })}`;
+    ? `[] ${fillTemplate("{n} 项", { n: entries.length })}`
+    : `{} ${fillTemplate("{n} 个字段", { n: entries.length })}`;
   summary.append(el("span", "sv-count", count));
   const children = el("div", "sv-children");
   let shown = 0;
@@ -357,7 +357,7 @@ function jsonNode(value, key, depth, state) {
   };
   appendRange(Math.min(entries.length, state.maxItems));
   if (entries.length > shown) {
-    const more = el("button", "ghost mini sv-more", fillTemplate(t("还有 {n} 项"), { n: entries.length - shown }));
+    const more = el("button", "ghost mini sv-more", fillTemplate("还有 {n} 项", { n: entries.length - shown }));
     more.type = "button";
     more.addEventListener("click", (event) => {
       event?.stopPropagation?.();
@@ -367,7 +367,7 @@ function jsonNode(value, key, depth, state) {
       appendRange(next);
       state.showLimit();
       if (shown < entries.length) {
-        more.textContent = fillTemplate(t("还有 {n} 项"), { n: entries.length - shown });
+        more.textContent = fillTemplate("还有 {n} 项", { n: entries.length - shown });
         children.append(more);
       }
     });
@@ -416,7 +416,7 @@ function argRows(tool, pairs) {
     row.dataset.key = key;
     const valueNode = el("div", "sv-v");
     valueNode.append(argValue(tool, key, value));
-    row.append(el("span", "sv-k", tool === "work" && HANDOFF_ARG_LABELS[key] ? t(HANDOFF_ARG_LABELS[key]) : key), valueNode);
+    row.append(el("span", "sv-k", tool === "work" && HANDOFF_ARG_LABELS[key] ? HANDOFF_ARG_LABELS[key] : key), valueNode);
     kv.append(row);
   }
   return kv;
@@ -462,7 +462,7 @@ export function renderToolResult(name, value) {
 // ---------- tracker ----------
 function statusChip(status) {
   // 显示走共享状态词表(中文界面不出 todo/doing/done 原文);dataset 与 CSS 钩子仍是原始枚举。
-  const chip = el("span", "sv-chip sv-status", localizedDocStatus(status ?? ""));
+  const chip = el("span", "sv-chip sv-status", statusWord(status ?? ""));
   chip.dataset.status = String(status ?? "");
   return chip;
 }
@@ -482,7 +482,7 @@ export function renderTrackerList(value) {
     if (reasons.length) row.append(richText(reasons.join("; "), { className: "sv-tl-reason" }));
     box.append(row);
   }
-  if (entries.length > 200) box.append(el("div", "sv-note", fillTemplate(t("还有 {n} 项"), { n: entries.length - 200 })));
+  if (entries.length > 200) box.append(el("div", "sv-note", fillTemplate("还有 {n} 项", { n: entries.length - 200 })));
   return box;
 }
 /// tracker get:头(编号/标题/状态/阻塞原因)+ 字段只读视图。
@@ -554,7 +554,7 @@ function proseNode(value) {
     const clamped = text.classList.toggle("sv-clamp");
     const key = clamped ? "展开全部" : "收起";
     toggle.dataset.i18nKey = key;
-    toggle.textContent = t(key);
+    toggle.textContent = key;
   });
   wrap.append(text, toggle);
   return wrap;

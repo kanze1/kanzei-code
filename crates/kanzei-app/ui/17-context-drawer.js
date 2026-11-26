@@ -432,14 +432,16 @@ function renderEditView(preview) {
     updateState();
     try {
       const root = effectiveRoot(current);
+      const rawText = loadedPreview.eol === "crlf"
+        ? editor.value.replace(/\r?\n/g, "\r\n")
+        : editor.value.replace(/\r\n/g, "\n");
       const res = await invoke("file_write", {
         projectDir: root,
         path: current.path,
-        content: editor.value,
-        expectedHash: loadedPreview.hash ?? null,
+        content: rawText,
+        expectedHash: overwrite ? null : (loadedPreview.hash ?? null),
         bom: Boolean(loadedPreview.bom),
-        eol: loadedPreview.eol || "lf",
-        overwrite,
+        evidence: overwrite,
       });
       if (res?.status === "conflict") {
         conflictDiskHash = res.diskHash || "changed";

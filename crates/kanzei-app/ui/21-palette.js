@@ -6,7 +6,6 @@ import { isImeComposing } from "./00-ui-primitives.js";
 import { views } from "./00-views.js";
 import "./01-runtime-events.js";
 import { promptBox } from "./01-chat-panes.js";
-import { localizeDynamic, t } from "./02-i18n.js";
 import { backAvailable, currentProject, expandSidebar, log, navigate_back, navigate_view } from "./03-shell.js";
 import { view_allowed } from "./03-workspaces.js";
 import "./08-compose.js";
@@ -40,21 +39,21 @@ export function collectPaletteEntries() {
 
   for (const [view, metadata] of Object.entries(views)) {
     if (!view_allowed(view)) continue;
-    push(t("视图"), localizeDynamic(metadata.label), "", () => navigate_view(view));
+    push("视图", metadata.label, "", () => navigate_view(view));
   }
 
   // UI2-0926 #1:侧栏不再有项目列表可点,项目读 projects_get 的偏好缓存;切换走 switchProject——
   // 侧栏项目菜单、项目总览卡片、这里三处都调它,仍然是「一处实现」。
   for (const project of projectMenuEntries()) {
-    push(t("项目"), project.name, project.path, () => void switchProject(project.path));
+    push("项目", project.name, project.path, () => void switchProject(project.path));
   }
 
   // 对话:读会话模型(名字/类型/运行态与侧栏树同一份),不再抓隐藏的线路行文字(那里露 pN/「默认」)。
   // 选中后切到那段对话;不在对话页就跳回对话,别让「切了线」页面纹丝不动(UX-052)。
-  for (const entry of sessionPaletteEntries()) push(t("对话"), entry.label, entry.detail, entry.run);
+  for (const entry of sessionPaletteEntries()) push("对话", entry.label, entry.detail, entry.run);
 
   // 返回上一页(非对话页才有):与页头「← 返回」、Esc、Alt+←、鼠标侧键同一个导航栈。
-  if (backAvailable()) push(t("动作"), t("返回"), "Esc / Alt+←", () => void navigate_back());
+  if (backAvailable()) push("动作", "返回", "Esc / Alt+←", () => void navigate_back());
 
   // 动作:只收**当前可用**的(隐藏或禁用的不进清单——面板不该提供点了没反应的条目)。
   // 「可用」必须连祖先一起看:控件自己没有 hidden/disabled,但住在收起的 <details>
@@ -71,26 +70,26 @@ export function collectPaletteEntries() {
     // hidden 类」从而判定为"当前可见"、反手执行关闭——被修的那条高危路径原样复活。
     // 展开责任统一留在各自的 click 处理器里(见 07-events.js chat-search-toggle),
     // 那样无论从菜单点还是从面板点,行为都是同一套。
-    push(t("动作"), label, "", () => el.click());
+    push("动作", label, "", () => el.click());
   };
-  action(t("新讨论"), "new-chat");
+  action("新讨论", "new-chat");
   // 「对话与历史」:与侧栏时钟图标同一个弹层(展开侧栏、回到对话页再打开)。
-  if (document.body.dataset.space !== "research") push(t("动作"), t("对话与历史"), "", () => openSessionHistoryAnywhere());
+  if (document.body.dataset.space !== "research") push("动作", "对话与历史", "", () => openSessionHistoryAnywhere());
   // 「切换项目」:项目菜单已不在开发档界面里(#project-switch 是看不见的死入口,菜单还会漂在左上角),
   // 改成展开侧栏并聚焦项目列表(当前项目优先),方向键 / Enter 在那里选(UX-028)。开发空间里有项目才给。
   if (document.body.dataset.space !== "research" && projectMenuEntries().length) {
-    push(t("动作"), t("切换项目"), "", () => {
+    push("动作", "切换项目", "", () => {
       expandSidebar();
       const list = $("workbench-project-list");
       (list?.querySelector('[aria-current="page"]') ?? list?.querySelector("button, [role=\"treeitem\"]"))?.focus?.();
     });
   }
-  action(t("添加项目文件夹…"), "project-add");
-  action(t("新建项目…"), "project-init");
-  action(t("停止"), "stop");
-  action(t("活动"), "tasks-toggle");
-  action(t("切换主题"), "theme-toggle");
-  push(t("动作"), t("聚焦输入"), "Ctrl/Cmd+K", () => promptBox.focus());
+  action("添加项目文件夹…", "project-add");
+  action("新建项目…", "project-init");
+  action("停止", "stop");
+  action("活动", "tasks-toggle");
+  action("切换主题", "theme-toggle");
+  push("动作", "聚焦输入", "Ctrl/Cmd+K", () => promptBox.focus());
   return entries;
 }
 
@@ -165,7 +164,7 @@ function fileEntriesFor(query) {
   if (!paletteFilesWanted() || paletteFiles.project !== currentProject || query.length < PALETTE_FILE_MIN_QUERY) return [];
   return paletteFileMatches(paletteFiles.paths, query).map((path) => {
     const slash = path.lastIndexOf("/");
-    return { group: t("文件"), label: path.slice(slash + 1), detail: slash > 0 ? path.slice(0, slash) : "", run: () => openProjectFile(path) };
+    return { group: "文件", label: path.slice(slash + 1), detail: slash > 0 ? path.slice(0, slash) : "", run: () => openProjectFile(path) };
   });
 }
 
@@ -195,7 +194,7 @@ export function renderPaletteList() {
   if (!matched.length) {
     const empty = document.createElement("div");
     empty.className = "palette-empty";
-    empty.textContent = t("没有匹配项");
+    empty.textContent = "没有匹配项";
     list.appendChild(empty);
     paletteMatched = [];
     paletteEntries.active = null;
@@ -251,7 +250,7 @@ export function runPaletteEntry(entry) {
   try {
     entry?.run?.();
   } catch (error) {
-    log(`${t("命令面板")}:${error}`, "warn");
+    log(`${"命令面板"}:${error}`, "warn");
   }
 }
 

@@ -1,7 +1,6 @@
 import { copyButton, writeClipboardText } from "./00-clipboard.js";
 import { defer } from "./00-dom.js";
 import { toast } from "./00-surface.js";
-import { t } from "./02-i18n.js";
 import { addMarkdownHook } from "./04-markdown.js";
 
 // Read the rendered Markdown structure, keeping text boundaries and excluding UI decorations.
@@ -45,6 +44,6 @@ defer(() => {
     const button = event.target.closest?.(".quote-copy");
     if (!button) return;
     const content = button.closest(".md-quote").querySelector(":scope > .md-quote-content");
-    void writeClipboardText(quoteText(content), button).catch(error => toast(`${t("复制失败")}:${error}`, { kind: "err" }));
+    void writeClipboardText(quoteText(content), button).catch(error => toast(`${"复制失败"}:${error}`, { kind: "err" }));
   });
 });

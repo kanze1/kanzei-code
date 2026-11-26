@@ -2,7 +2,6 @@ import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { mergeWorkspaceState, uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { readJson, writeJson } from "./00-ui-primitives.js";
-import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, toastError } from "./03-shell.js";
 import { activate_execution_root, processSwitchGeneration, refreshProcesses, renderParallelTaskStatus, switchProcess } from "./09-sessions.js";
 import { workbenchNavigationGuard } from "./12-workbench.js";
@@ -98,8 +97,8 @@ defer(() => {
   const paint = () => {
     $("composer").inert = !composerDraftStatus.ready;
     status.hidden = composerDraftStatus.ready && !composerDraftStatus.error;
-    message.textContent = composerDraftStatus.error ? `${t("草稿恢复或保存失败")}: ${composerDraftStatus.error}` : t("正在读取…");
-    retry.textContent = t("重试"); retry.hidden = !composerDraftStatus.error;
+    message.textContent = composerDraftStatus.error ? `${"草稿恢复或保存失败"}: ${composerDraftStatus.error}` : "正在读取…";
+    retry.textContent = "重试"; retry.hidden = !composerDraftStatus.error;
   };
   onComposerDraftChange(paint); document.addEventListener("kz:language", paint);
   paint();
@@ -233,7 +232,7 @@ export function adopt_process_workspace(item) {
 
 export function sync_workspace_visibility() {
   document.body.dataset.space = active_space;
-  syncGeneralChatView(undefined, t);
+  syncGeneralChatView();
   for (const button of document.querySelectorAll("[data-workspace]")) {
     const selected = button.dataset.workspace === active_space;
     button.classList.toggle("active", selected);
@@ -350,7 +349,7 @@ export async function switch_workspace(space, { isCurrent = () => true } = {}) {
     return true;
   } catch (error) {
     await restore_previous();
-    if (isCurrent()) toastError(`${t("切换工作空间失败")}: ${error}`);
+    if (isCurrent()) toastError(`${"切换工作空间失败"}: ${error}`);
     return false;
   } finally {
     workspace_switch_pending = false;

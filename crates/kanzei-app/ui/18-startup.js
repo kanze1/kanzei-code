@@ -4,10 +4,9 @@ import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { uiPrefsLoad } from "./00-ui-preferences.js";
-import { LANGUAGE_PREFERENCES, syncLanguagePreferenceFromSettings, t } from "./02-i18n.js";
 import { log, setStatus, toast, toastError } from "./03-shell.js";
 import { renderProjects, lastProjectPrefs } from "./09-sessions.js";
-import { persistLanguagePreference, updateResultText } from "./16-settings.js";
+import { updateResultText } from "./16-settings.js";
 import { active_space, restore_workspace_preferences, restore_active_workspace, sync_workspace_visibility } from "./03-workspaces.js";
 import { workbenchNavigationGuard, openProjectSpace, refreshWorkspace } from "./12-workbench.js";
 import { openGeneralChat } from "./03-general-scope.js";
@@ -21,22 +20,6 @@ defer(() => {
 });
 defer(() => {
   (async () => {
-    // UX-119:语言的持久化真源是 app.json 的 ui_layout.prefs.language(切换即存);localStorage 只是首屏缓存。
-    // 旧版本把它写在全局 kanzei.toml(要点「保存」才落盘):app.json 里还没有时沿用 toml 的值,并一次性迁过去。
-    // 都没有则维持中文默认,不向任何文件写默认值。
-    try {
-      const stored = (await uiPrefsLoad())?.ui_layout?.prefs?.language;
-      if (LANGUAGE_PREFERENCES.has(stored)) {
-        syncLanguagePreferenceFromSettings(stored);
-      } else {
-        const settings = await invoke("settings_get", { projectDir: null });
-        if (LANGUAGE_PREFERENCES.has(settings.language) && syncLanguagePreferenceFromSettings(settings.language)) {
-          persistLanguagePreference(settings.language);
-        }
-      }
-    } catch (err) {
-      log(`${t("读取界面语言偏好失败")}:${err}`, "warn");
-    }
     try {
       const info = await invoke("app_info");
       // 版本号常驻;构建信息(提交 + 日期)是第二段,状态栏窄时让位(style.css 的容器查询),完整串留在提示里。
@@ -56,9 +39,9 @@ defer(() => {
       }
       versionEl.title = `v${info.version} (${info.build})`;
       $("update-current").textContent = String(info.build).split(" ")[0];
-      log(`kanzei ${t("桌面端启动")}  v${info.version} (${info.build})`);
+      log(`kanzei 桌面端启动  v${info.version} (${info.build})`);
     } catch (err) {
-      log(`${t("获取版本失败")}:${err}`, "warn");
+      log(`获取版本失败:${err}`, "warn");
     }
     // 启动静默检查更新(安装版通道):有新包只弹一条 toast,不打断;失败不打扰。
     // D-265 验收④:dev 构建/本地领先这些「装不了」的成因不弹窗打扰,但结论必须
@@ -67,7 +50,7 @@ defer(() => {
       try {
         const r = await invoke("update_check");
         $("update-result").textContent = updateResultText(r);
-        if (r.newer && r.url) toast(`${t("发现新版本")} ${r.latest} — ${t("设置页「检查更新」可一键安装")}`);
+        if (r.newer && r.url) toast(`发现新版本 ${r.latest} — 设置页「检查更新」可一键安装`);
       } catch (error) { console.warn("18-startup: optional persisted state unavailable", error); }
     }, 3000);
     // 启动链任一步失败都不能静默中断后半段(否则界面停在初始态,用户看不到任何原因)。
@@ -75,9 +58,8 @@ defer(() => {
       try {
         await step();
       } catch (err) {
-        const localizedLabel = t(label);
-        log(`${t("启动步骤")}「${localizedLabel}」${t("失败")}:${err}`, "err");
-        toastError(`${localizedLabel}${t("加载失败")}:${err}`);
+        log(`启动步骤「${label}」失败:${err}`, "err");
+        toastError(`${label}加载失败:${err}`);
       }
     };
     // Restore the development overview without starting execution. Research owns its saved page.

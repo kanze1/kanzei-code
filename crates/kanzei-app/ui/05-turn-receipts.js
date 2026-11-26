@@ -1,5 +1,4 @@
 // Durable wall-duration receipts are separate from the pausable activity clock.
-import { languageIsEnglish, t } from "./02-i18n.js";
 
 function receiptElement(payload, container) {
   if (!container || typeof payload?.runId !== "string" || !payload.runId
@@ -18,9 +17,7 @@ function receiptElement(payload, container) {
   receipt.dataset.elapsedMs = String(payload.elapsedMs);
   receipt.dataset.outcome = payload.outcome || "completed";
   receipt.dataset.source = payload.source || "backend_elapsed";
-  receipt.title = languageIsEnglish()
-    ? `Whole round, including tools and waits  ${payload.runId}`
-    : `该轮实际用时，含工具与等待  ${payload.runId}`;
+  receipt.title = `该轮实际用时，含工具与等待  ${payload.runId}`;
   return receipt;
 }
 
@@ -29,7 +26,7 @@ export function renderTurnReceipt(payload, container, append) {
   if (!receipt || receipt.parentElement) return receipt;
   const outcome = payload.outcome === "halted" ? "已停止"
     : ["failed", "incomplete"].includes(payload.outcome) ? "本轮未完成" : "本轮结束";
-  receipt.textContent = `${t(outcome)}  ${t("耗时")} ${(payload.elapsedMs / 1000).toFixed(1)}s`;
+  receipt.textContent = `${outcome}  ${"耗时"} ${(payload.elapsedMs / 1000).toFixed(1)}s`;
   append(receipt);
   return receipt;
 }
@@ -51,17 +48,17 @@ export function renderRecoveredTurnReceipts(traces, pane, append) {
       list = document.createElement("div");
       list.className = "recovered-turn-times-body";
       list.setAttribute("role", "list");
-      list.setAttribute("aria-label", t("历史耗时"));
+      list.setAttribute("aria-label", "历史耗时");
       group.append(document.createElement("summary"), list);
       append(group);
     }
     const status = document.createElement("span"), duration = document.createElement("span");
-    status.textContent = t(payload.outcome === "halted" ? "已停止"
-      : ["failed", "incomplete"].includes(payload.outcome) ? "未完成" : "已完成");
+    status.textContent = payload.outcome === "halted" ? "已停止"
+      : ["failed", "incomplete"].includes(payload.outcome) ? "未完成" : "已完成";
     duration.textContent = `${(payload.elapsedMs / 1000).toFixed(1)}s`;
     receipt.setAttribute("role", "listitem");
     receipt.replaceChildren(status, duration);
     list.append(receipt);
   }
-  if (group) group.querySelector("summary").textContent = `${t("历史耗时")} (${list.childElementCount})`;
+  if (group) group.querySelector("summary").textContent = `${"历史耗时"} (${list.childElementCount})`;
 }

@@ -10,7 +10,6 @@ import { $, defer } from "./00-dom.js";
 import { activePane, appendToPane, renderingBackground } from "./01-chat-panes.js";
 import { motionOnce, motionSync } from "./00-ui-primitives.js";
 import { invoke } from "./00-ipc.js";
-import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeProcessId, activeSessionId, currentProject, processItems, toast, toastError } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { cleanInline, parseJsonish, stripToolOutcome } from "./04-structured-parse.js";
@@ -45,19 +44,19 @@ const SA_GLYPH = {
 /// 状态词。running 没有状态词——计数本身就是状态。
 export function subagentStateWord(state) {
   switch (state) {
-    case "starting": return t("启动中");
-    case "stopping": return t("停止中…");
-    case "dependency": return t("等待依赖");
-    case "waiting": return t("等待答复");
-    case "background": return t("后台运行");
-    case "done": return t("完成");
-    case "empty": return t("无回答");
-    case "limited": return t("达到步数上限");
-    case "failed": return t("失败");
-    case "timeout": return t("超时");
-    case "cancelled": return t("已停止");
-    case "rejected": return t("未启动");
-    case "interrupted": return t("中断");
+    case "starting": return "启动中";
+    case "stopping": return "停止中…";
+    case "dependency": return "等待依赖";
+    case "waiting": return "等待答复";
+    case "background": return "后台运行";
+    case "done": return "完成";
+    case "empty": return "无回答";
+    case "limited": return "达到步数上限";
+    case "failed": return "失败";
+    case "timeout": return "超时";
+    case "cancelled": return "已停止";
+    case "rejected": return "未启动";
+    case "interrupted": return "中断";
     default: return "";
   }
 }
@@ -210,12 +209,11 @@ export function classifySubagentEnd({ ok, outcome, code, preview = "", content =
   if (/too many parallel subagent tasks/i.test(text)) return "rejected";
   return "failed";
 }
-/// 「N 次工具」「N 个子代理」:英文界面 N=1 用单数(词表里的是复数)。
 export function subagentToolCount(n) {
-  return `${n} ${n === 1 && languageIsEnglish() ? "tool use" : t("次工具")}`;
+  return `${n} 次工具`;
 }
 export function subagentCountLabel(n) {
-  return `${n} ${n === 1 && languageIsEnglish() ? "subagent" : t("个子代理")}`;
+  return `${n} 个子代理`;
 }
 /// 身份签:编排角色名(身份)优先,其次实际人格(meta)、请求的人格。都不知道时不显示签。
 export function subagentAgentName(run) {
@@ -233,7 +231,7 @@ export function subagentMetaText(run, now = Date.now()) {
   const tools = run.toolOrder.length;
   if (tools > 0) bits.push(subagentToolCount(tools));
   const tokens = subagentUsageTokens(run.usage);
-  if (tokens > 0) bits.push(`${formatTokenCount(tokens)} ${t("token")}`);
+  if (tokens > 0) bits.push(`${formatTokenCount(tokens)} ${"token"}`);
   const elapsed = subagentElapsed(run, now);
   if (elapsed !== null) bits.push(formatElapsed(elapsed));
   return bits.join("  ");
@@ -249,7 +247,7 @@ function errorLine(run) {
   const raw = run.result?.preview || run.result?.content || "";
   const line = firstLine(stripToolOutcome(raw).body);
   if (line) return clip(cleanInline(line, toolRoots()), 160);
-  return run.state === "interrupted" ? t("无结果(轮次中断)") : "";
+  return run.state === "interrupted" ? "无结果(轮次中断)" : "";
 }
 
 // ---------- 数据模型 ----------
@@ -657,9 +655,9 @@ function buildGroup(run) {
   open.type = "button";
   open.className = "icon-btn sa-group-open";
   open.textContent = "↗";
-  open.setAttribute("aria-label", t("查看全部子代理"));
+  open.setAttribute("aria-label", "查看全部子代理");
   open.dataset.i18nAriaLabel = "查看全部子代理";
-  open.title = t("查看全部子代理");
+  open.title = "查看全部子代理";
   open.dataset.i18nTitle = "查看全部子代理";
   open.addEventListener("click", (event) => {
     event?.stopPropagation?.();
@@ -733,9 +731,9 @@ function iconButton(cls, text, key) {
   button.type = "button";
   button.className = `icon-btn ${cls}`;
   button.textContent = text;
-  button.setAttribute("aria-label", t(key));
+  button.setAttribute("aria-label", key);
   button.dataset.i18nAriaLabel = key;
-  button.title = t(key);
+  button.title = key;
   button.dataset.i18nTitle = key;
   return button;
 }
@@ -803,11 +801,11 @@ function syncGroup(group) {
   glyph.textContent = char;
   const phase = group.dataset.saPhase;
   const bits = [subagentCountLabel(count)];
-  if (running) bits.push(`${running} ${t("运行中")}`);
-  if (done) bits.push(`${done} ${t("完成")}`);
-  if (failed) bits.push(`${failed} ${t("失败")}`);
-  if (limited) bits.push(`${limited} ${t("达到步数上限")}`);
-  if (stopped) bits.push(`${stopped} ${t("已停止")}`);
+  if (running) bits.push(`${running} ${"运行中"}`);
+  if (done) bits.push(`${done} ${"完成"}`);
+  if (failed) bits.push(`${failed} ${"失败"}`);
+  if (limited) bits.push(`${limited} ${"达到步数上限"}`);
+  if (stopped) bits.push(`${stopped} ${"已停止"}`);
   const label = `${phase ? `${orchPhaseLabel(phase)}  ` : ""}${bits.join("  ")}`;
   if (group._sa.label.textContent !== label) group._sa.label.textContent = label;
 }
@@ -831,10 +829,10 @@ export function renderSubagentCard(run, { motion = false, skipGroup = false } = 
   const label = subagentAgentName(run);
   ui.agent.textContent = label;
   ui.agent.className = `sa-agent${label ? "" : " hidden"}`;
-  const description = run.description || t("子代理");
+  const description = run.description || "子代理";
   if (ui.desc.textContent !== description) ui.desc.textContent = description;
   ui.desc.title = run.description;
-  const chip = run.resume ? t("续聊") : "";
+  const chip = run.resume ? "续聊" : "";
   ui.chip.textContent = chip;
   ui.chip.classList.toggle("hidden", !chip);
   const metaText = subagentMetaText(run);
@@ -853,7 +851,7 @@ export function renderSubagentCard(run, { motion = false, skipGroup = false } = 
   ui.error.classList.toggle("hidden", !error);
   // 可访问名只在状态变化时重写,不随每秒计时刷新。
   if (stateChanged || ui.lastLabel !== label) {
-    const word = subagentStateWord(state) || t("运行中");
+    const word = subagentStateWord(state) || "运行中";
     ui.head.setAttribute("aria-label", [[label, run.description].filter(Boolean).join(" "), word, metaText].filter(Boolean).join(" — "));
   }
   ui.lastState = state;
@@ -926,7 +924,7 @@ function renderTail(run, ui, member) {
       ui.moreEl = document.createElement("div");
       ui.moreEl.className = "sa-more";
     }
-    ui.moreEl.textContent = `+${more} ${t("次更早的工具调用")}`;
+    ui.moreEl.textContent = `+${more} ${"次更早的工具调用"}`;
     if (live.firstChild !== ui.moreEl) live.insertBefore(ui.moreEl, live.firstChild);
   } else if (ui.moreEl) {
     ui.moreEl.remove();
@@ -970,7 +968,7 @@ export function createSubagentView(container, run, { inline = false } = {}) {
 function sectionTitle(key) {
   const title = document.createElement("div");
   title.className = "sa-section-title";
-  title.textContent = t(key);
+  title.textContent = key;
   title.dataset.i18nKey = key;
   return title;
 }
@@ -994,17 +992,17 @@ function buildView(view) {
     const more = document.createElement("button");
     more.type = "button";
     more.className = "ghost mini sa-prompt-more";
-    more.textContent = t("展开全文");
+    more.textContent = "展开全文";
     more.addEventListener("click", () => {
       const clamped = promptBody.classList.toggle("is-clamped");
-      more.textContent = clamped ? t("展开全文") : t("收起");
+      more.textContent = clamped ? "展开全文" : "收起";
     });
     prompt.append(more);
   }
   if (run.schema) {
     const schema = document.createElement("div");
     schema.className = "sa-schema";
-    schema.textContent = t("要求结构化返回");
+    schema.textContent = "要求结构化返回";
     prompt.append(schema);
   }
   const steps = document.createElement("section");
@@ -1024,17 +1022,17 @@ function buildView(view) {
     const stop = document.createElement("button");
     stop.type = "button";
     stop.className = "ghost mini sa-body-stop";
-    stop.textContent = t("停止");
+    stop.textContent = "停止";
     stop.addEventListener("click", () => subagentStop(run));
     const copy = document.createElement("button");
     copy.type = "button";
     copy.className = "ghost mini sa-body-copy";
-    copy.textContent = t("复制结果");
+    copy.textContent = "复制结果";
     copy.addEventListener("click", () => subagentCopyResult(run));
     const open = document.createElement("button");
     open.type = "button";
     open.className = "ghost mini sa-body-open";
-    open.textContent = t("在侧栏查看完整过程");
+    open.textContent = "在侧栏查看完整过程";
     open.addEventListener("click", () => openSubagentPanel(run.key, open));
     actions.append(stop, copy, open);
     container.append(actions);
@@ -1084,7 +1082,7 @@ export function renderSubagentTimeline(view) {
       block.wrap.classList.add("interrupted");
       block.wrap.dataset.toolOutcome = "interrupted";
       block.icon.textContent = "⏹";
-      block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+      block.result.textContent = `⎿ ${"无结果(轮次中断)"}`;
       block.result.classList.remove("hidden");
       slot.filled = true;
     }
@@ -1096,7 +1094,7 @@ export function renderSubagentTimeline(view) {
       view.emptyEl.className = "sa-steps-empty";
       view.stepsEl.appendChild(view.emptyEl);
     }
-    view.emptyEl.textContent = run.round || (SA_ACTIVE.has(run.state) ? t("运行中…") : "—");
+    view.emptyEl.textContent = run.round || (SA_ACTIVE.has(run.state) ? "运行中…" : "—");
   } else if (view.emptyEl) {
     view.emptyEl.remove();
     view.emptyEl = null;
@@ -1111,10 +1109,10 @@ export function renderSubagentTimeline(view) {
     host.className = "sa-result";
     if (SA_ACTIVE.has(run.state)) {
       host.classList.add("is-pending");
-      host.textContent = t("运行中…");
+      host.textContent = "运行中…";
     } else if (!body.trim() || run.state === "empty") {
       host.classList.add("is-pending");
-      host.textContent = run.state === "empty" ? t("子代理未给出回答") : run.state === "interrupted" ? t("无结果(轮次中断)") : "—";
+      host.textContent = run.state === "empty" ? "子代理未给出回答" : run.state === "interrupted" ? "无结果(轮次中断)" : "—";
     } else {
       const json = run.schema ? parseJsonish(body) : null;
       if (json && typeof json === "object") host.appendChild(renderJsonTree(json));
@@ -1139,26 +1137,26 @@ export async function subagentStop(run) {
   try {
     // R-174:单条停止通道——只停这一条,不停整轮(不调 stop_run)。
     await invoke("stop_task", { projectDir: currentProject, processId, taskId: String(run.id) });
-    toast(t("已请求停止该子代理"));
+    toast("已请求停止该子代理");
   } catch (error) {
     if (run.state === "stopping") run.state = previous;
     renderSubagentCard(run);
     notify(run);
-    toastError(`${t("停止失败")}:${error}`);
+    toastError(`${"停止失败"}:${error}`);
   }
 }
 
 export async function subagentCopyResult(run) {
   const text = resultBody(run).trim();
   if (!text) {
-    toast(t("没有可复制的内容"));
+    toast("没有可复制的内容");
     return;
   }
   try {
     await navigator.clipboard.writeText(text);
-    toast(t("已复制结果"));
+    toast("已复制结果");
   } catch (error) {
-    toastError(`${t("复制失败")}:${error}`);
+    toastError(`${"复制失败"}:${error}`);
   }
 }
 
@@ -1167,7 +1165,7 @@ export function subagentLocate(run) {
   const card = run?.cardEl;
   const pane = card?.closest?.(".msg-pane");
   if (!card || card.isConnected === false || !pane || pane !== activePane) {
-    toast(t("该子代理已滚出当前视图"));
+    toast("该子代理已滚出当前视图");
     return false;
   }
   // 跳到旧内容 = 用户明确在读某一处,不再跟随最新(同聊天搜索命中)。
@@ -1188,9 +1186,9 @@ export function subagentCopyText(el) {
     const run = card._saRun;
     if (!run) continue;
     const who = [subagentAgentName(run), run.description].filter(Boolean).join("  ");
-    const lines = [`> ${t("子代理")}:${who}`, `> ${subagentMetaText(run)}`];
+    const lines = [`> ${"子代理"}:${who}`, `> ${subagentMetaText(run)}`];
     const result = resultBody(run).trim();
-    if (result) lines.push(`> ${t("结果")}:${result.slice(0, 400).split("\n").join("\n> ")}`);
+    if (result) lines.push(`> ${"结果"}:${result.slice(0, 400).split("\n").join("\n> ")}`);
     parts.push(lines.join("\n"));
   }
   return parts.join("\n\n");
@@ -1237,12 +1235,12 @@ export function updateSubagentRow(row, run) {
   const label = subagentAgentName(run);
   ui.agent.textContent = label;
   ui.agent.className = `sa-agent${label ? "" : " hidden"}`;
-  ui.desc.textContent = run.description || t("子代理");
+  ui.desc.textContent = run.description || "子代理";
   ui.desc.title = run.description;
   updateSubagentRowMeta(row, run);
   // 可访问名与卡片同一口径:只随状态/身份变化重写,不带逐秒变化的耗时(焦点停在行上时读屏不反复播报);
   // 终态的计数不再变化,带上。
-  const aria = [[label, run.description].filter(Boolean).join(" "), subagentStateWord(run.state) || t("运行中"), SA_ACTIVE.has(run.state) ? "" : ui.meta.textContent]
+  const aria = [[label, run.description].filter(Boolean).join(" "), subagentStateWord(run.state) || "运行中", SA_ACTIVE.has(run.state) ? "" : ui.meta.textContent]
     .filter(Boolean).join(" — ");
   if (ui.aria !== aria) {
     ui.aria = aria;
@@ -1265,7 +1263,7 @@ export function subagentGlyph(run) {
 function announce(run) {
   const host = $("sa-announcer");
   if (!host) return;
-  host.textContent = [t("子代理"), subagentAgentName(run), run.description, subagentStateWord(run.state)].filter(Boolean).join(" ");
+  host.textContent = ["子代理", subagentAgentName(run), run.description, subagentStateWord(run.state)].filter(Boolean).join(" ");
 }
 
 /// 切语言:卡片与展开区里的文案在渲染点经 t() 产出,切换后按当前语言重画一遍。

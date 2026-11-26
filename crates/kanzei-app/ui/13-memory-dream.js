@@ -1,7 +1,6 @@
 import { $, defer } from "./00-dom.js";
 import { openMenu } from "./00-surface.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { memoryProject } from "./03-memory-scope.js";
 import { activeProcessId, currentProject, toast, toastError } from "./03-shell.js";
 import { processName } from "./12-session-tree.js";
@@ -19,8 +18,8 @@ async function dream(project, processId) {
     void refreshMemoryJobStatus();
     const result = await work;
     const status = result?.report?.status;
-    if (status === "failed") toastError(result?.report?.stopped_reason || t("做梦失败，来源已保留"));
-    else toast(({ completed: t("做梦完成，候选记忆待确认"), busy: t("已有整理作业在运行"), cancelled: t("整理已停止，可继续"), incomplete: t("整理未完成，可继续"), interrupted: t("上次整理中断，可继续") })[status] || t("做梦失败，来源已保留"));
+    if (status === "failed") toastError(result?.report?.stopped_reason || "做梦失败，来源已保留");
+    else toast(({ completed: "做梦完成，候选记忆待确认", busy: "已有整理作业在运行", cancelled: "整理已停止，可继续", incomplete: "整理未完成，可继续", interrupted: "上次整理中断，可继续" })[status] || "做梦失败，来源已保留");
     if (memoryProject === project) document.dispatchEvent(new CustomEvent("kz:memory-review", { detail: { project } }));
   } catch (error) { toastError(String(error)); }
   finally {
@@ -37,11 +36,11 @@ export async function chooseDreamConversation() {
     if (memoryProject !== project) return;
     const items = conversations.filter(item => item.session_id).map(item => ({
       label: processName(item),
-      desc: project === currentProject && item.id === activeProcessId ? t("当前对话") : undefined,
+      desc: project === currentProject && item.id === activeProcessId ? "当前对话" : undefined,
       onSelect: () => void dream(project, item.id),
     }));
-    if (!items.length) { toast(t("这个项目还没有可做梦的对话")); return; }
-    openMenu($("memory-dream"), [{ heading: t("选择做梦的来源对话") }, ...items], { placement: "bottom-end", label: t("做梦") });
+    if (!items.length) { toast("这个项目还没有可做梦的对话"); return; }
+    openMenu($("memory-dream"), [{ heading: "选择做梦的来源对话" }, ...items], { placement: "bottom-end", label: "做梦" });
   } catch (error) { toastError(String(error)); }
   finally { pending.delete(project); syncDream(); }
 }

@@ -29,17 +29,14 @@ export function rememberConversationMode(mode) {
     setLayoutPref("prefs", "conversation_mode", mode); flushLayout();
   });
 }
-export function syncGeneralChatView(view = document.body.dataset.view, translate = text => text) {
+export function syncGeneralChatView(view = document.body.dataset.view) {
   const general = document.body.dataset.space === "dev-auto" && isGeneralChat();
   document.body.dataset.generalChat = String(general);
   const autonomous = document.querySelector('#profile-select option[value="dev-auto"]');
   if (autonomous) autonomous.hidden = general;
   document.getElementById("workbench-general-chat")?.classList.toggle("active", general && !isChannelConversation() && view === "chat");
   const name = document.getElementById("project-space-name");
-  if (general && !isChannelConversation() && view === "chat" && name) name.textContent = translate("无项目对话");
+  if (general && !isChannelConversation() && view === "chat" && name) name.textContent = "无项目对话";
   const label = document.getElementById("new-chat")?.querySelector("span");
-  if (label) {
-    const key = document.body.dataset.space === "research" ? "新建课题对话" : "新对话";
-    label.dataset.i18nKey = key; label.textContent = translate(key);
-  }
+  if (label) label.textContent = "新对话";
 }

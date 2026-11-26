@@ -12,41 +12,25 @@ const frontendOnly = classifyChangedPaths(["crates/kanzei-app/ui/01-core.js"]);
 assert.equal(frontendOnly.run_frontend, true);
 assert.equal(frontendOnly.run_rust, false);
 assert(VERIFY_CHECKS.filter(check => check.inputs === "frontend").every(check => !frontendOnly.skipped_steps.includes(check.key)), "shared runtime changes select every frontend suite");
-assert(frontendOnly.skipped_steps.includes("metrics_build"));
 assert(frontendOnly.skipped_steps.includes("artifact_lifecycle"));
 
 const selectedKeys = file => classifyChangedPaths([file]).checks.map(check => check.key);
-const sharedGeometry = selectedKeys("crates/kanzei-app/fixtures/preview-geometry.json");
-assert(sharedGeometry.includes("test"), "shared geometry fixtures must run native Rust tests");
-assert(sharedGeometry.includes("ui_runtime"), "shared geometry fixtures must run the frontend consumer");
-const contextStyle = selectedKeys("crates/kanzei-app/ui/context.css");
-assert(contextStyle.includes("context_inspection"));
-for (const unrelated of ["ui_backdrop", "ui_surfaces", "ui_math_browser", "artifact_lifecycle", "metrics_build", "ipc_signatures", "verify_policy"]) assert(!contextStyle.includes(unrelated), `context styles do not trigger ${unrelated}`);
-assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math_browser"));
-assert(selectedKeys("scripts/ui-math-browser-smoke.mjs").includes("ui_math_browser"), "editing a test always selects itself");
-for (const file of ["crates/kanzei-app/ui/26-work-map.js", "crates/kanzei-app/ui/work-map.css", "crates/kanzei-app/ui/26-work-tree.js", "scripts/ui-work-map-smoke.mjs"]) {
-  assert(selectedKeys(file).includes("ui_work_map"), "the integrated goal map remains in scoped and full verification");
-}
-for (const file of ["resource", "markdown", "i18n", "tool-summary", "structured-render", "delivery", "side-policy", "experience"]) {
-  assert(selectedKeys("scripts/tests/browser-contracts/" + file + ".mjs").includes("ui_browser_contracts"), "each browser domain selects its containing suite");
-}
-for (const file of ["state.test", "session-identity.test", "surface.test", "permission.test", "run-control.test", "schedules.test", "schedule-notification.test", "schedules-fixture"]) {
-  assert(selectedKeys("scripts/tests/ownership/" + file + ".mjs").includes("ui_state_ownership"), "each state domain and shared fixture selects its containing suite");
+assert(selectedKeys("crates/kanzei-app/ui/04-math.js").includes("ui_math"));
+assert(selectedKeys("scripts/ui-math-smoke.mjs").includes("ui_math"), "editing a test always selects itself");
+for (const file of ["state.test", "session-identity.test", "surface.test", "permission.test", "run-control.test"]) {
+  assert(selectedKeys("scripts/tests/ownership/" + file + ".mjs").includes("ui_state_ownership"), "each state domain selects its containing suite");
 }
 assert(selectedKeys("scripts/tests/verification/package-tags.mjs").includes("verify_policy"));
 assert(selectedKeys("scripts/package.ps1").includes("verify_policy"));
-assert(selectedKeys("scripts/tests/verification/metrics-gate.mjs").includes("metrics_regression"));
 const stateOwnership = VERIFY_CHECKS.find(check => check.key === "ui_state_ownership");
 assert(stateOwnership.args.includes("scripts/ui-state-ownership-smoke.mjs"), "state ownership key must execute state ownership tests");
-assert(VERIFY_CHECKS.find(check => check.key === "ui_design_audit_repairs").args.includes("scripts/ui-design-audit-repairs-smoke.mjs"), "browser audit remains independently covered");
-assert(selectedKeys("scripts/metrics-regression-gate.ps1").includes("metrics_build"), "selected checks bring their producer dependencies");
 assert(!selectedKeys("docs/design/memory_system.md").includes("ipc_signatures"));
 
 const rustOnly = classifyChangedPaths(["crates/kanzei-core/src/lib.rs"]);
 assert.equal(rustOnly.run_frontend, false);
 assert.equal(rustOnly.run_rust, true);
 assert(rustOnly.checks.some(check => check.key === "test"));
-assert(rustOnly.skipped_steps.includes("ui_runtime"));
+assert(rustOnly.skipped_steps.includes("ui_state_ownership"));
 for (const input of ["package.json", "package-lock.json", "npm-shrinkwrap.json", ".npmrc"]) {
   assert.equal(classifyChangedPaths([input]).run_frontend, true, `${input} changes frontend execution`);
 }
@@ -60,45 +44,13 @@ for (const check of VERIFY_CHECKS) {
 }
 assert.throws(() => validateCheckRegistry([VERIFY_CHECKS[0], VERIFY_CHECKS[0]]), /duplicate/);
 assert.throws(() => validateCheckRegistry([{ ...VERIFY_CHECKS[0], depends_on: ["future"] }]), /precede/);
-const runtimeSource = fs.readFileSync(new URL("./ui-runtime-smoke.mjs", import.meta.url), "utf8");
-assert(!/await import\(["']\.\/ui-[^"']*(?:smoke|regressions)\.mjs["']\)/.test(runtimeSource), "runtime gate must not hide independent verification suites");
 for (const environment of ["local", "ci"]) {
   const commands = VERIFY_CHECKS.map(check => JSON.stringify([check.program, ...(environment === "ci" ? check.ci_args ?? check.args : check.args)]));
   assert.equal(new Set(commands).size, commands.length, `${environment} must not register the same command twice`);
 }
 
-// ── 分区:架构图 ──(UI2-0926 #7:ui_diagram 步的路径触发)
-// 只改一般设计文档:只跑图门禁(文档里的图只判能渲染、安全、点击映射),Rust 与其余前端步都跳过。
-const docsOnly = classifyChangedPaths(["docs/design/memory_system.md"]);
-assert.equal(docsOnly.run_diagram, true);
-assert.equal(docsOnly.run_frontend, false);
-assert.equal(docsOnly.run_rust, false);
-assert.ok(!docsOnly.skipped_steps.includes("ui_diagram"), "改 docs 下的 markdown 必须跑 ui_diagram");
-assert.ok(docsOnly.skipped_steps.includes("ui_runtime") && docsOnly.skipped_steps.includes("test"));
-// 复核修复:只改 docs/architecture 的图也要跑 Rust 测试(D1–D9 lint 在 Rust 侧读真实文件),
-// 否则只改文档时引入的 lint error 要等到后面某个无关的 Rust 提交才暴露。
-const archDoc = classifyChangedPaths(["docs/architecture/01_runtime_loop.md"]);
-assert.equal(archDoc.run_diagram, true);
-assert.equal(archDoc.run_rust, true, "改 docs/architecture 的图必须跑 Rust 测试(lint)");
-assert.ok(!archDoc.skipped_steps.includes("test") && !archDoc.skipped_steps.includes("ui_diagram"));
-assert.equal(archDoc.run_frontend, false);
-// lint 拆到 arch_diagram_lint.rs 之后同样触发图门禁。
-assert.equal(classifyChangedPaths(["crates/kanzei-tools/src/arch_diagram_lint.rs"]).run_diagram, true);
-// 改 ui/*.js:全部前端步连同图门禁一起跑(渲染器、样式都在 ui/)。
-assert.equal(frontendOnly.run_diagram, true);
-assert.ok(!frontendOnly.skipped_steps.includes("ui_diagram"));
-// 只改一般 Rust 源码:不跑图门禁;改的是 crate 图生成器(或它的 golden)才跑。
-assert.equal(rustOnly.run_diagram, false);
-const generator = classifyChangedPaths(["crates/kanzei-tools/src/arch_diagram.rs"]);
-assert.equal(generator.run_rust, true);
-assert.equal(generator.run_diagram, true);
-assert.ok(!generator.skipped_steps.includes("ui_diagram"));
-const golden = classifyChangedPaths(["crates/kanzei-tools/tests/fixtures/arch_diagram/crates_full.mmd"]);
-assert.equal(golden.run_diagram, true);
-// 非 markdown 的 docs 资产与仓库根 README 不触发。
-assert.equal(classifyChangedPaths(["docs/assets/x.png", "README.md"]).run_diagram, false);
-assert.ok(VERIFY_STEP_KEYS.includes("ui_diagram"), "全量证据必须含 ui_diagram");
-// ── 分区:架构图 结束 ──
+assert.ok(VERIFY_STEP_KEYS.includes("test"), "全量证据必须含 test");
+assert.ok(VERIFY_STEP_KEYS.includes("ui_lint"), "全量证据必须含 ui_lint");
 
 const full = classifyChangedPaths(["README.md"], { full: true });
 assert.equal(full.mode, "full");
@@ -131,7 +83,7 @@ for (const invalid of [null, "", "pass 0.1s", "fail 0.1s", {}, { status: "pass",
 }
 assert.match(validateFullVerification({ ...evidence, schema_version: 1 }, "abc123"), /schema_version/);
 const missingChild = structuredClone(evidence);
-delete missingChild.checks.ui_browser_contracts;
+delete missingChild.checks.ui_state_ownership;
 assert.match(validateFullVerification(missingChild, "abc123"), /缺少步骤/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, command: ["node", "irrelevant.mjs"] } } }, "abc123"), /执行命令/);
 assert.match(validateFullVerification({ ...evidence, checks: { ...checks, test: { ...checks.test, log_path: "../outside.log" } } }, "abc123"), /日志证据/);

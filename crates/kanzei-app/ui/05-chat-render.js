@@ -9,7 +9,6 @@ import { appendDisplayBlock, compactDiffLines, quotaNoticeHeadline, quotaTruncat
 import { openTasksPanel } from "./06-agent-panel.js";
 import { $ } from "./00-dom.js";
 import { activePane, promptBox, appendToPane, messages, renderingBackground, trimLivePane } from "./01-chat-panes.js";
-import { t } from "./02-i18n.js";
 import { activeSessionId, currentAssistant, currentReasoning, lastRequest, log } from "./03-shell.js";
 import { renderMarkdownInto } from "./04-markdown.js";
 import { appendLinkedText, resourceIcon, resourceType } from "./04-resource-types.js";
@@ -126,7 +125,7 @@ export function renderUserContent(body, value) {
   if (lead) appendLinkedText(body, `${lead}\n\n`);
   const quotedConversation = source.source.kind === "conversation" ? parseJsonish(source.content) : null;
   const details = document.createElement("details"); details.className = "message-file-content";
-  const name = quotedConversation ? t("引用的对话") : String(source.source.location || t("附件"));
+  const name = quotedConversation ? "引用的对话" : String(source.source.location || "附件");
   const summary = document.createElement("summary"); summary.append(resourceIcon(name), document.createTextNode(name));
   const content = document.createElement("pre"); content.textContent = String(quotedConversation?.transcript ?? source.content);
   details.append(summary, content); body.append(details);
@@ -136,7 +135,7 @@ export function labelMessageSource(element, origin) {
   element.dataset.origin = origin;
   if (origin === "human" || origin === "assistant") return;
   const label = document.createElement("div"); label.className = "message-source";
-  label.textContent = t(messageSourceLabels[origin] || messageSourceLabels.unspecified);
+  label.textContent = messageSourceLabels[origin] || messageSourceLabels.unspecified;
   element.prepend(label);
 }
 export function addMessage(cls, text) {
@@ -191,7 +190,7 @@ export function addErrorMessage(message, { retryable = false } = {}) {
   const level = document.createElement("strong");
   level.className = "error-level";
   const levelKey = contextOverflow ? "可压缩重试" : retryable ? "可重试错误" : "致命错误";
-  level.textContent = t(levelKey);
+  level.textContent = levelKey;
   // R-140 批1:记录级别 key,语言切换时由渲染点重算(同 copy-btn)。
   level.dataset.i18nKey = levelKey;
   // UI-0926 #10:provider 的 HTTP 错误体/错误链拆成人话消息 + chips + 原因链,原文留在
@@ -205,11 +204,11 @@ export function addErrorMessage(message, { retryable = false } = {}) {
     const retry = document.createElement("button");
     retry.className = "retry-btn";
     retry.type = "button";
-    retry.textContent = t("重试上一次请求");
+    retry.textContent = "重试上一次请求";
     retry.addEventListener("click", () => {
       if (activeSessionId !== sessionId) return;
       retry.disabled = true;
-      retry.textContent = t("正在重试…");
+      retry.textContent = "正在重试…";
       sendText(request.prompt, { promptAttachments: request.attachments });
     });
     actions.appendChild(retry);
@@ -223,9 +222,9 @@ export function markPreviousRunErrors(sessionId) {
     const body = el.querySelector(".message-body"), level = body?.querySelector(".error-level");
     if (!body || !level) continue;
     el.classList.add("historical-error");
-    level.textContent = t("上次运行失败"); level.dataset.i18nKey = "上次运行失败";
+    level.textContent = "上次运行失败"; level.dataset.i18nKey = "上次运行失败";
     const details = document.createElement("details"), summary = document.createElement("summary");
-    summary.textContent = t("查看失败详情"); summary.dataset.i18nKey = "查看失败详情"; details.append(summary);
+    summary.textContent = "查看失败详情"; summary.dataset.i18nKey = "查看失败详情"; details.append(summary);
     for (const child of [...body.childNodes]) if (child !== level) details.append(child);
     body.append(details);
     // A retry action belongs to that failed request; a new run has superseded it.
@@ -239,7 +238,7 @@ export function isRetryableError(message) {
 
 export function reportError(message, { retryable = isRetryableError(message) } = {}) {
   addErrorMessage(message, { retryable });
-  log(`${t("错误")}:${message}`, "err");
+  log(`${"错误"}:${message}`, "err");
 }
 
 export let outputChars = 0;
@@ -443,8 +442,8 @@ export function appendActivityNotice(parent) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ghost mini tool-display-more";
-  button.textContent = t("去活动面板看全");
-  button.title = t("去活动面板看全");
+  button.textContent = "去活动面板看全";
+  button.title = "去活动面板看全";
   button.addEventListener("click", (event) => {
     event.stopPropagation();
     // UI2-0926 #14:只打开、不切换——此前复用 rail 开关的 click,侧栏已开着时反而把它关掉(缺陷 C)。
@@ -482,7 +481,7 @@ export function buildToolBlock(name, input) {
   result.className = "tool-msg-result hidden";
   head.append(icon, toolIconNode(name), label, arg, result);
   // 可访问名带上参数;“展开或收起”只进 aria-label,绝不进可见文本。
-  head.setAttribute("aria-label", `${name} ${summary} — ${t("展开或收起工具详情")}`);
+  head.setAttribute("aria-label", `${name} ${summary} — ${"展开或收起工具详情"}`);
   const detail = document.createElement("div");
   detail.className = "tool-msg-detail hidden";
   head.addEventListener("click", () => {
@@ -575,7 +574,7 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
     const chip = document.createElement("span");
     chip.className = "sv-chip sv-code";
     chip.textContent = summary.code;
-    chip.title = t("错误码");
+    chip.title = "错误码";
     block.detail.appendChild(chip);
   }
   appendDisplayBlock(block.detail, display, { compact: true });
@@ -584,13 +583,13 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   if (display?.kind === "pending_question" && typeof display.question === "string") {
     block.icon.textContent = "⏸";
     block.summaryBase = null;
-    block.result.textContent = `${t("待用户回答")}: ${display.question}`;
+    block.result.textContent = `${"待用户回答"}: ${display.question}`;
     // UX-145:提问真正的作答入口是「待我处理」(对话里没有提问卡);工具行只剩一句截断的问题时,用户不知道去哪答——
     // 给一个直达按钮。下面的「回复此问题」只是把问题引用进输入框,并不解除模型的等待。
     const answer = document.createElement("button");
     answer.type = "button";
     answer.className = "ghost mini pending-question-answer";
-    answer.textContent = t("去「待我处理」回答");
+    answer.textContent = "去「待我处理」回答";
     answer.addEventListener("click", () => {
       document.dispatchEvent(new CustomEvent("kz:open-work-inbox", { cancelable: true }));
     });
@@ -598,11 +597,11 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
     const reply = document.createElement("button");
     reply.type = "button";
     reply.className = "pending-question-reply";
-    reply.textContent = t("回复此问题");
+    reply.textContent = "回复此问题";
     reply.addEventListener("click", () => {
       const options = (Array.isArray(display.options) ? display.options : []).map((option) =>
         typeof option === "string" ? option : [option.label, option.note].filter(Boolean).join(": "));
-      const context = [display.question, ...options, `${t("我的补充")}: `].join("\n");
+      const context = [display.question, ...options, `${"我的补充"}: `].join("\n");
       promptBox.value = [promptBox.value.trim(), context].filter(Boolean).join("\n\n");
       promptBox.dispatchEvent(new Event("input", { bubbles: true }));
       promptBox.focus();
@@ -619,7 +618,7 @@ export function fillToolBlock(block, { ok, outcome, code, content, preview, cont
   if (rest.trim() && !quota && !terminalShown) {
     const pre = document.createElement("pre");
     pre.className = "tool-msg-raw";
-    pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${t("已截断")})` : rest;
+    pre.textContent = rest.length > 8000 ? `${rest.slice(0, 8000)}\n…(${"已截断"})` : rest;
     block.detail.appendChild(pre);
   }
   // 完整入参:键值表(路径成 chip、命令成代码块、多行说明折叠),原始 JSON 在 dataset.raw。
@@ -685,7 +684,7 @@ export function appendCitations(citations, target = currentAssistant) {
   section.className = "hosted-citations";
   const heading = document.createElement("div");
   heading.className = "hosted-citations-title";
-  heading.textContent = t("引用来源");
+  heading.textContent = "引用来源";
   const list = document.createElement("ol");
   for (const entry of safeEntries) {
     const item = document.createElement("li");
@@ -756,9 +755,9 @@ export function buildReasoningBlock(raw) {
   const head = document.createElement("button");
   head.type = "button";
   head.className = "reasoning-head";
-  head.setAttribute("aria-label", t("展开或收起思考过程"));
+  head.setAttribute("aria-label", "展开或收起思考过程");
   head.setAttribute("aria-expanded", "false");
-  head.textContent = `  ${t("思考中…")}`;
+  head.textContent = `  ${"思考中…"}`;
   const body = document.createElement("div");
   body.className = "reasoning-body md hidden";
   body.dataset.raw = raw;
@@ -805,7 +804,7 @@ export function renderReasoningBlock(body) {
   const expandable = lines.length > 1;
   const wrap = body.parentElement;
   if (wrap) wrap.hidden = !expandable;
-  head.textContent = `  ${preview || t("思考中…")}${expandable ? `(${t("点击展开")})` : ""}`;
+  head.textContent = `  ${preview || "思考中…"}${expandable ? `(${"点击展开"})` : ""}`;
   head.classList.toggle("expandable", expandable);
   if (!expandable) head.setAttribute("aria-expanded", "false");
 }
@@ -854,7 +853,7 @@ export function chatAbortRunning(pane = activePane) {
     block.wrap.classList.add("interrupted");
     block.wrap.dataset.toolOutcome = "interrupted";
     block.icon.textContent = "⏹";
-    block.result.textContent = `⎿ ${t("无结果(轮次中断)")}`;
+    block.result.textContent = `⎿ ${"无结果(轮次中断)"}`;
     block.result.classList.remove("hidden");
     syncToolGroupOf(block);
   }
@@ -965,16 +964,16 @@ function toolRowState(row) {
 const countWord = (n, many, one) => (n === 1 ? one : fillTemplate(many, { n }));
 /// 族措辞:按 toolGroupEntry 的组归族,读/写按不同文件计数,其余按次数。
 const TOOL_GROUP_WORDS = {
-  read: (n) => countWord(n, t("读取 {n} 个文件"), t("读取 1 个文件")),
-  write: (n) => countWord(n, t("修改 {n} 个文件"), t("修改 1 个文件")),
-  exec: (n) => countWord(n, t("运行 {n} 条命令"), t("运行 1 条命令")),
-  search: (n) => countWord(n, t("搜索 {n} 次"), t("搜索 1 次")),
-  vcs: (n) => countWord(n, t("Git 操作 {n} 次"), t("Git 操作 1 次")),
-  net: (n) => countWord(n, t("联网 {n} 次"), t("联网 1 次")),
-  tracker: (n) => countWord(n, t("条目操作 {n} 次"), t("条目操作 1 次")),
-  plan: (n) => countWord(n, t("工作队列 {n} 次"), t("工作队列 1 次")),
-  memory: (n) => countWord(n, t("记忆操作 {n} 次"), t("记忆操作 1 次")),
-  other: (n) => countWord(n, t("调用工具 {n} 次"), t("调用工具 1 次")),
+  read: (n) => countWord(n, "读取 {n} 个文件", "读取 1 个文件"),
+  write: (n) => countWord(n, "修改 {n} 个文件", "修改 1 个文件"),
+  exec: (n) => countWord(n, "运行 {n} 条命令", "运行 1 条命令"),
+  search: (n) => countWord(n, "搜索 {n} 次", "搜索 1 次"),
+  vcs: (n) => countWord(n, "Git 操作 {n} 次", "Git 操作 1 次"),
+  net: (n) => countWord(n, "联网 {n} 次", "联网 1 次"),
+  tracker: (n) => countWord(n, "条目操作 {n} 次", "条目操作 1 次"),
+  plan: (n) => countWord(n, "工作队列 {n} 次", "工作队列 1 次"),
+  memory: (n) => countWord(n, "记忆操作 {n} 次", "记忆操作 1 次"),
+  other: (n) => countWord(n, "调用工具 {n} 次", "调用工具 1 次"),
 };
 /// 纯函数:entries = [{ name, state, argText }] → { label, fail, warn, interrupted, running, text }。
 /// label 不含失败/待修正(它们单独着色、不被省略号截掉);text 是完整可读句子(aria-label 与组 body 的名字)。
@@ -1002,9 +1001,9 @@ export function toolGroupSummary(entries) {
     const current = running[running.length - 1];
     label = running.length === 1
       ? `${current.name}${current.argText ? ` ${current.argText}` : ""}`
-      : fillTemplate(t("{n} 个工具运行中"), { n: running.length });
+      : fillTemplate("{n} 个工具运行中", { n: running.length });
     const done = list.length - running.length;
-    if (done > 0) label += `  ${fillTemplate(t("已完成 {n}"), { n: done })}`;
+    if (done > 0) label += `  ${fillTemplate("已完成 {n}", { n: done })}`;
   } else {
     const words = [...families.entries()].map(([family, bucket]) => {
       const perFile = family === "read" || family === "write";
@@ -1012,11 +1011,11 @@ export function toolGroupSummary(entries) {
       return TOOL_GROUP_WORDS[family](n);
     });
     label = words.slice(0, 3).join("  ");
-    if (words.length > 3) label += `  ${fillTemplate(t("等 {n} 次调用"), { n: list.length })}`;
-    if (interrupted) label += `  ${fillTemplate(t("{n} 中断"), { n: interrupted })}`;
+    if (words.length > 3) label += `  ${fillTemplate("等 {n} 次调用", { n: list.length })}`;
+    if (interrupted) label += `  ${fillTemplate("{n} 中断", { n: interrupted })}`;
   }
-  const failText = fail ? `  ${fail === 1 ? t("1 次调用异常") : fillTemplate(t("{n} 次调用异常"), { n: fail })}` : "";
-  const warnText = warn ? `  ${fillTemplate(t("{n} 待修正"), { n: warn })}` : "";
+  const failText = fail ? `  ${fail === 1 ? "1 次调用异常" : fillTemplate("{n} 次调用异常", { n: fail })}` : "";
+  const warnText = warn ? `  ${fillTemplate("{n} 待修正", { n: warn })}` : "";
   const text = [label, failText, warnText].filter(Boolean).join(" ");
   return { label, fail, warn, interrupted, running: running.length, failText, warnText, text };
 }
@@ -1043,7 +1042,7 @@ export function syncToolGroup(group) {
   parts.warn.classList.toggle("hidden", !summary.warn);
   if (summary.running) group.dataset.running = "1";
   else delete group.dataset.running;
-  parts.head.setAttribute("aria-label", `${summary.text} — ${t("展开或收起工具组")}`);
+  parts.head.setAttribute("aria-label", `${summary.text} — ${"展开或收起工具组"}`);
   parts.body.setAttribute("aria-label", summary.text);
 }
 /// 切语言:组标签在渲染点经 t() 产出,全部重算一遍(06-activity.js syncDynamicUiLanguage 调用)。

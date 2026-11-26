@@ -5,7 +5,6 @@ import { $ } from "./00-dom.js";
 import { activePane, messages } from "./01-chat-panes.js";
 import { invoke } from "./00-ipc.js";
 import { setSessionDetails } from "./00-session-state.js";
-import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -159,8 +158,8 @@ export function renderHarnessIntensity() {
     ? "无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。"
     : "无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。";
   chip.setAttribute("title", autonomous
-    ? t("无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。")
-    : t("无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。"));
+    ? "无监管模式已开启：自动继续工作，执行需求与批次验收，遇到需要你决定的事项会等待。"
+    : "无监管模式已关闭：按你的消息执行，可使用工具、子代理和 Skills；设置 Goal 后继续完成目标。");
 }
 
 // 自动推进状态**槽位化**:轮次(数)/阶段(状态机)/原因(为什么停)各占各的元素。
@@ -191,13 +190,13 @@ export function renderAutoRun() {
   bar.classList.toggle("armed", armed);
   // #7:轮次上升时 tick 一次;无参重绘值不变,不会重复触发。
   motionCount($("auto-round-now"), String(autoRounds));
-  $("auto-phase").textContent = t(AUTO_PHASE_LABEL[phase]);
+  $("auto-phase").textContent = AUTO_PHASE_LABEL[phase];
   // UI2-0926 #11:「N 轮 · 阶段 ⌄」就是自动推进设置的触发器(状态即入口)。未开时它收成纯箭头,读屏名只剩「自动推进设置」;
   // 开着时名字带上轮次与阶段(推进中阶段字被 CSS 收起,读屏仍读得到)。名字由这里写,静态 data-i18n-* 摘掉——
   // 否则切语言时 applyDataI18nKeys 会把它冲回静态键。
   // 只在名字变了时写:title 可能正被悬停提示层接管(挪进 data-kz-tip),每次重绘都写回会冒出原生提示。
   const trigger = $("autorun-more");
-  const label = armed ? `${t("自动推进设置")}  ${t("推进轮次")} ${autoRounds}  ${t(AUTO_PHASE_LABEL[phase])}` : t("自动推进设置");
+  const label = armed ? `${"自动推进设置"}  ${"推进轮次"} ${autoRounds}  ${AUTO_PHASE_LABEL[phase]}` : "自动推进设置";
   if (trigger && trigger.dataset.kzLabel !== label) {
     trigger.dataset.kzLabel = label;
     delete trigger.dataset.i18nTitle;
@@ -210,7 +209,7 @@ export function renderAutoRun() {
   // 原因槽:一次性提示优先(无动作/验收核查/未续跑),否则显示停机原因;推进中不显示。
   const reason = autoHint || (["off", "idle", "paused"].includes(phase) ? autoStopReason : "");
   const el = $("auto-status");
-  el.textContent = reason ? localizeDynamic(reason) : "";
+  el.textContent = reason ? reason : "";
   el.classList.toggle("hidden", !reason);
   el.classList.toggle("ok", Boolean(reason) && !autoHint && auto_stop_kind === "completed");
   // 「模型在等你回答」时不给「继续自动推进」:自动推进本来就开着,该做的是回答;点它等于绕过问题接着跑(复核 minor)。
@@ -319,8 +318,8 @@ export function renderGoalState() {
   if (!hint) return;
   const goal = currentGoalText().trim();
   hint.textContent = goal
-    ? t("目标挂着:模型判定达成前不停;连续推不动会自动停")
-    : t("留空 = 按有无实质动作决定是否继续");
+    ? "目标挂着:模型判定达成前不停;连续推不动会自动停"
+    : "留空 = 按有无实质动作决定是否继续";
 }
 export function syncAutoRunState(patch) {
   if (!activeSessionId) return;

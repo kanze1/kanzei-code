@@ -2,7 +2,6 @@ import { openMenu } from "./00-surface.js";
 import { defer } from "./00-dom.js";
 import { $ } from "./00-dom.js";
 import { inputDialog } from "./00-dialogs.js";
-import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, navigate_view, processItems, reasoningLabel, toast } from "./03-shell.js";
 import {
   MANUAL_MODEL_PATTERN,
@@ -32,21 +31,21 @@ const ROLE_IDS = new Set(["primary", "fast", "compact"]);
 
 export function sourceLabel(source) {
   return {
-    line: t("临时"),
-    project: t("项目级"),
-    global: t("全局"),
-    builtin: t("内置"),
-    agent: t("Agent"),
+    line: "临时",
+    project: "项目级",
+    global: "全局",
+    builtin: "内置",
+    agent: "Agent",
   }[source] ?? "";
 }
 
 function sourceHint(source) {
   return {
-    line: t("仅当前对话生效,清除后跟随项目/全局默认"),
-    project: t("来自本项目的模型配置"),
-    global: t("来自全局默认(设置页)"),
-    builtin: t("未配置,使用内置默认"),
-    agent: t("由当前 Agent 定义指定"),
+    line: "仅当前对话生效,清除后跟随项目/全局默认",
+    project: "来自本项目的模型配置",
+    global: "来自全局默认(设置页)",
+    builtin: "未配置,使用内置默认",
+    agent: "由当前 Agent 定义指定",
   }[source] ?? "";
 }
 
@@ -62,58 +61,58 @@ function chip({ label, source = null, pendingState = false, error = false, title
 
 // 还没打开任何项目:没有「下一轮」可言。芯片给中性占位,不挂在途态(否则会永远停在「…」)。
 function idleChip(label) {
-  return chip({ label, source: null, title: t("先在左侧「项目」里添加并选择一个目录") });
+  return chip({ label, source: null, title: "先在左侧「项目」里添加并选择一个目录" });
 }
 
 // 模型芯片的文字/来源/提示。纯函数,冒烟直接调。
 export function modelChipText(view, { pending: isPending = false, error = null, optimistic = null, noProject = false } = {}) {
-  if (noProject) return idleChip(t("模型"));
+  if (noProject) return idleChip("模型");
   if (optimistic && typeof optimistic.model === "string" && optimistic.model) {
-    const text = `${t("下一轮将使用")} ${optimistic.model}  ${t("来源")} ${sourceLabel("line")}`;
+    const text = `${"下一轮将使用"} ${optimistic.model}  ${"来源"} ${sourceLabel("line")}`;
     return chip({ label: optimistic.model, source: "line", pendingState: true, title: text });
   }
   if (!view) {
-    if (error) return chip({ label: t("模型解析失败"), source: null, error: true, title: error });
-    return chip({ label: t("模型"), source: "pending", pendingState: true, title: t("正在确认下一轮使用的模型…") });
+    if (error) return chip({ label: "模型解析失败", source: null, error: true, title: error });
+    return chip({ label: "模型", source: "pending", pendingState: true, title: "正在确认下一轮使用的模型…" });
   }
   const model = view.model ?? {};
   if (isPending || (optimistic && optimistic.model === "")) {
     // 切线/清除覆盖的在途期:保留上一次的文字但不再声称来源,免得把上一条线的临时值当成这一条的。
-    return chip({ label: model.resolved ?? t("模型"), source: "pending", pendingState: true, title: t("正在确认下一轮使用的模型…") });
+    return chip({ label: model.resolved ?? "模型", source: "pending", pendingState: true, title: "正在确认下一轮使用的模型…" });
   }
   if (!model.resolved) {
-    return chip({ label: t("模型解析失败"), source: model.source, error: true, title: model.error ?? "" });
+    return chip({ label: "模型解析失败", source: model.source, error: true, title: model.error ?? "" });
   }
-  const follows = model.followsPrimary ? `  ${t("跟随 primary")}` : "";
-  const title = `${t("下一轮将使用")} ${model.resolved}  ${t("来源")} ${sourceLabel(model.source)}${follows}\n${sourceHint(model.source)}`;
+  const follows = model.followsPrimary ? `  ${"跟随 primary"}` : "";
+  const title = `${"下一轮将使用"} ${model.resolved}  ${"来源"} ${sourceLabel(model.source)}${follows}\n${sourceHint(model.source)}`;
   const fastMode = view.codexFastMode;
   const fast = fastMode?.active
-    ? { title: `Codex Fast mode ${t("已开启")}  ${sourceLabel(fastMode.source)}` }
+    ? { title: `Codex Fast mode ${"已开启"}  ${sourceLabel(fastMode.source)}` }
     : null;
   return chip({
     label: model.resolved,
     source: model.source,
     title: fast ? `${title}\n${fast.title}` : title,
-    aria: `${t("下一轮将使用")} ${model.resolved},${t("来源")} ${sourceLabel(model.source)}`,
+    aria: `${"下一轮将使用"} ${model.resolved},${"来源"} ${sourceLabel(model.source)}`,
     fast,
   });
 }
 
 export function reasoningChipText(view, { pending: isPending = false, optimistic = null, noProject = false } = {}) {
-  const prefix = t("思考");
+  const prefix = "思考";
   if (noProject) return idleChip(prefix);
   if (optimistic && typeof optimistic.reasoning === "string" && optimistic.reasoning) {
     const label = `${prefix} ${reasoningLabel(optimistic.reasoning)}`;
     return chip({ label, source: "line", pendingState: true, title: label });
   }
-  if (!view?.reasoning) return chip({ label: `${prefix} …`, source: "pending", pendingState: true, title: t("思考强度(仅推理模型有效;越高越慢越贵)") });
+  if (!view?.reasoning) return chip({ label: `${prefix} …`, source: "pending", pendingState: true, title: "思考强度(仅推理模型有效;越高越慢越贵)" });
   if (isPending || (optimistic && optimistic.reasoning === "")) {
-    return chip({ label: `${prefix} ${reasoningLabel(view.reasoning.value)}`, source: "pending", pendingState: true, title: t("正在确认下一轮使用的模型…") });
+    return chip({ label: `${prefix} ${reasoningLabel(view.reasoning.value)}`, source: "pending", pendingState: true, title: "正在确认下一轮使用的模型…" });
   }
   const { value, source } = view.reasoning;
   const label = `${prefix} ${reasoningLabel(value)}`;
-  const title = `${t("下一轮将使用")} ${label}  ${t("来源")} ${sourceLabel(source)}\n${sourceHint(source)}\n${t("思考强度(仅推理模型有效;越高越慢越贵)")}`;
-  return chip({ label, source, title, aria: `${label},${t("来源")} ${sourceLabel(source)}` });
+  const title = `${"下一轮将使用"} ${label}  ${"来源"} ${sourceLabel(source)}\n${sourceHint(source)}\n${"思考强度(仅推理模型有效;越高越慢越贵)"}`;
+  return chip({ label, source, title, aria: `${label},${"来源"} ${sourceLabel(source)}` });
 }
 
 function fillChip(button, spec) {
@@ -155,8 +154,8 @@ export function renderModelPicker() {
 function fastModeHeading(view) {
   const fast = view?.codexFastMode;
   if (!fast) return "⚡ Codex Fast mode";
-  if (!fast.applies) return `⚡ Codex Fast mode  ${t("不适用(当前模型不是 Codex)")}`;
-  return `⚡ Codex Fast mode  ${fast.enabled ? t("开") : t("关")}  ${sourceLabel(fast.source)}`;
+  if (!fast.applies) return `⚡ Codex Fast mode  ${"不适用(当前模型不是 Codex)"}`;
+  return `⚡ Codex Fast mode  ${fast.enabled ? "开" : "关"}  ${sourceLabel(fast.source)}`;
 }
 
 // 模型菜单的项(纯函数,冒烟直接调)。选择项带 value(""=跟随默认),动作项带 action。
@@ -168,11 +167,11 @@ export function buildModelPickerItems(view, catalog = [], manual = [], showAll =
   const line = onLine ? String(lineModel || model?.ref || "") : "";
   const items = [];
   const defaultDesc = fallback?.resolved
-    ? `${fallback.resolved}  ${sourceLabel(fallback.source)}${fallback.followsPrimary ? `  ${t("跟随 primary")}` : ""}`
-    : `${t("模型解析失败")}${fallback?.error ? `  ${fallback.error}` : ""}`;
-  items.push({ label: t("跟随默认"), desc: defaultDesc, checked: !onLine, value: "" });
+    ? `${fallback.resolved}  ${sourceLabel(fallback.source)}${fallback.followsPrimary ? `  ${"跟随 primary"}` : ""}`
+    : `${"模型解析失败"}${fallback?.error ? `  ${fallback.error}` : ""}`;
+  items.push({ label: "跟随默认", desc: defaultDesc, checked: !onLine, value: "" });
   items.push("separator");
-  items.push({ heading: t("指定模型(仅当前对话)") });
+  items.push({ heading: "指定模型(仅当前对话)" });
   const seen = new Set();
   const addChoice = (id, desc) => {
     if (!id || seen.has(id)) return;
@@ -182,24 +181,24 @@ export function buildModelPickerItems(view, catalog = [], manual = [], showAll =
   // 旧版按角色存下的本线值(例如 fast):单列一项并选中,方便一键清除。
   if (onLine && ROLE_IDS.has(line)) {
     seen.add(line);
-    items.push({ label: `${line} → ${model?.resolved ?? "?"}`, desc: t("旧版按角色保存的当前对话值"), checked: true, value: line });
+    items.push({ label: `${line} → ${model?.resolved ?? "?"}`, desc: "旧版按角色保存的当前对话值", checked: true, value: line });
   }
   const direct = (catalog || []).map((entry) => entry?.id).filter((id) => id && !ROLE_IDS.has(id));
   if (showAll) for (const id of direct) addChoice(id);
   else addChoice(fallback?.resolved);
   if (onLine && !ROLE_IDS.has(line)) addChoice(line);
-  for (const id of manual || []) addChoice(id, t("手填"));
-  if (!showAll && direct.some((id) => !seen.has(id))) items.push({ label: t("显示全部探测模型…"), action: "show-all" });
-  items.push({ label: t("＋ 手填模型…"), action: "manual" });
+  for (const id of manual || []) addChoice(id, "手填");
+  if (!showAll && direct.some((id) => !seen.has(id))) items.push({ label: "显示全部探测模型…", action: "show-all" });
+  items.push({ label: "＋ 手填模型…", action: "manual" });
   items.push("separator");
   items.push({ heading: fastModeHeading(view) });
   items.push("separator");
   const role = promotableRole(view);
   if (onLine && role && model?.resolved) {
-    items.push({ label: t("设为本项目默认"), desc: `${role} = ${model.resolved}`, action: "promote" });
+    items.push({ label: "设为本项目默认", desc: `${role} = ${model.resolved}`, action: "promote" });
   }
-  items.push({ label: t("项目模型配置…"), action: "project" });
-  items.push({ label: t("全局默认…"), action: "global" });
+  items.push({ label: "项目模型配置…", action: "project" });
+  items.push({ label: "全局默认…", action: "global" });
   return items;
 }
 
@@ -209,19 +208,19 @@ export function buildReasoningPickerItems(view) {
   const onLine = current?.source === "line";
   const items = [];
   items.push({
-    label: t("跟随默认"),
+    label: "跟随默认",
     desc: fallback ? `${reasoningLabel(fallback.value)}  ${sourceLabel(fallback.source)}` : "",
     checked: !onLine,
     value: "",
   });
   items.push("separator");
-  items.push({ heading: t("指定档位(仅当前对话)") });
+  items.push({ heading: "指定档位(仅当前对话)" });
   for (const level of REASONING_LEVELS) {
     items.push({ label: reasoningLabel(level), checked: onLine && current?.value === level, value: level });
   }
   items.push("separator");
-  if (onLine) items.push({ label: t("设为本项目默认"), desc: `reasoning = ${reasoningLabel(current.value)}`, action: "promote" });
-  items.push({ label: t("项目模型配置…"), action: "project" });
+  if (onLine) items.push({ label: "设为本项目默认", desc: `reasoning = ${reasoningLabel(current.value)}`, action: "promote" });
+  items.push({ label: "项目模型配置…", action: "project" });
   return items;
 }
 
@@ -234,11 +233,11 @@ function openGlobalDefaults() {
 
 async function chooseManualModel() {
   const input = ((await inputDialog({
-    title: t("填 provider:model,例如 deepseek:deepseek-chat"),
+    title: "填 provider:model,例如 deepseek:deepseek-chat",
   })) || "").trim();
   // provider 名必须对得上配置里的键,否则后端 resolve_model 会直接失败。
   if (!MANUAL_MODEL_PATTERN.test(input)) {
-    if (input) toast(t("格式应为 provider:model"));
+    if (input) toast("格式应为 provider:model");
     return;
   }
   await addManualModel(input);
@@ -302,7 +301,7 @@ export function openPicker(kind, { showAll = false } = {}) {
     : { ...spec, onSelect: () => void choose(kind, spec) }));
   const handle = openMenu(anchor, items, {
     placement: "top-start",
-    label: kind === "reasoning" ? t("思考强度") : t("模型"),
+    label: kind === "reasoning" ? "思考强度" : "模型",
     onClose: () => {
       if (menuHandle === handle) menuHandle = null;
     },

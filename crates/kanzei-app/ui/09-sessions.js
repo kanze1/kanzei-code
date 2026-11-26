@@ -11,7 +11,6 @@ import { setActiveProcessId, setActiveSessionId } from "./03-shell.js";
 import { $ } from "./00-dom.js";
 import { confirmDialog, inputDialog } from "./00-dialogs.js";
 import { invoke } from "./00-ipc.js";
-import { localizeDynamic, localizedStage, t } from "./02-i18n.js";
 import { layoutPref, setLayoutPref } from "./03-layout.js";
 import { fillTemplate } from "./04-structured-parse.js";
 import {
@@ -94,7 +93,7 @@ export async function refreshWorktrees() {
   const forProject = currentProject;
   let live = [];
   try { live = await invoke("worktree_list", { projectDir: forProject }); }
-  catch (error) { log(`${t("工作树清单读取失败")}:${error}`, "warn"); }
+  catch (error) { log(`${"工作树清单读取失败"}:${error}`, "warn"); }
   if (currentProject !== forProject) return;
   renderWorktrees(live);
 }
@@ -108,18 +107,18 @@ export async function handleWorktreeAction(item, action) {
   try {
     if (action === "diff") {
       if (item.clean) {
-        toast(t("工作树干净,没有未提交差异"));
+        toast("工作树干净,没有未提交差异");
       } else {
         const file_list = item.files.join("\n");
-        const diff = item.diff?.trim() || t("未跟踪文件尚未包含在 git diff 中");
-        log(`${item.branch}\n${t("文件列表")}:\n${file_list}\n\n${t("实际差异")}:\n${diff}`, "info");
-        toast(t("工作树差异已写入运行日志"), { action: { label: t("查看日志"), onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
+        const diff = item.diff?.trim() || "未跟踪文件尚未包含在 git diff 中";
+        log(`${item.branch}\n${"文件列表"}:\n${file_list}\n\n${"实际差异"}:\n${diff}`, "info");
+        toast("工作树差异已写入运行日志", { action: { label: "查看日志", onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
       }
       return;
     }
     if (action === "harvest") {
       if (!item.bound_process) {
-        toastError(t("该工作树没有绑定独立任务，不能合并收尾"));
+        toastError("该工作树没有绑定独立任务，不能合并收尾");
         return;
       }
       if (item.bound_process !== activeProcessId) await switchProcess(item.bound_process);
@@ -129,11 +128,11 @@ export async function handleWorktreeAction(item, action) {
         ?.querySelector(".line-harvest-toggle")?.click();
       return;
     }
-    if (action === "discard" && !(await confirmDialog({ title: t("放弃工作树"), message: `${item.branch}？${t("未提交改动会阻止删除并保留现场")}` }))) return;
+    if (action === "discard" && !(await confirmDialog({ title: "放弃工作树", message: `${item.branch}？${"未提交改动会阻止删除并保留现场"}` }))) return;
     const result = await invoke("worktree_discard", { projectDir: forProject, worktreePath: item.path });
     if (String(result).length > 160) {
       log(String(result), "info");
-      toast(t("工作树操作完成，详细结果已写入运行日志"), { action: { label: t("查看日志"), onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
+      toast("工作树操作完成，详细结果已写入运行日志", { action: { label: "查看日志", onClick: () => { if ($("log-panel").classList.contains("hidden")) $("log-toggle").click(); } } });
     } else {
       toast(result);
     }
@@ -164,7 +163,7 @@ export function renderLinesWorktrees() {
   if (!worktreeItems.length) {
     const empty = document.createElement("div");
     empty.className = "doc-empty";
-    empty.textContent = t("暂无独立任务的工作树");
+    empty.textContent = "暂无独立任务的工作树";
     list.appendChild(empty);
     return;
   }
@@ -179,8 +178,8 @@ export function renderLinesWorktrees() {
     const meta = document.createElement("div");
     meta.className = "lines-worktree-meta";
     const bound = processItems.find((process) => process.id === item.bound_process);
-    const boundText = bound ? processName(bound) : t("未绑定独立任务");
-    meta.textContent = `${boundText}  ${item.clean ? t("干净") : `${item.files.length} ${t("项改动")}`}`;
+    const boundText = bound ? processName(bound) : "未绑定独立任务";
+    meta.textContent = `${boundText}  ${item.clean ? "干净" : `${item.files.length} ${"项改动"}`}`;
     meta.title = item.path;
     main.append(branch, meta);
     const actions = document.createElement("div");
@@ -199,13 +198,13 @@ export function renderLinesWorktrees() {
       }
       actions.appendChild(button);
     };
-    add(t("差异"), "lines-worktree-diff", () => handleWorktreeAction(item, "diff"), false, "");
+    add("差异", "lines-worktree-diff", () => handleWorktreeAction(item, "diff"), false, "");
     if (item.bound_process) {
-      add(t("合并收尾"), "worktree-harvest", () => handleWorktreeAction(item, "harvest"),
-        running, t("独立任务运行中，请先停止并等它收尾，才能操作工作树"));
+      add("合并收尾", "worktree-harvest", () => handleWorktreeAction(item, "harvest"),
+        running, "独立任务运行中，请先停止并等它收尾，才能操作工作树");
     }
-    add(t("放弃"), "worktree-discard", () => handleWorktreeAction(item, "discard"),
-      running, t("独立任务运行中，请先停止并等它收尾，才能操作工作树"));
+    add("放弃", "worktree-discard", () => handleWorktreeAction(item, "discard"),
+      running, "独立任务运行中，请先停止并等它收尾，才能操作工作树");
     row.append(main, actions);
     list.appendChild(row);
   }
@@ -242,9 +241,9 @@ export async function closeParallelProcess(processId) {
   // 要连对话一起删,用右键「删除对话…」(真删);弹窗必须把这两件事分清。确认框只点名,不露内部 id(UX-035)。
   const name = processName(item);
   const warning = `${runningNow
-    ? t("独立任务仍在运行，关闭会先停止它，等它收尾。")
-    : t("关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。")}\n${t("关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。")}`;
-  if (!(await confirmDialog({ title: t("关闭独立任务"), message: `「${name}」\n${warning}`, okText: t("关闭独立任务"), danger: true }))) return;
+    ? "独立任务仍在运行，关闭会先停止它，等它收尾。"
+    : "关闭只会注销这个独立任务的登记。已合并且干净的工作树会自动回收；有独有内容的工作树会保留。"}\n${"关闭后，可在搜索对话或历史中查看这段对话；要连对话一起删除，请用「删除对话…」。"}`;
+  if (!(await confirmDialog({ title: "关闭独立任务", message: `「${name}」\n${warning}`, okText: "关闭独立任务", danger: true }))) return;
   cancelAutoContinueTimer(item.session_id);
   const closingPhase = processRunning(item) ? sessionState(item.session_id).phase : null;
   if (closingPhase) transitionSession(item.session_id, "stopping");
@@ -263,10 +262,10 @@ export async function closeParallelProcess(processId) {
     if (closingActive && activeProcessId) await switchProcess(activeProcessId, true);
     refreshGit();
     // 后端回执只说处置结果(「已关闭」「已关闭,并回收…」),不带内部 id(UX-127):前面补上对话名。
-    toast(`「${name}」${result ? String(result) : t("已关闭")}`);
+    toast(`「${name}」${result ? String(result) : "已关闭"}`);
   } catch (error) {
     if (closingPhase && sessionState(item.session_id).phase === "stopping") transitionSession(item.session_id, closingPhase);
-    toastError(`${t("关闭独立任务失败")}:${error}`);
+    toastError(`${"关闭独立任务失败"}:${error}`);
   }
 }
 /// 任务卡的一行状态:字形 + 单个状态词。整表重绘(renderParallelTaskStatus)与逐事件投影
@@ -285,22 +284,22 @@ export function parallelTaskView(item) {
   // UX-146:这条线有权限请求在等你批准(排在队里没弹出来,或就是当前卡)。后端此刻仍算它「运行中」,
   // 线路行原先照写运行阶段——一条卡在批准上的线看起来和正常跑着的一样。批准等待优先于运行态显示。
   const askWaiting = (askQueues.get(item.session_id)?.length ?? 0) > 0 || askActive?.sessionId === item.session_id;
-  const label = state.phase === "unconfirmed" ? t("运行状态未确认") : askWaiting ? t("等你批准")
-    : stoppingNow ? t("停止中…")
-    : runningNow ? localizedStage(stage) || t("运行中")
-      : pendingNow ? t("鞭挞等待")
-        : waitingNow ? t("在等你回答")
-          : t("空闲");
+  const label = state.phase === "unconfirmed" ? "运行状态未确认" : askWaiting ? "等你批准"
+    : stoppingNow ? "停止中…"
+    : runningNow ? stage || "运行中"
+      : pendingNow ? "鞭挞等待"
+        : waitingNow ? "在等你回答"
+          : "空闲";
   const name = `${lineAuthorityLabel(item)}  ${processName(item)}${item.branch ? `  ${item.branch}` : ""}`;
   const title = askWaiting
-    ? `${name}\n${t("有权限请求在等你批准,切到这个对话处理")}`
+    ? `${name}\n${"有权限请求在等你批准,切到这个对话处理"}`
     : runningNow
-    ? `${name}\n${[localizedStage(stage) || t("运行中"), state.detail].filter(Boolean).join("  ")}`
+    ? `${name}\n${[stage || "运行中", state.detail].filter(Boolean).join("  ")}`
     : pendingNow
-      ? `${name}\n${t("等待下一轮")}`
+      ? `${name}\n${"等待下一轮"}`
       : waitingNow
-        ? `${name}\n${t("模型在等你回答(回复后自动继续)")}`
-        : `${name}\n${t("点击切换到此对话")}`;
+        ? `${name}\n${"模型在等你回答(回复后自动继续)"}`
+        : `${name}\n${"点击切换到此对话"}`;
   return { runningNow: runningNow && !askWaiting, pendingNow, stoppingNow, waitingNow: waitingNow || askWaiting, label, title };
 }
 /// 后端轮询回报的阶段补进会话状态机(实时事件还没到时的兜底):研究空间的会话列表与侧栏运行态点都读它。
@@ -321,17 +320,17 @@ export function renderParallelTaskStatus(items) {
     return;
   }
   const processes = workspace_processes(items);
-  count.textContent = processes.length ? `${processes.length} ${t("条任务")}` : "";
+  count.textContent = processes.length ? `${processes.length} ${"条任务"}` : "";
   // UX-036:内容没变就不重建——3 秒一次的整块重建会丢掉行内的滚动位置、键盘焦点与展开中的历史列表。
   // 签名只含重建会改变的输入(身份、名字、状态词、活动线、界面语言);逐事件的状态投影照旧原地更新。
-  const signature = JSON.stringify([active_space, activeProcessId, t("历史对话"), processes.map((item) => {
+  const signature = JSON.stringify([active_space, activeProcessId, "历史对话", processes.map((item) => {
     adoptReportedStage(item);
     const view = parallelTaskView(item);
     return [item.id, processName(item), item.branch ?? "", lineAuthorityLabel(item), view.label, view.runningNow, view.pendingNow, view.stoppingNow, view.waitingNow];
   })]);
   if (processes.length && target._renderSignature === signature && target.firstChild) {
     for (const item of processes) {
-      if (item.id === activeProcessId && parallelTaskView(item).pendingNow) setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
+      if (item.id === activeProcessId && parallelTaskView(item).pendingNow) setRunPending(`${"鞭挞"}  ${"等待下一轮"}`);
     }
     return;
   }
@@ -341,7 +340,7 @@ export function renderParallelTaskStatus(items) {
     if (active_space === "research") {
       const empty = document.createElement("p");
       empty.className = "dim";
-      empty.textContent = t("暂无课题对话");
+      empty.textContent = "暂无课题对话";
       target.appendChild(empty);
     }
     return;
@@ -378,8 +377,8 @@ export function renderParallelTaskStatus(items) {
       close.type = "button";
       close.className = "icon-btn parallel-line-close";
       close.textContent = "×";
-      close.title = t("关闭独立任务");
-      close.setAttribute("aria-label", `${t("关闭独立任务")} ${processName(item)}`);
+      close.title = "关闭独立任务";
+      close.setAttribute("aria-label", `${"关闭独立任务"} ${processName(item)}`);
       close.addEventListener("click", (event) => {
         event.stopPropagation();
         void closeParallelProcess(item.id);
@@ -393,7 +392,7 @@ export function renderParallelTaskStatus(items) {
     target.appendChild(line);
     renderLineConversationHistory(item.id);
     if (item.id === activeProcessId && view.pendingNow) {
-      setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
+      setRunPending(`${"鞭挞"}  ${"等待下一轮"}`);
     }
   }
 }
@@ -416,13 +415,13 @@ export function refreshParallelTaskProjection(sessionId) {
   // 开发空间的会话行在侧栏树里:等你回答 / 鞭挞等待 / 停止中这类相位变化要立刻落到那一行的运行态点上(不等 3 秒轮询)。
   syncSessionActivity();
   if (item.id === activeProcessId && pendingNow) {
-    setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
+    setRunPending(`${"鞭挞"}  ${"等待下一轮"}`);
   } else if (item.id === activeProcessId && stoppingNow) {
-    setStopping(t("停止中…"));
+    setStopping("停止中…");
   } else if (item.id === activeProcessId && running !== runningNow) {
     syncedRunningProcessId = item.id;
     syncedRunningState = runningNow;
-    setRunning(runningNow, runningNow ? t("运行中") : t("空闲"));
+    setRunning(runningNow, runningNow ? "运行中" : "空闲");
   }
 }
 /// #7:线路行状态 = 行首独立的字形节点(.kz-glyph,只呼吸)+ 行尾的状态词(.parallel-task-state)。
@@ -545,10 +544,10 @@ export function renderProcesses(items, queryId = null) {
   ) {
     syncedRunningProcessId = activeProcessId;
     syncedRunningState = activeRunning;
-    setRunning(activeRunning, activeRunning ? t("运行中") : activeTerminalStatus || t("空闲"));
+    setRunning(activeRunning, activeRunning ? "运行中" : activeTerminalStatus || "空闲");
   }
-  if (activeStopping) setStopping(t("停止中…"));
-  if (activePending) setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
+  if (activeStopping) setStopping("停止中…");
+  if (activePending) setRunPending(`${"鞭挞"}  ${"等待下一轮"}`);
   for (const item of workspace_processes(processItems)) adoptReportedStage(item);
   renderParallelTaskStatus(processItems);
   // 侧栏会话树与历史弹层随进程列表更新(内容签名不变就不重建,见 12-session-tree.js)。
@@ -580,7 +579,7 @@ export async function refreshProcesses({ force = false } = {}) {
       const items = await invoke("process_list", { projectDir: forProject });
       if (currentProject === forProject) renderProcesses(items, queryId);
     } catch (err) {
-      if (currentProject === forProject) log(`${t("对话列表刷新失败")}:${err}`, "warn");
+      if (currentProject === forProject) log(`${"对话列表刷新失败"}:${err}`, "warn");
     } finally {
       processRefreshInFlight.delete(forProject);
     }
@@ -611,7 +610,7 @@ export async function refreshPendingAsks() {
     pumpAsk();
   } catch (err) {
     if (askSyncedSession === forSession) askSyncedSession = null;
-    log(`${t("待处理权限询问恢复失败")}:${err}`, "warn");
+    log(`${"待处理权限询问恢复失败"}:${err}`, "warn");
   }
 }
 
@@ -658,9 +657,9 @@ export async function switchProcess(processId, forceReload = false) {
   pumpAsk();
   // R-086:运行态投影自该会话的状态机(后台终态已收敛),不直接信 processItems
   // 的瞬时轮询值——事件先到状态机,切回时看到的才是准的。
-  if (sessionState(target.session_id).phase === "stopping") setStopping(t("停止中…"));
-  else if (sessionState(target.session_id).phase === "auto_pending") setRunPending(`${t("鞭挞")}  ${t("等待下一轮")}`);
-  else setRunning(processRunning(target), processRunning(target) ? t("运行中") : t("空闲"));
+  if (sessionState(target.session_id).phase === "stopping") setStopping("停止中…");
+  else if (sessionState(target.session_id).phase === "auto_pending") setRunPending(`${"鞭挞"}  ${"等待下一轮"}`);
+  else setRunning(processRunning(target), processRunning(target) ? "运行中" : "空闲");
   renderProcesses(processItems);
   document.dispatchEvent(new CustomEvent("kz:conversation-selected"));
   // 不在请求发出前清空消息:切线期间保留旧内容,等目标线程的历史完整恢复后
@@ -677,7 +676,7 @@ export async function switchProcess(processId, forceReload = false) {
   if (!isGeneralChat()) void refreshGit(activeProcessId);
   refreshPendingInputs();
   void refreshProcesses();
-  log(`${t("已切换到对话")} ${processName(target)}`);
+  log(`${"已切换到对话"} ${processName(target)}`);
 }
 
 defer(() => {
@@ -686,7 +685,7 @@ defer(() => {
     try {
       await create_workspace_process(active_space === "research" ? project_workspace().research.topic : null);
     } catch (err) {
-      toastError(`${t("新建对话失败")}:${err}`);
+      toastError(`${"新建对话失败"}:${err}`);
     }
   });
 });
@@ -702,21 +701,21 @@ export function renderSubagentControl() {
   toggle.value = mode;
   toggle.disabled = !active || pending;
   $("process-subagents-wrap").setAttribute("aria-busy", String(pending));
-  $("process-subagents-value").textContent = !active ? t("未选对话") : pending ? t("保存中…")
-    : processRunning(active) ? t("下轮生效") : t(mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需");
+  $("process-subagents-value").textContent = !active ? "未选对话" : pending ? "保存中…"
+    : processRunning(active) ? "下轮生效" : (mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需");
   const runs = active ? subagentRunsFor(active.session_id) : [];
   const live = runs.filter((run) => SA_ACTIVE.has(run.state));
   const waiting = live.filter((run) => run.state === "waiting").length;
   const stopping = live.filter((run) => run.state === "stopping").length;
   const executing = live.length - waiting - stopping;
   const stateLabels = [];
-  if (executing) stateLabels.push(fillTemplate(t("{count} 运行"), { count: executing }));
-  if (stopping) stateLabels.push(fillTemplate(t("{count} 停止中"), { count: stopping }));
-  if (waiting) stateLabels.push(fillTemplate(t("{count} 等待批准"), { count: waiting }));
+  if (executing) stateLabels.push(fillTemplate("{count} 运行", { count: executing }));
+  if (stopping) stateLabels.push(fillTemplate("{count} 停止中", { count: stopping }));
+  if (waiting) stateLabels.push(fillTemplate("{count} 等待批准", { count: waiting }));
   const last = runs[runs.length - 1];
   const status = $("subagent-control-state");
   const nextText = stateLabels.join("  ") || (last
-    ? fillTemplate(t("最近: {state}"), { state: subagentStateWord(last.state) }) : t("未派遣"));
+    ? fillTemplate("最近: {state}", { state: subagentStateWord(last.state) }) : "未派遣");
   if (status.textContent !== nextText) status.textContent = nextText;
   status.title = nextText;
   status.dataset.state = waiting ? "waiting" : stopping ? "stopping" : executing ? "running"
@@ -739,9 +738,9 @@ defer(() => {
       // 写入前发出的列表可能迟到；先等它收敛,再以成功回执更新这条线。
       await processRefreshInFlight.get(project);
       updateLocalProcessItem(processId, { subagent_mode: mode });
-      if (activeProcessId === processId) log(`${t("子代理")}: ${t(mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需")}`);
+      if (activeProcessId === processId) log(`${"子代理"}: ${mode === "off" ? "关闭" : mode === "ultra" ? "积极协作" : "按需"}`);
     } catch (err) {
-      toastError(`${t("更新对话设置失败")}:${err}`);
+      toastError(`${"更新对话设置失败"}:${err}`);
       // 失败后重读实际状态,兼容后端已更新内存但落盘失败的情况。
       await processRefreshInFlight.get(project);
       if (currentProject === project) await refreshProcesses();
@@ -783,12 +782,12 @@ export async function reportIsolationAcrossProjects() {
   try {
     const report = await invoke("projects_isolation_report");
     for (const path of report.autoRepaired ?? []) {
-      log(`${t("已为本项目建立独立空间")}:${path}`);
+      log(`${"已为本项目建立独立空间"}:${path}`);
     }
     const shared = report.shared ?? [];
     if (shared.length) {
       log(
-        `${t("以下项目仍与上级目录共用数据,切过去可一键分离")}:` +
+        `${"以下项目仍与上级目录共用数据,切过去可一键分离"}:` +
           shared.map((s) => `${s.project} → ${s.resolved}`).join("；"),
         "warn",
       );
@@ -811,7 +810,7 @@ export async function checkProjectIsolation() {
   }
   if (generation !== isolationCheckGeneration || currentProject !== project) return;
   // 无损修复过就只留一行日志,不打扰——用户看到的内容没有任何变化。
-  if (info.autoRepaired) log(`${t("已为本项目建立独立空间")}:${info.selected}`);
+  if (info.autoRepaired) log(`${"已为本项目建立独立空间"}:${info.selected}`);
   box.classList.toggle("hidden", !info.shared);
   // 事实横幅在隔离告警在场时让位:告警显隐一变就重排一次。
   renderProjectFactsBanner();
@@ -822,24 +821,24 @@ export async function checkProjectIsolation() {
   }
   box.innerHTML = "";
   const text = document.createElement("div");
-  text.textContent = `${t("本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)")}:${info.resolved}`;
+  text.textContent = `${"本项目没有独立空间,正在使用上级目录的数据(与共用该上级的其它项目混在一起)"}:${info.resolved}`;
   const act = document.createElement("button");
   act.type = "button";
   act.className = "ghost mini";
-  act.textContent = t("在此建立独立空间");
-  act.title = t("只在本目录创建 .kanzei,不搬动上级目录的既有条目");
+  act.textContent = "在此建立独立空间";
+  act.title = "只在本目录创建 .kanzei,不搬动上级目录的既有条目";
   act.addEventListener("click", async () => {
     if (currentProject !== project) return;
     try {
       await invoke("project_detach", { projectDir: project });
       if (currentProject !== project) return;
-      toast(t("已建立独立空间"));
+      toast("已建立独立空间");
       await loadConversation();
       if (currentProject !== project) return;
       isolationReported = false; // 允许再体检一次,看还有没有别的项目共用
       checkProjectIsolation();
     } catch (err) {
-      toastError(`${t("建立独立空间失败")}:${err}`);
+      toastError(`${"建立独立空间失败"}:${err}`);
     }
   });
   box.append(text, act);
@@ -872,7 +871,7 @@ export function activate_execution_root(root) {
     setActiveProcessId(null);
     setActiveSessionId(null);
     setProcessItems([]);
-    setRunning(false, t("空闲"));
+    setRunning(false, "空闲");
     clearAutoNotices();
     sync_composer_scope();
     reset_files_scope();
@@ -887,7 +886,7 @@ export function activate_execution_root(root) {
 // 菜单只读偏好缓存,不调 workspace_snapshot:后者每个项目都要开库、跑 process_list、读轨迹,太重。
 export let lastProjectPrefs = { current: null, projects: [], names: {} };
 export function projectDisplayName(path, prefs = lastProjectPrefs) {
-  if (isGeneralChat(path)) return t("无项目对话");
+  if (isGeneralChat(path)) return "无项目对话";
   return prefs?.names?.[path] || baseName(path);
 }
 export function projectMenuEntries(prefs = lastProjectPrefs) {
@@ -910,12 +909,12 @@ function refreshWorkspaceIfOpen() {
 
 export async function renameProject(path, prefs = lastProjectPrefs) {
   const nextName = await inputDialog({
-    title: t("重命名项目"),
-    message: t("只修改在 kanzei 里的显示名,不会改磁盘上的文件夹名。"),
+    title: "重命名项目",
+    message: "只修改在 kanzei 里的显示名,不会改磁盘上的文件夹名。",
     value: projectDisplayName(path, prefs),
   });
   if (nextName === null) return;
-  if (!nextName.trim()) { toast(t("项目名称不能为空"), { kind: "warn" }); return; }
+  if (!nextName.trim()) { toast("项目名称不能为空", { kind: "warn" }); return; }
   try {
     renderProjects(await invoke("projects_rename", { path, name: nextName.trim() }), { activate: document.body.dataset.appScope !== "global" && document.body.dataset.view !== "project" });
     refreshWorkspaceIfOpen();
@@ -930,9 +929,9 @@ export async function removeProject(path, prefs = lastProjectPrefs) {
   // 不能被 enterProject 带到下一个项目记住的视图(实测落在对话页),留在总览页并刷新卡片。
   const wasOnOverview = Boolean($("view-workspace")?.classList.contains("active"));
   if (!(await confirmDialog({
-    title: t("移除项目"),
-    message: `「${name}」\n${t("只解除登记,不会删除磁盘上的任何文件;对话记录和需求仍保存在项目目录的 .kanzei 里,重新添加该文件夹即可找回。")}`,
-    okText: t("移除"),
+    title: "移除项目",
+    message: `「${name}」\n${"只解除登记,不会删除磁盘上的任何文件;对话记录和需求仍保存在项目目录的 .kanzei 里,重新添加该文件夹即可找回。"}`,
+    okText: "移除",
     danger: true,
   }))) return;
   try {
@@ -997,7 +996,7 @@ function syncNewProjectPreview() {
   const preview = $("new-project-preview");
   if (!preview) return;
   const target = $("new-project-path")?.value.trim();
-  preview.textContent = target ? fillTemplate(t("项目目录:{path}"), { path: target }) : "";
+  preview.textContent = target ? fillTemplate("项目目录:{path}", { path: target }) : "";
 }
 /// 错误条在标题正下方(小窗口里对话框会滚动,放在底部的错误看不见);`field` = 出错的输入框:标 aria-invalid、聚焦并滚进视野(UX-163)。
 function showNewProjectError(message, field = null) {
@@ -1054,24 +1053,24 @@ export function openNewProjectDialog() {
 }
 /// 创建完成后的一句反馈:Git 做到哪一步要说清(首提交需要本机 Git 身份;没有首提交就开不了并行线)。
 export function newProjectFeedback(result) {
-  if (result?.gitError) return { text: `${t("项目已建好,但 Git 初始化失败")}:${result.gitError}`, kind: "warn" };
-  if (result?.git?.committed) return { text: t("项目已建好:Git 已初始化并做了首次提交"), kind: "ok" };
+  if (result?.gitError) return { text: `${"项目已建好,但 Git 初始化失败"}:${result.gitError}`, kind: "warn" };
+  if (result?.git?.committed) return { text: "项目已建好:Git 已初始化并做了首次提交", kind: "ok" };
   if (result?.git?.identity_missing) {
-    return { text: t("项目已建好,Git 已初始化;本机还没有配置 Git 身份(user.name / user.email),没有做首次提交——新建独立任务要等第一次提交,配好身份后点页头下面横幅里的「首次提交」"), kind: "warn" };
+    return { text: "项目已建好,Git 已初始化;本机还没有配置 Git 身份(user.name / user.email),没有做首次提交——新建独立任务要等第一次提交,配好身份后点页头下面横幅里的「首次提交」", kind: "warn" };
   }
   if (result?.git?.commit_error) {
-    return { text: `${t("项目已建好,Git 已初始化,但首次提交没有成功")}:${String(result.git.commit_error).split("\n")[0]}`, kind: "warn" };
+    return { text: `${"项目已建好,Git 已初始化,但首次提交没有成功"}:${String(result.git.commit_error).split("\n")[0]}`, kind: "warn" };
   }
-  if (result?.git) return { text: t("项目已建好,Git 已初始化"), kind: "ok" };
-  return { text: t("项目已建好(没有初始化 Git)"), kind: "ok" };
+  if (result?.git) return { text: "项目已建好,Git 已初始化", kind: "ok" };
+  return { text: "项目已建好(没有初始化 Git)", kind: "ok" };
 }
 let newProjectSubmitting = false;
 export async function submitNewProject() {
   if (newProjectSubmitting) return;
   const name = $("new-project-name").value.trim();
   const path = $("new-project-path").value.trim();
-  if (!name) return showNewProjectError(t("项目名称不能为空"), "new-project-name");
-  if (!path) return showNewProjectError(t("请选择项目文件夹的完整路径"), "new-project-path");
+  if (!name) return showNewProjectError("项目名称不能为空", "new-project-name");
+  if (!path) return showNewProjectError("请选择项目文件夹的完整路径", "new-project-path");
   showNewProjectError("");
   const create = $("new-project-create");
   newProjectSubmitting = true;
@@ -1188,12 +1187,12 @@ export function gitFixActions(facts = projectFacts) {
   if (git?.state === "none" || git?.state === "parent") {
     const nested = git.state === "parent";
     return [
-      { id: "init-commit", label: t("初始化并首次提交"), primary: true, run: () => initProjectGit({ nested, commit: true }) },
-      { id: "init", label: t("仅初始化 Git"), run: () => initProjectGit({ nested }) },
+      { id: "init-commit", label: "初始化并首次提交", primary: true, run: () => initProjectGit({ nested, commit: true }) },
+      { id: "init", label: "仅初始化 Git", run: () => initProjectGit({ nested }) },
     ];
   }
   if (git?.state === "repo" && git.has_commits === false) {
-    return [{ id: "commit", label: t("首次提交"), primary: true, run: () => initProjectGit({ commit: true }) }];
+    return [{ id: "commit", label: "首次提交", primary: true, run: () => initProjectGit({ commit: true }) }];
   }
   return [];
 }
@@ -1229,13 +1228,13 @@ export function renderProjectFactsBanner(facts = projectFacts, project = current
   };
   const message = document.createElement("div");
   if (kind === "parent") {
-    message.textContent = fillTemplate(t("此目录位于上级仓库 {path} 内:kanzei 不会操作上级仓库,独立任务、提交与改动统计都不可用"), { path: facts.git.toplevel });
+    message.textContent = fillTemplate("此目录位于上级仓库 {path} 内:kanzei 不会操作上级仓库,独立任务、提交与改动统计都不可用", { path: facts.git.toplevel });
   } else if (kind === "no-git") {
-    message.textContent = t("此目录不是 Git 仓库:独立任务/工作树、提交与改动统计不可用");
+    message.textContent = "此目录不是 Git 仓库:独立任务/工作树、提交与改动统计不可用";
   } else if (kind === "no-commit") {
-    message.textContent = t("Git 已初始化但还没有提交:新建独立任务要等第一次提交");
+    message.textContent = "Git 已初始化但还没有提交:新建独立任务要等第一次提交";
   } else {
-    message.textContent = t("空项目:agent 会直接在这个目录里搭工程");
+    message.textContent = "空项目:agent 会直接在这个目录里搭工程";
   }
   text.appendChild(message);
   if (kind === "no-commit" && projectCommitNote?.project === project && projectCommitNote.text) {
@@ -1246,7 +1245,7 @@ export function renderProjectFactsBanner(facts = projectFacts, project = current
   }
   for (const fix of gitFixActions(facts)) action(fix.label, () => void fix.run(), { primary: fix.primary, ghost: !fix.primary });
   // 纯告知的两类(空项目、还没有提交)只有「知道了」;有风险/有动作的两类是「不再提示」。
-  action(kind === "greenfield" || kind === "no-commit" ? t("知道了") : t("不再提示"), () => {
+  action(kind === "greenfield" || kind === "no-commit" ? "知道了" : "不再提示", () => {
     setLayoutPref(FACTS_DISMISS, factsDismissKey(project, kind), true);
     renderProjectFactsBanner(facts, project);
   }, { ghost: true });
@@ -1257,12 +1256,12 @@ export function renderProjectFactsBanner(facts = projectFacts, project = current
 export function gitInitFeedback(result, { commit = false } = {}) {
   const git = result?.git ?? {};
   if (git.committed) {
-    return { text: git.created === false ? t("已完成首次提交:现在可以新建独立任务了") : t("已初始化 Git 并做了首次提交:现在可以新建独立任务了"), kind: "ok" };
+    return { text: git.created === false ? "已完成首次提交:现在可以新建独立任务了" : "已初始化 Git 并做了首次提交:现在可以新建独立任务了", kind: "ok" };
   }
-  if (git.identity_missing) return { text: t("Git 已初始化,但本机还没有配置 Git 身份,没法提交。在终端运行 git config --global user.name 你的名字 和 git config --global user.email 你的邮箱,再点「首次提交」"), kind: "warn", note: true };
-  if (git.commit_error) return { text: `${t("Git 已初始化,但首次提交没有成功")}\n${git.commit_error}`, kind: "err", note: true };
-  if (git.created === false && !commit) return { text: t("本项目已经是 Git 仓库,没有重复初始化"), kind: "info" };
-  return { text: t("已初始化 Git 仓库(还没有提交:第一次提交之后才能新建独立任务)"), kind: "ok" };
+  if (git.identity_missing) return { text: "Git 已初始化,但本机还没有配置 Git 身份,没法提交。在终端运行 git config --global user.name 你的名字 和 git config --global user.email 你的邮箱,再点「首次提交」", kind: "warn", note: true };
+  if (git.commit_error) return { text: `${"Git 已初始化,但首次提交没有成功"}\n${git.commit_error}`, kind: "err", note: true };
+  if (git.created === false && !commit) return { text: "本项目已经是 Git 仓库,没有重复初始化", kind: "info" };
+  return { text: "已初始化 Git 仓库(还没有提交:第一次提交之后才能新建独立任务)", kind: "ok" };
 }
 /// 横幅、阻断条与「无 Git」芯片共用的「初始化 Git」。位于上级仓库内时先确认(嵌套仓库合法,但要说清);
 /// `commit` = 「初始化并首次提交」(UX-128):非空项目会 git add -A,先把会提交什么说清,免得把 node_modules / 密钥一并提进去。
@@ -1270,13 +1269,13 @@ export async function initProjectGit({ nested = false, commit = false } = {}) {
   const project = currentProject;
   if (!project) return null;
   // 先说清要做什么再动手:嵌套仓库要解释一遍;非空项目首次提交会 git add -A。两件事同时要问时合成一个确认框。
-  const nestedNote = nested ? t("会在本项目目录里新建一个独立的 Git 仓库(嵌套在上级仓库里)。上级仓库不受影响,但它会把这个目录看成一个未跟踪的子仓库。") : "";
+  const nestedNote = nested ? "会在本项目目录里新建一个独立的 Git 仓库(嵌套在上级仓库里)。上级仓库不受影响,但它会把这个目录看成一个未跟踪的子仓库。" : "";
   const commitNote = commit && !(projectFactsFor === project && projectFacts?.layout === "greenfield")
-    ? t("会把这个目录里所有没被 .gitignore 忽略的文件提交进版本库(提交信息「初始化项目(kanzei)」)。请先确认 .gitignore 已排除 node_modules、target 这类大目录和不该入库的密钥文件。") : "";
+    ? "会把这个目录里所有没被 .gitignore 忽略的文件提交进版本库(提交信息「初始化项目(kanzei)」)。请先确认 .gitignore 已排除 node_modules、target 这类大目录和不该入库的密钥文件。" : "";
   if ((nestedNote || commitNote) && !(await confirmDialog({
-    title: nestedNote ? t("在此初始化独立仓库") : t("首次提交"),
-    message: `${[nestedNote, commitNote].filter(Boolean).join("\n\n")}\n${t("继续吗?")}`,
-    ...(commitNote ? { okText: nestedNote ? t("初始化并提交") : t("提交") } : {}),
+    title: nestedNote ? "在此初始化独立仓库" : "首次提交",
+    message: `${[nestedNote, commitNote].filter(Boolean).join("\n\n")}\n${"继续吗?"}`,
+    ...(commitNote ? { okText: nestedNote ? "初始化并提交" : "提交" } : {}),
   }))) return null;
   try {
     const result = await invoke("project_git_init", { projectDir: project, initialCommit: commit });
@@ -1292,7 +1291,7 @@ export async function initProjectGit({ nested = false, commit = false } = {}) {
     refreshGit();
     return result;
   } catch (err) {
-    toastError(`${t("初始化 Git 失败")}:${err}`);
+    toastError(`${"初始化 Git 失败"}:${err}`);
     return null;
   }
 }
@@ -1326,14 +1325,14 @@ export function openProjectMenu() {
       onSelect: () => void openProjectSpace(entry.path),
     })),
     ...(entries.length ? ["separator"] : []),
-    { label: t("添加项目文件夹…"), onSelect: () => void addProjectFolder() },
-    { label: t("新建项目…"), onSelect: () => void initProject() },
+    { label: "添加项目文件夹…", onSelect: () => void addProjectFolder() },
+    { label: "新建项目…", onSelect: () => void initProject() },
     "separator",
-    { label: t("所有项目"), onSelect: () => navigate_view("workspace") },
+    { label: "所有项目", onSelect: () => navigate_view("workspace") },
   ];
   const handle = openMenu(anchor, items, {
     placement: "bottom-start",
-    label: t("切换项目"),
+    label: "切换项目",
     onClose: () => {
       if (projectMenuHandle === handle) projectMenuHandle = null;
     },
@@ -1378,12 +1377,12 @@ export function renderProjects(prefs, { activate = true } = {}) {
   const projectLabel = $("project-label");
   const currentProjectLabel = prefs.current
     ? (prefs.names?.[prefs.current] || baseName(prefs.current))
-    : `(${localizeDynamic("未选择项目")})`;
+    : `(${"未选择项目"})`;
   projectLabel.textContent = currentProjectLabel;
-  projectLabel.title = prefs.current ?? localizeDynamic("未选择项目");
+  projectLabel.title = prefs.current ?? "未选择项目";
   projectLabel.setAttribute("aria-label", prefs.current
     ? `${currentProjectLabel}: ${prefs.current}`
-    : localizeDynamic("未选择项目"));
+    : "未选择项目");
   renderProjectSwitch(prefs);
   syncDocumentsProjectSelect(prefs);
   renderWorkbenchNavigation(prefs);
@@ -1398,7 +1397,7 @@ export function renderProjectSwitch(prefs) {
   const current = prefs?.current ?? null;
   nameEl.textContent = current
     ? (prefs.names?.[current] || baseName(current))
-    : localizeDynamic("未选择项目");
+    : "未选择项目";
   pathEl.textContent = current ?? "";
   pathEl.title = current ?? "";
 }
@@ -1474,7 +1473,7 @@ export function renderPendingInputs(items) {
   if (!userInputs.length) {
     const empty = document.createElement("div");
     empty.className = "queue-empty";
-    empty.textContent = t("暂无排队输入");
+    empty.textContent = "暂无排队输入";
     list.appendChild(empty);
     return;
   }
@@ -1490,8 +1489,8 @@ export function renderPendingInputs(items) {
     delivery.textContent = item.delivery === "steer" ? "steer" : "queue";
     const cancel = document.createElement("button");
     cancel.className = "queue-cancel";
-    cancel.textContent = t("撤销");
-    cancel.title = t("撤销这条排队输入");
+    cancel.textContent = "撤销";
+    cancel.title = "撤销这条排队输入";
     cancel.addEventListener("click", async () => {
       if (!isCurrent()) { void refreshPendingInputs(); return; }
       cancel.disabled = true;
@@ -1502,11 +1501,11 @@ export function renderPendingInputs(items) {
           processId: forProcess,
         });
         if (changed) {
-          toast(t("已撤销排队输入"));
+          toast("已撤销排队输入");
         }
         if (isCurrent()) await refreshPendingInputs();
       } catch (err) {
-        toastError(`${t("撤销失败")}:${err}`);
+        toastError(`${"撤销失败"}:${err}`);
       } finally {
         cancel.disabled = false;
       }
@@ -1538,7 +1537,7 @@ export async function refreshPendingInputs() {
     });
     if (isCurrent()) renderPendingInputs(items);
   } catch (err) {
-    if (isCurrent()) log(`${t("队列刷新失败")}:${err}`, "warn");
+    if (isCurrent()) log(`${"队列刷新失败"}:${err}`, "warn");
   }
 }
 

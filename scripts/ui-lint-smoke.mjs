@@ -11,7 +11,6 @@ import path from "node:path";
 const eslint = new ESLint();
 const results = await eslint.lintFiles([
   "crates/kanzei-app/ui/*.js",
-  "crates/kanzei-app/mobile-pwa/*.js", // R-292:mobile-pwa 入 ESLint 门禁
   "scripts/*.mjs",
 ]);
 const errors = [];
@@ -92,7 +91,7 @@ for (const { src } of uiSources) {
   for (const name of exportedNames(src)) allExported.add(name);
   for (const name of publishedNames(src)) allPublished.add(name);
 }
-if (allExported.size < 200 || !allPublished.has("log") || !allExported.has("t")) {
+if (allExported.size < 200 || !allPublished.has("log") || !allExported.has("navigate_view")) {
   console.error(`ESM 回归守卫取样异常:导出 ${allExported.size} 个、已发布 ${[...allPublished].join(",")}——清单可能静默退化`);
   process.exit(1);
 }

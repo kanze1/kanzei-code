@@ -3,8 +3,6 @@
 import "./00-console.js";
 import "./00-surface.js";
 import "./00-frame.js";
-import "./02-i18n.js";
-import "./02-language-ui.js";
 import "./03-shell.js";
 import "./03-layout.js";
 import "./03-workspaces.js";

@@ -17,9 +17,9 @@ defer(() => {
     const failures = eventSubscriptionState.failed;
     const uncertain = processItems.filter(item => sessionState(item.session_id).phase === "unconfirmed");
     banner.hidden = failures.length === 0 && uncertain.length === 0;
-    message.textContent = failures.length ? `${t("事件订阅失败")}: ${failures.map(item => `${item.event}: ${item.error}`).join("; ")}`
-      : `${t("运行状态未确认")}: ${uncertain.map(item => sessionState(item.session_id).detail).join("; ")}`;
-    retry.textContent = t("恢复运行事件"); retry.disabled = eventSubscriptionState.pending.length > 0;
+    message.textContent = failures.length ? `${"事件订阅失败"}: ${failures.map(item => `${item.event}: ${item.error}`).join("; ")}`
+      : `${"运行状态未确认"}: ${uncertain.map(item => sessionState(item.session_id).detail).join("; ")}`;
+    retry.textContent = "恢复运行事件"; retry.disabled = eventSubscriptionState.pending.length > 0;
   };
   retry.addEventListener("click", async () => {
     retry.disabled = true;
@@ -32,7 +32,7 @@ defer(() => {
   });
   onEventSubscriptionChange(paint);
   onSessionStateChange(sessionId => { refreshParallelTaskProjection(sessionId); paint(); });
-  document.addEventListener("kz:language", paint); paint();
+  paint();
 });
 import { setCurrentAssistant, setCurrentReasoning } from "./03-shell.js";
 import { setTurnPhase, turnPhase } from "./03-shell.js";
@@ -48,7 +48,6 @@ import { activePane, appendToPane, messages, promptBox, trimLivePane } from "./0
 import { isImeComposing } from "./00-ui-primitives.js";
 import { on } from "./01-runtime-events.js";
 import { invoke } from "./00-ipc.js";
-import { languageIsEnglish, localizeDynamic, localizedStage, t } from "./02-i18n.js";
 import {
   activeSessionId,
   clearRunPending,
@@ -161,7 +160,7 @@ defer(() => {
     log(`[${p.stage}] ${p.detail}`);
     // 状态事件按 sessionId 先进入会话状态机,后台线路也要能在侧栏逐条显示阶段。
     if (p.sessionId) renderParallelTaskStatus(processItems);
-    if (running && !/权限|permission/i.test(p.stage || "")) setStatus(`${localizedStage(p.stage)}  ${p.detail}`, true);
+    if (running && !/权限|permission/i.test(p.stage || "")) setStatus(`${p.stage}  ${p.detail}`, true);
   });
 });
 defer(() => {
@@ -181,7 +180,7 @@ defer(() => {
         void refreshEffectiveModel();
       }
     }
-    log(`${t("模型")} ${p.model}  agent ${p.agent}  profile ${p.profile}${p.contextLimit ? `  ${t("上下文上限")} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
+    log(`${"模型"} ${p.model}  agent ${p.agent}  profile ${p.profile}${p.contextLimit ? `  ${"上下文上限"} ${Math.round(p.contextLimit / 1000)}k` : ""}`);
   });
 });
 defer(() => {
@@ -198,9 +197,9 @@ defer(() => {
     }
     // 活动面板跨轮保留历史,由用户主动清空/切换项目时清理。
     setTurnPhase("waiting");
-    const roundLabel = languageIsEnglish() ? `Round ${p.step}${p.maxSteps > 0 ? `/${p.maxSteps}` : ""}` : p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
+    const roundLabel = p.maxSteps > 0 ? `第 ${p.step}/${p.maxSteps} 轮` : `第 ${p.step} 轮`;
     liveTurn(roundLabel);
-    if (running) setStatus(`${roundLabel}  ${t("等待模型")}`, true);
+    if (running) setStatus(`${roundLabel}  ${"等待模型"}`, true);
   });
 });
 defer(() => {
@@ -233,9 +232,9 @@ export function addCompactionEntry(summary) {
   const title = document.createElement("button");
   title.type = "button";
   title.className = "bg-title";
-  title.setAttribute("aria-label", t("展开或收起上下文压缩纪要"));
+  title.setAttribute("aria-label", "展开或收起上下文压缩纪要");
   title.setAttribute("aria-expanded", "true");
-  title.textContent = t("上下文压缩  点击查看纪要");
+  title.textContent = "上下文压缩  点击查看纪要";
   // UI-0926 #10:纪要本身是 markdown(标题/列表),按 markdown 渲染而不是原文堆字。
   const detail = document.createElement("div");
   detail.className = "bg-detail md sv-md";
@@ -259,7 +258,7 @@ export function renderContextDetail() {
   const total = tokens.input + tokens.cacheRead + tokens.cacheWrite + tokens.output;
   // UI-0926 #10:键值两列(标签 | 数值),不再用 innerHTML 拼 <br>。
   const title = document.createElement("strong");
-  title.textContent = t("上下文");
+  title.textContent = "上下文";
   const table = document.createElement("div");
   table.className = "sv-kv sv-context";
   const row = (labelText, value) => {
@@ -267,7 +266,7 @@ export function renderContextDetail() {
     line.className = "sv-kv-row";
     const key = document.createElement("span");
     key.className = "sv-k";
-    key.textContent = localizeDynamic(labelText);
+    key.textContent = labelText;
     const cell = document.createElement("span");
     cell.className = "sv-v sv-num";
     cell.textContent = typeof value === "number" ? `${value.toLocaleString()} tokens` : value;
@@ -285,11 +284,11 @@ export function renderContextDetail() {
   row("本轮输出", tokens.output);
   row("合计", total);
   const usage = document.createElement("details"), usageTitle = document.createElement("summary");
-  usageTitle.textContent = t("本轮累计用量"); usage.append(usageTitle, table);
+  usageTitle.textContent = "本轮累计用量"; usage.append(usageTitle, table);
   const manifest = document.createElement("section"); manifest.className = "context-manifest";
   const clear = document.createElement("button"); clear.type = "button"; clear.id = "context-clear"; clear.className = "ghost mini";
-  clear.textContent = t("清理上下文");
-  clear.title = t("开始新的上下文，历史记录仍可查看");
+  clear.textContent = "清理上下文";
+  clear.title = "开始新的上下文，历史记录仍可查看";
   clear.disabled = !currentProject || !activeSessionId || sessionState(activeSessionId).running;
   clear.addEventListener("click", async () => {
     clear.disabled = true; clear.setAttribute("aria-busy", "true");
@@ -319,7 +318,7 @@ export function toggleContextDetail() {
 }
 
 defer(() => {
-  $("status-tokens").title = t("点击查看上下文成分");
+  $("status-tokens").title = "点击查看上下文成分";
 });
 defer(() => {
   $("status-tokens").classList.add("context-clickable");
@@ -339,7 +338,7 @@ on("kz:tool-start", (e) => {
   // 顺带修掉 summary 缺省时 `.slice()` 直接抛的隐患(事件里 summary 并非必填)。
   const shown = toolCallSummary(e.payload.name, e.payload.input) || String(e.payload.summary ?? "");
   agentAuditTaskStart(e.payload.sessionId, e.payload);
-  log(`${t("工具")} ${e.payload.name} ${shown}`);
+  log(`${"工具"} ${e.payload.name} ${shown}`);
   endReasoningLive();
   setTurnPhase("tool");
   setCurrentAssistant(null);
@@ -355,7 +354,7 @@ on("kz:tool-start", (e) => {
   if (bgQuiet(e.payload.name, e.payload.input)) bgStartQuiet(e.payload.id, e.payload.name, e.payload.summary, e.payload.input);
   else if (isActivityTool(e.payload.name, e.payload.input)) bgAdd(e.payload.id, e.payload.name, e.payload.summary, e.payload.input, e.payload.sessionId);
   liveSet("live-action", `⚙ ${e.payload.name} ${shown.slice(0, 60)}`);
-  setStatus(`${t("工具执行中")}  ${e.payload.name}`, true);
+  setStatus(`${"工具执行中"}  ${e.payload.name}`, true);
 });
 defer(() => {
   on("kz:hosted-tool", (e) => {
@@ -369,28 +368,28 @@ defer(() => {
       ? action.queries.map((item) => ({ q: String(item?.q ?? "") })).filter((item) => item.q)
       : [];
     const query = String(action.query ?? queries.map((item) => item.q).join("  ") ?? "");
-    const input = queries.length ? { queries } : { query: query || t("搜索结果") };
+    const input = queries.length ? { queries } : { query: query || "搜索结果" };
     if (p.status === "running") {
       markFirstSignal();
       endReasoningLive();
       setTurnPhase("tool");
       setCurrentAssistant(null);
       setCurrentReasoning(null);
-      const summary = query || t("搜索结果");
+      const summary = query || "搜索结果";
       chatToolStart(p.id, "web_search", summary, input);
       bgAdd(p.id, "web_search", summary, input, p.sessionId);
       liveSet("live-action", `⚙ web_search ${summary.slice(0, 60)}`);
-      setStatus(`${t("工具执行中")}  web_search`, true);
+      setStatus(`${"工具执行中"}  web_search`, true);
       return;
     }
     if (p.status === "completed" && p.kind === "web_search_call") {
       const content = JSON.stringify({
         backend: "model_native",
-        query: query || input.queries?.map((item) => item.q).join("  ") || t("搜索结果"),
+        query: query || input.queries?.map((item) => item.q).join("  ") || "搜索结果",
         results: [],
       });
-      chatToolEnd(p.id, true, t("搜索结果"), null, "success", { content, input });
-      bgEnd(p.id, true, t("搜索结果"), null, "success", { content });
+      chatToolEnd(p.id, true, "搜索结果", null, "success", { content, input });
+      bgEnd(p.id, true, "搜索结果", null, "success", { content });
       playToolOutcomeMotion(p.id);
     }
   });
@@ -428,15 +427,15 @@ defer(() => {
     agentAuditTaskEnd(p.sessionId, p);
     // tool_completed
     const outcome = p.outcome || (p.ok ? "success" : "failed");
-    const outcomeLabel = outcome === "noop" ? t("无需修改")
-      : outcome === "needs_confirmation" ? t("需要确认")
-        : outcome === "needs_correction" ? t("需要修正")
-          : p.ok ? t("成功") : t("失败");
+    const outcomeLabel = outcome === "noop" ? "无需修改"
+      : outcome === "needs_confirmation" ? "需要确认"
+        : outcome === "needs_correction" ? "需要修正"
+          : p.ok ? "成功" : "失败";
     // JSON 结果的 preview 只是 `{ (+40 lines)`:日志行改用同一个摘要器的人话。
     const logResult = /^[{[]/.test(String(p.preview ?? "").trim())
       ? toolResultSummary(p.name, { ok: p.ok, outcome, code: p.code, content: p.content, preview: p.preview, contentTruncated: p.contentTruncated, contentBytes: p.contentBytes, display: p.display }).text
       : p.preview;
-    log(`${t("工具结果")} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
+    log(`${"工具结果"} ${p.name}: ${outcomeLabel} — ${logResult}`, outcome === "success" ? "" : "warn");
     // 改了文件或跑了命令,工作区状态徽章跟着变(提交后 +N 应当立刻归零)。
     if (p.ok && ["write", "edit", "multiedit", "bash", "git"].includes(p.name)) refreshGitSoon();
     // UI-0926 #6:tool-end 带与历史同源的正文与耗时,⎿ 行与活动面板进度行按工具摘要。
@@ -482,7 +481,7 @@ defer(() => {
     // 本轮 prompt 体积 ≈ 当前上下文占用。
     setCtxTokens(p.input + p.cacheRead + (p.cacheWrite || 0));
     renderTokens();
-    log(`${t("一轮完成")}:in ${p.input} (cache r${p.cacheRead})  out ${p.output}  ctx ${(ctxTokens / 1000).toFixed(1)}k`);
+    log(`${"一轮完成"}:in ${p.input} (cache r${p.cacheRead})  out ${p.output}  ctx ${(ctxTokens / 1000).toFixed(1)}k`);
   });
 });
 defer(() => {
@@ -518,11 +517,11 @@ export function mountBlockedAllow(toolCallId) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "ghost mini blocked-allow";
-  button.textContent = t("允许并记住");
-  button.title = t("把这一条原样写入项目 .kanzei/kanzei.toml(只对完全相同的这一条生效),之后遇到同样的操作就不会再被拦");
+  button.textContent = "允许并记住";
+  button.title = "把这一条原样写入项目 .kanzei/kanzei.toml(只对完全相同的这一条生效),之后遇到同样的操作就不会再被拦";
   if (!projectDir) {
     button.disabled = true;
-    button.textContent = languageIsEnglish() ? "Cannot remember: source project missing" : "无法记住：缺少来源项目";
+    button.textContent = "无法记住：缺少来源项目";
     button.title = button.textContent;
     wrap.appendChild(button);
     return button;
@@ -531,11 +530,11 @@ export function mountBlockedAllow(toolCallId) {
     button.disabled = true;
     try {
       await invoke("permission_rule_add", { projectDir, action: info.action, resource: info.resource });
-      button.textContent = t("已记住,下次放行");
+      button.textContent = "已记住,下次放行";
       toastRemembered(info.action, info.resource, summary, projectDir);
     } catch (error) {
       button.disabled = false;
-      reportPersistentError(`${t("放行失败")}:${error}`);
+      reportPersistentError(`${"放行失败"}:${error}`);
     }
   });
   wrap.appendChild(button);
@@ -582,7 +581,7 @@ defer(() => {
       }
       setRunning(false, "出错");
       if (retryLabel && (!payload.sessionId || payload.sessionId === activeSessionId)) setRunPending(retryLabel);
-      bgAbortRunning(`(${localizeDynamic("出错中止")})`);
+      bgAbortRunning(`(${"出错中止"})`);
       chatAbortRunning();
       endReasoningLive();
       liveIdle("出错");
@@ -598,23 +597,23 @@ defer(() => {
     const p = e.payload ?? {};
     discardStreamResponse();
     setTurnPhase("waiting");
-    addMessage("notice", `⟳ ${localizeDynamic("连接中断,正在重新请求本轮")}(${p.attempt}/${p.max})`);
-    log(`${localizeDynamic("连接中断,重放本轮")} ${p.attempt}/${p.max},${localizeDynamic("等待")} ${p.delayMs}ms`, "warn");
-    setStatus(`${t("连接中断")}  ${t("重放本轮")} ${p.attempt}/${p.max}`, true);
+    addMessage("notice", `⟳ ${"连接中断,正在重新请求本轮"}(${p.attempt}/${p.max})`);
+    log(`${"连接中断,重放本轮"} ${p.attempt}/${p.max},${"等待"} ${p.delayMs}ms`, "warn");
+    setStatus(`${"连接中断"}  ${"重放本轮"} ${p.attempt}/${p.max}`, true);
   });
   on("kz:response-interrupted", () => {
     discardStreamResponse();
     setTurnPhase("waiting");
-    setStatus(t("收到新消息，正在接续回答"), true);
+    setStatus("收到新消息，正在接续回答", true);
   });
 });
 defer(() => {
   on("kz:compacted", (e) => {
     setCtxPending(false);
     lastCompactionSummary = e.payload?.summary ?? "";
-    addMessage("notice", `🗜 ${t("上下文占用过高,已自动压缩为纪要并延续对话")}`);
+    addMessage("notice", `🗜 ${"上下文占用过高,已自动压缩为纪要并延续对话"}`);
     if (lastCompactionSummary) addCompactionEntry(lastCompactionSummary);
-    log(t("自动压缩完成:多轮历史已替换为纪要"));
+    log("自动压缩完成:多轮历史已替换为纪要");
     setCtxTokens(0);
     renderTokens();
   });
@@ -627,15 +626,15 @@ function finishStoppedRun(e) {
     cancelAutoContinueTimer(e.payload?.sessionId || activeSessionId);
     hideAsk();
     const cancelled = e.payload?.cancelled_queue ?? 0;
-    addMessage("notice", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
-    log(cancelled > 0 ? `${t("已手动停止并取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已手动停止"));
+    addMessage("notice", cancelled > 0 ? `${"已停止"}, ${"已取消"} ${cancelled} ${"条"} ${"排队输入"}` : "已停止");
+    log(cancelled > 0 ? `${"已手动停止并取消"} ${cancelled} ${"条"} ${"排队输入"}` : "已手动停止");
     stopElapsed();
     setRunning(false, "已停止");
-    bgAbortRunning(`(${t("已停止")})`);
+    bgAbortRunning(`(${"已停止"})`);
     chatAbortRunning();
     endReasoningLive();
     liveIdle("已停止");
-    notifyRunState("stopped", cancelled > 0 ? `${t("已停止")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("已停止"));
+    notifyRunState("stopped", cancelled > 0 ? `${"已停止"}, ${"已取消"} ${cancelled} ${"条"} ${"排队输入"}` : "已停止");
     refreshPendingInputs();
     refreshProcesses();
 }
@@ -643,7 +642,7 @@ defer(() => {
   on("kz:stopping", (e) => {
     hideAsk();
     const cancelled = e.payload?.cancelled_queue ?? 0;
-    addMessage("notice", cancelled > 0 ? `${t("停止中…")}, ${t("已取消")} ${cancelled} ${t("条")} ${t("排队输入")}` : t("停止中…"));
+    addMessage("notice", cancelled > 0 ? `${"停止中…"}, ${"已取消"} ${cancelled} ${"条"} ${"排队输入"}` : "停止中…");
     refreshPendingInputs();
   });
   on("kz:stopped", finishStoppedRun);
@@ -672,9 +671,9 @@ defer(() => {
     if (action.type === "RetryAfterFailure") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId));
       const secs = Math.round((action.delayMs ?? 15000) / 1000);
-      const label = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3}  ${secs}s`;
-      addMessage("notice", `${t("本轮运行失败(瞬态错误),将自动退避重试")}  ${label}`);
-      log(`${t("鞭挞")}:${label}`);
+      const label = `${"失败重试"} ${action.attempt}/${action.maxAttempts ?? 3}  ${secs}s`;
+      addMessage("notice", `${"本轮运行失败(瞬态错误),将自动退避重试"}  ${label}`);
+      log(`${"鞭挞"}:${label}`);
       renderAutoStatus(label);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
       if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(label);
@@ -688,8 +687,8 @@ defer(() => {
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       // 文案与后台线共用一份(08-compose.js autoFailStopReasonText),同一件事不能两种说法。
       const reasonText = autoFailStopReasonText(action.reason);
-      addMessage("notice", `${t("鞭挞停止")}:${reasonText}`);
-      log(`${t("鞭挞停止")}:${reasonText}`);
+      addMessage("notice", `${"鞭挞停止"}:${reasonText}`);
+      log(`${"鞭挞停止"}:${reasonText}`);
       setAutoStopReason(reasonText);
     }
   });
@@ -701,7 +700,7 @@ defer(() => {
     const p = e.payload;
     const outcome = p.outcome || (p.halted ? "halted" : "completed");
     const endState = outcome === "incomplete" ? "failed" : outcome === "halted" ? "stopped" : "completed";
-    const endReason = outcome === "incomplete" ? p.incompleteReason || t("本轮未完成") : outcome === "halted" ? t("按停止/拒绝收尾") : "";
+    const endReason = outcome === "incomplete" ? p.incompleteReason || "本轮未完成" : outcome === "halted" ? "按停止/拒绝收尾" : "";
     setCtxPending(false);
     renderTokens();
     agentAuditFinish(p.sessionId, endState);
@@ -718,15 +717,15 @@ defer(() => {
     // UI2-0926 #12:本轮结束 = 列左缘一行小字(turn-end),不画线(契约 §4.2);「steps / 会话 N 条」中英混杂改走模板。
     addMessage(
       "notice turn-end",
-      `${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}  ${fillTemplate(t("{n} 步"), { n: p.steps })}${p.history ? `  ${fillTemplate(t("历史 {n} 条"), { n: p.history })}` : ""}${endReason ? `  ${endReason}` : ""}`
+      `${outcome === "incomplete" ? "本轮未完成" : "本轮结束"}  ${fillTemplate("{n} 步", { n: p.steps })}${p.history ? `  ${fillTemplate("历史 {n} 条", { n: p.history })}` : ""}${endReason ? `  ${endReason}` : ""}`
     );
     const receipt = renderTurnReceipt(p, activePane, appendToPane);
     if (receipt?.parentElement === activePane) activePane.append(receipt);
     const elapsedSeconds = roundElapsedSeconds(p.elapsedMs);
-    const duration = elapsedSeconds === null ? "" : `  ${t("耗时")} ${elapsedSeconds.toFixed(1)}s`;
-    log(`${t(outcome === "incomplete" ? "本轮未完成" : "本轮结束")}: ${p.steps} ${t("轮")}${duration}`);
+    const duration = elapsedSeconds === null ? "" : `  ${"耗时"} ${elapsedSeconds.toFixed(1)}s`;
+    log(`${outcome === "incomplete" ? "本轮未完成" : "本轮结束"}: ${p.steps} ${"轮"}${duration}`);
     stopElapsed();
-    notifyRunState(endState, endReason || `${t("本轮结束")} ${p.steps} ${t("轮")}`);
+    notifyRunState(endState, endReason || `${"本轮结束"} ${p.steps} ${"轮"}`);
     // kz:done 只是本轮结束，不是会话级 idle；排队输入或鞭挞续跑仍可能马上开始。
     // 真正收回 stop 和运行态由 kz:idle/kz:stopped 的会话状态机负责。
     if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
@@ -734,7 +733,7 @@ defer(() => {
     // 对齐 Claude:当前对话跑完一轮就出现在历史列表里,不用等重启/切项目。
     refreshConversationList();
     // 活动面板保留本轮全部轨迹供回看,下一轮开跑时才翻页(kz:turn step 1)。
-    liveIdle(`${t("空闲")}  ${t("上轮")} ${p.steps} ${t("轮")}  ${endReason || t("本轮结束")}`);
+    liveIdle(`${"空闲"}  ${"上轮"} ${p.steps} ${"轮"}  ${endReason || "本轮结束"}`);
     refreshGit();
     refreshPendingInputs();
   
@@ -746,7 +745,7 @@ defer(() => {
     if (action.handoff && ["Continue", "Nudge", "GoalPending"].includes(action.type)) {
       // UX-037:交付声明里的 handoff_target/criterion 是引擎内部字段(目标常是输入 id),通知里不打印;
       // 只在模型给了一句人话摘要(summary)时跟在后面。
-      addMessage("notice", `${t("交付记录已登记，鞭挞继续")}${handoffSummaryTail(action.handoff)}`);
+      addMessage("notice", `${"交付记录已登记，鞭挞继续"}${handoffSummaryTail(action.handoff)}`);
     }
     // UI2-0926 #13 复核:「在等你回答」只对紧接着的那一条手动消息有效。本轮以别的结果收口(续跑、别的停机、
     // 未开鞭挞)说明等待已经过去,标记必须清掉——否则之后真正的「手动接管」不再关鞭挞。
@@ -754,19 +753,19 @@ defer(() => {
     if (action.type === "Continue") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("长期维护与开发")} ${autoRounds}  2 ${t("秒后继续")}…`);
-      renderAutoStatus(`${t("长期维护与开发")} ${autoRounds}  ${t("等待下一轮")}`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${"长期维护与开发"} ${autoRounds}  2 ${"秒后继续"}…`);
+      renderAutoStatus(`${"长期维护与开发"} ${autoRounds}  ${"等待下一轮"}`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // 收口对象跟着本轮的会话走:并行线结束时 activeSessionId 可能已经是别人了,
       // 拿它清 pending 会把另一条线的横幅清掉,而这条线自己一直挂着(D-291)。
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
     } else if (action.type === "Nudge") {
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      addMessage("notice", t("上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)"));
-      log(`${t("鞭挞")}:${t("无动作  追加推进指令")}`);
-      renderAutoStatus(`${t("无动作  追加推进指令")}  ${autoRounds}`);
+      addMessage("notice", "上一轮没有实质动作,已追加一次具体推进指令(再无动作才会停)");
+      log(`${"鞭挞"}:${"无动作  追加推进指令"}`);
+      renderAutoStatus(`${"无动作  追加推进指令"}  ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("无动作  追加推进指令")} ${autoRounds}  2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${"无动作  追加推进指令"} ${autoRounds}  2 ${"秒后继续"}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // D-291:与 Continue 分支共用同一个闸门实现(armAutoContinue)。此前这里是一份
       // 复制的 setTimeout,四个条件各自静默 return——两处副本还漏掉了 pending 收口。
@@ -776,10 +775,10 @@ defer(() => {
       // 与 Nudge 走同一条闸门(armAutoContinue),区别只在文案来源:那条是引擎
       // 发明的「去 backlog 找活」,这条是用户的原话——引擎不发明工作。
       setAutoRounds(p.sessionId, action.rounds ?? currentAutoRounds(p.sessionId) + 1);
-      log(`${t("目标推进")}:${t("条件未达成,继续")}`);
-      renderAutoStatus(`${t("目标推进")} ${autoRounds}`);
+      log(`${"目标推进"}:${"条件未达成,继续"}`);
+      renderAutoStatus(`${"目标推进"} ${autoRounds}`);
       if (p.sessionId) transitionSession(p.sessionId, "auto_pending", { auto_rounds: currentAutoRounds(p.sessionId) });
-      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${t("目标推进")} ${autoRounds}  2 ${t("秒后继续")}…`);
+      if (!p.sessionId || p.sessionId === activeSessionId) setRunPending(`${"目标推进"} ${autoRounds}  2 ${"秒后继续"}…`);
       if (p.sessionId) refreshParallelTaskProjection(p.sessionId);
       // prompt 由后端从 controller.goal 填入;万一为空则回落默认续跑文案,不空发。
       armAutoContinue(action.prompt || continuePrompt(), p.sessionId);
@@ -791,70 +790,70 @@ defer(() => {
       cancelAutoContinueTimer(p.sessionId || activeSessionId);
       const reason = action.reason;
       if (reason === "Paused") {
-        addMessage("notice", `${t("鞭挞停止")}: ${t("处于暂停中,在鞭挞设置里点「恢复鞭挞」继续")}`);
+        addMessage("notice", `${"鞭挞停止"}: ${"处于暂停中,在鞭挞设置里点「恢复鞭挞」继续"}`);
         setAutoStopReason("已暂停");
       } else if (reason === "StopAfterRound") {
         applyAutoStopToSession(p.sessionId || activeSessionId, { stopAfterRound: false });
-        addMessage("notice", `${t("鞭挞停止")}:${t("本轮后停")}(${t("已自动取消勾选,再点鞭挞即可继续")})`);
-        log(`${t("鞭挞停止")}:${t("本轮后停")}`);
-        setAutoStopReason(`${t("本轮后停")},${t("已停止")}`);
+        addMessage("notice", `${"鞭挞停止"}:${"本轮后停"}(${"已自动取消勾选,再点鞭挞即可继续"})`);
+        log(`${"鞭挞停止"}:${"本轮后停"}`);
+        setAutoStopReason(`${"本轮后停"},${"已停止"}`);
       } else if (reason === "GoalMet") {
         // R-322 B3:目标达成由**模型**判定,后端已清除目标,前端同步清输入框。
         clearGoalInput();
-        addMessage("notice", `✓ ${t("目标已达成")}:${t("模型判定条件满足,目标已清除")}`);
-        log(t("目标已达成,自动清除"));
-        setAutoStopReason(t("目标已达成"));
+        addMessage("notice", `✓ ${"目标已达成"}:${"模型判定条件满足,目标已清除"}`);
+        log("目标已达成,自动清除");
+        setAutoStopReason("目标已达成");
       } else if (reason === "GoalUnreachable") {
         // 条件多半含糊或不可达——停下来让用户改条件,别继续烧钱。
         clearGoalInput();
-        addMessage("notice", `${t("目标推不动")}:${t("连续多轮无实质进展,目标已清除,请改写条件后重试")} (${action.max ?? ""})`);
-        log(t("目标连续推不动,已停止并清除"));
-        setAutoStopReason(t("目标推不动,已清除"));
+        addMessage("notice", `${"目标推不动"}:${"连续多轮无实质进展,目标已清除,请改写条件后重试"} (${action.max ?? ""})`);
+        log("目标连续推不动,已停止并清除");
+        setAutoStopReason("目标推不动,已清除");
       } else if (reason === "AwaitingUser") {
         // UI2-0926 #13:模型在等你回答(question 挂起,或最后一句明显在问你)。鞭挞保持勾选、不挂续跑;
         // 你回复的那一条不会被当成「手动接管」关掉鞭挞,回答那一轮结束后引擎照常续跑。
         markAwaitingUser(p.sessionId || activeSessionId);
-        const msg = t("模型在等你回答(回复后自动继续)");
+        const msg = "模型在等你回答(回复后自动继续)";
         // 输入区的停机原因槽只放短句(长句会把工具行挤成两行);完整说法进对话 notice。
-        setAutoStopReason(t("模型在等你回答"), "waiting");
+        setAutoStopReason("模型在等你回答", "waiting");
         addMessage("notice", `⏸ ${msg}`);
-        log(`${t("鞭挞暂停")}:${t("模型在等你回答")}`);
+        log(`${"鞭挞暂停"}:${"模型在等你回答"}`);
         if (!p.sessionId || p.sessionId === activeSessionId) focusPendingQuestion();
       } else if (reason === "ModelDeclaredDone") {
         // R-322(#7):模型自己交还了控制权。措辞必须与其余原因区分——这不是引擎
         // 判定它该停,是它说做完了。写成「引擎停止了它」会让人误以为被打断。
-        addMessage("notice", `${t("本次任务完成")}${handoffSummaryTail(action.handoff)}`);
-        log(t("本次任务完成"));
-        setAutoStopReason(t("本次任务完成"));
+        addMessage("notice", `${"本次任务完成"}${handoffSummaryTail(action.handoff)}`);
+        log("本次任务完成");
+        setAutoStopReason("本次任务完成");
       } else if (reason === "NoAction") {
-        addMessage("notice", `${t("鞭挞停止")}:${t("连续两轮没有实质动作(可能条目已完成或确实无可推进项)")}`);
-        log(`${t("鞭挞停止")}:${t("连续两轮无动作,鞭挞停止")}`);
-        setAutoStopReason(t("连续两轮无动作,鞭挞停止"));
+        addMessage("notice", `${"鞭挞停止"}:${"连续两轮没有实质动作(可能条目已完成或确实无可推进项)"}`);
+        log(`${"鞭挞停止"}:${"连续两轮无动作,鞭挞停止"}`);
+        setAutoStopReason("连续两轮无动作,鞭挞停止");
       } else if (reason === "AllBlocked") {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const msg = t("任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项");
+        const msg = "任务尚未完成，当前均有阻塞或停车条件；请在文档页查看并回复待确认事项";
         setAutoStopReason(msg, "waiting");
         addMessage("notice", `⏸ ${msg}`);
-        log(t("鞭挞停止:需求与缺陷全部被阻塞"));
+        log("鞭挞停止:需求与缺陷全部被阻塞");
       } else if (reason === "BacklogEmpty") {
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const msg = t("需求与缺陷已清空，鞭挞已停止");
+        const msg = "需求与缺陷已清空，鞭挞已停止";
         setAutoStopReason(msg, "completed");
         addMessage("notice", `✓ ${msg}`);
-        log(t("鞭挞停止:需求与缺陷已清空"));
+        log("鞭挞停止:需求与缺陷已清空");
       } else if (reason === "ProfileMismatch") {
         // R-199:档位条件由引擎判定,前端只显示(不再持有否决权)。
         applyAutoStopToSession(p.sessionId || activeSessionId, { enabled: false });
-        const msg = t("自动推进已关闭，当前对话不是长期维护与开发模式");
+        const msg = "自动推进已关闭，当前对话不是长期维护与开发模式";
         setAutoStopReason(msg);
         // 档位不匹配不是「成功」,不带 ✓:中性通知,原因文字本身就是信息。
         addMessage("notice", msg);
-        log(t("鞭挞停止:当前模式不匹配"));
+        log("鞭挞停止:当前模式不匹配");
       } else if (reason === "RateLimited") {
-        const msg = t("provider 限流(429)，鞭挞已暂停，请等待后手动恢复");
+        const msg = "provider 限流(429)，鞭挞已暂停，请等待后手动恢复";
         setAutoStopReason(msg);
-        addMessage("notice", `${t("鞭挞停止")}:${msg}`);
-        log(`${t("鞭挞停止")}:${msg}`);
+        addMessage("notice", `${"鞭挞停止"}:${msg}`);
+        log(`${"鞭挞停止"}:${msg}`);
       }
     }
     // NoContinue:用户拒绝/未开启——不续跑不重置,等手动输入重新武装。
@@ -909,16 +908,16 @@ export function notifyAskElsewhere(payload) {
   askElsewhereNotified.add(key);
   if (askElsewhereNotified.size > 200) askElsewhereNotified.delete(askElsewhereNotified.values().next().value);
   const line = processItems.find((item) => item.session_id === payload.sessionId);
-  const where = line ? line.title || line.label : t("另一条对话");
+  const where = line ? line.title || line.label : "另一条对话";
   const what = permissionResourceText(payload.action, payload.resource);
-  const text = `${where} ${t("在等你批准")}: ${what.length > 80 ? `${what.slice(0, 80)}…` : what}`;
+  const text = `${where} ${"在等你批准"}: ${what.length > 80 ? `${what.slice(0, 80)}…` : what}`;
   log(text, "warn");
   toast(text, { kind: "warn" });
   if ((!document.hasFocus() || document.hidden) && "Notification" in window && Notification.permission === "granted") {
     try {
-      new Notification(t("在等你批准"), { body: text, tag: "kanzei-ask" });
+      new Notification("在等你批准", { body: text, tag: "kanzei-ask" });
     } catch (error) {
-      log(`${t("系统通知不可用")}:${error}`, "warn");
+      log(`${"系统通知不可用"}:${error}`, "warn");
     }
   }
   renderParallelTaskStatus(processItems);
@@ -957,7 +956,7 @@ defer(() => {
     // 后端的 NonInteractive 策略不会产生 kz:ask(并行线/自主轮的权限询问当场 declined 并以工具错误回喂模型);
     // 这里仍做一层防御,避免旧运行或第三方事件把并行/自举线的询问冒泡到当前用户弹窗。
     if (!e.payload.agentId && (e.payload.source === "parallel" || e.payload.source === "autonomous")) {
-      log(`${t("后台询问已跳过")}: ${e.payload.action || e.payload.question || "ASK"}`);
+      log(`${"后台询问已跳过"}: ${e.payload.action || e.payload.question || "ASK"}`);
       return;
     }
     // 提问走原事项回复通道:它负责当前会话的前台展示以及后台待处理计数。
@@ -967,9 +966,9 @@ defer(() => {
     }
     // 自动放行(yolo):后台会话也必须直接得到答复,不能因不在当前页签而挂起。
     if ($("auto-allow").checked) {
-      log(`${t("自动放行")}:${permissionResourceText(e.payload.action, e.payload.resource)}`);
+      log(`${"自动放行"}:${permissionResourceText(e.payload.action, e.payload.resource)}`);
       invoke("answer_ask", { id: e.payload.id, reply: "once" }).catch((err) =>
-        reportPersistentError(`${t("自动放行失败")}:${err}`)
+        reportPersistentError(`${"自动放行失败"}:${err}`)
       );
       return;
     }
@@ -1003,7 +1002,7 @@ defer(() => {
     syncAutoAllowBadge();
     // 由关变开的那一下弹一次(启动时的同步不播);常驻警示不做循环,避免一直唠叨。
     if ($("auto-allow").checked) motionOnce($("status-auto-allow"), "kz-pop", 500);
-    log($("auto-allow").checked ? t("已开启自动放行(所有权限询问直接通过;此选择会被记住)") : t("已关闭自动放行"));
+    log($("auto-allow").checked ? "已开启自动放行(所有权限询问直接通过;此选择会被记住)" : "已关闭自动放行");
   };
   $("auto-allow").addEventListener("change", save);
   $("status-auto-allow").addEventListener("click", () => {
@@ -1022,7 +1021,7 @@ export function updateAskQueueStatus() {
   const preview = $("ask-queue-preview");
   // 只有排着队才写「当前请求 1/N」;单条请求时这一行整个收起(原先常驻一句「当前无其他待处理请求」)。
   status.textContent = total > 1
-    ? `${t("当前请求")} 1/${total}  ${languageIsEnglish() ? `${total - 1} ${t("条待处理")}` : `${t("还有")} ${total - 1} ${t("条待处理")}`}`
+    ? `当前请求 1/${total}  还有 ${total - 1} 条待处理`
     : "";
   status.classList.toggle("hidden", total <= 1);
   const lines = queue.slice(0, 4).map((item, index) => {
@@ -1033,7 +1032,7 @@ export function updateAskQueueStatus() {
   preview.classList.toggle("hidden", lines.length === 0);
   // 收起后的小芯片带上待处理数量,别让人以为只有一条。
   const reopen = $("ask-reopen");
-  if (reopen) reopen.textContent = total > 1 ? `${t("重新打开询问")}  ${total}` : t("重新打开询问");
+  if (reopen) reopen.textContent = total > 1 ? `${"重新打开询问"}  ${total}` : "重新打开询问";
   // 侧栏项目行 / 会话行的「等你批准」圆点读 askQueues(12-workbench.js 监听):队列一变就通知,不等 3 秒轮询(UX-146)。
   document.dispatchEvent(new CustomEvent("kz:asks-changed"));
 }
@@ -1056,10 +1055,10 @@ export function pumpAsk() {
     pumpAsk();
     return;
   }
-  $("ask-title").textContent = t("权限请求");
+  $("ask-title").textContent = "权限请求";
   const source = $("ask-source");
   source.classList.toggle("hidden", !askActive.agentId);
-  source.textContent = askActive.agentId ? `${t("子代理")}  ${askActive.source || askActive.agentId} ↗` : "";
+  source.textContent = askActive.agentId ? `${"子代理"}  ${askActive.source || askActive.agentId} ↗` : "";
   source.onclick = async () => {
     if (!askActive?.agentId) return;
     const request = askActive;
@@ -1076,7 +1075,7 @@ export function pumpAsk() {
   $("ask-resource").replaceChildren(renderPermissionResource(askActive.action, askActive.resource));
   const remember = askActive.remember ?? askActive.resource;
   if (remember === askActive.resource) {
-    $("ask-remember").textContent = `${askActive.action}  ${t("同上")}`;
+    $("ask-remember").textContent = `${askActive.action}  ${"同上"}`;
   } else {
     $("ask-remember").replaceChildren(document.createTextNode(`${askActive.action} `), renderPermissionResource(askActive.action, remember));
   }
@@ -1137,16 +1136,16 @@ export function hideAsk(preserveActive = false) {
 // .kanzei/kanzei.toml——提示里说清范围,并带「撤销」(删掉刚写进去的那条放行规则,走设置页「权限规则」同一套命令)。
 function toastRemembered(action, resource, summary, projectDir) {
   const shown = summary.length > 80 ? `${summary.slice(0, 80)}…` : summary;
-  toast(`${t("已记住")}: ${shown}(${t("仅此一条,写入项目 .kanzei/kanzei.toml")})`, {
+  toast(`${"已记住"}: ${shown}(${"仅此一条,写入项目 .kanzei/kanzei.toml"})`, {
     kind: "ok",
     action: {
-      label: t("撤销"),
+      label: "撤销",
       onClick: async () => {
         try {
           const data = await invoke("permission_rules_get", { projectDir });
           const rule = [...(data?.rules ?? [])].reverse().find((item) => item.action === action && item.resource === resource && item.effect === "allow");
           if (!rule) {
-            toast(t("这条规则已经不在了"));
+            toast("这条规则已经不在了");
             return;
           }
           await invoke("permission_rule_delete", {
@@ -1154,9 +1153,9 @@ function toastRemembered(action, resource, summary, projectDir) {
             index: rule.index,
             expectedRule: { action: rule.action, resource: rule.resource, effect: rule.effect },
           });
-          toast(t("已撤销,之后遇到同样的请求会再次询问"), { kind: "ok" });
+          toast("已撤销,之后遇到同样的请求会再次询问", { kind: "ok" });
         } catch (error) {
-          reportPersistentError(`${t("撤销失败")}:${error}`);
+          reportPersistentError(`${"撤销失败"}:${error}`);
         }
       },
     },
@@ -1173,15 +1172,15 @@ export async function answerAsk(reply) {
   hideCard($("ask-overlay"));
   hideCard($("ask-reopen"));
   updateAskQueueStatus();
-  const replyLabel = reply === "deny" ? t("拒绝") : reply === "always" ? t("允许并记住") : reply;
-  log(`${t("权限")} ${replyLabel} — ${summary}`);
+  const replyLabel = reply === "deny" ? "拒绝" : reply === "always" ? "允许并记住" : reply;
+  log(`${"权限"} ${replyLabel} — ${summary}`);
   try {
     await invoke("answer_ask", { id, reply });
     // UX-148:「记住」只记**完全相同的这一条**(同一命令 + 同一目录 / 同一路径),写进项目配置。
     // 成功要看得见,并说清范围——不能让人以为这一类操作从此都不问了。
     if (reply === "always") toastRemembered(action, resource, summary, projectDir);
   } catch (err) {
-    reportPersistentError(`${t("权限应答失败")}:${err}`);
+    reportPersistentError(`${"权限应答失败"}:${err}`);
   }
   renderParallelTaskStatus(processItems);
   pumpAsk();
@@ -1222,7 +1221,7 @@ export async function copyReadable(el, button = null) {
   try {
     await writeClipboardText(text, button);
   } catch (err) {
-    toastError(`${t("复制失败")}:${err}`);
+    toastError(`${"复制失败"}:${err}`);
   }
 }
 defer(() => {

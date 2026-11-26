@@ -1,11 +1,16 @@
 // Attachments already carry user-selected/authorized bytes. Never resolve a name/path,
 // navigate to a URL, or insert attachment MIME/data as markup to preview them.
-import { el } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, toast } from "./03-shell.js";
 import { resourceIcon } from "./04-resource-types.js";
 import { openRuntimeImage } from "./15-views-misc.js";
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
 
 const MAX_BASE64 = Math.ceil(16 * 1024 * 1024 / 3) * 4;
 const TOOL_IMAGE_REL = /^\.kanzei\/artifacts\/tool-images\/[0-9a-f]{64}\.png$/;
@@ -38,7 +43,7 @@ export function attachmentPreview(attachment) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "attachment-image-preview";
-  button.title = `${t("预览")} ${attachment.file_name}`;
+  button.title = `${"预览"} ${attachment.file_name}`;
   button.setAttribute("aria-label", button.title);
   const image = document.createElement("img");
   image.className = "attachment-thumbnail";
@@ -126,7 +131,7 @@ function thumbButton(label, load, title) {
         button.classList.add("is-ready");
       } else {
         button.classList.add("is-missing");
-        button.append(el("span", "pv-thumb-missing", t("图片不可用")));
+        button.append(el("span", "pv-thumb-missing", "图片不可用"));
       }
     });
   });
@@ -134,7 +139,7 @@ function thumbButton(label, load, title) {
     event.stopPropagation?.();
     const src = await load();
     if (src) openRuntimeImage(title, src);
-    else toast(t("图片不可用(可能已被清理)"), { kind: "warn" });
+    else toast("图片不可用(可能已被清理)", { kind: "warn" });
   });
   return button;
 }
@@ -149,7 +154,7 @@ export function mountToolShots(block, images) {
   if (!images?.length) return null;
   const strip = el("div", "tool-shots");
   images.slice(0, 4).forEach((rel, index) => {
-    strip.append(thumbButton(`${t("查看截图")} ${index + 1}`, () => loadToolImage(rel), `${t("截图")}  ${block.name ?? ""}`));
+    strip.append(thumbButton(`${"查看截图"} ${index + 1}`, () => loadToolImage(rel), `${"截图"}  ${block.name ?? ""}`));
   });
   if (block.detail?.parentNode === wrap) wrap.insertBefore(strip, block.detail);
   else wrap.append(strip);

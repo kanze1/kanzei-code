@@ -1,7 +1,6 @@
 import { $, defer } from "./00-dom.js";
 import { invoke } from "./00-ipc.js";
 import { openMenu } from "./00-surface.js";
-import { t } from "./02-i18n.js";
 import { activeProcessId, currentProject, running, navigate_view, syncNewChatEnabled, toast, toastError } from "./03-shell.js";
 import { isGeneralChat, setGeneralChatRoot, rememberConversationMode, registerGeneralChatController } from "./03-general-scope.js";
 import { switch_workspace, sync_workspace_visibility, create_workspace_process } from "./03-workspaces.js";
@@ -47,7 +46,7 @@ export async function openGeneralChat({ newChat = false } = {}) {
     $("prompt")?.focus();
     return true;
   } catch (error) {
-    if (valid()) toastError(`${t("打开无项目对话失败")}: ${error}`);
+    if (valid()) toastError(`${"打开无项目对话失败"}: ${error}`);
     return false;
   } finally {
     if (sequence === openingSequence) {
@@ -68,25 +67,25 @@ defer(() => {
   $("workbench-general-chat")?.addEventListener("click", () => void openGeneralChat());
   $("general-chat-link")?.addEventListener("click", () => {
     if (!isGeneralChat() || !activeProcessId) return;
-    if (running) { toast(t("请结束当前回复后再关联项目")); return; }
+    if (running) { toast("请结束当前回复后再关联项目"); return; }
     const project = currentProject, recipient = activeProcessId, valid = workbenchNavigationGuard();
     const same = () => valid() && currentProject === project && activeProcessId === recipient;
     const projects = lastProjectPrefs.projects || [];
-    if (!projects.length) { toast(t("先添加一个项目，再关联对话")); return; }
+    if (!projects.length) { toast("先添加一个项目，再关联对话"); return; }
     openMenu($("general-chat-link"), projects.map(path => ({ label: projectDisplayName(path), onSelect: async () => {
       if (!same()) return;
       const button = $("general-chat-link"); linkInFlight = true; button.disabled = true;
       try {
         const linked = await invoke("general_chat_link", { processId: recipient, projectDir: path });
-        if (!same()) { toast(t("对话已关联到项目，原对话保留")); return; }
+        if (!same()) { toast("对话已关联到项目，原对话保留"); return; }
         const selection = processSwitchGeneration;
         if (!await openProjectSpace(path, "chat")) return;
         if (currentProject !== path || selection !== processSwitchGeneration) return;
         await switchProcess(linked.id, true);
-        toast(t("对话已关联到项目，原对话保留"));
+        toast("对话已关联到项目，原对话保留");
       } catch (error) { toastError(String(error)); }
       finally { linkInFlight = false; syncGeneralLink(); }
-    } })), { label: t("关联项目") });
+    } })), { label: "关联项目" });
   });
   document.addEventListener("kz:conversation-selected", () => { syncGeneralLink(); reconcileWorkbenchView(document.body.dataset.view); });
 });

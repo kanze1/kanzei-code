@@ -18,7 +18,6 @@ import { activePane, messages } from "./01-chat-panes.js";
 import { motionCount, motionSync } from "./00-ui-primitives.js";
 import { on } from "./01-runtime-events.js";
 import { invoke } from "./00-ipc.js";
-import { languageIsEnglish, t } from "./02-i18n.js";
 import { activeSessionId, log, navigate_view, sessionState } from "./03-shell.js";
 import { onLayoutChange, setSidePanelPref, sidePanelPrefs } from "./03-layout.js";
 import { followLatest, scrollBottom } from "./05-chat-render.js";
@@ -74,7 +73,6 @@ let lingerTimer = null;
 let splitApi = null;
 let lastDecision = { visible: false, reason: null, dock: null, lingerMs: null, badge: null };
 let lastDoneOpen = null;
-let lastLanguage = null;
 let reconcileQueued = false;
 const interact = { pointer: false, focus: false, on: false };
 const cards = new Map(); // `${sid}|b${batch}` -> card
@@ -111,9 +109,9 @@ function el(tag, className = "", text) {
 function iconButton(className, text, key) {
   const button = el("button", `icon-btn ${className}`, text);
   button.type = "button";
-  button.setAttribute("aria-label", t(key));
+  button.setAttribute("aria-label", key);
   button.dataset.i18nAriaLabel = key;
-  button.title = t(key);
+  button.title = key;
   button.dataset.i18nTitle = key;
   return button;
 }
@@ -214,13 +212,6 @@ export function reconcileTasksPanel() {
   lastDecision = decision;
   // UI2-0926 #8:网页预览据此重算原生面板的位置与遮挡(抽屉盖在它上面要冻结)。
   if (layoutChanges) document.dispatchEvent(new CustomEvent("kz:tasks-layout", { detail: { visible: decision.visible, dock: decision.dock } }));
-  // 卡片里的文案(表头、类别、统计)在建卡时按当时的语言写入;切语言后整表重画一次。
-  const language = languageIsEnglish() ? "en" : "zh";
-  if (language !== lastLanguage) {
-    const first = lastLanguage === null;
-    lastLanguage = language;
-    if (!first && decision.visible && wasVisible) renderTasksList();
-  }
   if (decision.visible && !wasVisible) {
     void refreshAgentPanelStatus(); // D-278:每次打开都刷新就绪状态
     renderTasksList();
@@ -262,10 +253,10 @@ function syncBadge(badge, active) {
   if (toggle) {
     toggle.dataset.running = String(active > 0);
     // 可访问名只在状态变化时重写(读屏不反复播报):「打开或收起活动面板 · 2 运行中」。
-    const bits = [t("打开或收起活动面板")];
-    if (badge?.tone === "run") bits.push(`${badge.count} ${t("运行中")}`);
+    const bits = ["打开或收起活动面板"];
+    if (badge?.tone === "run") bits.push(`${badge.count} ${"运行中"}`);
     // 待处理任务包括达到步数上限、未启动和真实失败,不能统一称作失败。
-    else if (badge?.tone === "err") bits.push(badge.count === 1 ? t("1 个任务待查看") : `${badge.count} ${t("个任务待查看")}`);
+    else if (badge?.tone === "err") bits.push(badge.count === 1 ? "1 个任务待查看" : `${badge.count} ${"个任务待查看"}`);
     const label = bits.join("  ");
     if (toggle.getAttribute("aria-label") !== label) toggle.setAttribute("aria-label", label);
   }
@@ -278,7 +269,7 @@ function syncBadge(badge, active) {
   }
   const head = $("tasks-count");
   if (head) {
-    const text = active ? `${active} ${t("运行中")}` : "";
+    const text = active ? `${active} ${"运行中"}` : "";
     if (head.textContent !== text) head.textContent = text;
   }
 }
@@ -292,8 +283,8 @@ function syncWide({ dock, width, max }) {
   if (button.dataset.i18nTitle !== key) {
     button.dataset.i18nTitle = key;
     button.dataset.i18nAriaLabel = key;
-    button.title = t(key);
-    button.setAttribute("aria-label", t(key));
+    button.title = key;
+    button.setAttribute("aria-label", key);
   }
 }
 
@@ -394,10 +385,10 @@ function firstSentence(text) {
   return clip(sentence.trim().replace(/[。.！？!?:：]+$/, ""), 60);
 }
 function batchTitle(runs) {
-  if (runs.length === 1) return runs[0].description || t("子代理");
+  if (runs.length === 1) return runs[0].description || "子代理";
   const preamble = preambleOf(runs[0]);
-  if (preamble) return firstSentence(preamble) || t("并行委派");
-  return runs[0].phase ? `${orchPhaseLabel(runs[0].phase)}  ${subagentCountLabel(runs.length)}` : t("并行委派");
+  if (preamble) return firstSentence(preamble) || "并行委派";
+  return runs[0].phase ? `${orchPhaseLabel(runs[0].phase)}  ${subagentCountLabel(runs.length)}` : "并行委派";
 }
 function batchElapsed(runs, now) {
   if (runs.some((run) => run.replay)) {
@@ -415,10 +406,8 @@ function rowState(run) {
   if (run.state === "cancelled") return "stopped";
   return "done";
 }
-/// 小表表头与卡片类别:中文「子代理」,英文按 Claude 的写法是单数的「Agent」。「子代理」的通用译文是复数的
-/// 「Subagents」(菜单、统计在用),「代理」词条归网络代理(Proxy),所以这里按语言取值,不另造一个中文词条。
 function agentWord() {
-  return languageIsEnglish() ? "Agent" : t("子代理");
+  return "子代理";
 }
 // 模型列只显示型号:「provider:型号」去掉 provider(ollama:qwen3.5:4b → qwen3.5:4b、codex:gpt-5.6-luna → gpt-5.6-luna)。
 // 型号自带的标签(qwen3:8b、phi3:mini-4k)不动:只在剩下的部分还带「:」(provider:型号:标签)或前缀是已知的
@@ -460,7 +449,7 @@ function buildCard(key, sessionId, batch) {
   const table = el("div", "tp-agents");
   const tableHead = el("div", "tp-agents-head");
   tableHead.setAttribute("aria-hidden", "true");
-  tableHead.append(el("span", "", agentWord()), el("span", "tp-agents-model", t("模型")), el("span", "", t("Token")), el("span", "", t("用时")));
+  tableHead.append(el("span", "", agentWord()), el("span", "tp-agents-model", "模型"), el("span", "", "Token"), el("span", "", "用时"));
   const rows = el("div", "tp-agents-rows");
   rows.setAttribute("role", "list");
   table.append(tableHead, rows);
@@ -528,11 +517,11 @@ function updateRow(row, run, now) {
   if (ui.glyph.textContent !== char) ui.glyph.textContent = char;
   row.dataset.s = rowState(run);
   row.dataset.saState = run.state;
-  const stateText = subagentStateWord(run.state) || t("运行中");
+  const stateText = subagentStateWord(run.state) || "运行中";
   if (ui.state.textContent !== stateText) ui.state.textContent = stateText;
   const latestText = stripInline(run.managed?.latest || run.progressText || "");
   if (ui.latest.textContent !== latestText) ui.latest.textContent = latestText;
-  const who = [subagentAgentName(run), run.description].filter(Boolean).join("  ") || t("子代理");
+  const who = [subagentAgentName(run), run.description].filter(Boolean).join("  ") || "子代理";
   if (ui.label.textContent !== who) ui.label.textContent = who;
   const modelFull = run.model || run.tier || "";
   const modelText = modelShort(modelFull) || "—";
@@ -552,7 +541,7 @@ function updateRow(row, run, now) {
   updateRowTime(row, run, now);
   // 可访问名与卡片同一口径:只随状态/身份变化重写,运行中不带逐秒变化的耗时。状态词只拼一次——
   // 终态用 subagentMetaText(它以状态词开头),运行中才单独补状态词。
-  const state = SA_ACTIVE.has(run.state) ? subagentStateWord(run.state) || t("运行中") : subagentMetaText(run, now);
+  const state = SA_ACTIVE.has(run.state) ? subagentStateWord(run.state) || "运行中" : subagentMetaText(run, now);
   const aria = [who, state, modelShort(modelFull)].filter(Boolean).join(" — ");
   if (ui.aria !== aria) {
     ui.aria = aria;
@@ -571,7 +560,7 @@ function updateCard(record, now) {
   const title = batchTitle(runs);
   if (ui.title.textContent !== title) {
     ui.title.textContent = title;
-    ui.title.title = `${title}  ${t("定位到对话")}`;
+    ui.title.title = `${title}  ${"定位到对话"}`;
   }
   ui.stop.classList.toggle("is-off", running === 0);
   ui.stop.disabled = running === 0;
@@ -580,16 +569,16 @@ function updateCard(record, now) {
   if (ui.elapsed.textContent !== elapsedText) ui.elapsed.textContent = elapsedText;
   const tokens = runs.reduce((sum, run) => sum + subagentUsageTokens(run.usage), 0);
   const stats = [subagentCountLabel(n)];
-  if (tokens > 0) stats.push(`${formatTokenCount(tokens)} ${t("token")}`);
-  if (failed) stats.push(`${failed} ${t("失败")}`);
-  if (limited) stats.push(`${limited} ${t("达到步数上限")}`);
+  if (tokens > 0) stats.push(`${formatTokenCount(tokens)} ${"token"}`);
+  if (failed) stats.push(`${failed} ${"失败"}`);
+  if (limited) stats.push(`${limited} ${"达到步数上限"}`);
   const statsText = stats.join("  ");
   if (ui.stats.textContent !== statsText) ui.stats.textContent = statsText;
   const preamble = n > 1 ? preambleOf(runs[0]) : "";
   const descText = preamble && firstSentence(preamble) !== clip(preamble, 60) ? clip(preamble, 240) : "";
   if (ui.desc.textContent !== descText) ui.desc.textContent = descText;
   ui.desc.classList.toggle("hidden", !descText);
-  const phaseText = runs[0]?.phase ? orchPhaseLabel(runs[0].phase) : t("委派");
+  const phaseText = runs[0]?.phase ? orchPhaseLabel(runs[0].phase) : "委派";
   if (ui.phaseLabel.textContent !== phaseText) ui.phaseLabel.textContent = phaseText;
   const countText = `${finished}/${n}`;
   if (ui.phaseCount.textContent !== countText) ui.phaseCount.textContent = countText;
@@ -685,7 +674,7 @@ function renderChrome() {
     const shown = bg.running + bg.attention + bg.done;
     const filtered = shown !== bg.total;
     filter.classList.toggle("active", filtered);
-    const title = filtered ? `${t("筛选与清理")}  ${shown}/${bg.total}` : t("筛选与清理");
+    const title = filtered ? `${"筛选与清理"}  ${shown}/${bg.total}` : "筛选与清理";
     if (filter.title !== title) filter.title = title;
   }
 }
@@ -772,7 +761,7 @@ function showDetail(run) {
   $("agent-back")?.focus?.();
 }
 function detailButton(key, handler) {
-  const button = el("button", "ghost mini", t(key));
+  const button = el("button", "ghost mini", key);
   button.type = "button";
   button.addEventListener("click", handler);
   return button;
@@ -823,9 +812,9 @@ function renderDetail(run) {
   const label = subagentAgentName(run);
   detailUi.agent.textContent = label;
   detailUi.agent.className = `sa-agent${label ? "" : " hidden"}`;
-  detailUi.desc.textContent = run.description || t("子代理");
+  detailUi.desc.textContent = run.description || "子代理";
   detailUi.desc.title = run.description;
-  detailUi.word.textContent = subagentStateWord(run.state) || t("运行中");
+  detailUi.word.textContent = subagentStateWord(run.state) || "运行中";
   detailUi.stop.classList.toggle("hidden", !SA_ACTIVE.has(run.state) || run.state === "stopping");
   const host = $("agent-detail");
   if (host) {
@@ -1012,9 +1001,9 @@ defer(() => {
     side: "left",
     min: SIDE_WIDTH_MIN,
     max: () => panelGeometry(mainWidth()).max,
-    title: t("拖动调整面板宽度"),
+    title: "拖动调整面板宽度",
     titleKey: "拖动调整面板宽度",
-    ariaLabel: t("调整活动面板宽度"),
+    ariaLabel: "调整活动面板宽度",
     ariaKey: "调整活动面板宽度",
     onChange: () => reconcileTasksPanel(),
   });
@@ -1037,7 +1026,7 @@ defer(() => {
     const text = event.payload?.text;
     if (text) {
       $("fast-status").textContent = text;
-      log(`${t("子代理安装")}:${text}`);
+      log(`${"子代理安装"}:${text}`);
     }
   });
   reconcileTasksPanel();

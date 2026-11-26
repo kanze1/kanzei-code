@@ -1,5 +1,4 @@
 import { $ } from "./00-dom.js";
-import { t } from "./02-i18n.js";
 import { toastError } from "./03-shell.js";
 import { leaveGuardStatus, onLeaveGuardChange } from "./00-leave-guard.js";
 
@@ -25,19 +24,19 @@ export function installWindowChrome(workspaceHeader) {
   const available = Boolean(win?.minimize && win?.toggleMaximize && win?.startDragging && win?.close);
   const icon = name => `<svg aria-hidden="true" viewBox="0 0 16 16">${icons[name]}</svg>`;
   function relabel() {
-    controls.setAttribute("aria-label", t("窗口控制"));
+    controls.setAttribute("aria-label", "窗口控制");
     for (const [action, key] of [["minimize", "最小化"], ["maximize", maximized ? "还原" : "最大化"], ["close", "关闭窗口"]]) {
       const button = buttons[action];
-      button.setAttribute("aria-label", t(key)); button.title = t(key);
+      button.setAttribute("aria-label", key); button.title = key;
       button.disabled = !available || busy || (action === "close" && (!leaveGuardStatus.ready || leaveGuardStatus.closing));
-      if (!available) button.title = t("窗口控制仅在桌面应用中可用");
-      else if (action === "close" && !leaveGuardStatus.ready) button.title = leaveGuardStatus.error || t("正在准备关闭保护");
+      if (!available) button.title = "窗口控制仅在桌面应用中可用";
+      else if (action === "close" && !leaveGuardStatus.ready) button.title = leaveGuardStatus.error || "正在准备关闭保护";
     }
     buttons.maximize.innerHTML = icon(maximized ? "restore" : "maximize");
     chrome.dataset.maximized = String(maximized);
   }
   function report(error) {
-    status.textContent = `${t("窗口操作失败")}: ${String(error)}`; status.title = status.textContent; status.hidden = false;
+    status.textContent = `${"窗口操作失败"}: ${String(error)}`; status.title = status.textContent; status.hidden = false;
     toastError(status.textContent);
   }
   async function syncMaximized() {

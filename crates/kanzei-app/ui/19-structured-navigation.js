@@ -2,7 +2,6 @@ import { defer } from "./00-dom.js";
 import { sameProject } from "./00-project-identity.js";
 import { openMenu, updateMenu } from "./00-surface.js";
 import { invoke } from "./00-ipc.js";
-import { t } from "./02-i18n.js";
 import { currentProject, processItems, toast, toastError, navigate_view } from "./03-shell.js";
 import { isAbsolutePath, normalizeRoot, relativeToRoot } from "./04-structured-parse.js";
 import { openToolItems } from "./12-open-tools.js";
@@ -17,9 +16,9 @@ export async function openUrlInApp(url) {
   if (!target) return;
   try {
     await navigator.clipboard.writeText(target);
-    toast(`${t("已复制")}: ${target}`, { kind: "ok" });
+    toast(`${"已复制"}: ${target}`, { kind: "ok" });
   } catch (error) {
-    toastError(`${t("打开失败")}:${error}`);
+    toastError(`${"打开失败"}:${error}`);
   }
 }
 /// 打开项目内文件路径:在对话页直接滑出右侧上下文抽屉并定位行号,不切离对话;其它视图进文件页。
@@ -69,11 +68,11 @@ function fileLinkTarget(link) {
 }
 
 async function runPathAction(action) {
-  try { await action(); } catch (error) { toastError(`${t("打开失败")}:${error}`); }
+  try { await action(); } catch (error) { toastError(`${"打开失败"}:${error}`); }
 }
 
 async function openPathTargetInDrawer(target) {
-  if (!target.preview) throw new Error(t("文件不在当前项目或对话工作目录中"));
+  if (!target.preview) throw new Error("文件不在当前项目或对话工作目录中");
   if (!sameProject(currentProject, target.args.projectDir) && !await openProjectSpace(target.args.projectDir, "chat")) return;
   const worktreePath = sameProject(target.preview.root, target.args.projectDir) ? null : target.preview.root;
   await openContextDrawer({
@@ -87,7 +86,7 @@ async function openPathTargetInDrawer(target) {
 }
 
 async function openPathTargetInApp(target) {
-  if (!target.preview) throw new Error(t("文件不在当前项目或对话工作目录中"));
+  if (!target.preview) throw new Error("文件不在当前项目或对话工作目录中");
   if (!sameProject(currentProject, target.args.projectDir) && !await openProjectSpace(target.args.projectDir, "files")) return;
   if (!await switchFilesTree(target.preview.root)) return;
   if (!sameProject(currentProject, target.args.projectDir) || !sameProject(filesRoot(), target.preview.root)) return;
@@ -100,22 +99,22 @@ function openFileLinkMenu(link) {
   const items = tools => [
     { label: "在上下文抽屉查看", onSelect: () => void runPathAction(() => openPathTargetInDrawer(target)) },
     { label: "在文件页全屏打开", onSelect: () => void runPathAction(() => openPathTargetInApp(target)) },
-    { label: t("在资源管理器中显示"), onSelect: () => void runPathAction(() => invoke("reveal_path", target.args)) },
+    { label: "在资源管理器中显示", onSelect: () => void runPathAction(() => invoke("reveal_path", target.args)) },
     ...tools,
     "separator",
-    { label: t("复制路径"), onSelect: async () => {
+    { label: "复制路径", onSelect: async () => {
       try {
         await navigator.clipboard.writeText(target.absolutePath);
-        toast(t("已复制"), { kind: "ok" });
-      } catch (error) { toastError(`${t("复制失败")}:${error}`); }
+        toast("已复制", { kind: "ok" });
+      } catch (error) { toastError(`${"复制失败"}:${error}`); }
     } },
   ];
-  const handle = openMenu(link, items([{ label: t("正在读取打开方式…"), disabled: true }]), { label: link.dataset.path });
+  const handle = openMenu(link, items([{ label: "正在读取打开方式…", disabled: true }]), { label: link.dataset.path });
   if (handle.closed) return;
   void invoke("open_tools_list").then(tools => {
     updateMenu(handle, items(openToolItems(tools, tool => void runPathAction(() => invoke("open_with", { ...target.args, toolId: tool.id })))));
   }, error => {
-    updateMenu(handle, items([{ label: t("打开方式读取失败"), desc: String(error), disabled: true }]));
+    updateMenu(handle, items([{ label: "打开方式读取失败", desc: String(error), disabled: true }]));
   });
 }
 

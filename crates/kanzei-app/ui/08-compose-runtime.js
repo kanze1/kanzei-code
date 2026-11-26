@@ -14,7 +14,6 @@ import { createImeSubmitGuard, readJson, writeJson } from "./00-ui-primitives.js
 import { uiPrefsLoad, uiPrefsSave } from "./00-ui-preferences.js";
 import { invoke } from "./00-ipc.js";
 import { setSessionDetails } from "./00-session-state.js";
-import { localizeDynamic, t } from "./02-i18n.js";
 import {
   activeProcessId,
   activeSessionId,
@@ -101,11 +100,11 @@ export function abortAutoContinue(reason, sessionId = activeSessionId) {
   const item = sessionId ? processItems.find((candidate) => candidate.session_id === sessionId) : null;
   if (sessionId === activeSessionId) {
     clearRunPending();
-    renderAutoStatus(`${t("自动推进未续跑")}:${t(reason)}`);
+    renderAutoStatus(`${"自动推进未续跑"}:${reason}`);
   } else if (!AUTO_CONTINUE_INTENDED_STOPS.has(reason)) {
-    reportPersistentError(`${item?.label ?? t("对话")} ${t("自动推进未续跑")}:${t(reason)}`);
+    reportPersistentError(`${item?.label ?? "对话"} ${"自动推进未续跑"}:${reason}`);
   }
-  log(`${t("自动推进未续跑")}:${t(reason)}`);
+  log(`${"自动推进未续跑"}:${reason}`);
   if (sessionId) refreshParallelTaskProjection(sessionId);
 }
 // 续跑定时器:闸门在**触发时刻**复查(2 秒内用户可能暂停/切模式/新一轮已开跑)。
@@ -120,7 +119,7 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
   // 所以返回是对的;但**不能静默**——标记漏释放时(后台线曾经就是)整条自动推进永久停摆,
   // 而界面钉在「等待下一轮」,日志里连一行线索都没有。
   if (autoContinueInFlight.has(sessionId)) {
-    log(`${processItems.find((candidate) => candidate.session_id === sessionId)?.label ?? ""} ${t("自动推进未续跑")}:${t("上一枪仍在飞")}`.trim(), "warn");
+    log(`${processItems.find((candidate) => candidate.session_id === sessionId)?.label ?? ""} ${"自动推进未续跑"}:${"上一枪仍在飞"}`.trim(), "warn");
     return;
   }
   // R-199:档位条件下沉引擎——armAutoContinue 不再检查 autoContinueAllowed(),
@@ -152,7 +151,7 @@ export function armAutoContinue(prompt, sessionId = activeSessionId, waited = 0,
       // 不是上一轮没结束。原实现在这里一律放弃,于是任何一次本地态卡死都升级成
       // 自动推进永久停摆——auto_pending 不收敛那个 bug 正是这么烧掉 32 秒的。
       // 后端是运行态权威(R-086):按它收敛本地态再继续,让这一类错误自愈而不是致命。
-      log(`${t("自动推进")}:${t("本地运行态与后端不符,按后端空闲继续")}`, "warn");
+      log(`${"自动推进"}:${"本地运行态与后端不符,按后端空闲继续"}`, "warn");
       transitionSession(sessionId, "idle");
     }
     transitionSession(sessionId, "starting");
@@ -172,8 +171,8 @@ export async function sendAutoToSession(prompt, sessionId) {
   const research = item.profile === "research";
   autoContinueInFlight.add(sessionId);
   if (sessionId === activeSessionId) {
-    addMessage("notice", `${t("自动推进已触发")}  ${sessionState(sessionId).auto_rounds || 0}`);
-    setRunning(true, t("准备中"));
+    addMessage("notice", `${"自动推进已触发"}  ${sessionState(sessionId).auto_rounds || 0}`);
+    setRunning(true, "准备中");
   }
   try {
     // UI2-0926 #13:① 按本线实际档位发(结伴线的续跑轮真按结伴档跑);② 项目根用 origin_project
@@ -200,9 +199,9 @@ export async function sendAutoToSession(prompt, sessionId) {
     transitionSession(sessionId, "failed");
     if (sessionId === activeSessionId) {
       reportError(String(error));
-      setRunning(false, t("出错"));
+      setRunning(false, "出错");
     } else {
-      reportPersistentError(`${item.label} ${t("自动推进续跑失败")}:${error}`);
+      reportPersistentError(`${item.label} ${"自动推进续跑失败"}:${error}`);
     }
     refreshParallelTaskProjection(sessionId);
   }
@@ -247,9 +246,9 @@ export function handleBackgroundSessionDone(payload) {
 // 失败停摆的原因文案:活动线(07-events kz:auto-fail)与后台线(下面那个)必须同一份,
 // 否则同一件事在两条线上说法不同。
 export function autoFailStopReasonText(reason) {
-  if (reason === "RateLimited") return t("provider 限流(429)，自动推进已暂停，请等待后手动恢复");
-  if (reason === "RepeatedFailure") return t("连续多轮运行失败,自动推进已停止(已发手机通知)");
-  return t("运行失败:致命错误,自动推进已停止");
+  if (reason === "RateLimited") return "provider 限流(429)，自动推进已暂停，请等待后手动恢复";
+  if (reason === "RepeatedFailure") return "连续多轮运行失败,自动推进已停止(已发手机通知)";
+  return "运行失败:致命错误,自动推进已停止";
 }
 
 // D-403 的失败退避重试对后台线同样必须生效。kz:auto-fail 既不是控制事件、也不在
@@ -264,20 +263,20 @@ export function handleBackgroundAutoFail(payload) {
   const carriedRounds = action.rounds ?? sessionState(sessionId).auto_rounds ?? 0;
   if (sessionState(sessionId).auto_rounds !== carriedRounds) setSessionDetails(sessionId, { auto_rounds: carriedRounds });
   const item = processItems.find((candidate) => candidate.session_id === sessionId);
-  const label = item?.label ?? t("对话");
+  const label = item?.label ?? "对话";
   if (action.type === "RetryAfterFailure") {
     const delayMs = action.delayMs ?? 15000;
-    const retryLabel = `${t("失败重试")} ${action.attempt}/${action.maxAttempts ?? 3}  ${Math.round(delayMs / 1000)}s`;
+    const retryLabel = `${"失败重试"} ${action.attempt}/${action.maxAttempts ?? 3}  ${Math.round(delayMs / 1000)}s`;
     transitionSession(sessionId, "auto_pending", {
       auto_rounds: action.rounds ?? sessionState(sessionId).auto_rounds ?? 0,
     });
     armAutoContinue(DEFAULT_CONTINUE_PROMPT, sessionId, 0, delayMs, retryLabel);
-    log(`${label} ${t("自动推进")}:${retryLabel}`, "warn");
+    log(`${label} ${"自动推进"}:${retryLabel}`, "warn");
   } else if (action.type === "Stop") {
     transitionSession(sessionId, "idle");
     cancelAutoContinueTimer(sessionId);
     // 后台线停摆没人看着:必须浮到界面上(abortAutoContinue 同一口径),不能只 log 一行。
-    reportPersistentError(`${label} ${t("自动推进停止")}:${autoFailStopReasonText(action.reason)}`);
+    reportPersistentError(`${label} ${"自动推进停止"}:${autoFailStopReasonText(action.reason)}`);
   }
   refreshParallelTaskProjection(sessionId);
 }
@@ -317,8 +316,8 @@ export function renderAttachments() {
     remove.type = "button";
     remove.className = "attachment-remove";
     remove.textContent = "×";
-    remove.title = t("移除附件");
-    remove.setAttribute("aria-label", `${t("移除附件")} ${item.file_name}`);
+    remove.title = "移除附件";
+    remove.setAttribute("aria-label", `${"移除附件"} ${item.file_name}`);
     remove.addEventListener("click", () => { attachments.splice(index, 1); renderAttachments(); });
     chip.title = resourceType(item.file_name, item.media_type).label;
     chip.append(attachmentPreview(item), name, remove);
@@ -333,23 +332,23 @@ export function addFiles(files) {
   for (const file of files) {
     const mime = attachmentMime(file.name, file.type);
     if (!mime) {
-      toast(`${t("不支持的附件类型")}: ${file.name}`);
+      toast(`${"不支持的附件类型"}: ${file.name}`);
       continue;
     }
     const total = target.reduce((sum, item) => sum + (item.bytes || item.data.length * .75), pendingFileBytes);
     if (file.size > 16 * 1024 * 1024 || total + file.size > 18 * 1024 * 1024) {
-      toastError(`${file.name}: ${t("单个附件最多 16 MB，每次合计最多 18 MB")}`); continue;
+      toastError(`${file.name}: ${"单个附件最多 16 MB，每次合计最多 18 MB"}`); continue;
     }
     pendingFileBytes += file.size;
     const reader = new FileReader();
     reader.onload = () => {
-      if (target !== attachments) { toast(`${file.name}: ${t("已切换对话，请重新添加附件")}`); return; }
+      if (target !== attachments) { toast(`${file.name}: ${"已切换对话，请重新添加附件"}`); return; }
       const dataUrl = String(reader.result);
       target.push({ file_name: file.name, media_type: mime, bytes: file.size, data: dataUrl.split(",", 2)[1] || "" });
       renderAttachments();
     };
     reader.onloadend = () => { pendingFileBytes -= file.size; };
-    reader.onerror = () => toastError(`${t("读取附件失败")}: ${file.name}`);
+    reader.onerror = () => toastError(`${"读取附件失败"}: ${file.name}`);
     reader.readAsDataURL(file);
   }
 }
@@ -410,7 +409,7 @@ function outgoingMessage(record, draft) {
   outgoingMessages.set(record, message);
   const feedback = document.createElement("div"), status = document.createElement("span"), retry = document.createElement("button");
   feedback.className = "outgoing-status"; feedback.setAttribute("role", "status");
-  retry.type = "button"; retry.className = "ghost mini"; retry.textContent = t("重试");
+  retry.type = "button"; retry.className = "ghost mini"; retry.textContent = "重试";
   retry.addEventListener("click", () => void submitOutgoing(record, draft));
   feedback.append(status, retry); message.append(feedback);
   outgoing.subscribe(record, current => {
@@ -418,7 +417,7 @@ function outgoingMessage(record, draft) {
     if (current.status === "accepted") {
       feedback.remove();
     } else {
-      status.textContent = current.status === "pending" ? t("正在发送") : `${t("发送失败")}: ${current.error}`;
+      status.textContent = current.status === "pending" ? "正在发送" : `${"发送失败"}: ${current.error}`;
       retry.hidden = current.status !== "failed";
     }
     const action = message.querySelector(".conversation-action-btn"); if (action) action.disabled = current.status !== "accepted";
@@ -430,7 +429,7 @@ defer(() => document.addEventListener("kz:conversation-projected", event => {
 }));
 async function submitOutgoing(record, draft) {
   if (record.request) return record.request;
-  if (!await runtimeEventsReady()) { toastError(t("事件订阅失败")); return false; }
+  if (!await runtimeEventsReady()) { toastError("事件订阅失败"); return false; }
   if (!sessionState(record.sessionId).running) transitionSession(record.sessionId, "starting");
   const accepted = await outgoing.send(record);
   if (accepted) {
@@ -449,21 +448,21 @@ async function submitOutgoing(record, draft) {
 export async function sendText(prompt, { auto = false, promptAttachments = [], executionBatch = false, workItemId, delivery: requestedDelivery = null, composerDraft = null } = {}) {
   // 任何拒绝发送的理由都要说出来,绝不静默(D-004)。
   if (!prompt) return;
-  if (!await runtimeEventsReady()) { toastError(t("事件订阅失败")); return false; }
+  if (!await runtimeEventsReady()) { toastError("事件订阅失败"); return false; }
   if (running && auto) {
-    toast(t("当前任务还在运行，自动推进将在本轮完成后继续"));
+    toast("当前任务还在运行，自动推进将在本轮完成后继续");
     return;
   }
   if (!currentProject) {
     if (!await openGeneralChat()) return;
   }
   if (compactingSessions.has(activeSessionId)) {
-    toast(t("当前对话正在压缩，完成后再发送"));
+    toast("当前对话正在压缩，完成后再发送");
     return;
   }
   if (!auto && /^\/compact(?:\s|$)/.test(prompt)) {
-    if (!activeProcessId) { toast(t("当前没有可压缩的对话")); return; }
-    if (running) { toast(t("对话正在运行，请结束后再压缩")); return; }
+    if (!activeProcessId) { toast("当前没有可压缩的对话"); return; }
+    if (running) { toast("对话正在运行，请结束后再压缩"); return; }
     const owner = activeSessionId;
     compactingSessions.add(owner);
     try {
@@ -488,10 +487,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   try {
     await processUpdateQueues.get(recipient.process);
   } catch (error) {
-    reportPersistentError(`${t("对话设置保存失败")}:${error}`);
+    reportPersistentError(`${"对话设置保存失败"}:${error}`);
     return false;
   }
-  if (!recipientIsCurrent()) { toast(t("对话已切换，请在目标对话中重新发送")); return false; }
+  if (!recipientIsCurrent()) { toast("对话已切换，请在目标对话中重新发送"); return false; }
   if (selectedAgent().agent !== "dev-auto") { executionBatch = false; workItemId = null; }
   workItemId ??= null;
   if (!auto) { syncAutoContinueWithProfile(); await syncAutoRunState(); }
@@ -502,10 +501,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
     tasksPanelUserRun(activeSessionId);
   }
   if (!recipientIsCurrent()) {
-    toast(t("对话已切换，请在目标对话中重新发送")); return false;
+    toast("对话已切换，请在目标对话中重新发送"); return false;
   }
   if (running) {
-    log(`${t("运行中")}${delivery === "steer" ? t("插入") : t("排队")}:${prompt.slice(0, 80)}`);
+    log(`${"运行中"}${delivery === "steer" ? "插入" : "排队"}:${prompt.slice(0, 80)}`);
     try {
       const mode = selectedAgent();
       const request = {
@@ -525,7 +524,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       const record = outgoing.prepare(activeSessionId, request);
       outgoingMessage(record, composerDraft);
       if (!await submitOutgoing(record, composerDraft)) return false;
-      toast(localizeDynamic(delivery === "steer" ? "已插入当前对话，将优先执行" : "已加入队列，将按顺序执行"));
+      toast(delivery === "steer" ? "已插入当前对话，将优先执行" : "已加入队列，将按顺序执行");
       // Admission has succeeded. A later queue refresh failure must not leave
       // the same draft ready to submit a second time.
       await refreshPendingInputs().catch(error => reportError(String(error), { retryable: false }));
@@ -549,10 +548,10 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   setOutputChars(0);
   renderTokens();
   const attachmentStatus = promptAttachments.length > 0
-    ? `${auto ? `${t("自动推进")} ${autoRounds}  ` : ""}${t("正在发送")} ${promptAttachments.length} ${t("个附件")}  ${t("准备中")}`
-    : auto ? `${t("自动推进")} ${autoRounds}  ${t("准备中")}` : t("准备中");
+    ? `${auto ? `${"自动推进"} ${autoRounds}  ` : ""}${"正在发送"} ${promptAttachments.length} ${"个附件"}  ${"准备中"}`
+    : auto ? `${"自动推进"} ${autoRounds}  ${"准备中"}` : "准备中";
   if (auto) {
-    addMessage("notice", `${t("自动推进已触发")}  ${autoRounds}`);
+    addMessage("notice", `${"自动推进已触发"}  ${autoRounds}`);
   }
   const requestSessionId = activeSessionId;
   const requestProcessId = activeProcessId;
@@ -569,7 +568,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
   // R-086/R-206:活动会话状态机已在上面 transitionSession("starting") 统一收敛,
   // 这里不再重复调用——重复写块是 R-197 叠在旧块上的残渣(见 R-206 验收④)。
   startElapsed();
-  log(`${auto ? t("自动推进") : t("发送")}:${prompt.slice(0, 80)}`);
+  log(`${auto ? "自动推进" : "发送"}:${prompt.slice(0, 80)}`);
   try {
     const mode = selectedAgent();
     const request = {
@@ -604,7 +603,7 @@ export async function sendText(prompt, { auto = false, promptAttachments = [], e
       setRunning(false);
     } else {
       const failed = processItems.find((candidate) => candidate.session_id === requestSessionId);
-      reportPersistentError(`${failed?.label || requestProcessId} ${t("发送失败")}:${err}`);
+      reportPersistentError(`${failed?.label || requestProcessId} ${"发送失败"}:${err}`);
     }
     refreshParallelTaskProjection(requestSessionId);
   }
@@ -728,7 +727,7 @@ export async function refreshFileSuggestions() {
   } catch (error) {
     if (request !== fileSuggestionRequest || project !== currentProject) return;
     hideFileSuggestions();
-    log(`${t("文件补全失败")}:${error}`, "warn");
+    log(`${"文件补全失败"}:${error}`, "warn");
   }
 }
 
@@ -749,11 +748,11 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
   // UI2-0926 #13:模型在等你回答时,手动发的这一条就是回答——自动推进保持开着,回答那一轮结束后照常续跑。
   if (takeAwaitingUser(activeSessionId)) {
     setAutoStopReason("");
-    log(t("已回复模型的提问,自动推进在这一轮结束后继续"));
+    log("已回复模型的提问,自动推进在这一轮结束后继续");
     return false;
   }
   if (supplement) {
-    log(t("已向运行中的任务补充一条消息,自动推进保持开启"));
+    log("已向运行中的任务补充一条消息,自动推进保持开启");
     return false;
   }
   $('auto-continue').checked = false;
@@ -764,13 +763,13 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
   // R-169:手动输入接管 = 关闭后端自主推进并归零计数。
   void syncAutoRunState({ enabled: false });
   resetAutoRunState();
-  const message = t("收到手动输入，自动推进已停止");
+  const message = "收到手动输入，自动推进已停止";
   setAutoStopReason(message);
   addMessage("notice", message);
   // 接管是用户自己发起的,但可能只是想插一句——toast 带「重新开启」,不用再翻自动推进菜单。
   toast(message, {
     action: {
-      label: t("重新开启"),
+      label: "重新开启",
       onClick: () => {
         const toggle = $("auto-continue");
         if (toggle.checked) return;
@@ -786,7 +785,7 @@ export function stopAutoForManualInput({ supplement = false } = {}) {
 let submittingDraft = false;
 export async function send({ delivery = null } = {}) {
   if (submittingDraft) return;
-  if (pendingFileBytes > 0) { toast(t("附件正在读取，请稍候再发送")); return; }
+  if (pendingFileBytes > 0) { toast("附件正在读取，请稍候再发送"); return; }
   const composeEvent = new CustomEvent("kz:compose-send", { bubbles: true, cancelable: true, detail: { delivery } });
   promptBox.dispatchEvent(composeEvent);
   if (composeEvent.defaultPrevented) return;
@@ -811,7 +810,7 @@ export async function send({ delivery = null } = {}) {
     rememberPrompt(prompt);
     hideFileSuggestions();
     const project = currentProject, process = activeProcessId;
-    const accepted = await sendText(prompt || t("看一下这些附件"), { promptAttachments: submitted.attachments, delivery, composerDraft: submitted });
+    const accepted = await sendText(prompt || "看一下这些附件", { promptAttachments: submitted.attachments, delivery, composerDraft: submitted });
     if (accepted) acknowledge_composer_draft(project, process, submitted);
   } finally { submittingDraft = false; }
 }
@@ -828,7 +827,7 @@ defer(() => {
     const panel = $("continue-panel");
     const open = panel.classList.toggle("hidden") === false;
     $("continue-toggle").setAttribute("aria-expanded", String(open));
-    $("continue-toggle").textContent = t(open ? "收起" : "推进指令");
+    $("continue-toggle").textContent = open ? "收起" : "推进指令";
     // UI2-0926 #11:开关住在自动推进菜单里;展开编辑区时先收起菜单,焦点落进输入框下方的编辑区。
     if (open) {
       if (document.body.dataset.view !== "project") closeSurface($("autorun-menu"));
@@ -899,7 +898,7 @@ defer(() => {
     setAutoRounds(activeSessionId, 0);
     setAutoStopReason("");
     resetAutoRunState();
-    setStatus(`${t("自动推进恢复")},2 ${t("秒后继续")}…`, false);
+    setStatus(`${"自动推进恢复"},2 ${"秒后继续"}…`, false);
     scheduleAutoContinue();
   });
 });
@@ -933,7 +932,7 @@ defer(() => {
     setAutoPaused(!autoPaused);
     rememberAutoUiState(activeProcessId, ["paused"]);
     $("auto-pause").classList.toggle("active", autoPaused);
-    $("auto-pause").textContent = autoPaused ? t("恢复自动推进") : t("暂停自动推进");
+    $("auto-pause").textContent = autoPaused ? "恢复自动推进" : "暂停自动推进";
     // R-169:暂停状态同步后端状态机。
     void syncAutoRunState({ paused: autoPaused });
     if (autoPaused) cancelAutoContinueTimer();
@@ -942,10 +941,10 @@ defer(() => {
     // 静默不调度会让引擎计数与状态不知情(验收①未兑现)。恢复一律重新调度,
     // 档位不对由引擎下轮 done 判 Stop(ProfileMismatch) 带 reason 可见收口。
     if (!autoPaused && !running && $("auto-continue").checked) {
-      setStatus(`${t("自动推进恢复")},2 ${t("秒后继续")}…`, false);
+      setStatus(`${"自动推进恢复"},2 ${"秒后继续"}…`, false);
       scheduleAutoContinue();
     }
-    log(autoPaused ? t("自动推进已暂停") : t("自动推进已恢复"));
+    log(autoPaused ? "自动推进已暂停" : "自动推进已恢复");
   });
 });
 defer(() => {
@@ -954,7 +953,7 @@ defer(() => {
     rememberAutoUiState(activeProcessId, ["stopAfterRound"]);
     // R-169:本轮后停同步后端状态机(D-111:不持久化,重启即清)。
     void syncAutoRunState({ stopAfterRound: autoStopAfterRound });
-    log(autoStopAfterRound ? t("本轮结束后将停止自动推进") : t("已取消本轮后停"));
+    log(autoStopAfterRound ? "本轮结束后将停止自动推进" : "已取消本轮后停");
   });
 });
 // R-322 B3:目标条件。change(失焦/回车)才同步,不逐字符打后端。
@@ -966,7 +965,7 @@ defer(() => {
     syncAutoContinueWithProfile();
     void syncAutoRunState({ goal: currentGoalText(), enabled: $("auto-continue").checked });
     const goal = currentGoalText().trim();
-    log(goal ? `${t("目标条件已设置")}:${goal}` : t("目标条件已清除"));
+    log(goal ? `${"目标条件已设置"}:${goal}` : "目标条件已清除");
   });
 });
 defer(() => {
@@ -976,7 +975,7 @@ defer(() => {
       $("profile-select").dispatchEvent(new Event("change"));
     }
     // UI2-0926 #13 复核:手动开关自动推进同样结束「在等你回答」(关了再开是用户重新表态,不再是等回答)。
-    if (takeAwaitingUser(activeSessionId) && autoStopReason === t("模型在等你回答")) setAutoStopReason("");
+    if (takeAwaitingUser(activeSessionId) && autoStopReason === "模型在等你回答") setAutoStopReason("");
     setAutoRounds(activeSessionId, 0);
     rememberAutoUiState(activeProcessId, ["enabled"]);
     // 开/关自动推进的这一刻就重绘状态槽(轮次、阶段、停机原因),而不是等下一轮结束才变。
@@ -984,11 +983,11 @@ defer(() => {
     if (!$('auto-continue').checked) cancelAutoContinueTimer();
     // R-169:开关同步后端状态机(enabled)。
     void syncAutoRunState({ enabled: $("auto-continue").checked });
-    log($("auto-continue").checked ? t("自动推进已开启:每轮结束自动推进队列") : t("自动推进已关闭"));
+    log($("auto-continue").checked ? "自动推进已开启:每轮结束自动推进队列" : "自动推进已关闭");
     // BUG 修复(触发):空闲时勾上自动推进必须立刻抽第一鞭——原来只挂在"上一轮结束"上,
     // 冷启动勾选后永远没有第一轮,必须手点"继续"才动。
     if ($("auto-continue").checked && !running && !autoPaused) {
-      setStatus(t("自动推进启动,2 秒后开始…"), false);
+      setStatus("自动推进启动,2 秒后开始…", false);
       scheduleAutoContinue();
     }
   });
@@ -1182,14 +1181,14 @@ export function applyAutoStopToSession(sessionId, patch) {
       $("auto-stop-round").checked = patch.stopAfterRound;
     }
     // syncAutoRunState 在没有活动会话时返回 undefined,包一层才能挂上失败上报。
-    Promise.resolve(syncAutoRunState(patch)).catch((error) => toastError(`${t("自动推进状态更新失败")}:${error}`));
+    Promise.resolve(syncAutoRunState(patch)).catch((error) => toastError(`${"自动推进状态更新失败"}:${error}`));
   } else {
     // 非当前线:后端状态机也要知道,否则该线下轮 done 仍按旧开关判定。
     invoke("auto_state_update", {
       sessionId,
       enabled: patch.enabled,
       stopAfterRound: patch.stopAfterRound,
-    }).catch((error) => toastError(`${t("自动推进状态更新失败")}:${error}`));
+    }).catch((error) => toastError(`${"自动推进状态更新失败"}:${error}`));
   }
 }
 export function applyAutoUiState(processId) {
@@ -1208,7 +1207,7 @@ export function applyAutoUiState(processId) {
   setAutoHint("");
   setAutoStopReason("");
   // UI2-0926 #13 复核:切到一条模型在等你回答的线(后台时收到的 Stop/AwaitingUser),同一句提示回到原因槽。
-  if (target?.session_id && awaitingUserSessions.has(target.session_id)) setAutoStopReason(t("模型在等你回答"), "waiting");
+  if (target?.session_id && awaitingUserSessions.has(target.session_id)) setAutoStopReason("模型在等你回答", "waiting");
   renderAutoStatus();
   persistProcessAutoState();
 }
@@ -1242,7 +1241,7 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
   if (patch.enabled === true && !lineAutoConfig(processId).enabled) patch = { ...patch, mode: "dev-auto" };
   // R-224 同价:研究线没有自主推进语义,从线路页开也一样拒绝。
   if (requested.enabled && (processProfileUi.get(processId) === "research" || item.profile === "research")) {
-    toast(t("自动推进不适用于研究模式"));
+    toast("自动推进不适用于研究模式");
     return null;
   }
   // A failed update must not appear enabled or schedule a model request. Capture the
@@ -1269,7 +1268,7 @@ async function applyLineAutoStateUpdate(item, patch, initialMode) {
     setAutoStopAfterRound(next.stopAfterRound);
     $("auto-stop-round").checked = next.stopAfterRound;
     $("auto-pause").classList.toggle("active", autoPaused);
-    $("auto-pause").textContent = autoPaused ? t("恢复自动推进") : t("暂停自动推进");
+    $("auto-pause").textContent = autoPaused ? "恢复自动推进" : "暂停自动推进";
     renderAutoStatus();
   }
   // 关/暂停立刻撤掉在途的那一枪;开且该线空闲就当场抽第一鞭——不然「开了没反应」要等到
@@ -1351,7 +1350,7 @@ defer(() => {
       const profile = value;
       updateLocalProcessItem(activeProcessId, { profile });
       queueProcessUpdate(activeProcessId, { profile })
-        .catch((error) => reportPersistentError(`${t("对话模式保存失败")}:${error}`));
+        .catch((error) => reportPersistentError(`${"对话模式保存失败"}:${error}`));
     }
     syncAutoContinueWithProfile();
     rememberAutoUiState(activeProcessId, ["mode"]);
@@ -1370,24 +1369,24 @@ defer(() => {
       rememberAutoUiState(activeProcessId, ["enabled"]);
       void syncAutoRunState({ enabled: false });
       clearRunPending();
-      setRunning(false, t("已停止"));
-      log(t("已停止自动推进等待"));
+      setRunning(false, "已停止");
+      log("已停止自动推进等待");
       return;
     }
     if (targetSessionId) transitionSession(targetSessionId, "stopping");
-    setStopping(t("停止中…"));
+    setStopping("停止中…");
     armStoppingWatchdog(targetSessionId);
     hideAsk();
     try {
       await invoke("stop_run", { projectDir: targetProject, processId: targetProcessId });
-      log(t("停止指令已确认，等待对话结束"));
+      log("停止指令已确认，等待对话结束");
     } catch (err) {
       const item = processItems.find((candidate) => candidate.session_id === targetSessionId);
       if (targetSessionId) transitionSession(targetSessionId, item?.running ? "running" : "idle");
       if (targetSessionId === activeSessionId) {
-        setRunning(Boolean(item?.running), item?.running ? t("运行中") : t("空闲"));
+        setRunning(Boolean(item?.running), item?.running ? "运行中" : "空闲");
       }
-      reportPersistentError(`${t("停止指令失败")}:${err}`);
+      reportPersistentError(`${"停止指令失败"}:${err}`);
     }
   });
 });
