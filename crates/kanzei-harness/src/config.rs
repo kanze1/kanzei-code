@@ -8,6 +8,9 @@ pub use cadence::{Cadence, CommitCadence, FullTestCadence, PushCadence, Targeted
 mod embeddings;
 pub use embeddings::EmbeddingsSection;
 pub(crate) use embeddings::EMBEDDINGS_KEYS;
+mod hooks;
+pub use hooks::{HookEvent, HookRule, HooksSection};
+pub(crate) use hooks::{HOOKS_KEYS, HOOK_RULE_KEYS};
 mod web;
 pub use web::{PublicDns, SearchBackend, WebSection};
 pub(crate) use web::{PUBLIC_DNS_KEYS, WEB_KEYS};
@@ -57,6 +60,8 @@ pub struct KanzeiConfig {
     pub embeddings: EmbeddingsSection,
     #[serde(default)]
     pub web: WebSection,
+    #[serde(default)]
+    pub hooks: HooksSection,
 }
 
 // 运行时上限与阈值已迁至 `config/limits.rs`;向量检索通道配置已迁至 `config/embeddings.rs`。
@@ -476,6 +481,7 @@ pub(crate) const TOP_LEVEL_KEYS: &[&str] = &[
     "cadence",
     "embeddings",
     "web",
+    "hooks",
 ];
 // 各节已知键名单随域下沉:MODELS_KEYS/EMBEDDINGS_KEYS/LIMITS_KEYS/PROVIDER_KEYS/
 // PROFILE_KEYS/CADENCE_KEYS/PERMISSIONS_KEYS/PERMISSION_RULE_KEYS 见对应域文件
@@ -545,6 +551,19 @@ fn unknown_keys(value: &toml::Value) -> Vec<String> {
             }
         }
     }
+    if let Some(hooks) = value.get("hooks") {
+        check(hooks, "hooks", HOOKS_KEYS, &mut out);
+        if let Some(rules) = hooks.get("rules").and_then(|r| r.as_array()) {
+            for (index, rule) in rules.iter().enumerate() {
+                check(
+                    rule,
+                    &format!("hooks.rules[{index}]"),
+                    HOOK_RULE_KEYS,
+                    &mut out,
+                );
+            }
+        }
+    }
     out
 }
 
@@ -604,6 +623,9 @@ pub fn config_reference() -> String {
             "compact_buffer_tokens" => " = <u64>  压缩保留缓冲 token(默认 20000)",
             "prune_protect_tokens" => " = <u64>  裁剪保护 token(默认 40000)",
             "prune_min_gain_tokens" => " = <u64>  裁剪最小收益 token(默认 20000)",
+            "auto_run_token_budget" => {
+                " = <u64>  自主推进单次任务累计总 token 预算上限(默认未设=不限)"
+            }
             _ => "",
         }
     };
@@ -690,6 +712,25 @@ pub fn config_reference() -> String {
             _ => "",
         },
     );
+    emit_section(&mut out, "hooks", HOOKS_KEYS, &|key| match key {
+        "rules" => {
+            " = [{ event, tool_matcher, command, timeout_secs, enabled }, ...]  生命周期钩子列表"
+        }
+        _ => "",
+    });
+    out.push_str("#   [[hooks.rules]]\n");
+    for key in HOOK_RULE_KEYS {
+        let desc = match *key {
+            "event" => " = pre_tool | post_tool | on_stop  触发时机",
+            "tool_matcher" => " = <工具名/逗号列表/通配*>  可选工具匹配器",
+            "command" => " = <shell 命令>  确定性执行的本地命令",
+            "timeout_secs" => " = <u64>  单条钩子超时秒数(默认 15,上限 120)",
+            "enabled" => " = true | false  是否启用(默认 true)",
+            _ => "",
+        };
+        out.push_str(&format!("#     {key}{desc}\n"));
+    }
+    out.push_str("#\n");
 
     out
 }
@@ -773,6 +814,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
         compact_buffer_tokens,
         prune_protect_tokens,
         prune_min_gain_tokens,
+        auto_run_token_budget,
     );
     // [embeddings] 逐字段覆盖(与 [limits] 同规:项目层只覆盖写了的那几个键)。
     if layer.embeddings.provider.is_some() {
@@ -796,6 +838,7 @@ fn merge(base: &mut KanzeiConfig, layer: KanzeiConfig) {
     if layer.web.public_dns.is_some() {
         base.web.public_dns = layer.web.public_dns;
     }
+    base.hooks.rules.extend(layer.hooks.rules);
 }
 
 /// R-205:权限规则持久化与根发现/HOME 守卫两域已从本文件拆出
@@ -1095,6 +1138,7 @@ mod tests {
             compact_buffer_tokens: Some(9000),
             prune_protect_tokens: Some(3000),
             prune_min_gain_tokens: Some(1024),
+            auto_run_token_budget: Some(250_000),
         };
         let all = toml::Value::try_from(&limits).unwrap();
         let keys: std::collections::BTreeSet<_> =
@@ -1204,6 +1248,8 @@ mod tests {
             ("embeddings", EMBEDDINGS_KEYS),
             ("web", WEB_KEYS),
             ("web.public_dns", PUBLIC_DNS_KEYS),
+            ("hooks", HOOKS_KEYS),
+            ("hooks.rules", HOOK_RULE_KEYS),
         ] {
             assert_eq!(
                 documented.remove(section).unwrap(),

@@ -70,6 +70,8 @@ pub enum AutoStopReason {
     GoalUnreachable(u32),
     /// 模型在等用户回答。
     AwaitingUser,
+    /// 自主推进累计消耗达到用户设定的 Token 预算上限，强制熔断。
+    TokenBudgetExceeded { used: u64, budget: u64 },
 }
 
 /// 轮末判定结果。
@@ -116,6 +118,10 @@ pub struct AutoRunState {
     last_progress_signature: Option<String>,
     /// R-322 B3:目标挂着期间连续无实质动作的轮数。达 GOAL_IDLE_ROUND_LIMIT 即停。
     goal_idle_rounds: u32,
+    /// 本次自主推进周期累计消耗的总 Token（input + output），手动发送/reset 时归零。
+    pub cumulative_tokens: u64,
+    /// 可选单次任务累计 Token 预算熔断上限（None = 不限）。
+    pub token_budget: Option<u64>,
 }
 
 /// D-403:连续瞬态失败多少轮后停止(过夜场景:单发 503 退避重试可自愈,
@@ -142,6 +148,17 @@ impl AutoRunState {
         self.zero_output_rounds = 0;
         self.last_progress_signature = None;
         self.goal_idle_rounds = 0;
+        self.cumulative_tokens = 0;
+    }
+
+    /// 累加本轮消耗 Token（input + output）。
+    pub fn record_round_tokens(&mut self, tokens: u64) {
+        self.cumulative_tokens = self.cumulative_tokens.saturating_add(tokens);
+    }
+
+    /// 设置或清除 Token 预算上限。
+    pub fn set_token_budget(&mut self, budget: Option<u64>) {
+        self.token_budget = budget.filter(|v| *v > 0);
     }
 
     /// 轮末判定。判定顺序与前端 07-events.js:288-352 保持一致,但不再受旧版连续次数上限影响:
@@ -180,6 +197,14 @@ impl AutoRunState {
         }
         if self.stop_after_round {
             return self.stop_with(AutoStopReason::StopAfterRound);
+        }
+        if let Some(budget) = self.token_budget {
+            if budget > 0 && self.cumulative_tokens >= budget {
+                return self.stop_with(AutoStopReason::TokenBudgetExceeded {
+                    used: self.cumulative_tokens,
+                    budget,
+                });
+            }
         }
         if let Some(failure) = ctx.round_failure {
             self.no_action_rounds = 0;
@@ -1301,5 +1326,29 @@ mod tests {
             "目标推进不应被旧连续次数上限截断"
         );
         assert_eq!(unlimited.rounds, 3);
+    }
+
+    #[test]
+    fn token_budget_exceeded_stops_auto_run_and_resets_on_manual_reset() {
+        let tools = mk_tools(&["edit"]);
+        let mut state = AutoRunState::default();
+        state.set_token_budget(Some(100_000));
+        state.record_round_tokens(60_000);
+        let mut ctx = ctx_with_tools(&tools);
+        ctx.steps = 3;
+        assert_eq!(state.decide(&ctx), AutoRunAction::Continue);
+
+        state.record_round_tokens(50_000);
+        assert_eq!(
+            state.decide(&ctx),
+            AutoRunAction::Stop(AutoStopReason::TokenBudgetExceeded {
+                used: 110_000,
+                budget: 100_000
+            })
+        );
+
+        state.reset();
+        assert_eq!(state.cumulative_tokens, 0);
+        assert_eq!(state.token_budget, Some(100_000));
     }
 }

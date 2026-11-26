@@ -31,6 +31,25 @@ pub(crate) struct SettingsPayload {
     pub(crate) limits: LimitsPayload,
     #[serde(default)]
     pub(crate) cadence: Option<CadencePayload>,
+    #[serde(default)]
+    pub(crate) hooks: Option<Vec<HookRulePayload>>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HookRulePayload {
+    pub(crate) event: String,
+    #[serde(default)]
+    pub(crate) tool_matcher: Option<String>,
+    pub(crate) command: String,
+    #[serde(default)]
+    pub(crate) timeout_secs: Option<u64>,
+    #[serde(default = "default_hook_enabled")]
+    pub(crate) enabled: bool,
+}
+
+fn default_hook_enabled() -> bool {
+    true
 }
 
 /// 设置页节奏表单载荷:留空(None)即"用内置默认",保存时该键从 [cadence] 移除,
@@ -79,6 +98,8 @@ pub(crate) struct LimitsPayload {
     pub(crate) rate_limit_retries: Option<u32>,
     #[serde(default)]
     pub(crate) stream_restarts: Option<u32>,
+    #[serde(default)]
+    pub(crate) auto_run_token_budget: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -423,8 +444,67 @@ pub(crate) fn settings_apply_limits(
         l.rate_limit_retries.map(i64::from),
     );
     settings_set_or_remove_num(limits, "stream_restarts", l.stream_restarts.map(i64::from));
+    settings_set_or_remove_num(
+        limits,
+        "auto_run_token_budget",
+        l.auto_run_token_budget.filter(|v| *v > 0).map(|v| v as i64),
+    );
     if limits.is_empty() {
         doc.remove("limits");
+    }
+    Ok(())
+}
+
+pub(crate) fn settings_apply_hooks(
+    doc: &mut toml_edit::DocumentMut,
+    payload: &SettingsPayload,
+) -> Result<(), String> {
+    let Some(hooks) = &payload.hooks else {
+        return Ok(());
+    };
+    let mut array = toml_edit::ArrayOfTables::new();
+    for rule in hooks {
+        let cmd = rule.command.trim();
+        if cmd.is_empty() {
+            continue;
+        }
+        let event = rule.event.trim();
+        if !matches!(event, "pre_tool" | "post_tool" | "on_stop") {
+            return Err(format!("不支持的钩子事件类型: {event}"));
+        }
+        let mut table = toml_edit::Table::new();
+        table.insert("event", toml_edit::value(event));
+        if let Some(matcher) = rule
+            .tool_matcher
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            table.insert("tool_matcher", toml_edit::value(matcher));
+        }
+        table.insert("command", toml_edit::value(cmd));
+        if let Some(timeout) = rule.timeout_secs.filter(|v| *v > 0) {
+            table.insert(
+                "timeout_secs",
+                toml_edit::value(timeout.clamp(1, 120) as i64),
+            );
+        }
+        table.insert("enabled", toml_edit::value(rule.enabled));
+        array.push(table);
+    }
+    if array.is_empty() {
+        if let Some(table) = doc
+            .get_mut("hooks")
+            .and_then(|item| item.as_table_like_mut())
+        {
+            table.remove("rules");
+            if table.is_empty() {
+                doc.remove("hooks");
+            }
+        }
+    } else {
+        let hooks_table = settings_table(doc, "hooks")?;
+        hooks_table.insert("rules", toml_edit::Item::ArrayOfTables(array));
     }
     Ok(())
 }
@@ -651,9 +731,24 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
                 "transportRetries": merged.limits.transport_retries,
                 "rateLimitRetries": merged.limits.rate_limit_retries,
                 "streamRestarts": merged.limits.stream_restarts,
+                "autoRunTokenBudget": merged.limits.auto_run_token_budget,
             },
         })
     });
+    let hooks_json: Vec<serde_json::Value> = config
+        .hooks
+        .rules
+        .iter()
+        .map(|rule| {
+            json!({
+                "event": rule.event.as_str(),
+                "toolMatcher": rule.tool_matcher,
+                "command": rule.command,
+                "timeoutSecs": rule.timeout_secs,
+                "enabled": rule.enabled,
+            })
+        })
+        .collect();
     json!({
         "path": path.display().to_string(), "primary": config.models.primary, "fast": config.models.fast,
         "compact": config.models.compact,
@@ -679,6 +774,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
             "transportRetries": config.limits.transport_retries,
             "rateLimitRetries": config.limits.rate_limit_retries,
             "streamRestarts": config.limits.stream_restarts,
+            "autoRunTokenBudget": config.limits.auto_run_token_budget,
         },
         "limitDefaults": {
             "maxTokens": kanzei_harness::config::Limits::default().max_tokens(),
@@ -699,6 +795,7 @@ pub fn settings_get(project_dir: Option<String>) -> serde_json::Value {
         "cadence": serde_json::to_value(&config.cadence).unwrap_or_else(|_| serde_json::json!({})),
         "cadenceDefaults": serde_json::to_value(kanzei_harness::config::Cadence::default())
             .unwrap_or_else(|_| serde_json::json!({})),
+        "hooks": hooks_json,
         "effective": effective,
         "projectConfig": project_root
             .as_ref()
@@ -722,6 +819,7 @@ pub(crate) fn settings_save_at_path_impl(
         settings_apply_limits(doc, &payload).map_err(anyhow::Error::msg)?;
         settings_apply_providers(doc, &payload).map_err(anyhow::Error::msg)?;
         settings_apply_cadence(doc, &payload).map_err(anyhow::Error::msg)?;
+        settings_apply_hooks(doc, &payload).map_err(anyhow::Error::msg)?;
         let saved = toml::from_str::<kanzei_harness::KanzeiConfig>(&doc.to_string())?;
         validate_model_roles(&payload, &saved).map_err(anyhow::Error::msg)?;
         Ok(())
@@ -1196,6 +1294,7 @@ mod tests {
             limits,
             providers: vec![],
             cadence: None,
+            hooks: None,
         };
         settings_save_at_path(
             payload(LimitsPayload {
@@ -1246,6 +1345,7 @@ mod tests {
             subagent_auto_concurrency: Some(1),
             subagent_ultra_concurrency: Some(6),
             subagent_global_concurrency: Some(10),
+            auto_run_token_budget: Some(300_000),
         };
         settings_save_at_path(payload, &path).unwrap();
         let saved: KanzeiConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -1324,6 +1424,7 @@ mod tests {
                 limits: Default::default(),
                 providers: vec![],
                 cadence: None,
+                hooks: None,
             },
             &path,
         )
@@ -1372,6 +1473,7 @@ mod tests {
                     context_limit: None,
                 }],
                 cadence: None,
+                hooks: None,
             },
             &path,
         )
@@ -1429,6 +1531,7 @@ mod tests {
                 limits: Default::default(),
                 providers: vec![],
                 cadence: None,
+                hooks: None,
             },
             &path,
         );
@@ -1455,6 +1558,7 @@ mod tests {
             limits: Default::default(),
             providers,
             cadence: None,
+            hooks: None,
         }
     }
 
@@ -1853,6 +1957,7 @@ mod tests {
             limits: Default::default(),
             providers: vec![],
             cadence,
+            hooks: None,
         };
         // 写满全部字段 → 读回一致。
         settings_save_at_path(

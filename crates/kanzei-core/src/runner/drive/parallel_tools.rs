@@ -150,14 +150,18 @@ pub(super) async fn execute_parallel_tool_calls(
             concurrency,
         });
     }
-    let wave_results = execute_prepared_tools(
-        prepared,
-        ctx,
-        config.limits.max_parallel_tools(),
-        images_supported,
-        on_event,
-        &plan.permissions,
-        halt,
+    let active_hooks = Arc::new(snapshot.config().hooks.rules.clone());
+    let wave_results = kanzei_harness::hooks::scope(
+        active_hooks,
+        execute_prepared_tools(
+            prepared,
+            ctx,
+            config.limits.max_parallel_tools(),
+            images_supported,
+            on_event,
+            &plan.permissions,
+            halt,
+        ),
     )
     .await;
     for (index, result, images) in wave_results {

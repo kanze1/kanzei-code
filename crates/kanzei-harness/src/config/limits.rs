@@ -65,6 +65,9 @@ pub struct Limits {
     /// R-236 B4:prune 最小收益门槛——可回收量低于此值就不做(不值得打破缓存前缀)。
     #[serde(default)]
     pub prune_min_gain_tokens: Option<u64>,
+    /// 自主推进(dev-auto)单次任务累计总 Token 预算熔断上限(None = 不限)。
+    #[serde(default)]
+    pub auto_run_token_budget: Option<u64>,
 }
 
 impl Limits {
@@ -140,4 +143,5 @@ pub(crate) const LIMITS_KEYS: &[&str] = &[
     "compact_buffer_tokens",
     "prune_protect_tokens",
     "prune_min_gain_tokens",
+    "auto_run_token_budget",
 ];

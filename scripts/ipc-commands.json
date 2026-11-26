@@ -1071,6 +1071,11 @@
     "path": "commands::os_open::open_with",
     "returns": "-> Result < () , String >"
   },
+  "pending_asks_all": {
+    "parameters": {},
+    "path": "commands::assist::pending_asks_all",
+    "returns": "-> Result < Vec < serde_json :: Value > , String >"
+  },
   "pending_asks_get": {
     "parameters": {
       "processId": {
@@ -1504,6 +1509,62 @@
     "path": "settings::provider_test",
     "returns": "-> Result < String , String >"
   },
+  "repo_wiki_generate": {
+    "parameters": {
+      "areaId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "repo_wiki::repo_wiki_generate",
+    "returns": "-> Result < Value , String >"
+  },
+  "repo_wiki_overview": {
+    "parameters": {
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "repo_wiki::repo_wiki_overview",
+    "returns": "-> Result < Value , String >"
+  },
+  "repo_wiki_read": {
+    "parameters": {
+      "areaId": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "repo_wiki::repo_wiki_read",
+    "returns": "-> Result < Value , String >"
+  },
+  "repo_wiki_save": {
+    "parameters": {
+      "areaId": {
+        "required": true,
+        "type": "String"
+      },
+      "content": {
+        "required": true,
+        "type": "String"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "repo_wiki::repo_wiki_save",
+    "returns": "-> Result < Value , String >"
+  },
   "reveal_path": {
     "parameters": {
       "path": {
@@ -1652,6 +1713,50 @@
     },
     "path": "settings::settings_save",
     "returns": "-> Result < () , String >"
+  },
+  "shell_exec_quick": {
+    "parameters": {
+      "command": {
+        "required": true,
+        "type": "String"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "timeoutSecs": {
+        "required": false,
+        "type": "Option < u64 >"
+      }
+    },
+    "path": "commands::assist::shell_exec_quick",
+    "returns": "-> Result < serde_json :: Value , String >"
+  },
+  "side_question": {
+    "parameters": {
+      "history": {
+        "required": false,
+        "type": "Option < Vec < crate :: commands :: assist :: SideTurn > >"
+      },
+      "processId": {
+        "required": false,
+        "type": "Option < String >"
+      },
+      "projectDir": {
+        "required": true,
+        "type": "String"
+      },
+      "question": {
+        "required": true,
+        "type": "String"
+      }
+    },
+    "path": "commands::assist::side_question",
+    "returns": "-> Result < serde_json :: Value , String >"
   },
   "skills_delete": {
     "parameters": {

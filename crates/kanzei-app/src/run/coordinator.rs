@@ -431,9 +431,15 @@ pub(crate) async fn run_task(
         .list_pending_inputs(&session_id)
         .map(|items| !items.is_empty())
         .unwrap_or(true);
+    let round_total_tokens = summary.usage.input.saturating_add(summary.usage.output);
     let decided = {
         let mut controllers = handles.auto_runs.lock_or_recover();
         let ctrl = controllers.entry(session_id.clone()).or_default();
+        ctrl.state
+            .set_token_budget(deps.config.limits.auto_run_token_budget);
+        if ctrl.enabled {
+            ctrl.state.record_round_tokens(round_total_tokens);
+        }
         let ctx = kanzei_harness::auto_run::AutoRunCtx {
             halted: summary.halted_by_user,
             steps: summary.steps,
@@ -516,6 +522,32 @@ pub(crate) async fn run_task(
             &session_id,
             &progress_signature,
         );
+    }
+    if !deps.config.hooks.rules.is_empty() {
+        let stop_results = kanzei_harness::hooks::run_hooks(
+            &deps.config.hooks.rules,
+            &kanzei_harness::hooks::HookContext {
+                event: kanzei_harness::HookEvent::OnStop,
+                cwd: &ctx.cwd,
+                project_root: &deps.project_root,
+                tool_name: None,
+                tool_input: None,
+                tool_outcome: None,
+            },
+        )
+        .await;
+        for exec in stop_results {
+            let detail = if exec.ok() {
+                if exec.stdout.trim().is_empty() {
+                    format!("on_stop hook `{}` 执行完成", exec.command)
+                } else {
+                    format!("on_stop hook `{}`: {}", exec.command, exec.stdout.trim())
+                }
+            } else {
+                format!("on_stop hook 告警：{}", exec.summary())
+            };
+            stage("Hook", detail);
+        }
     }
     // R-202 批2:轮末收尾段后半(对话落库/轮末压缩/kz:done/租约释放/令牌回收)收敛。
     // R-253 批7b:参数按生命周期分组(FinalizeSession/FinalizeRound/FinalizeOutcome/

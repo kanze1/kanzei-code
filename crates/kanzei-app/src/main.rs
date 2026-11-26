@@ -40,6 +40,7 @@ mod prefs;
 mod processes;
 mod projection_gate;
 mod projects;
+mod repo_wiki;
 mod run;
 mod session_supervisor;
 mod settings;

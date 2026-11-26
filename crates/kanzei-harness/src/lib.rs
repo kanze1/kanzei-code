@@ -13,6 +13,7 @@ pub mod defs;
 pub mod handoff;
 pub mod harness;
 pub mod home;
+pub mod hooks;
 pub mod markdown;
 pub mod orchestration;
 pub mod permission;
@@ -38,7 +39,7 @@ pub mod tool_search;
 
 /// R-322:门禁强度是一等维度,调用方(桌面端/CLI)按模式取默认值后显式传入。
 pub use auto_run::{HarnessIntensity, IntensityPolicy};
-pub use config::{KanzeiConfig, ResolvedModel};
+pub use config::{HookEvent, HookRule, HooksSection, KanzeiConfig, ResolvedModel};
 pub use context::{
     fallible_source, refreshing_fallible_source, refreshing_source, source, ContextAssemblyError,
     ContextBaseline, ContextRequirement, ContextSource, ContextSourceReport, ContextSourceStatus,

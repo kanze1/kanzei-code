@@ -433,6 +433,14 @@ pub fn serialize_action(action: AutoRunAction) -> serde_json::Value {
                 AutoStopReason::GoalMet => ("GoalMet", None),
                 AutoStopReason::GoalUnreachable(n) => ("GoalUnreachable", Some(n)),
                 AutoStopReason::AwaitingUser => ("AwaitingUser", None),
+                AutoStopReason::TokenBudgetExceeded { used, budget } => {
+                    return json!({
+                        "type": "Stop",
+                        "reason": "TokenBudgetExceeded",
+                        "usedTokens": used,
+                        "budgetTokens": budget,
+                    });
+                }
             };
             let mut v = json!({ "type": "Stop", "reason": reason_str });
             if let Some(max) = max {

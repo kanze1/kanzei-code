@@ -54,7 +54,68 @@ pub async fn execute_coordinated(
         }
         _ => None,
     };
-    tool.execute_cancellable(input, ctx, halt).await
+    let active_hooks = crate::hooks::current_rules();
+    let input_json_for_hooks = if active_hooks.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&input).ok()
+    };
+    if !active_hooks.is_empty() {
+        let pre_results = crate::hooks::run_hooks(
+            &active_hooks,
+            &crate::hooks::HookContext {
+                event: crate::config::HookEvent::PreTool,
+                cwd: &ctx.cwd,
+                project_root: &ctx.project_root,
+                tool_name: Some(tool.name()),
+                tool_input: input_json_for_hooks.as_deref(),
+                tool_outcome: None,
+            },
+        )
+        .await;
+        if let Some(failed) = pre_results.iter().find(|r| !r.ok()) {
+            return ToolOutput::blocked_by_workflow(
+                "HOOK_BLOCKED",
+                format!(
+                    "PreTool hook 阻断了工具 `{}`：{}",
+                    tool.name(),
+                    failed.summary()
+                ),
+            );
+        }
+    }
+
+    let mut output = tool.execute_cancellable(input, ctx, halt).await;
+
+    if !active_hooks.is_empty() {
+        let post_results = crate::hooks::run_hooks(
+            &active_hooks,
+            &crate::hooks::HookContext {
+                event: crate::config::HookEvent::PostTool,
+                cwd: &ctx.cwd,
+                project_root: &ctx.project_root,
+                tool_name: Some(tool.name()),
+                tool_input: input_json_for_hooks.as_deref(),
+                tool_outcome: Some(output.outcome.as_str()),
+            },
+        )
+        .await;
+        let mut notes = Vec::new();
+        for exec in post_results {
+            if !exec.ok() {
+                notes.push(format!("[post_tool hook 告警] {}", exec.summary()));
+            } else if !exec.stdout.trim().is_empty() {
+                notes.push(format!("[post_tool hook] {}", exec.stdout.trim()));
+            }
+        }
+        if !notes.is_empty() {
+            if !output.content.is_empty() && !output.content.ends_with('\n') {
+                output.content.push('\n');
+            }
+            output.content.push_str(&notes.join("\n"));
+        }
+    }
+    output
 }
 
 /// 工具特有的前置约束。实现持有已解析输入所需的事实；放行不等于权限授权。

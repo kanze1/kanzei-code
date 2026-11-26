@@ -73,6 +73,7 @@ export interface CommandArgsMap {
   "open_tools_list": Record<string, never>;
   "open_tools_save": { "tools": Array<unknown> };
   "open_with": { "path"?: string | null; "processId"?: string | null; "projectDir": string; "toolId": string };
+  "pending_asks_all": Record<string, never>;
   "pending_asks_get": { "processId"?: string | null; "projectDir": string };
   "permission_rule_add": { "action": string; "projectDir": string; "resource": string };
   "permission_rule_delete": { "expectedRule": unknown; "index": number; "projectDir": string };
@@ -103,6 +104,10 @@ export interface CommandArgsMap {
   "projects_reorder": { "paths": Array<string> };
   "projects_select": { "path": string };
   "provider_test": { "apiKey"?: string | null; "apiKeyEnv"?: string | null; "auth"?: string | null; "baseUrl": string; "protocol": string; "proxy"?: string | null };
+  "repo_wiki_generate": { "areaId": string; "projectDir": string };
+  "repo_wiki_overview": { "projectDir": string };
+  "repo_wiki_read": { "areaId": string; "projectDir": string };
+  "repo_wiki_save": { "areaId": string; "content": string; "projectDir": string };
   "reveal_path": { "path"?: string | null; "processId"?: string | null; "projectDir": string };
   "run_prompt": { "agent"?: string | null; "attachments"?: Array<unknown> | null; "autoAllow"?: boolean | null; "autoRound"?: boolean | null; "autonomous"?: boolean | null; "commandId"?: string | null; "delivery"?: string | null; "executionBatch"?: boolean | null; "handoffSource"?: unknown | null; "model"?: string | null; "processId"?: string | null; "profile"?: string | null; "projectDir": string; "prompt": string; "researchTopic"?: string | null; "wakeQueued"?: boolean | null; "workItemId"?: string | null; "workPriority"?: string | null };
   "run_tool_process_stop": { "processId": string; "projectDir": string };
@@ -110,6 +115,8 @@ export interface CommandArgsMap {
   "settings_get": { "projectDir"?: string | null };
   "settings_open": Record<string, never>;
   "settings_save": { "payload": unknown };
+  "shell_exec_quick": { "command": string; "processId"?: string | null; "projectDir": string; "timeoutSecs"?: number | null };
+  "side_question": { "history"?: Array<unknown> | null; "processId"?: string | null; "projectDir": string; "question": string };
   "skills_delete": { "expectedHash": string; "name": string };
   "skills_duplicate": { "name": string; "newName": string };
   "skills_generate": { "description": string };
@@ -440,6 +447,7 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
     "projectDir": true,
     "toolId": true
   },
+  "pending_asks_all": {},
   "pending_asks_get": {
     "processId": false,
     "projectDir": true
@@ -561,6 +569,22 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
     "protocol": true,
     "proxy": false
   },
+  "repo_wiki_generate": {
+    "areaId": true,
+    "projectDir": true
+  },
+  "repo_wiki_overview": {
+    "projectDir": true
+  },
+  "repo_wiki_read": {
+    "areaId": true,
+    "projectDir": true
+  },
+  "repo_wiki_save": {
+    "areaId": true,
+    "content": true,
+    "projectDir": true
+  },
   "reveal_path": {
     "path": false,
     "processId": false,
@@ -600,6 +624,18 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
   "settings_open": {},
   "settings_save": {
     "payload": true
+  },
+  "shell_exec_quick": {
+    "command": true,
+    "processId": false,
+    "projectDir": true,
+    "timeoutSecs": false
+  },
+  "side_question": {
+    "history": false,
+    "processId": false,
+    "projectDir": true,
+    "question": true
   },
   "skills_delete": {
     "expectedHash": true,

@@ -132,6 +132,18 @@
     "host": "service"
   },
   {
+    "path": "commands::assist::pending_asks_all",
+    "host": "service"
+  },
+  {
+    "path": "commands::assist::shell_exec_quick",
+    "host": "service"
+  },
+  {
+    "path": "commands::assist::side_question",
+    "host": "service"
+  },
+  {
     "path": "commands::os_open::reveal_path",
     "host": "desktop"
   },
@@ -546,5 +558,21 @@
   {
     "path": "commands::summarize::save_conversation_export",
     "host": "desktop"
+  },
+  {
+    "path": "repo_wiki::repo_wiki_overview",
+    "host": "service"
+  },
+  {
+    "path": "repo_wiki::repo_wiki_read",
+    "host": "service"
+  },
+  {
+    "path": "repo_wiki::repo_wiki_generate",
+    "host": "service"
+  },
+  {
+    "path": "repo_wiki::repo_wiki_save",
+    "host": "service"
   }
 ]

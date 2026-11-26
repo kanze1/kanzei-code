@@ -173,17 +173,21 @@ pub(super) async fn execute_serial_tool_calls(
                     let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<
                         kanzei_harness::progress::ProgressChunk,
                     >();
-                    let exec = kanzei_harness::permission::scope(
-                        execution_permissions(snapshot, session_approved, session_rules),
-                        kanzei_harness::tool_pipeline::wrap_execute(
-                            id.clone(),
-                            Some(progress_tx),
-                            Some(&halted),
-                            kanzei_harness::tool_pipeline::execute_coordinated(
-                                tool.as_ref(),
-                                input,
-                                ctx,
-                                halt,
+                    let active_hooks = Arc::new(snapshot.config().hooks.rules.clone());
+                    let exec = kanzei_harness::hooks::scope(
+                        active_hooks,
+                        kanzei_harness::permission::scope(
+                            execution_permissions(snapshot, session_approved, session_rules),
+                            kanzei_harness::tool_pipeline::wrap_execute(
+                                id.clone(),
+                                Some(progress_tx),
+                                Some(&halted),
+                                kanzei_harness::tool_pipeline::execute_coordinated(
+                                    tool.as_ref(),
+                                    input,
+                                    ctx,
+                                    halt,
+                                ),
                             ),
                         ),
                     );
