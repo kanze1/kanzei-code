@@ -30,12 +30,16 @@ import {
 } from "../store/uiStore";
 import {
   IconChat,
+  IconClose,
   IconFolder,
   IconGrid,
   IconMemory,
   IconPlus,
+  IconSearch,
   IconSettings,
   IconSkills,
+  IconStar,
+  IconSun,
   IconTheme,
 } from "../components/Icons";
 
@@ -61,6 +65,18 @@ export function Sidebar(): React.ReactElement {
   const pinnedByProject = useSessionStore((s) => s.pinnedByProject);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
+
+  const openContextMenu = (
+    e: React.MouseEvent,
+    payload: Omit<ContextMenuState, "x" | "y">
+  ) => {
+    e.preventDefault();
+    const maxW = typeof window !== "undefined" ? window.innerWidth : 1280;
+    const maxH = typeof window !== "undefined" ? window.innerHeight : 800;
+    const x = Math.min(e.clientX, maxW - 196);
+    const y = Math.min(e.clientY, maxH - 200);
+    setMenu({ ...payload, x: Math.max(8, x), y: Math.max(8, y) });
+  };
 
   const filteredProjects = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -156,38 +172,56 @@ export function Sidebar(): React.ReactElement {
             onClick={() => void openGeneralChat()}
             title="开启或切换到无项目通用对话"
           >
-            <IconChat size={14} />
+            <IconChat size={13} />
             <span>无项目对话</span>
           </button>
           <button
             type="button"
             className="btn btn-sm btn-icon"
             title="添加已有项目文件夹"
+            aria-label="添加已有项目文件夹"
             onClick={() => void addExistingProject()}
           >
-            <IconFolder size={14} />
+            <IconFolder size={13} />
           </button>
           <button
             type="button"
             className="btn btn-sm btn-icon"
             title="新建项目"
+            aria-label="新建项目"
             onClick={() => uiStore.setState({ newProjectOpen: true })}
           >
-            <IconPlus size={14} />
+            <IconPlus size={13} />
           </button>
         </div>
-        <input
-          className="input sidebar-search"
-          placeholder="筛选项目…"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          aria-label="筛选项目"
-        />
+
+        <div className="sidebar-search-wrap">
+          <span className="sidebar-search-icon" aria-hidden="true">
+            <IconSearch size={12} />
+          </span>
+          <input
+            className="input sidebar-search"
+            placeholder="筛选项目…"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            aria-label="筛选项目"
+          />
+          {filter && (
+            <button
+              type="button"
+              className="sidebar-search-clear"
+              onClick={() => setFilter("")}
+              aria-label="清空筛选"
+            >
+              <IconClose size={11} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="sidebar-scroll">
         <div className="sidebar-section-header">
-          <span>项目 ({filteredProjects.length})</span>
+          <span>项目 · {filteredProjects.length}</span>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -198,8 +232,8 @@ export function Sidebar(): React.ReactElement {
         </div>
 
         {filteredProjects.length === 0 ? (
-          <div style={{ padding: "12px 8px", fontSize: 12, color: "var(--dim)" }}>
-            还没有项目，点击上方按钮添加或新建。
+          <div className="sidebar-empty-hint">
+            {filter.trim() ? "没有匹配的项目名称。" : "还没有项目，点击上方按钮添加或新建。"}
           </div>
         ) : (
           filteredProjects.map((dir) => {
@@ -218,10 +252,7 @@ export function Sidebar(): React.ReactElement {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void selectProject(dir);
                   }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, kind: "project", projectDir: dir });
-                  }}
+                  onContextMenu={(e) => openContextMenu(e, { kind: "project", projectDir: dir })}
                 >
                   <span className={`status-dot${runningCount > 0 ? " running" : ""}`} />
                   <span className="project-row-name" title={dir}>
@@ -233,6 +264,7 @@ export function Sidebar(): React.ReactElement {
                       className="btn btn-ghost btn-icon"
                       style={{ width: 22, height: 22 }}
                       title="在此项目新建对话"
+                      aria-label={`在 ${label} 新建对话`}
                       onClick={(e) => {
                         e.stopPropagation();
                         void (async () => {
@@ -262,23 +294,28 @@ export function Sidebar(): React.ReactElement {
                             navigateView("chat");
                             void activateProcess(proc.id);
                           }}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setMenu({
-                              x: e.clientX,
-                              y: e.clientY,
+                          onContextMenu={(e) =>
+                            openContextMenu(e, {
                               kind: "session",
                               projectDir: dir,
                               process: proc,
-                            });
-                          }}
+                            })
+                          }
                         >
                           <span className={`status-dot${proc.running ? " running" : ""}`} />
+                          {pinned && (
+                            <span className="session-row-pin" title="已置顶">
+                              <IconStar size={10} />
+                            </span>
+                          )}
                           <span className="session-row-label" title={proc.label}>
-                            {pinned ? "★ " : ""}
                             {proc.label}
                           </span>
-                          {proc.branch && <span className="session-row-meta">{proc.branch}</span>}
+                          {proc.branch && (
+                            <span className="session-row-meta" title={proc.branch}>
+                              {proc.branch}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
@@ -292,16 +329,17 @@ export function Sidebar(): React.ReactElement {
         {generalMode && activeProjectDir && sortedActiveProcesses.length > 0 && (
           <>
             <div className="sidebar-section-header" style={{ marginTop: 8 }}>
-              <span>无项目对话列表</span>
+              <span>无项目对话</span>
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={() => void createConversation(activeProjectDir)}
               >
-                + 新建
+                <IconPlus size={11} />
+                <span>新建</span>
               </button>
             </div>
-            <div className="session-list" style={{ paddingLeft: 4 }}>
+            <div className="session-list session-list-flat">
               {sortedActiveProcesses.map((proc) => (
                 <button
                   key={proc.id}
@@ -311,16 +349,13 @@ export function Sidebar(): React.ReactElement {
                     navigateView("chat");
                     void activateProcess(proc.id);
                   }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setMenu({
-                      x: e.clientX,
-                      y: e.clientY,
+                  onContextMenu={(e) =>
+                    openContextMenu(e, {
                       kind: "session",
                       projectDir: activeProjectDir,
                       process: proc,
-                    });
-                  }}
+                    })
+                  }
                 >
                   <span className={`status-dot${proc.running ? " running" : ""}`} />
                   <span className="session-row-label">{proc.label}</span>
@@ -339,7 +374,7 @@ export function Sidebar(): React.ReactElement {
             className={`sidebar-nav-btn${view === "workspace" ? " active" : ""}`}
             onClick={() => navigateView("workspace")}
           >
-            <IconGrid />
+            <IconGrid size={14} />
             <span>工作台</span>
           </button>
           <button
@@ -348,7 +383,7 @@ export function Sidebar(): React.ReactElement {
             className={`sidebar-nav-btn${view === "memory" ? " active" : ""}`}
             onClick={() => navigateView("memory")}
           >
-            <IconMemory />
+            <IconMemory size={14} />
             <span>记忆</span>
           </button>
           <button
@@ -357,7 +392,7 @@ export function Sidebar(): React.ReactElement {
             className={`sidebar-nav-btn${view === "skills" ? " active" : ""}`}
             onClick={() => navigateView("skills")}
           >
-            <IconSkills />
+            <IconSkills size={14} />
             <span>Skills</span>
           </button>
           <button
@@ -366,20 +401,23 @@ export function Sidebar(): React.ReactElement {
             className={`sidebar-nav-btn${view === "settings" ? " active" : ""}`}
             onClick={() => navigateView("settings")}
           >
-            <IconSettings />
+            <IconSettings size={14} />
             <span>设置</span>
           </button>
         </nav>
 
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon"
-          title={theme === "dark" ? "切换到浅色主题" : "切换到暗色主题"}
-          aria-label="切换明暗主题"
-          onClick={toggleTheme}
-        >
-          <IconTheme />
-        </button>
+        <div className="sidebar-footer-meta">
+          <button
+            type="button"
+            className="sidebar-theme-btn"
+            title={theme === "dark" ? "切换到浅色主题" : "切换到暗色主题"}
+            aria-label="切换明暗主题"
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? <IconSun size={13} /> : <IconTheme size={13} />}
+            <span>{theme === "dark" ? "浅色外观" : "暗色外观"}</span>
+          </button>
+        </div>
       </div>
 
       <div className="sidebar-resizer" onMouseDown={startResize} aria-hidden="true" />

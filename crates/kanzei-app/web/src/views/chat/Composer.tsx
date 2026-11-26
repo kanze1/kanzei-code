@@ -17,6 +17,17 @@ import {
   useSessionStore,
 } from "../../store/sessionStore";
 import { promptDialog, pushToast, uiStore } from "../../store/uiStore";
+import {
+  IconAttach,
+  IconBranch,
+  IconClose,
+  IconCpu,
+  IconSend,
+  IconShield,
+  IconSparkles,
+  IconStop,
+  IconTarget,
+} from "../../components/Icons";
 
 function fileToBase64(file: File): Promise<PromptAttachment> {
   return new Promise((resolve, reject) => {
@@ -63,7 +74,14 @@ export function Composer(): React.ReactElement {
   useEffect(() => {
     setText(storedDraft?.text ?? "");
     setAttachments(storedDraft?.attachments ?? []);
-  }, [key]);
+  }, [key, storedDraft?.text]);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(200, Math.max(46, el.scrollHeight))}px`;
+  }, [text]);
 
   const handleTextChange = (next: string) => {
     setText(next);
@@ -139,41 +157,54 @@ export function Composer(): React.ReactElement {
         }}
       >
         <div className="composer-context-strip">
-          <span>{generalMode ? "无项目对话" : projectDisplayName(activeProjectDir)}</span>
-          {!generalMode && gitStatus?.branch && (
-            <button
-              type="button"
-              className="composer-chip mono"
-              onClick={() => toggleDrawer("files")}
-              title="查看本轮文件改动与 Diff"
-            >
-              ⎇ {gitStatus.branch}
-              {gitStatus.changes > 0 && ` · ${gitStatus.changes} 改动`}
-            </button>
-          )}
-          {!generalMode && gitStatus?.repo === "none" && (
-            <span className="badge badge-warn">未初始化 Git</span>
-          )}
-          {autoRun.goal && (
-            <button
-              type="button"
-              className="composer-chip"
-              onClick={() => void handleEditGoal()}
-              title="点击修改或清除自动推进目标"
-            >
-              目标：{autoRun.goal.slice(0, 36)}
-              {autoRun.goal.length > 36 ? "…" : ""}
-            </button>
-          )}
+          <div className="composer-context-left">
+            {!generalMode && gitStatus?.branch ? (
+              <button
+                type="button"
+                className="composer-chip mono"
+                onClick={() => toggleDrawer("files")}
+                title="点击查看本轮文件改动与 Diff"
+              >
+                <IconBranch size={11} />
+                <span className="composer-chip-text">{gitStatus.branch}</span>
+                {gitStatus.changes > 0 && (
+                  <span style={{ color: "var(--ok)", fontWeight: 600 }}>
+                    · {gitStatus.changes} 改动
+                  </span>
+                )}
+              </button>
+            ) : (
+              <span className="composer-chip-text">
+                {generalMode ? "无项目对话" : projectDisplayName(activeProjectDir)}
+              </span>
+            )}
+
+            {!generalMode && gitStatus?.repo === "none" && (
+              <span className="badge badge-warn">未初始化 Git</span>
+            )}
+
+            {autoRun.goal && (
+              <button
+                type="button"
+                className="composer-chip composer-chip-goal"
+                onClick={() => void handleEditGoal()}
+                title={`自动推进目标：${autoRun.goal}（点击修改）`}
+              >
+                <IconTarget size={11} />
+                <span className="composer-chip-text">{autoRun.goal}</span>
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
-            className="composer-chip"
-            style={{ marginLeft: "auto" }}
+            className="composer-chip composer-chip-model mono"
             onClick={() => uiStore.setState({ projectModelsOpen: true })}
             disabled={generalMode || !activeProjectDir}
-            title="编辑当前项目的模型覆盖配置"
+            title={`当前生效模型：${effectiveModelLabel}（点击配置项目覆盖）`}
           >
-            生效：{effectiveModelLabel}
+            <IconCpu size={11} />
+            <span className="composer-chip-text">{effectiveModelLabel}</span>
           </button>
         </div>
 
@@ -181,7 +212,7 @@ export function Composer(): React.ReactElement {
           <div className="composer-queue-strip">
             {pendingInputs.map((item) => (
               <div key={item.input_id} className="composer-queue-item">
-                <span>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   <span className="badge badge-accent" style={{ marginRight: 6 }}>
                     {item.delivery === "steer" ? "插话" : "排队"}
                   </span>
@@ -201,25 +232,29 @@ export function Composer(): React.ReactElement {
 
         {attachments.length > 0 && (
           <div className="composer-attachments">
-            {attachments.map((att, idx) => (
-              <span key={idx} className="badge">
-                {att.file_name}
-                <button
-                  type="button"
-                  style={{
-                    border: 0,
-                    background: "transparent",
-                    color: "inherit",
-                    cursor: "pointer",
-                    marginLeft: 4,
-                  }}
-                  onClick={() => removeAttachment(idx)}
-                  aria-label="移除附件"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
+            {attachments.map((att, idx) => {
+              const isImg = att.media_type.startsWith("image/");
+              return (
+                <span key={idx} className="composer-att-chip">
+                  {isImg && (
+                    <img
+                      src={`data:${att.media_type};base64,${att.data}`}
+                      alt=""
+                      className="composer-att-thumb"
+                    />
+                  )}
+                  <span className="mono">{att.file_name}</span>
+                  <button
+                    type="button"
+                    className="composer-att-remove"
+                    onClick={() => removeAttachment(idx)}
+                    aria-label="移除附件"
+                  >
+                    <IconClose size={10} />
+                  </button>
+                </span>
+              );
+            })}
           </div>
         )}
 
@@ -233,7 +268,7 @@ export function Composer(): React.ReactElement {
               ? deliveryMode === "steer"
                 ? "模型运行中：输入插话将在安全检查点介入…"
                 : "模型运行中：输入内容将加入下一轮排队…"
-              : "输入你的需求、问题或指令（Enter 发送，Shift+Enter 换行）…"
+              : "输入需求、问题或指令（Enter 发送，Shift+Enter 换行，支持粘贴图片与拖入文件）…"
           }
           value={text}
           onChange={(e) => handleTextChange(e.target.value)}
@@ -266,11 +301,12 @@ export function Composer(): React.ReactElement {
             />
             <button
               type="button"
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost btn-icon btn-sm"
               onClick={() => fileInputRef.current?.click()}
               title="添加文件或图片附件"
+              aria-label="添加附件"
             >
-              + 附件
+              <IconAttach size={14} />
             </button>
 
             <select
@@ -288,7 +324,7 @@ export function Composer(): React.ReactElement {
                 }
               }}
             >
-              <option value="">继承默认模型</option>
+              <option value="">默认模型</option>
               {modelsCatalog.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.label}
@@ -309,7 +345,7 @@ export function Composer(): React.ReactElement {
               }}
             >
               <option value="">思考: 默认</option>
-              <option value="off">思考: 关闭</option>
+              <option value="off">思考: 关</option>
               <option value="low">思考: 低</option>
               <option value="medium">思考: 中</option>
               <option value="high">思考: 高</option>
@@ -335,30 +371,33 @@ export function Composer(): React.ReactElement {
 
             <button
               type="button"
-              className={`btn btn-sm${autoAllow ? " btn-primary" : " btn-ghost"}`}
+              className={`composer-toggle-pill${autoAllow ? " active" : ""}`}
               onClick={() => chatStore.setState({ autoAllow: !autoAllow })}
               title="本会话自动放行常规工具权限"
             >
-              自动放行
+              <IconShield size={12} />
+              <span>放行</span>
             </button>
 
             {!generalMode && (
               <>
                 <button
                   type="button"
-                  className={`btn btn-sm${autoRun.enabled ? " btn-accent" : " btn-ghost"}`}
+                  className={`composer-toggle-pill${autoRun.enabled ? " active-accent" : ""}`}
                   onClick={() => void updateAutoRun({ enabled: !autoRun.enabled, paused: false })}
-                  title="开启或关闭多轮自主推进（鞭挞）"
+                  title="开启或关闭多轮自主推进"
                 >
-                  {autoRun.enabled ? "自动推进: 开" : "自动推进"}
+                  <IconSparkles size={12} />
+                  <span>{autoRun.enabled ? "推进中" : "自动推进"}</span>
                 </button>
                 <button
                   type="button"
-                  className="btn btn-ghost btn-sm"
+                  className={`btn btn-ghost btn-icon btn-sm${autoRun.goal ? " active" : ""}`}
                   onClick={() => void handleEditGoal()}
-                  title="设置自动推进停止目标"
+                  title={autoRun.goal ? `修改自动推进目标：${autoRun.goal}` : "设置自动推进停止目标"}
+                  aria-label="设置自动推进目标"
                 >
-                  目标
+                  <IconTarget size={13} />
                 </button>
               </>
             )}
@@ -382,20 +421,22 @@ export function Composer(): React.ReactElement {
                 </select>
                 <button
                   type="button"
-                  className="btn btn-danger"
+                  className="btn btn-danger btn-pill"
                   onClick={() => void stopCurrentRun()}
                 >
-                  停止
+                  <IconStop size={11} />
+                  <span>停止</span>
                 </button>
               </>
             )}
             <button
               type="button"
-              className="btn btn-accent"
+              className="btn btn-accent composer-send-btn"
               disabled={!text.trim() && attachments.length === 0}
               onClick={() => void handleSubmit()}
             >
-              {running ? (deliveryMode === "steer" ? "插话" : "排队") : "发送"}
+              <IconSend size={13} />
+              <span>{running ? (deliveryMode === "steer" ? "插话" : "排队") : "发送"}</span>
             </button>
           </div>
         </div>

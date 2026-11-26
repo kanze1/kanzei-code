@@ -13,6 +13,14 @@ import {
 import { refreshGitStatus } from "../../store/drawerStore";
 import { createConversation, useSessionStore } from "../../store/sessionStore";
 import { confirmDialog, navigateView, pushToast } from "../../store/uiStore";
+import {
+  IconBranch,
+  IconCompact,
+  IconDownload,
+  IconFolder,
+  IconPlus,
+  IconTrash,
+} from "../../components/Icons";
 import { AskOverlay } from "./AskOverlay";
 import { Composer } from "./Composer";
 import { ContextDrawer } from "./ContextDrawer";
@@ -30,6 +38,9 @@ export function ChatView(): React.ReactElement {
   if (!activeProjectDir) {
     return (
       <div className="empty-state" style={{ flex: 1 }}>
+        <div className="empty-state-icon">
+          <IconFolder size={20} />
+        </div>
         <h3>尚未选择项目</h3>
         <p>前往工作台添加或新建项目，或点击左侧「无项目对话」直接开始。</p>
         <button type="button" className="btn btn-primary" onClick={() => navigateView("workspace")}>
@@ -122,21 +133,35 @@ export function ChatView(): React.ReactElement {
     }
   };
 
-  const needsGitBanner =
-    !generalMode && projectFacts && projectFacts.has_git === false;
+  const needsGitBanner = !generalMode && projectFacts && projectFacts.has_git === false;
+  const profileLabel =
+    activeProcess?.profile === "dev-pair"
+      ? "结伴开发"
+      : activeProcess?.profile === "isolated"
+      ? "只读讨论"
+      : "自主开发";
 
   return (
     <div className="chat-layout">
       <div className="chat-column">
         <div className="chat-topbar">
           <div className="chat-topbar-left">
-            <span className="chat-topbar-title">
-              {activeProcess?.label ?? projectDisplayName(activeProjectDir)}
-            </span>
             {activeProcess?.branch && (
-              <span className="badge mono">{activeProcess.branch}</span>
+              <span className="chat-topbar-meta mono" title={`当前分支：${activeProcess.branch}`}>
+                <IconBranch size={12} />
+                <span>{activeProcess.branch}</span>
+              </span>
             )}
-            {generalMode && <span className="badge badge-accent">无项目模式</span>}
+            {generalMode ? (
+              <span className="badge badge-accent">无项目模式</span>
+            ) : (
+              <span className="badge">{profileLabel}</span>
+            )}
+            {activeProcess?.worktree_path && (
+              <span className="badge badge-info" title={activeProcess.worktree_path}>
+                隔离工作树
+              </span>
+            )}
           </div>
 
           <div className="chat-topbar-right">
@@ -162,30 +187,38 @@ export function ChatView(): React.ReactElement {
             <button
               type="button"
               className="btn btn-ghost btn-sm"
+              title="在当前项目开启新对话 (Ctrl+Shift+N)"
               onClick={() => void createConversation(activeProjectDir)}
             >
-              + 新对话
+              <IconPlus size={12} />
+              <span>新对话</span>
             </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
+              title="导出对话为 Markdown"
               onClick={() => void handleExport()}
             >
-              导出
+              <IconDownload size={12} />
+              <span>导出</span>
             </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
+              title="压缩当前上下文以节省 Token"
               onClick={() => void compactCurrentConversation()}
             >
-              压缩上下文
+              <IconCompact size={12} />
+              <span>压缩</span>
             </button>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
+              title="开启新的空白对话段"
               onClick={() => void handleClear()}
             >
-              清空
+              <IconTrash size={12} />
+              <span>清空</span>
             </button>
           </div>
         </div>

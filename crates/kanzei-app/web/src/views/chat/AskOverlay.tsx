@@ -3,6 +3,7 @@ import { formatError, invoke } from "../../ipc/client";
 import type { PendingAskItem } from "../../ipc/types";
 import { getActiveSessionId, removePendingAsk, useSessionStore } from "../../store/sessionStore";
 import { pushToast } from "../../store/uiStore";
+import { IconShield, IconSparkles } from "../../components/Icons";
 
 export function AskOverlay(): React.ReactElement | null {
   const asks = useSessionStore((s) => s.asks);
@@ -61,19 +62,20 @@ export function AskOverlay(): React.ReactElement | null {
   return (
     <div className="ask-overlay-bar" role="region" aria-label="等待用户确认">
       <div className="ask-overlay-title">
-        <span>
-          {isQuestion ? "模型向你提问" : `权限请求：${current.action}`}
-          {current.source ? `（${current.source}）` : ""}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          {isQuestion ? <IconSparkles size={13} /> : <IconShield size={13} />}
+          <span>
+            {isQuestion ? "模型向你提问" : `权限请求：${current.action}`}
+            {current.source ? `（${current.source}）` : ""}
+          </span>
         </span>
-        {visibleAsks.length > 1 && <span className="badge">还有 {visibleAsks.length - 1} 条待确认</span>}
+        {visibleAsks.length > 1 && <span className="badge badge-accent">还有 {visibleAsks.length - 1} 条待确认</span>}
       </div>
 
-      <div className="ask-overlay-resource">
-        {current.question ?? current.resource}
-      </div>
+      <div className="ask-overlay-resource">{current.question ?? current.resource}</div>
 
       {isQuestion ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {current.options && current.options.length > 0 && (
             <div className="ask-overlay-actions">
               {current.options.map((opt) => (

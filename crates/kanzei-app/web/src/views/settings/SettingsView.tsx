@@ -1,8 +1,20 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import type { OpenToolInfo } from "../../ipc/types";
 import { loadModelsCatalog, loadOpenTools, useAppStore } from "../../store/appStore";
 import { pushToast } from "../../store/uiStore";
+import {
+  IconBot,
+  IconCpu,
+  IconDownload,
+  IconExternal,
+  IconGlobe,
+  IconLayers,
+  IconPlus,
+  IconRefresh,
+  IconShield,
+  IconSliders,
+} from "../../components/Icons";
 
 interface ProviderRow {
   name: string;
@@ -42,6 +54,16 @@ interface PermissionRuleItem {
   effect?: string;
 }
 
+const TOC_ITEMS: Array<{ id: string; label: string; icon: React.ReactElement }> = [
+  { id: "models", label: "模型与快速模型", icon: <IconCpu size={14} /> },
+  { id: "providers", label: "模型服务商", icon: <IconLayers size={14} /> },
+  { id: "network", label: "网络与默认", icon: <IconGlobe size={14} /> },
+  { id: "limits", label: "高级运行参数", icon: <IconSliders size={14} /> },
+  { id: "tools", label: "打开方式与权限", icon: <IconShield size={14} /> },
+  { id: "agents", label: "Agent 与数据", icon: <IconBot size={14} /> },
+  { id: "update", label: "版本与更新", icon: <IconDownload size={14} /> },
+];
+
 export default function SettingsView(): React.ReactElement {
   const activeProjectDir = useAppStore((s) => s.activeProjectDir);
   const modelsCatalog = useAppStore((s) => s.modelsCatalog);
@@ -72,6 +94,7 @@ export default function SettingsView(): React.ReactElement {
   const [updateBusy, setUpdateBusy] = useState(false);
   const [customTools, setCustomTools] = useState<OpenToolInfo[]>([]);
   const [agentsInfo, setAgentsInfo] = useState<Record<string, unknown> | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const loadAll = useCallback(async () => {
     try {
@@ -118,6 +141,20 @@ export default function SettingsView(): React.ReactElement {
   useEffect(() => {
     setCustomTools(openTools.filter((t) => !t.builtin));
   }, [openTools]);
+
+  const handleScrollSpy = () => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const topOffset = container.scrollTop + 48;
+    let activeId = TOC_ITEMS[0].id;
+    for (const item of TOC_ITEMS) {
+      const el = document.getElementById(`settings-sec-${item.id}`);
+      if (el && el.offsetTop - container.offsetTop <= topOffset) {
+        activeId = item.id;
+      }
+    }
+    if (activeId !== section) setSection(activeId);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -229,16 +266,6 @@ export default function SettingsView(): React.ReactElement {
     }
   };
 
-  const toc = [
-    ["models", "模型与快速模型"],
-    ["providers", "模型服务商"],
-    ["network", "网络与默认"],
-    ["limits", "高级运行参数"],
-    ["tools", "打开方式与权限"],
-    ["agents", "Agent 与数据"],
-    ["update", "版本与更新"],
-  ];
-
   return (
     <div id="view-settings" className="settings-layout">
       <div className="page-header">
@@ -246,42 +273,47 @@ export default function SettingsView(): React.ReactElement {
           <h1 className="page-title">全局设置</h1>
           <div className="page-subtitle mono">{configPath || "~/.kanzei/kanzei.toml"}</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="page-header-actions">
           <button
             type="button"
             className="btn"
             onClick={() => void invoke("settings_open").catch(() => {})}
           >
-            打开配置文件
+            <IconExternal size={13} />
+            <span>打开配置文件</span>
           </button>
           <button
             type="button"
             className="btn"
-            onClick={() => void loadModelsCatalog(activeProjectDir, true).then(() => pushToast("已刷新模型目录", "ok"))}
+            onClick={() =>
+              void loadModelsCatalog(activeProjectDir, true).then(() => pushToast("已刷新模型目录", "ok"))
+            }
           >
-            刷新模型目录
+            <IconRefresh size={13} />
+            <span>刷新模型目录</span>
           </button>
         </div>
       </div>
 
       <div className="settings-body">
         <nav className="settings-toc" aria-label="设置分区">
-          {toc.map(([id, label]) => (
+          {TOC_ITEMS.map((item) => (
             <button
-              key={id}
+              key={item.id}
               type="button"
-              className={`settings-toc-btn${section === id ? " active" : ""}`}
+              className={`settings-toc-btn${section === item.id ? " active" : ""}`}
               onClick={() => {
-                setSection(id);
-                document.getElementById(`settings-sec-${id}`)?.scrollIntoView({ behavior: "smooth" });
+                setSection(item.id);
+                document.getElementById(`settings-sec-${item.id}`)?.scrollIntoView({ behavior: "smooth" });
               }}
             >
-              {label}
+              {item.icon}
+              <span>{item.label}</span>
             </button>
           ))}
         </nav>
 
-        <div className="settings-scroll">
+        <div ref={scrollRef} className="settings-scroll" onScroll={handleScrollSpy}>
           <section id="settings-sec-models" className="settings-section">
             <h2 className="settings-section-title">模型配置</h2>
             <div className="settings-grid-2">
@@ -339,27 +371,41 @@ export default function SettingsView(): React.ReactElement {
                 </select>
               </div>
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-              <input
-                type="checkbox"
-                checked={codexFastMode}
-                onChange={(e) => {
-                  setCodexFastMode(e.target.checked);
+
+            <div className="toggle-row">
+              <div className="toggle-row-text">
+                <span className="toggle-row-title">Codex Fast Mode</span>
+                <span className="field-hint">在支持的 Codex 模型上优先采用低延迟响应通道</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={codexFastMode}
+                aria-label="开启 Codex Fast Mode"
+                className="switch"
+                onClick={() => {
+                  setCodexFastMode(!codexFastMode);
                   setDirty(true);
                 }}
               />
-              开启 Codex Fast Mode
-            </label>
+            </div>
 
             <div className="provider-card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                 <div>
-                  <strong>本地快速模型（Ollama）</strong>
-                  <div className="field-hint">
+                  <div className="provider-card-title">
+                    <span>本地快速模型（Ollama）</span>
+                    {Boolean(fastStatus?.managed) && (
+                      <span className={`badge ${fastStatus?.ready ? "badge-ok" : "badge-warn"}`}>
+                        {fastStatus?.ready ? "已就绪" : "待配置"}
+                      </span>
+                    )}
+                  </div>
+                  <div className="field-hint" style={{ marginTop: 4 }}>
                     {fastStatus?.managed
                       ? fastStatus.ready
-                        ? `已就绪：${String(fastStatus.model ?? "")}`
-                        : `未就绪（安装:${String(fastStatus.installed)} / 服务:${String(fastStatus.serviceUp)} / 模型:${String(fastStatus.modelPresent)}）`
+                        ? `当前托管模型：${String(fastStatus.model ?? "")}`
+                        : `安装:${String(fastStatus.installed)} · 服务:${String(fastStatus.serviceUp)} · 模型:${String(fastStatus.modelPresent)}`
                       : "当前 fast 角色指向外部服务商"}
                   </div>
                 </div>
@@ -383,7 +429,7 @@ export default function SettingsView(): React.ReactElement {
           </section>
 
           <section id="settings-sec-providers" className="settings-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="settings-section-head">
               <h2 className="settings-section-title">模型服务商 ({providers.length})</h2>
               <button
                 type="button"
@@ -396,11 +442,38 @@ export default function SettingsView(): React.ReactElement {
                   setDirty(true);
                 }}
               >
-                + 添加服务商
+                <IconPlus size={12} />
+                <span>添加服务商</span>
               </button>
             </div>
+
             {providers.map((p, idx) => (
               <div key={idx} className="provider-card">
+                <div className="provider-card-head">
+                  <div className="provider-card-title">
+                    <span className="mono">{p.name || "未命名服务商"}</span>
+                    <span className="badge">{p.protocol}</span>
+                    <span className="badge badge-info">{p.source ?? "global"}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" className="btn btn-sm" onClick={() => void testProvider(p)}>
+                      连通性测试
+                    </button>
+                    {!p.builtin && (
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm"
+                        onClick={() => {
+                          setProviders((prev) => prev.filter((_, i) => i !== idx));
+                          setDirty(true);
+                        }}
+                      >
+                        删除
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div className="settings-grid-2">
                   <div className="field-group">
                     <label className="field-label">名称</label>
@@ -460,26 +533,6 @@ export default function SettingsView(): React.ReactElement {
                         setDirty(true);
                       }}
                     />
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span className="field-hint">来源：{p.source ?? "global"}</span>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button type="button" className="btn btn-sm" onClick={() => void testProvider(p)}>
-                      连通性测试
-                    </button>
-                    {!p.builtin && (
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        onClick={() => {
-                          setProviders((prev) => prev.filter((_, i) => i !== idx));
-                          setDirty(true);
-                        }}
-                      >
-                        删除
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -614,7 +667,7 @@ export default function SettingsView(): React.ReactElement {
           </section>
 
           <section id="settings-sec-tools" className="settings-section">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div className="settings-section-head">
               <h2 className="settings-section-title">外部打开方式与已记住权限</h2>
               <div style={{ display: "flex", gap: 6 }}>
                 <button
@@ -627,7 +680,8 @@ export default function SettingsView(): React.ReactElement {
                     ])
                   }
                 >
-                  + 添加打开方式
+                  <IconPlus size={12} />
+                  <span>添加打开方式</span>
                 </button>
                 <button type="button" className="btn btn-sm btn-primary" onClick={() => void handleSaveOpenTools()}>
                   保存打开方式
@@ -659,47 +713,38 @@ export default function SettingsView(): React.ReactElement {
               </div>
             ))}
 
-            <div className="field-label" style={{ marginTop: 8 }}>
+            <div className="field-label" style={{ marginTop: 6 }}>
               已记住权限规则 ({permRules.length})
             </div>
             {permRules.length === 0 ? (
               <div className="field-hint">当前没有持久化的权限放行规则。</div>
             ) : (
-              permRules.map((rule, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "6px 10px",
-                    border: "1px solid var(--border-soft)",
-                    borderRadius: 6,
-                    fontSize: 12,
-                  }}
-                >
-                  <span className="mono">
-                    [{rule.scope}] {rule.action} → {rule.pattern} ({rule.effect})
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    disabled={!activeProjectDir}
-                    onClick={() =>
-                      activeProjectDir &&
-                      void invoke("permission_rule_delete", {
-                        projectDir: activeProjectDir,
-                        index: rule.index ?? idx,
-                        expectedRule: rule,
-                      })
-                        .then(() => setPermRules((prev) => prev.filter((_, i) => i !== idx)))
-                        .catch((e) => pushToast(formatError(e), "error"))
-                    }
-                  >
-                    删除
-                  </button>
-                </div>
-              ))
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {permRules.map((rule, idx) => (
+                  <div key={idx} className="perm-rule-row">
+                    <span className="mono">
+                      [{rule.scope}] {rule.action} → {rule.pattern} ({rule.effect})
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      disabled={!activeProjectDir}
+                      onClick={() =>
+                        activeProjectDir &&
+                        void invoke("permission_rule_delete", {
+                          projectDir: activeProjectDir,
+                          index: rule.index ?? idx,
+                          expectedRule: rule,
+                        })
+                          .then(() => setPermRules((prev) => prev.filter((_, i) => i !== idx)))
+                          .catch((e) => pushToast(formatError(e), "error"))
+                      }
+                    >
+                      删除
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </section>
 
@@ -784,49 +829,59 @@ export default function SettingsView(): React.ReactElement {
 
           <section id="settings-sec-update" className="settings-section">
             <h2 className="settings-section-title">版本与更新</h2>
-            <div className="field-hint mono">
-              当前版本：v{appInfo.version} ({appInfo.build})
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button
-                type="button"
-                className="btn"
-                disabled={updateBusy}
-                onClick={() => void handleCheckUpdate()}
-              >
-                {updateBusy ? "检查中…" : "检查更新"}
-              </button>
-              {Boolean(updateInfo?.newer) && (
-                <button
-                  type="button"
-                  className="btn btn-accent"
-                  disabled={updateBusy}
-                  onClick={() => void handleInstallUpdate()}
-                >
-                  下载并安装 {String(updateInfo?.latest ?? "")}
-                </button>
+            <div className="provider-card">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                <div>
+                  <div className="provider-card-title mono">
+                    kanzei v{appInfo.version}
+                  </div>
+                  <div className="field-hint mono" style={{ marginTop: 3 }}>
+                    Build: {appInfo.build}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={updateBusy}
+                    onClick={() => void handleCheckUpdate()}
+                  >
+                    {updateBusy ? "检查中…" : "检查更新"}
+                  </button>
+                  {Boolean(updateInfo?.newer) && (
+                    <button
+                      type="button"
+                      className="btn btn-accent"
+                      disabled={updateBusy}
+                      onClick={() => void handleInstallUpdate()}
+                    >
+                      下载并安装 {String(updateInfo?.latest ?? "")}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {updateInfo && (
+                <div className="field-hint">
+                  状态：{String(updateInfo.status ?? "")}
+                  {updateInfo.latest ? ` · 最新发布：${String(updateInfo.latest)}` : ""}
+                  {updateInfo.message ? ` · ${String(updateInfo.message)}` : ""}
+                </div>
+              )}
+              {updateReceipt && (
+                <div className="field-hint">
+                  上次更新回执：阶段 {String(updateReceipt.phase ?? "-")} · 目标构建{" "}
+                  {String(updateReceipt.expected_build ?? "-")} · {String(updateReceipt.message ?? "")}
+                </div>
               )}
             </div>
-            {updateInfo && (
-              <div className="field-hint">
-                状态：{String(updateInfo.status ?? "")}
-                {updateInfo.latest ? ` · 最新发布：${String(updateInfo.latest)}` : ""}
-                {updateInfo.message ? ` · ${String(updateInfo.message)}` : ""}
-              </div>
-            )}
-            {updateReceipt && (
-              <div className="field-hint">
-                上次更新回执：阶段 {String(updateReceipt.phase ?? "-")} · 目标构建{" "}
-                {String(updateReceipt.expected_build ?? "-")} · {String(updateReceipt.message ?? "")}
-              </div>
-            )}
           </section>
         </div>
       </div>
 
       <div className="settings-savebar">
-        <span className="field-hint">
-          {dirty ? "存在未保存的全局设置修改" : "所有设置已同步"}
+        <span className="settings-savebar-status">
+          <span className={`status-dot${dirty ? " running" : " ok"}`} />
+          <span>{dirty ? "存在未保存的全局设置修改" : "所有设置已同步"}</span>
         </span>
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" className="btn" disabled={!dirty || saving} onClick={() => void loadAll()}>

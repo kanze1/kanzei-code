@@ -1,6 +1,6 @@
 # Kanzei
 
-个人 AI 编码与工作助手。采用精简共享 Rust 底座 + Tauri + 原生 ESM 纯中文桌面外壳，聚焦项目与无项目对话、外部记忆系统、隔离 Git 工作树、核心工具执行与对话伴生文件上下文追溯。
+个人 AI 编码与工作助手。采用精简共享 Rust 底座 + Tauri + Vite / TypeScript / React 18 纯中文桌面外壳，聚焦项目与无项目对话、外部记忆系统、隔离 Git 工作树、核心工具执行与对话伴生文件上下文追溯。
 
 ## 开始使用
 
@@ -29,4 +29,4 @@
 
 ## 开发与本地验证
 
-安装 Rust、Windows 原生构建工具和 Node.js 后执行 `npm ci`。本地验证入口是 `scripts/verify.ps1`（全量门禁为 `scripts/verify.ps1 -Full`），详细步骤见 [CONTRIBUTING](CONTRIBUTING.md)。正式 UI 使用原生 ESM；React 仅用于开发测试夹具。
+安装 Rust、Windows 原生构建工具和 Node.js 后执行 `npm ci`。本地验证入口是 `scripts/verify.ps1`（全量门禁为 `scripts/verify.ps1 -Full`），详细步骤见 [CONTRIBUTING](CONTRIBUTING.md)。桌面端前端位于 `crates/kanzei-app/web/`，构建产物输出至 `crates/kanzei-app/dist-web/`。

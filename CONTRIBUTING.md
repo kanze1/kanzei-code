@@ -4,7 +4,7 @@
 
 ## 开发与验证
 
-安装前端开发依赖使用 `npm ci`。生产栈为 Rust、Tauri 与原生 ESM；React 仅用于浏览器输入兼容测试夹具。
+安装前端开发依赖使用 `npm ci`。桌面端采用单进程 Rust + Tauri 与 Vite + TypeScript + React 18 前端（`crates/kanzei-app/web/`）。
 
 ```powershell
 ./scripts/dev.ps1 check --workspace

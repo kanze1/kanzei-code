@@ -4,6 +4,7 @@ import { useAppStore } from "../store/appStore";
 import { useChatStore } from "../store/chatStore";
 import { getActiveProcess, useSessionStore } from "../store/sessionStore";
 import { openViewer, pushToast, uiStore, useUiStore } from "../store/uiStore";
+import { IconClose, IconLayers, IconTerminal } from "../components/Icons";
 
 interface ContextBlockItem {
   source?: string;
@@ -81,10 +82,10 @@ export function StatusBar(): React.ReactElement {
     <>
       <footer id="statusbar" className={running ? "running" : ""}>
         <div className="statusbar-group">
-          <span className={`status-dot${running ? " running" : ""}`} />
-          <span>{running ? stageText : "就绪"}</span>
+          <span className={`status-dot${running ? " running" : " ok"}`} />
+          <span className="statusbar-stage">{running ? stageText : "就绪"}</span>
           {lastUsage && (lastUsage.input > 0 || lastUsage.output > 0) && (
-            <span className="mono">
+            <span className="statusbar-usage" title="最近一轮 Token 消耗">
               In {lastUsage.input.toLocaleString()} / Out {lastUsage.output.toLocaleString()}
             </span>
           )}
@@ -92,29 +93,46 @@ export function StatusBar(): React.ReactElement {
         </div>
 
         <div className="statusbar-group">
-          <button type="button" className="statusbar-btn" onClick={() => void openContextInspector()}>
-            上下文构成
+          <button
+            type="button"
+            className={`statusbar-btn${ctxOpen ? " active" : ""}`}
+            onClick={() => void openContextInspector()}
+          >
+            <IconLayers size={12} />
+            <span>上下文构成</span>
           </button>
           <button
             type="button"
-            className="statusbar-btn"
+            className={`statusbar-btn${logPanelOpen ? " active" : ""}`}
             onClick={() => uiStore.setState({ logPanelOpen: !logPanelOpen })}
           >
-            运行日志 ({logCount})
+            <IconTerminal size={12} />
+            <span>运行日志 ({logCount})</span>
           </button>
-          <span className="mono" title={appInfo.build}>
+          <span className="statusbar-version" title={appInfo.build}>
             v{appInfo.version}
           </span>
         </div>
       </footer>
 
       {ctxOpen && (
-        <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="本轮请求上下文构成" onClick={() => setCtxOpen(false)}>
+        <div
+          className="modal-scrim"
+          role="dialog"
+          aria-modal="true"
+          aria-label="本轮请求上下文构成"
+          onClick={() => setCtxOpen(false)}
+        >
           <div className="modal-panel modal-lg" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <div className="modal-title">本轮请求上下文构成</div>
-              <button type="button" className="btn btn-ghost btn-icon" onClick={() => setCtxOpen(false)}>
-                ×
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                onClick={() => setCtxOpen(false)}
+                aria-label="关闭"
+              >
+                <IconClose size={14} />
               </button>
             </div>
             <div className="modal-body">
@@ -124,30 +142,19 @@ export function StatusBar(): React.ReactElement {
                 </div>
               ) : (
                 <>
-                  <div style={{ display: "flex", gap: 12, fontSize: 12, color: "var(--dim)" }}>
+                  <div className="ctx-meta-strip">
                     <span>模型：{ctxSnapshot.selected.manifest.model ?? "-"}</span>
                     <span>
                       估算 Token：{ctxSnapshot.selected.manifest.estimated_tokens?.toLocaleString() ?? "-"}
                     </span>
                     <span>请求序号：#{ctxSnapshot.selected.sequence}</span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div className="ctx-block-list">
                     {(ctxSnapshot.selected.manifest.blocks ?? []).map((b, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "8px 10px",
-                          border: "1px solid var(--border-soft)",
-                          borderRadius: 6,
-                          fontSize: 12,
-                        }}
-                      >
+                      <div key={i} className="ctx-block-row">
                         <span className="mono">{b.source ?? `块 #${i + 1}`}</span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ color: "var(--dim)" }}>{b.chars ?? 0} 字符</span>
+                        <div className="ctx-block-right">
+                          <span className="field-hint">{b.chars ?? 0} 字符</span>
                           {b.sha256 && (
                             <button
                               type="button"

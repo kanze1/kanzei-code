@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import { useAppStore } from "../../store/appStore";
 import { useChatStore } from "../../store/chatStore";
@@ -16,6 +16,13 @@ import {
 } from "../../store/drawerStore";
 import { getActiveProcess } from "../../store/sessionStore";
 import { confirmDialog, openViewer, promptDialog, pushToast } from "../../store/uiStore";
+import {
+  IconClose,
+  IconExternal,
+  IconFileCode,
+  IconPlus,
+  IconRefresh,
+} from "../../components/Icons";
 
 interface TerminalProcessInfo {
   id: string;
@@ -31,6 +38,13 @@ interface WorktreeItem {
   files: string[];
   diff: string;
   bound_process?: string | null;
+}
+
+function splitFilePath(full: string): { name: string; dir: string } {
+  const norm = full.replace(/\\/g, "/");
+  const idx = norm.lastIndexOf("/");
+  if (idx < 0) return { name: norm, dir: "" };
+  return { name: norm.slice(idx + 1), dir: norm.slice(0, idx) };
 }
 
 export function ContextDrawer(): React.ReactElement | null {
@@ -61,6 +75,7 @@ export function ContextDrawer(): React.ReactElement | null {
   const [worktrees, setWorktrees] = useState<WorktreeItem[]>([]);
   const [worktreeBusy, setWorktreeBusy] = useState(false);
   const [manualPath, setManualPath] = useState("");
+  const codeViewRef = useRef<HTMLDivElement>(null);
 
   const loadWorktrees = () => {
     if (!projectDir || generalMode) return;
@@ -92,6 +107,12 @@ export function ContextDrawer(): React.ReactElement | null {
     return () => window.clearInterval(timer);
   }, [open, mode, projectDir]);
 
+  useEffect(() => {
+    if (!open || mode !== "files" || fileTab !== "preview" || !highlightLine) return;
+    const target = codeViewRef.current?.querySelector(".code-line.highlight");
+    target?.scrollIntoView({ block: "center" });
+  }, [open, mode, fileTab, highlightLine, preview?.path]);
+
   if (!open) return null;
 
   const startResize = (e: React.MouseEvent) => {
@@ -108,9 +129,7 @@ export function ContextDrawer(): React.ReactElement | null {
   };
 
   const gitFiles = gitStatus?.files ?? [];
-  const mergedFiles = Array.from(
-    new Set([...gitFiles.map((f) => f.path), ...touchedFiles])
-  );
+  const mergedFiles = Array.from(new Set([...gitFiles.map((f) => f.path), ...touchedFiles]));
 
   const stopTerminal = async (id: string) => {
     if (!projectDir) return;
@@ -215,43 +234,54 @@ export function ContextDrawer(): React.ReactElement | null {
       <div className="side-drawer-resizer" onMouseDown={startResize} aria-hidden="true" />
 
       <div className="drawer-header">
-        <div className="drawer-tabs">
+        <div className="drawer-main-tabs" aria-label="抽屉面板切换">
           <button
             type="button"
-            className={`drawer-tab${mode === "files" ? " active" : ""}`}
+            aria-pressed={mode === "files"}
+            className={`drawer-main-tab${mode === "files" ? " active" : ""}`}
             onClick={() => drawerStore.setState({ mode: "files" })}
           >
-            文件 ({mergedFiles.length})
+            <span>文件</span>
+            <span className="drawer-tab-count">{mergedFiles.length}</span>
           </button>
           <button
             type="button"
-            className={`drawer-tab${mode === "activity" ? " active" : ""}`}
+            aria-pressed={mode === "activity"}
+            className={`drawer-main-tab${mode === "activity" ? " active" : ""}`}
             onClick={() => drawerStore.setState({ mode: "activity" })}
           >
-            活动 ({liveSubagents.length + terminals.length})
+            <span>活动</span>
+            <span className="drawer-tab-count">{liveSubagents.length + terminals.length}</span>
           </button>
           {!generalMode && (
             <button
               type="button"
-              className={`drawer-tab${mode === "worktrees" ? " active" : ""}`}
+              aria-pressed={mode === "worktrees"}
+              className={`drawer-main-tab${mode === "worktrees" ? " active" : ""}`}
               onClick={() => drawerStore.setState({ mode: "worktrees" })}
             >
-              工作树 ({worktrees.length})
+              <span>工作树</span>
+              <span className="drawer-tab-count">{worktrees.length}</span>
             </button>
           )}
         </div>
-        <button type="button" className="btn btn-ghost btn-icon" onClick={closeDrawer} aria-label="关闭抽屉">
-          ×
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon btn-sm"
+          onClick={closeDrawer}
+          aria-label="关闭抽屉"
+          title="关闭抽屉"
+        >
+          <IconClose size={13} />
         </button>
       </div>
 
       {mode === "files" ? (
         <div className="drawer-body">
-          <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderBottom: "1px solid var(--border-soft)" }}>
+          <div className="drawer-path-bar">
             <input
               className="input mono"
-              style={{ height: 28, fontSize: 12 }}
-              placeholder="输入相对路径直接查看，如 src/main.rs"
+              placeholder="输入相对路径回车打开，如 src/main.rs"
               value={manualPath}
               onChange={(e) => setManualPath(e.target.value)}
               onKeyDown={(e) => {
@@ -262,38 +292,55 @@ export function ContextDrawer(): React.ReactElement | null {
             />
             <button
               type="button"
-              className="btn btn-sm"
+              className="btn btn-icon"
+              title="刷新 Git 文件状态"
+              aria-label="刷新文件状态"
               onClick={() => projectDir && void refreshGitStatus(projectDir, worktreePath)}
             >
-              刷新
+              <IconRefresh size={13} />
             </button>
           </div>
 
+          {mergedFiles.length > 0 && (
+            <div className="drawer-file-summary">
+              <span>变更与触及 ({mergedFiles.length})</span>
+              {gitStatus && (gitStatus.additions > 0 || gitStatus.deletions > 0) && (
+                <span className="mono">
+                  <span style={{ color: "var(--diff-add)" }}>+{gitStatus.additions}</span>{" "}
+                  <span style={{ color: "var(--diff-del)" }}>-{gitStatus.deletions}</span>
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="drawer-file-list">
             {mergedFiles.length === 0 ? (
-              <div style={{ padding: 10, fontSize: 12, color: "var(--dim)" }}>
+              <div className="field-hint" style={{ padding: 10 }}>
                 本轮暂无触及或未提交变动的文件。点击对话中的文件路径链接或上方输入路径即可查看。
               </div>
             ) : (
               mergedFiles.map((file) => {
                 const stat = gitFiles.find((f) => f.path === file);
+                const { name, dir } = splitFilePath(file);
                 return (
                   <button
                     key={file}
                     type="button"
                     className={`drawer-file-item${activeFile === file ? " active" : ""}`}
                     onClick={() => void openFileInDrawer(file)}
+                    title={file}
                   >
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {file}
+                    <span className="drawer-file-name-wrap">
+                      <span className="drawer-file-basename">{name}</span>
+                      {dir && <span className="drawer-file-dir">{dir}</span>}
                     </span>
                     {stat && (
-                      <span style={{ fontSize: 11, flex: "none" }}>
+                      <span className="drawer-file-stats">
                         {stat.untracked ? (
                           <span className="badge badge-ok">新增</span>
                         ) : (
                           <>
-                            <span style={{ color: "var(--diff-add)" }}>+{stat.additions}</span>{" "}
+                            <span style={{ color: "var(--diff-add)" }}>+{stat.additions}</span>
                             <span style={{ color: "var(--diff-del)" }}>-{stat.deletions}</span>
                           </>
                         )}
@@ -307,41 +354,36 @@ export function ContextDrawer(): React.ReactElement | null {
 
           {activeFile ? (
             <>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 6,
-                  padding: "6px 10px",
-                  borderBottom: "1px solid var(--border-soft)",
-                }}
-              >
-                <div className="drawer-tabs">
+              <div className="drawer-subbar">
+                <div className="segmented" aria-label="文件查看模式">
                   <button
                     type="button"
-                    className={`drawer-tab${fileTab === "preview" ? " active" : ""}`}
+                    aria-pressed={fileTab === "preview"}
+                    className={`segmented-btn${fileTab === "preview" ? " active" : ""}`}
                     onClick={() => setDrawerFileTab("preview")}
                   >
                     原文
                   </button>
                   <button
                     type="button"
-                    className={`drawer-tab${fileTab === "diff" ? " active" : ""}`}
+                    aria-pressed={fileTab === "diff"}
+                    className={`segmented-btn${fileTab === "diff" ? " active" : ""}`}
                     onClick={() => setDrawerFileTab("diff")}
                   >
                     Diff
                   </button>
                   <button
                     type="button"
-                    className={`drawer-tab${fileTab === "edit" ? " active" : ""}`}
+                    aria-pressed={fileTab === "edit"}
+                    className={`segmented-btn${fileTab === "edit" ? " active" : ""}`}
                     disabled={Boolean(preview?.readonly || preview?.binary)}
                     onClick={() => setDrawerFileTab("edit")}
                   >
-                    轻编辑{editDirty ? " *" : ""}
+                    轻编辑{editDirty ? " •" : ""}
                   </button>
                 </div>
-                <div style={{ display: "flex", gap: 4 }}>
+
+                <div className="drawer-subbar-actions">
                   {fileTab === "edit" && (
                     <button
                       type="button"
@@ -358,26 +400,16 @@ export function ContextDrawer(): React.ReactElement | null {
                     onClick={() => void openExternalPath(activeFile, preferredEditor?.id)}
                     title={preferredEditor ? `用 ${preferredEditor.label} 打开` : "在资源管理器显示"}
                   >
-                    外部打开
+                    <IconExternal size={12} />
+                    <span>外部打开</span>
                   </button>
                 </div>
               </div>
 
               {conflictMessage && (
-                <div
-                  style={{
-                    padding: "8px 10px",
-                    background: "var(--badge-warn)",
-                    color: "var(--warn)",
-                    fontSize: 12,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
+                <div className="drawer-conflict-bar">
                   <span>{conflictMessage}</span>
-                  <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", gap: 4, flex: "none" }}>
                     <button
                       type="button"
                       className="btn btn-sm"
@@ -414,63 +446,77 @@ export function ContextDrawer(): React.ReactElement | null {
               ) : fileTab === "diff" ? (
                 <div className="drawer-code-view">
                   {diff?.diff ? (
-                    diff.diff.split("\n").map((line, i) => (
-                      <div
-                        key={i}
-                        className={
-                          line.startsWith("+") && !line.startsWith("+++")
-                            ? "diff-line-add"
-                            : line.startsWith("-") && !line.startsWith("---")
-                            ? "diff-line-del"
-                            : line.startsWith("@@")
-                            ? "diff-line-hunk"
-                            : ""
-                        }
-                        style={{ whiteSpace: "pre" }}
-                      >
-                        {line}
-                      </div>
-                    ))
+                    <div className="drawer-code-inner">
+                      {diff.diff.split("\n").map((line, i) => (
+                        <div
+                          key={i}
+                          className={`diff-line ${
+                            line.startsWith("+") && !line.startsWith("+++")
+                              ? "diff-line-add"
+                              : line.startsWith("-") && !line.startsWith("---")
+                              ? "diff-line-del"
+                              : line.startsWith("@@")
+                              ? "diff-line-hunk"
+                              : ""
+                          }`}
+                        >
+                          {line || " "}
+                        </div>
+                      ))}
+                    </div>
                   ) : (
-                    <div style={{ color: "var(--dim)" }}>
-                      {diff?.message ?? "该文件相对 HEAD 暂无文本差异"}
+                    <div className="empty-state" style={{ padding: "28px 16px" }}>
+                      <p>{diff?.message ?? "该文件相对 HEAD 暂无文本差异"}</p>
                     </div>
                   )}
                 </div>
               ) : (
-                <div className="drawer-code-view">
+                <div ref={codeViewRef} className="drawer-code-view">
                   {preview?.binary ? (
-                    <div style={{ color: "var(--dim)" }}>二进制文件不支持文本预览，请使用外部程序打开。</div>
+                    <div className="empty-state">
+                      <p>二进制文件不支持文本预览，请使用外部程序打开。</p>
+                    </div>
                   ) : (
-                    (preview?.content ?? "").split("\n").map((line, idx) => {
-                      const no = idx + 1;
-                      return (
-                        <div
-                          key={no}
-                          className={`code-line${highlightLine === no ? " highlight" : ""}`}
-                        >
-                          <span className="code-line-no">{no}</span>
-                          <span>{line}</span>
-                        </div>
-                      );
-                    })
+                    <div className="drawer-code-inner">
+                      {(preview?.content ?? "").split("\n").map((line, idx) => {
+                        const no = idx + 1;
+                        return (
+                          <div
+                            key={no}
+                            className={`code-line${highlightLine === no ? " highlight" : ""}`}
+                          >
+                            <span className="code-line-no">{no}</span>
+                            <span>{line || " "}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               )}
             </>
           ) : (
-            <div className="empty-state">
+            <div className="empty-state" style={{ flex: 1 }}>
+              <div className="empty-state-icon">
+                <IconFileCode size={18} />
+              </div>
               <p>选择上方文件以查看源码、Diff 或进行轻量修改。</p>
             </div>
           )}
         </div>
       ) : mode === "worktrees" ? (
-        <div className="drawer-body" style={{ padding: 12, gap: 10, overflowY: "auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div className="drawer-scroll-body">
+          <div className="drawer-section-head">
             <span className="field-label">并行 Git 工作树 ({worktrees.length})</span>
             <div style={{ display: "flex", gap: 6 }}>
-              <button type="button" className="btn btn-sm" onClick={loadWorktrees} disabled={worktreeBusy}>
-                刷新
+              <button
+                type="button"
+                className="btn btn-icon btn-sm"
+                title="刷新工作树列表"
+                onClick={loadWorktrees}
+                disabled={worktreeBusy}
+              >
+                <IconRefresh size={12} />
               </button>
               <button
                 type="button"
@@ -478,7 +524,8 @@ export function ContextDrawer(): React.ReactElement | null {
                 onClick={() => void handleCreateWorktree()}
                 disabled={worktreeBusy}
               >
-                + 新建工作树
+                <IconPlus size={12} />
+                <span>新建</span>
               </button>
             </div>
           </div>
@@ -488,9 +535,9 @@ export function ContextDrawer(): React.ReactElement | null {
             </div>
           ) : (
             worktrees.map((wt) => (
-              <div key={wt.path} className="provider-card">
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                  <strong className="mono">{wt.branch}</strong>
+              <div key={wt.path} className="drawer-card">
+                <div className="drawer-card-head">
+                  <strong className="mono" style={{ fontSize: 12.5 }}>{wt.branch}</strong>
                   <span className={`badge ${wt.clean ? "badge-ok" : "badge-warn"}`}>
                     {wt.clean ? "干净" : `${wt.files.length} 改动`}
                   </span>
@@ -533,19 +580,19 @@ export function ContextDrawer(): React.ReactElement | null {
           )}
         </div>
       ) : (
-        <div className="drawer-body" style={{ padding: 12, gap: 12, overflowY: "auto" }}>
+        <div className="drawer-scroll-body">
           <div>
-            <div className="field-label" style={{ marginBottom: 6 }}>
-              子代理活动 ({liveSubagents.length})
+            <div className="drawer-section-head">
+              <span className="field-label">子代理活动 ({liveSubagents.length})</span>
             </div>
             {liveSubagents.length === 0 ? (
               <div className="field-hint">当前会话没有活跃或近期的子代理任务。</div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {liveSubagents.map((sub) => (
-                  <div key={sub.id} className="provider-card">
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                      <strong>{sub.agent ?? sub.label}</strong>
+                  <div key={sub.id} className="drawer-card">
+                    <div className="drawer-card-head">
+                      <strong style={{ fontSize: 12.5 }}>{sub.agent ?? sub.label}</strong>
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <span className={`badge ${sub.status === "running" ? "badge-accent" : "badge-ok"}`}>
                           {sub.status}
@@ -571,16 +618,16 @@ export function ContextDrawer(): React.ReactElement | null {
           </div>
 
           <div>
-            <div className="field-label" style={{ marginBottom: 6 }}>
-              后台终端进程 ({terminals.length})
+            <div className="drawer-section-head">
+              <span className="field-label">后台终端进程 ({terminals.length})</span>
             </div>
             {terminals.length === 0 ? (
               <div className="field-hint">暂无运行中的后台终端进程。</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {terminals.map((term) => (
-                  <div key={term.id} className="provider-card">
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div key={term.id} className="drawer-card">
+                    <div className="drawer-card-head">
                       <span className="mono" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis" }}>
                         {term.command ?? term.id}
                       </span>
@@ -599,28 +646,19 @@ export function ContextDrawer(): React.ReactElement | null {
           </div>
 
           <div>
-            <div className="field-label" style={{ marginBottom: 6 }}>
-              本轮工具轨迹 ({liveTools.length})
+            <div className="drawer-section-head">
+              <span className="field-label">本轮工具轨迹 ({liveTools.length})</span>
             </div>
             {liveTools.length === 0 ? (
               <div className="field-hint">本轮暂无工具调用。</div>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                 {liveTools.map((t) => (
-                  <div
-                    key={t.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      fontSize: 12,
-                      padding: "4px 6px",
-                      borderRadius: 4,
-                      background: "var(--panel)",
-                    }}
-                  >
+                  <div key={t.id} className="drawer-trace-row">
                     <span className="mono">{t.name}</span>
-                    <span style={{ color: "var(--dim)" }}>{t.done ? (t.ok ? "成功" : "失败") : "运行中"}</span>
+                    <span className={`badge ${!t.done ? "badge-accent" : t.ok ? "badge-ok" : "badge-err"}`}>
+                      {t.done ? (t.ok ? "成功" : "失败") : "运行中"}
+                    </span>
                   </div>
                 ))}
               </div>

@@ -1,5 +1,5 @@
-/* kanzei — 黑白灰中性表面与文字层级，以橙色与青色点缀。
-   橙色用于推进、当前工作和注意；青色用于内容定位、可用状态和完成。 */
+/* kanzei — 现代极简桌面设计系统
+   深邃中性表面层级配品牌橙（推进/活跃）与品牌青（定位/代码/完成）。 */
 * {
   margin: 0;
   padding: 0;
@@ -7,193 +7,276 @@
 }
 
 :root {
-  --bg: #181818;
-  --panel: #232323;
-  --panel2: #2a2a2a;
-  --input: #212121;
-  --surface-raised: #303030;
-  --surface-overlay: #2c2c2c;
-  --surface-hover: #ffffff0d;
-  --surface-selected: #ffffff14;
-  --border: #343434;
-  --border-soft: #282828;
-  --border-strong: #464646;
-  --fg: #e5e5e5;
-  --fg-strong: #ffffff;
-  --dim: #9e9e9e;
+  color-scheme: dark;
+
+  /* 表面层级：由深到浅建立清晰立体感 */
+  --bg-deep: #101012;
+  --bg: #151518;
+  --chrome-bg: #131316;
+  --sidebar-bg: #19191d;
+  --chat-bg: #151518;
+  --panel: #1e1e23;
+  --panel2: #25252b;
+  --input: #1b1b20;
+  --surface-raised: #2c2c34;
+  --surface-overlay: #232329;
+  --surface-hover: rgba(255, 255, 255, 0.055);
+  --surface-selected: rgba(255, 255, 255, 0.095);
+  --surface-active-tint: rgba(255, 135, 0, 0.11);
+
+  /* 边框层级 */
+  --border-soft: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  /* 文字层级 */
+  --fg: #e2e2e8;
+  --fg-strong: #f7f7fa;
+  --dim: #9395a1;
+  --muted: var(--dim);
+
+  /* 品牌与语义色 */
   --brand-orange: #ff8700;
-  --brand-ink: #191c2b;
+  --brand-ink: #161822;
   --brand-cyan: #39d8f6;
   --accent: #ff8700;
-  --accent-hover: #ff9e30;
-  --accent-soft: #ff870024;
-  --accent-text: #ffad66;
+  --accent-hover: #ff9c2b;
+  --accent-soft: rgba(255, 135, 0, 0.16);
+  --accent-border: rgba(255, 135, 0, 0.38);
+  --accent-text: #ffae5c;
   --ok: #39d8f6;
-  --err: #ffad66;
-  --warn: #ffc18b;
-  --info: #8d9ac7;
+  --ok-soft: rgba(57, 216, 246, 0.13);
+  --ok-border: rgba(57, 216, 246, 0.34);
+  --err: #ff7b59;
+  --warn: #f5b963;
+  --info: #8fa4e6;
   --alert: var(--warn);
   --danger: var(--err);
-  --muted: var(--dim);
-  --statusbar: #181818;
-  --statusbar-run: #271d19;
+
+  /* 状态栏与气泡 */
+  --statusbar: #121215;
+  --statusbar-run: #241913;
   --statusbar-fg: var(--dim);
   --statusbar-run-fg: var(--accent-text);
-  --chat-bg: #181818;
-  --user-bubble: #2b2b2b;
-  --user-bubble-border: #363636;
-  --on-danger: #ffd7b3;
-  --on-accent: #191c2b;
-  --on-ok: #191c2b;
-  --mono: "Cascadia Mono", "Cascadia Code", "Microsoft YaHei UI", Consolas, monospace;
+  --user-bubble: #25252c;
+  --user-bubble-border: rgba(255, 255, 255, 0.11);
+
+  /* 对比前景色 */
+  --on-danger: #ffd8ce;
+  --on-accent: #161822;
+  --on-ok: #0b1c22;
+
+  /* 按钮与徽章 */
+  --primary-bg: #f0f0f5;
+  --primary-fg: #141418;
+  --primary-hover: #ffffff;
+  --danger-btn: rgba(255, 107, 74, 0.16);
+  --danger-btn-hover: rgba(255, 107, 74, 0.26);
+  --danger-border: rgba(255, 107, 74, 0.35);
+
+  --badge-err: rgba(255, 123, 89, 0.15);
+  --badge-warn: rgba(245, 185, 99, 0.14);
+  --badge-info: rgba(143, 164, 230, 0.15);
+  --badge-alert: var(--badge-warn);
+  --badge-ok: rgba(57, 216, 246, 0.14);
+  --badge-err-soft: rgba(255, 123, 89, 0.14);
+  --badge-warn-soft: rgba(245, 185, 99, 0.12);
+  --badge-soft: rgba(255, 255, 255, 0.08);
+  --badge-ok-soft: rgba(57, 216, 246, 0.14);
+
+  /* 代码与 Diff */
+  --code-bg: #18181d;
+  --code-output-bg: #131317;
+  --code-inline: rgba(255, 255, 255, 0.08);
+  --diff-add: #4fe0c4;
+  --diff-del: #ff8e72;
+  --diff-add-bg: rgba(79, 224, 196, 0.12);
+  --diff-del-bg: rgba(255, 123, 89, 0.13);
+
+  /* 滚动条与焦点 */
+  --scrollbar: rgba(255, 255, 255, 0.16);
+  --scrollbar-hover: rgba(255, 255, 255, 0.28);
+  --focus-ring: rgba(255, 135, 0, 0.65);
+  --dot-idle: #5d606c;
+  --dot-run: var(--accent);
+
+  /* 字体 */
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI", monospace;
   --sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+
+  /* 圆角 */
   --radius: 8px;
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
   --r-lg: 12px;
-  --r-xl: 20px;
-  --r-composer: 12px;
+  --r-xl: 16px;
+  --r-composer: 14px;
   --r-pill: 999px;
-  color-scheme: dark;
-  --badge-err: #392719;
-  --badge-warn: #32271e;
-  --badge-info: #232737;
-  --badge-alert: var(--badge-warn);
-  --badge-ok: #1d3034;
-  --badge-err-soft: #ff870026;
-  --badge-warn-soft: #ff87001f;
-  --badge-soft: #ffffff14;
-  --badge-ok-soft: #39d8f620;
-  --sidebar-bg: #1f1f1f;
-  --scrollbar: #3a3a3a;
-  --scrollbar-hover: #555555;
-  --code-bg: #202020;
-  --code-output-bg: #1c1c1c;
-  --danger-btn: #4a2e19;
-  --danger-btn-hover: #5c371c;
-  --code-inline: #2a2a2a;
-  --bg-deep: #141414;
-  --diff-add: var(--ok);
-  --diff-del: var(--err);
-  --diff-add-bg: #39d8f61a;
-  --diff-del-bg: #ff87001f;
-  --primary-bg: #f0f0f0;
-  --primary-fg: #181818;
-  --primary-hover: #ffffff;
-  --focus-ring: #9a9a9a;
-  --dot-idle: var(--dim);
-  --dot-run: var(--accent);
+
+  /* 字号与尺寸 */
+  --fs-11: 11px;
   --fs-12: 12px;
+  --fs-13: 13px;
   --fs-14: 14px;
   --fs-16: 16px;
-  --fs-24: 24px;
+  --fs-20: 20px;
+  --fs-24: 22px;
   --hairline: 1px;
   --window-chrome-height: 44px;
+  --ctl-h: 28px;
+  --ctl-h-lg: 34px;
+
+  /* 层级 */
   --z-base: 1;
   --z-raised: 2;
-  --z-sticky: 3;
+  --z-sticky: 5;
   --z-panel: 20;
   --z-handle: 30;
   --z-drawer: 50;
   --z-modal: 100;
   --z-toast: 200;
+
+  /* 间距 */
   --sp-1: 2px;
   --sp-2: 4px;
   --sp-3: 6px;
   --sp-4: 8px;
   --sp-5: 12px;
   --sp-6: 16px;
-  --ctl-h: 28px;
-  --ctl-h-lg: 32px;
-  --elev-1: 0 1px 2px #00000040;
-  --elev-2: 0 6px 20px #00000066;
-  --elev-3: 0 16px 48px #00000080;
-  --elev-composer: 0 2px 10px #00000024;
-  --scrim: #00000099;
-  --graph-fact: #61c0f2;
-  --graph-sop: #b779f2;
-  --graph-habit: #4b65d9;
-  --graph-preference: #9e5484;
-  --graph-module: #7a7a7a;
-  --graph-edge: #565656;
+
+  /* 阴影与遮罩 */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --elev-2: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --elev-3: 0 20px 52px rgba(0, 0, 0, 0.62), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --elev-composer: 0 6px 24px rgba(0, 0, 0, 0.34), 0 1px 2px rgba(0, 0, 0, 0.25);
+  --scrim: rgba(6, 7, 10, 0.68);
+
+  /* 图谱与图示 */
+  --graph-fact: #4cc2ff;
+  --graph-sop: #c084fc;
+  --graph-habit: #6382f6;
+  --graph-preference: #f472b6;
+  --graph-module: #7e8291;
+  --graph-edge: #4e515e;
   --graph-label: var(--fg);
-  --graph-bg: var(--bg);
+  --graph-bg: var(--bg-deep);
   --diagram-canvas: var(--panel);
   --diagram-cluster: var(--bg);
   --diagram-node: var(--panel2);
   --diagram-node-border: var(--border-strong);
   --diagram-text: var(--fg-strong);
   --diagram-edge: var(--dim);
+
+  /* 动效 */
   --motion-fast: 140ms;
-  --motion-base: 220ms;
+  --motion-base: 210ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* 下拉箭头 SVG */
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%239395a1' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }
 
 [data-theme="light"] {
-  --bg: #ffffff;
-  --panel: #ffffff;
-  --panel2: #f2f2f2;
-  --input: #ffffff;
-  --surface-raised: #ffffff;
-  --surface-overlay: #ffffff;
-  --surface-hover: #00000009;
-  --surface-selected: #0000000e;
-  --border: #dcdcdc;
-  --border-soft: #ebebeb;
-  --border-strong: #c7c7c7;
-  --fg: #2b2b2b;
-  --fg-strong: #0d0d0d;
-  --dim: #656565;
-  --accent: #c56500;
-  --accent-hover: #bd6000;
-  --accent-soft: #ff870014;
-  --accent-text: #934100;
-  --ok: #006579;
-  --err: #963f00;
-  --warn: #874500;
-  --info: #191c2b;
-  --statusbar: #f7f7f7;
-  --statusbar-run: #f4efeb;
   color-scheme: light;
+
+  /* 亮色表面层级：微灰画布 + 纯白浮面，避免白成一片 */
+  --bg-deep: #eceef2;
+  --bg: #f6f7f9;
+  --chrome-bg: #f1f2f5;
+  --sidebar-bg: #eff1f4;
   --chat-bg: #ffffff;
-  --user-bubble: #f2f2f2;
-  --user-bubble-border: #e4e4e4;
-  --on-danger: #7f3500;
+  --panel: #ffffff;
+  --panel2: #f1f2f6;
+  --input: #ffffff;
+  --surface-raised: #e8eaef;
+  --surface-overlay: #ffffff;
+  --surface-hover: rgba(16, 20, 28, 0.05);
+  --surface-selected: rgba(16, 20, 28, 0.085);
+  --surface-active-tint: rgba(217, 108, 0, 0.09);
+
+  /* 边框层级 */
+  --border-soft: rgba(15, 20, 30, 0.08);
+  --border: rgba(15, 20, 30, 0.14);
+  --border-strong: rgba(15, 20, 30, 0.24);
+
+  /* 文字层级 */
+  --fg: #262932;
+  --fg-strong: #111318;
+  --dim: #616675;
+
+  /* 品牌与语义色 */
+  --accent: #d86b00;
+  --accent-hover: #bf5e00;
+  --accent-soft: rgba(216, 107, 0, 0.12);
+  --accent-border: rgba(216, 107, 0, 0.35);
+  --accent-text: #a94f00;
+  --ok: #027992;
+  --ok-soft: rgba(2, 121, 146, 0.1);
+  --ok-border: rgba(2, 121, 146, 0.28);
+  --err: #c43e1c;
+  --warn: #a65f00;
+  --info: #374ea2;
+
+  /* 状态栏与气泡 */
+  --statusbar: #eff1f4;
+  --statusbar-run: #fdf1e6;
+  --user-bubble: #f3f4f7;
+  --user-bubble-border: rgba(15, 20, 30, 0.09);
+
+  /* 对比前景色 */
+  --on-danger: #9f2d10;
+  --on-accent: #ffffff;
   --on-ok: #ffffff;
-  --badge-err: #fff0e3;
-  --badge-warn: #fff4e9;
-  --badge-info: #eceef4;
-  --badge-ok: #e5f6fa;
-  --badge-err-soft: #ff87001a;
-  --badge-warn-soft: #ff870014;
-  --badge-soft: #0000000d;
-  --badge-ok-soft: #39d8f61a;
-  --sidebar-bg: #f7f7f7;
-  --scrollbar: #d4d4d4;
-  --scrollbar-hover: #b0b0b0;
-  --code-bg: #f7f7f7;
-  --code-output-bg: #f7f7f7;
-  --danger-btn: #fff0e3;
-  --danger-btn-hover: #ffe0c2;
-  --code-inline: #efefef;
-  --bg-deep: #f5f5f5;
-  --diff-add-bg: #39d8f618;
-  --diff-del-bg: #ff870016;
-  --primary-bg: #0d0d0d;
+
+  /* 按钮与徽章 */
+  --primary-bg: #171921;
   --primary-fg: #ffffff;
-  --primary-hover: #2f2f2f;
-  --focus-ring: #7a7a7a;
-  --elev-1: 0 1px 2px #0000000d;
-  --elev-2: 0 4px 16px #00000014;
-  --elev-3: 0 12px 40px #0000001f;
-  --elev-composer: 0 2px 8px #0000000d;
-  --scrim: #00000047;
-  --graph-fact: #2a7da6;
-  --graph-sop: #ae6fe8;
-  --graph-habit: #2b3cad;
-  --graph-preference: #7c2462;
-  --graph-module: #8a8a8a;
+  --primary-hover: #2d313f;
+  --danger-btn: rgba(196, 62, 28, 0.1);
+  --danger-btn-hover: rgba(196, 62, 28, 0.18);
+  --danger-border: rgba(196, 62, 28, 0.28);
+
+  --badge-err: #fdece8;
+  --badge-warn: #fef4e4;
+  --badge-info: #ebeff9;
+  --badge-ok: #e5f5f9;
+  --badge-err-soft: rgba(196, 62, 28, 0.1);
+  --badge-warn-soft: rgba(166, 95, 0, 0.1);
+  --badge-soft: rgba(15, 20, 30, 0.065);
+  --badge-ok-soft: rgba(2, 121, 146, 0.1);
+
+  /* 代码与 Diff */
+  --code-bg: #f6f7fa;
+  --code-output-bg: #f1f3f7;
+  --code-inline: rgba(15, 20, 30, 0.065);
+  --diff-add: #0a7a5c;
+  --diff-del: #c43e1c;
+  --diff-add-bg: rgba(10, 122, 92, 0.1);
+  --diff-del-bg: rgba(196, 62, 28, 0.1);
+
+  /* 滚动条与焦点 */
+  --scrollbar: rgba(15, 20, 30, 0.18);
+  --scrollbar-hover: rgba(15, 20, 30, 0.32);
+  --focus-ring: rgba(216, 107, 0, 0.5);
+  --dot-idle: #9fa5b4;
+
+  /* 阴影与遮罩 */
+  --elev-1: 0 1px 2px rgba(15, 20, 30, 0.06);
+  --elev-2: 0 6px 20px rgba(15, 20, 30, 0.1), 0 1px 3px rgba(15, 20, 30, 0.06);
+  --elev-3: 0 16px 44px rgba(15, 20, 30, 0.16), 0 2px 8px rgba(15, 20, 30, 0.08);
+  --elev-composer: 0 6px 24px rgba(15, 20, 30, 0.08), 0 1px 2px rgba(15, 20, 30, 0.05);
+  --scrim: rgba(15, 18, 26, 0.36);
+
+  /* 图谱 */
+  --graph-fact: #0d7ab5;
+  --graph-sop: #8b45d6;
+  --graph-habit: #3b55cc;
+  --graph-preference: #c02678;
+  --graph-module: #777d8c;
+  --graph-edge: #c4c9d4;
   --diagram-cluster: var(--bg-deep);
   --diagram-node: var(--panel);
+
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 16 16' fill='none' stroke='%23616675' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
 }

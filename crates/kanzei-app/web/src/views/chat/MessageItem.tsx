@@ -3,6 +3,7 @@ import type { ChatMessage, MessagePart } from "../../ipc/types";
 import { performConversationAction } from "../../store/chatStore";
 import { openFileInDrawer } from "../../store/drawerStore";
 import { confirmDialog, openViewer, pushToast } from "../../store/uiStore";
+import { IconChevronRight, IconCopy, IconFileCode } from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
 
 interface MessageItemProps {
@@ -43,6 +44,9 @@ function ToolCallCard({
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
       >
+        <span className={`tool-chevron${expanded ? " open" : ""}`}>
+          <IconChevronRight size={12} />
+        </span>
         <span className={`badge ${isError ? "badge-err" : "badge-ok"}`}>
           {isError ? "失败" : "完成"}
         </span>
@@ -58,21 +62,28 @@ function ToolCallCard({
               e.stopPropagation();
               void openFileInDrawer(inputObj.path as string);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                e.stopPropagation();
+                void openFileInDrawer(inputObj.path as string);
+              }
+            }}
           >
-            打开文件
+            <IconFileCode size={11} />
+            <span>打开文件</span>
           </span>
         )}
-        <span style={{ color: "var(--dim)", fontSize: 11 }}>{expanded ? "收起" : "展开"}</span>
       </button>
       {expanded && (
         <div className="tool-body">
           <div>
-            <div className="field-label">入参</div>
+            <div className="field-label" style={{ marginBottom: 4 }}>入参</div>
             <pre className="tool-pre">{JSON.stringify(inputObj, null, 2)}</pre>
           </div>
           {result && (
             <div>
-              <div className="field-label">结果</div>
+              <div className="field-label" style={{ marginBottom: 4 }}>结果</div>
               <pre className="tool-pre">
                 {typeof result.content === "string"
                   ? result.content.slice(0, 8000)
@@ -123,7 +134,7 @@ export const MessageItem = React.memo(function MessageItem({
           <div className="msg-user-bubble">
             {text}
             {images.length > 0 && (
-              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+              <div className="msg-user-images">
                 {images.map((img, idx) => {
                   const src = `data:${img.media_type ?? "image/png"};base64,${img.data}`;
                   return (
@@ -131,12 +142,7 @@ export const MessageItem = React.memo(function MessageItem({
                       key={idx}
                       src={src}
                       alt="附件图片"
-                      style={{
-                        maxHeight: 120,
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        border: "1px solid var(--border)",
-                      }}
+                      className="msg-user-thumb"
                       onClick={() =>
                         openViewer({
                           title: String(img.file_name ?? "图片附件"),
@@ -159,7 +165,8 @@ export const MessageItem = React.memo(function MessageItem({
                 navigator.clipboard?.writeText(text).then(() => pushToast("已复制", "ok", 1500));
               }}
             >
-              复制
+              <IconCopy size={11} />
+              <span>复制</span>
             </button>
             <button
               type="button"
@@ -184,9 +191,22 @@ export const MessageItem = React.memo(function MessageItem({
   return (
     <div className="msg-row">
       <div className="msg-assistant-wrap">
+        <div className="msg-assistant-head">
+          <img src="./assets/kanzei.svg" alt="" className="msg-assistant-avatar" />
+          <span>kanzei</span>
+        </div>
+
         {message.reasoning && (
           <details className="reasoning-block">
-            <summary className="reasoning-summary">思考过程</summary>
+            <summary className="reasoning-summary">
+              <span className="reasoning-chevron">
+                <IconChevronRight size={12} />
+              </span>
+              <span>思考过程</span>
+              <span className="field-hint mono" style={{ marginLeft: "auto", fontSize: 10.5 }}>
+                {message.reasoning.length} 字
+              </span>
+            </summary>
             <div className="reasoning-body">{message.reasoning}</div>
           </details>
         )}
@@ -202,7 +222,6 @@ export const MessageItem = React.memo(function MessageItem({
         {text.trim() && <MarkdownView text={text} />}
 
         <div className="msg-meta-row">
-          <span>kanzei</span>
           <div className="msg-actions">
             {text.trim() && (
               <button
@@ -212,7 +231,8 @@ export const MessageItem = React.memo(function MessageItem({
                   navigator.clipboard?.writeText(text).then(() => pushToast("已复制回答", "ok", 1500));
                 }}
               >
-                复制
+                <IconCopy size={11} />
+                <span>复制回答</span>
               </button>
             )}
           </div>

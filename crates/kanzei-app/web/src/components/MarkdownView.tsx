@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { openFileInDrawer } from "../store/drawerStore";
 import { pushToast } from "../store/uiStore";
+import { IconCopy } from "./Icons";
 
 interface MarkdownViewProps {
   text: string;
@@ -12,6 +13,7 @@ type Block =
   | { kind: "mermaid"; code: string }
   | { kind: "math"; expr: string }
   | { kind: "heading"; level: number; text: string }
+  | { kind: "hr" }
   | { kind: "ul"; items: string[] }
   | { kind: "ol"; items: string[] }
   | { kind: "quote"; lines: string[] }
@@ -26,6 +28,13 @@ function parseBlocks(raw: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
     if (!line.trim()) {
+      i += 1;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line)) {
+      blocks.push({ kind: "hr" });
       i += 1;
       continue;
     }
@@ -146,6 +155,7 @@ function parseBlocks(raw: string): Block[] {
       lines[i].trim() &&
       !/^```/.test(lines[i]) &&
       !/^(#{1,4})\s+/.test(lines[i]) &&
+      !/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(lines[i]) &&
       !lines[i].startsWith(">") &&
       !/^\s*[-*+]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i])
@@ -164,7 +174,7 @@ const FILE_REF_RE = /^([\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|p
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const tokenRe =
-    /(`[^`]+`|\*\*[^*]+\*\*|\[([^\]]+)\]\(([^)]+)\)|\b(?:[\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|py|go|sql|ps1|sh))(?::\d+)?\b)/g;
+    /(`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*\n]+\*|\[([^\]]+)\]\(([^)]+)\)|\b(?:[\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|py|go|sql|ps1|sh))(?::\d+)?\b)/g;
   let lastIndex = 0;
   let key = 0;
 
@@ -196,6 +206,10 @@ function renderInline(text: string): React.ReactNode[] {
       }
     } else if (full.startsWith("**") && full.endsWith("**")) {
       nodes.push(<strong key={key++}>{full.slice(2, -2)}</strong>);
+    } else if (full.startsWith("~~") && full.endsWith("~~")) {
+      nodes.push(<del key={key++}>{full.slice(2, -2)}</del>);
+    } else if (full.startsWith("*") && full.endsWith("*") && full.length > 2) {
+      nodes.push(<em key={key++}>{full.slice(1, -1)}</em>);
     } else if (match[2] && match[3]) {
       const label = match[2];
       const href = match[3];
@@ -383,6 +397,8 @@ export const MarkdownView = React.memo(function MarkdownView({
     <div className="md-body">
       {blocks.map((block, idx) => {
         switch (block.kind) {
+          case "hr":
+            return <hr key={idx} />;
           case "code":
             return (
               <div key={idx} className="md-code-block">
@@ -393,7 +409,8 @@ export const MarkdownView = React.memo(function MarkdownView({
                     className="btn btn-ghost btn-sm"
                     onClick={() => copyCode(block.code)}
                   >
-                    复制
+                    <IconCopy size={12} />
+                    <span>复制</span>
                   </button>
                 </div>
                 <pre>
@@ -406,7 +423,7 @@ export const MarkdownView = React.memo(function MarkdownView({
           case "math":
             return <MathBlock key={idx} expr={block.expr} />;
           case "heading": {
-            const Tag = (`h${block.level}` as "h1" | "h2" | "h3" | "h4");
+            const Tag = `h${block.level}` as "h1" | "h2" | "h3" | "h4";
             return <Tag key={idx}>{renderInline(block.text)}</Tag>;
           }
           case "quote":
@@ -435,24 +452,26 @@ export const MarkdownView = React.memo(function MarkdownView({
             );
           case "table":
             return (
-              <table key={idx}>
-                <thead>
-                  <tr>
-                    {block.headers.map((h, i) => (
-                      <th key={i}>{renderInline(h)}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {block.rows.map((row, rIdx) => (
-                    <tr key={rIdx}>
-                      {row.map((cell, cIdx) => (
-                        <td key={cIdx}>{renderInline(cell)}</td>
+              <div key={idx} className="md-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      {block.headers.map((h, i) => (
+                        <th key={i}>{renderInline(h)}</th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {block.rows.map((row, rIdx) => (
+                      <tr key={rIdx}>
+                        {row.map((cell, cIdx) => (
+                          <td key={cIdx}>{renderInline(cell)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             );
           case "p":
             return <p key={idx}>{renderInline(block.text)}</p>;

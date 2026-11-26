@@ -11,6 +11,7 @@ import {
   uiStore,
   useUiStore,
 } from "../store/uiStore";
+import { IconClose } from "./Icons";
 import { MarkdownView } from "./MarkdownView";
 
 export function ToastRegion(): React.ReactElement {
@@ -22,11 +23,11 @@ export function ToastRegion(): React.ReactElement {
           <span style={{ flex: 1 }}>{t.text}</span>
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
+            className="btn btn-ghost btn-icon btn-sm"
             onClick={() => dismissToast(t.id)}
             aria-label="关闭通知"
           >
-            ×
+            <IconClose size={12} />
           </button>
         </div>
       ))}
@@ -38,16 +39,27 @@ export function ConfirmDialogHost(): React.ReactElement | null {
   const req = useUiStore((s) => s.confirmDialog);
   if (!req) return null;
   return (
-    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label={req.title}>
-      <div className="modal-panel">
+    <div
+      className="modal-scrim"
+      role="dialog"
+      aria-modal="true"
+      aria-label={req.title}
+      onClick={() => resolveConfirmDialog(false)}
+    >
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">{req.title}</div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={() => resolveConfirmDialog(false)}>
-            ×
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            onClick={() => resolveConfirmDialog(false)}
+            aria-label="关闭"
+          >
+            <IconClose size={14} />
           </button>
         </div>
         <div className="modal-body">
-          <p style={{ whiteSpace: "pre-wrap" }}>{req.message}</p>
+          <p style={{ whiteSpace: "pre-wrap", fontSize: 13, lineHeight: 1.6 }}>{req.message}</p>
         </div>
         <div className="modal-footer">
           <button type="button" className="btn" onClick={() => resolveConfirmDialog(false)}>
@@ -78,12 +90,23 @@ export function InputDialogHost(): React.ReactElement | null {
   const submit = () => resolveInputDialog(value.trim());
 
   return (
-    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label={req.title}>
-      <div className="modal-panel">
+    <div
+      className="modal-scrim"
+      role="dialog"
+      aria-modal="true"
+      aria-label={req.title}
+      onClick={() => resolveInputDialog(null)}
+    >
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">{req.title}</div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={() => resolveInputDialog(null)}>
-            ×
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            onClick={() => resolveInputDialog(null)}
+            aria-label="关闭"
+          >
+            <IconClose size={14} />
           </button>
         </div>
         <div className="modal-body">
@@ -156,18 +179,19 @@ export function NewProjectDialogHost(): React.ReactElement | null {
   };
 
   return (
-    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="新建项目">
-      <div className="modal-panel">
+    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="新建项目" onClick={close}>
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">新建项目</div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={close}>
-            ×
+          <button type="button" className="btn btn-ghost btn-icon" onClick={close} aria-label="关闭">
+            <IconClose size={14} />
           </button>
         </div>
         <div className="modal-body">
           <div className="field-group">
             <label className="field-label">项目名称</label>
             <input
+              autoFocus
               className="input"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -188,14 +212,19 @@ export function NewProjectDialogHost(): React.ReactElement | null {
               </button>
             </div>
           </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-            <input
-              type="checkbox"
-              checked={gitInit}
-              onChange={(e) => setGitInit(e.target.checked)}
+          <div className="toggle-row">
+            <div className="toggle-row-text">
+              <span className="toggle-row-title">初始化独立 Git 仓库与首提交</span>
+              <span className="field-hint">启用右侧文件 Diff 对照与安全回滚能力</span>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={gitInit}
+              className="switch"
+              onClick={() => setGitInit(!gitInit)}
             />
-            初始化独立 Git 仓库与首提交
-          </label>
+          </div>
           <div className="field-group">
             <label className="field-label">项目目标描述（可选）</label>
             <textarea
@@ -274,12 +303,18 @@ export function ProjectModelsDialogHost(): React.ReactElement | null {
   };
 
   return (
-    <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="本项目模型配置">
-      <div className="modal-panel">
+    <div
+      className="modal-scrim"
+      role="dialog"
+      aria-modal="true"
+      aria-label="本项目模型配置"
+      onClick={close}
+    >
+      <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title">本项目模型覆盖</div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={close}>
-            ×
+          <button type="button" className="btn btn-ghost btn-icon" onClick={close} aria-label="关闭">
+            <IconClose size={14} />
           </button>
         </div>
         <div className="modal-body">
@@ -341,6 +376,7 @@ export function ProjectModelsDialogHost(): React.ReactElement | null {
           <button
             type="button"
             className="btn btn-ghost"
+            style={{ marginRight: "auto" }}
             onClick={() => void invoke("project_config_open", { projectDir }).catch(() => {})}
           >
             打开配置文件
@@ -368,8 +404,8 @@ export function ViewerDialogHost(): React.ReactElement | null {
             <div className="modal-title">{viewer.title}</div>
             {viewer.subtitle && <div className="field-hint">{viewer.subtitle}</div>}
           </div>
-          <button type="button" className="btn btn-ghost btn-icon" onClick={closeViewer}>
-            ×
+          <button type="button" className="btn btn-ghost btn-icon" onClick={closeViewer} aria-label="关闭">
+            <IconClose size={14} />
           </button>
         </div>
         <div className="modal-body selectable">

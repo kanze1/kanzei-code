@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import { useAppStore } from "../../store/appStore";
 import { confirmDialog, pushToast } from "../../store/uiStore";
+import { IconMemory, IconPlus, IconSearch, IconSend } from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
 
 type MemoryTab = "entries" | "inbox" | "chat" | "graph" | "diagnostics";
@@ -56,6 +57,21 @@ function ensureForceGraph(): Promise<(el: HTMLElement) => Record<string, (...arg
     });
   }
   return forceGraphPromise as Promise<(el: HTMLElement) => Record<string, (...args: unknown[]) => unknown>>;
+}
+
+function categoryBadgeClass(cat: string): string {
+  switch (cat) {
+    case "fact":
+      return "badge badge-fact";
+    case "sop":
+      return "badge badge-sop";
+    case "habit":
+      return "badge badge-habit";
+    case "preference":
+      return "badge badge-preference";
+    default:
+      return "badge";
+  }
 }
 
 export default function MemoryView(): React.ReactElement {
@@ -167,33 +183,70 @@ export default function MemoryView(): React.ReactElement {
   useEffect(() => {
     if (tab !== "graph" || !graphData || !graphContainerRef.current) return;
     const container = graphContainerRef.current;
+    const nodes = (graphData.nodes ?? []).map((n) => ({ ...n }));
+    const links = (graphData.links ?? graphData.edges ?? []).map((l) => ({ ...l }));
+    if (nodes.length === 0) {
+      container.innerHTML = "";
+      return;
+    }
     let disposed = false;
+    let observer: ResizeObserver | undefined;
     ensureForceGraph()
       .then((Factory) => {
         if (disposed || !Factory || !container) return;
         container.innerHTML = "";
-        const nodes = (graphData.nodes ?? []).map((n) => ({ ...n }));
-        const links = (graphData.links ?? graphData.edges ?? []).map((l) => ({ ...l }));
+        const style = getComputedStyle(document.documentElement);
+        const colorByCategory: Record<string, string> = {
+          fact: style.getPropertyValue("--graph-fact").trim() || "#4cc2ff",
+          sop: style.getPropertyValue("--graph-sop").trim() || "#c084fc",
+          habit: style.getPropertyValue("--graph-habit").trim() || "#6382f6",
+          preference: style.getPropertyValue("--graph-preference").trim() || "#f472b6",
+        };
+        const defaultNodeColor = style.getPropertyValue("--graph-module").trim() || "#7e8291";
+        const edgeColor = style.getPropertyValue("--graph-edge").trim() || "#565656";
+
         const graph = Factory(container);
-        graph.width(container.clientWidth || 720);
-        graph.height(container.clientHeight || 480);
+        const resize = () => {
+          graph.width(container.clientWidth || 720);
+          graph.height(container.clientHeight || 480);
+        };
+        resize();
         graph.graphData({ nodes, links });
         graph.nodeLabel((n: unknown) => {
           const item = n as { id?: string; label?: string; category?: string };
           return `${item.id ?? ""} ${item.label ?? ""}`.trim();
         });
-        graph.nodeAutoColorBy("category");
-        graph.linkColor(() => "#565656");
+        graph.nodeColor((n: unknown) => {
+          const item = n as { category?: string };
+          return (item.category && colorByCategory[item.category]) || defaultNodeColor;
+        });
+        graph.linkColor(() => edgeColor);
+
+        if (typeof ResizeObserver !== "undefined") {
+          observer = new ResizeObserver(resize);
+          observer.observe(container);
+        }
       })
       .catch(() => {});
     return () => {
       disposed = true;
+      observer?.disconnect();
     };
   }, [tab, graphData]);
+
+  const overviewNumbers = useMemo(() => {
+    if (!overview) return [];
+    return Object.entries(overview)
+      .filter(([, v]) => typeof v === "number" || typeof v === "string")
+      .slice(0, 6);
+  }, [overview]);
 
   if (!projectDir) {
     return (
       <div className="empty-state" style={{ flex: 1 }}>
+        <div className="empty-state-icon">
+          <IconMemory size={20} />
+        </div>
         <h3>请先选择一个项目</h3>
         <p>记忆库按当前项目与全局范围组织，请先在侧栏选择项目。</p>
       </div>
@@ -222,6 +275,7 @@ export default function MemoryView(): React.ReactElement {
     setEditDesc("");
     setEditBody("");
     setEditMode(true);
+    setTab("entries");
   };
 
   const startEditSelected = () => {
@@ -307,6 +361,9 @@ export default function MemoryView(): React.ReactElement {
     }
   };
 
+  const graphNodeCount = graphData?.nodes?.length ?? 0;
+  const graphEdgeCount = (graphData?.links ?? graphData?.edges ?? []).length;
+
   return (
     <div className="page-shell">
       <div className="page-header">
@@ -314,14 +371,15 @@ export default function MemoryView(): React.ReactElement {
           <h1 className="page-title">记忆管理</h1>
           <div className="page-subtitle">浏览、检索、整理与图谱化项目与全局经验记忆。</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="page-header-actions">
           <button type="button" className="btn btn-primary" onClick={startNewEntry}>
-            + 新建记忆
+            <IconPlus size={13} />
+            <span>新建记忆</span>
           </button>
         </div>
       </div>
 
-      <div className="memory-tabs">
+      <div className="page-tabs" role="tablist">
         {(
           [
             ["entries", "记忆列表"],
@@ -334,7 +392,9 @@ export default function MemoryView(): React.ReactElement {
           <button
             key={id}
             type="button"
-            className={`drawer-tab${tab === id ? " active" : ""}`}
+            role="tab"
+            aria-selected={tab === id}
+            className={`page-tab-btn${tab === id ? " active" : ""}`}
             onClick={() => setTab(id)}
           >
             {label}
@@ -344,15 +404,20 @@ export default function MemoryView(): React.ReactElement {
 
       {tab === "entries" && (
         <div className="split-page">
-          <div className="split-left" style={{ width: 320 }}>
-            <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid var(--border-soft)" }}>
-              <input
-                className="input"
-                placeholder="搜索记忆标题或内容…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <div style={{ display: "flex", gap: 6 }}>
+          <div className="split-left">
+            <div className="split-left-filters">
+              <div className="sidebar-search-wrap">
+                <span className="sidebar-search-icon" aria-hidden="true">
+                  <IconSearch size={12} />
+                </span>
+                <input
+                  className="input sidebar-search"
+                  placeholder="搜索记忆标题或内容…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <div className="split-left-row">
                 <select className="select" value={scope} onChange={(e) => setScope(e.target.value)}>
                   <option value="all">全部范围</option>
                   <option value="project">项目记忆</option>
@@ -366,33 +431,41 @@ export default function MemoryView(): React.ReactElement {
                   <option value="preference">preference 偏好</option>
                 </select>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--dim)" }}>
-                <input
-                  type="checkbox"
-                  checked={showArchived}
-                  onChange={(e) => setShowArchived(e.target.checked)}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 2 }}>
+                <span className="field-hint">查看已归档记忆</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={showArchived}
+                  aria-label="查看已归档记忆"
+                  className="switch"
+                  onClick={() => setShowArchived(!showArchived)}
                 />
-                查看已归档记忆
-              </label>
+              </div>
             </div>
+
             <div className="split-left-scroll">
               {entries.length === 0 ? (
-                <div className="field-hint" style={{ padding: 12 }}>暂无匹配的记忆条目</div>
+                <div className="sidebar-empty-hint">暂无匹配的记忆条目</div>
               ) : (
-                entries.map((item) => (
+                entries.map((item, idx) => (
                   <button
-                    key={`${item.scope}:${item.id}`}
+                    key={`${item.scope}:${item.id}:${idx}`}
                     type="button"
-                    className={`list-card-item${selected?.id === item.id && selected?.scope === item.scope ? " active" : ""}`}
+                    className={`list-card-item cat-${item.category}${
+                      selected?.id === item.id && selected?.scope === item.scope ? " active" : ""
+                    }`}
                     onClick={() => void openEntry(item)}
                   >
                     <div className="list-card-title">
-                      <span>{item.title}</span>
-                      <span className="badge">{item.category}</span>
+                      <span className="list-card-title-text">{item.title}</span>
+                      <span className={categoryBadgeClass(item.category)}>{item.category}</span>
                     </div>
                     {item.description && <div className="list-card-desc">{item.description}</div>}
-                    <div style={{ fontSize: 11, color: "var(--dim)" }}>
-                      {item.id} · {item.scope}
+                    <div className="list-card-meta">
+                      <span>{item.id}</span>
+                      <span>·</span>
+                      <span>{item.scope}</span>
                     </div>
                   </button>
                 ))
@@ -400,197 +473,212 @@ export default function MemoryView(): React.ReactElement {
             </div>
           </div>
 
-          <div className="split-right" style={{ padding: 20, overflowY: "auto" }}>
-            {editMode ? (
-              <div style={{ maxWidth: 720, display: "flex", flexDirection: "column", gap: 12 }}>
-                <h2 style={{ fontSize: 16, color: "var(--fg-strong)" }}>
-                  {selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}
-                </h2>
-                <div className="settings-grid-2">
-                  <div className="field-group">
-                    <label className="field-label">范围</label>
-                    <select className="select" value={editScope} onChange={(e) => setEditScope(e.target.value)}>
-                      <option value="project">项目</option>
-                      <option value="global">全局</option>
-                    </select>
+          <div className="split-right">
+            <div className="split-right-scroll">
+              {editMode ? (
+                <div className="detail-container">
+                  <div className="detail-header">
+                    <h2 className="detail-title">
+                      {selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}
+                    </h2>
                   </div>
-                  <div className="field-group">
-                    <label className="field-label">类别</label>
-                    <select className="select" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
-                      <option value="fact">fact</option>
-                      <option value="sop">sop</option>
-                      <option value="habit">habit</option>
-                      <option value="preference">preference</option>
-                    </select>
-                  </div>
-                </div>
-                <div className="field-group">
-                  <label className="field-label">标题</label>
-                  <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-                </div>
-                <div className="field-group">
-                  <label className="field-label">简短说明</label>
-                  <input className="input" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
-                </div>
-                <div className="field-group">
-                  <label className="field-label">正文（Markdown）</label>
-                  <textarea
-                    className="textarea mono"
-                    style={{ minHeight: 240 }}
-                    value={editBody}
-                    onChange={(e) => setEditBody(e.target.value)}
-                  />
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="btn btn-primary" onClick={() => void saveEntry()}>
-                    保存
-                  </button>
-                  <button type="button" className="btn" onClick={() => setEditMode(false)}>
-                    取消
-                  </button>
-                </div>
-              </div>
-            ) : selected ? (
-              <div style={{ maxWidth: 760, display: "flex", flexDirection: "column", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <h2 style={{ fontSize: 18, color: "var(--fg-strong)" }}>{selected.title}</h2>
-                    <div style={{ fontSize: 12, color: "var(--dim)", marginTop: 4 }}>
-                      {selected.id} · {selected.scope} · {selected.category} · {selected.status ?? "active"}
+                  <div className="settings-grid-2">
+                    <div className="field-group">
+                      <label className="field-label">范围</label>
+                      <select className="select" value={editScope} onChange={(e) => setEditScope(e.target.value)}>
+                        <option value="project">项目</option>
+                        <option value="global">全局</option>
+                      </select>
+                    </div>
+                    <div className="field-group">
+                      <label className="field-label">类别</label>
+                      <select className="select" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+                        <option value="fact">fact 事实</option>
+                        <option value="sop">sop 流程</option>
+                        <option value="habit">habit 习惯</option>
+                        <option value="preference">preference 偏好</option>
+                      </select>
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {selected.archived ? (
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        onClick={() =>
-                          void invoke("memory_entry_restore", {
-                            projectDir,
-                            scope: selected.scope,
-                            id: selected.id,
-                            status: "active",
-                          })
-                            .then(() => {
-                              pushToast("已从归档恢复记忆", "ok");
-                              setSelected(null);
-                              void loadEntries();
-                            })
-                            .catch((e) => pushToast(formatError(e), "error"))
-                        }
-                      >
-                        恢复为有效
-                      </button>
-                    ) : (
-                      <>
-                        {selected.revision && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              onClick={() =>
-                                void invoke("memory_entry_feedback", {
-                                  projectDir,
-                                  scope: selected.scope,
-                                  id: selected.id,
-                                  expectedRevision: selected.revision!,
-                                  kind: "adopted",
-                                })
-                                  .then(() => pushToast("已记录「有帮助」反馈", "ok"))
-                                  .catch((e) => pushToast(formatError(e), "error"))
-                              }
-                            >
-                              有帮助
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              onClick={() =>
-                                void invoke("memory_entry_feedback", {
-                                  projectDir,
-                                  scope: selected.scope,
-                                  id: selected.id,
-                                  expectedRevision: selected.revision!,
-                                  kind: "corrected",
-                                })
-                                  .then(() => pushToast("已记录「需修正」反馈", "warn"))
-                                  .catch((e) => pushToast(formatError(e), "error"))
-                              }
-                            >
-                              需修正
-                            </button>
-                          </>
-                        )}
-                        <button type="button" className="btn btn-sm" onClick={startEditSelected}>
-                          编辑
-                        </button>
-                        <button type="button" className="btn btn-danger btn-sm" onClick={() => void deleteSelected()}>
-                          删除
-                        </button>
-                      </>
-                    )}
+                  <div className="field-group">
+                    <label className="field-label">标题</label>
+                    <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">简短说明</label>
+                    <input className="input" value={editDesc} onChange={(e) => setEditDesc(e.target.value)} />
+                  </div>
+                  <div className="field-group">
+                    <label className="field-label">正文（Markdown）</label>
+                    <textarea
+                      className="textarea mono"
+                      style={{ minHeight: 240 }}
+                      value={editBody}
+                      onChange={(e) => setEditBody(e.target.value)}
+                    />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" className="btn btn-primary" onClick={() => void saveEntry()}>
+                      保存
+                    </button>
+                    <button type="button" className="btn" onClick={() => setEditMode(false)}>
+                      取消
+                    </button>
                   </div>
                 </div>
-                {selected.description && <p className="field-hint">{selected.description}</p>}
-                <div style={{ borderTop: "1px solid var(--border-soft)", paddingTop: 12 }} className="selectable">
-                  <MarkdownView text={selected.body ?? ""} />
+              ) : selected ? (
+                <div className="detail-container">
+                  <div className="detail-header">
+                    <div>
+                      <h2 className="detail-title">{selected.title}</h2>
+                      <div className="detail-meta-row">
+                        <span className="badge mono">{selected.id}</span>
+                        <span className="badge">{selected.scope}</span>
+                        <span className={categoryBadgeClass(selected.category)}>{selected.category}</span>
+                        <span className="badge badge-ok">{selected.status ?? "active"}</span>
+                      </div>
+                    </div>
+                    <div className="detail-actions">
+                      {selected.archived ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-primary"
+                          onClick={() =>
+                            void invoke("memory_entry_restore", {
+                              projectDir,
+                              scope: selected.scope,
+                              id: selected.id,
+                              status: "active",
+                            })
+                              .then(() => {
+                                pushToast("已从归档恢复记忆", "ok");
+                                setSelected(null);
+                                void loadEntries();
+                              })
+                              .catch((e) => pushToast(formatError(e), "error"))
+                          }
+                        >
+                          恢复为有效
+                        </button>
+                      ) : (
+                        <>
+                          {selected.revision && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() =>
+                                  void invoke("memory_entry_feedback", {
+                                    projectDir,
+                                    scope: selected.scope,
+                                    id: selected.id,
+                                    expectedRevision: selected.revision!,
+                                    kind: "adopted",
+                                  })
+                                    .then(() => pushToast("已记录「有帮助」反馈", "ok"))
+                                    .catch((e) => pushToast(formatError(e), "error"))
+                                }
+                              >
+                                有帮助
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() =>
+                                  void invoke("memory_entry_feedback", {
+                                    projectDir,
+                                    scope: selected.scope,
+                                    id: selected.id,
+                                    expectedRevision: selected.revision!,
+                                    kind: "corrected",
+                                  })
+                                    .then(() => pushToast("已记录「需修正」反馈", "warn"))
+                                    .catch((e) => pushToast(formatError(e), "error"))
+                                }
+                              >
+                                需修正
+                              </button>
+                            </>
+                          )}
+                          <button type="button" className="btn btn-sm btn-primary" onClick={startEditSelected}>
+                            编辑
+                          </button>
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => void deleteSelected()}>
+                            删除
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {selected.description && <p className="field-hint">{selected.description}</p>}
+                  <div className="selectable">
+                    <MarkdownView text={selected.body ?? ""} />
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <p>从左侧选择一条记忆查看详情，或点击右上角「新建记忆」。</p>
-              </div>
-            )}
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-state-icon">
+                    <IconMemory size={20} />
+                  </div>
+                  <h3>选择一条记忆查看详情</h3>
+                  <p>从左侧浏览项目与全局经验记忆，或点击右上角「新建记忆」沉淀新规则。</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {tab === "inbox" && (
         <div className="page-scroll">
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() =>
-                void invoke("memory_consolidate", {
-                  projectDir,
-                  requestId: `cons-${Date.now()}`,
-                })
-                  .then(() => pushToast("已启动记忆整理任务", "ok"))
-                  .catch((e) => pushToast(`整理失败：${formatError(e)}`, "error"))
-              }
-            >
-              整理收件箱
-            </button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() =>
-                void invoke("memory_dream", {
-                  projectDir,
-                  requestId: `dream-${Date.now()}`,
-                })
-                  .then(() => pushToast("已启动记忆重构（Dream）", "ok"))
-                  .catch((e) => pushToast(`启动失败：${formatError(e)}`, "error"))
-              }
-            >
-              后台做梦重构
-            </button>
-            {jobStatus && (
-              <span className="badge">作业状态：{String(jobStatus.status ?? "idle")}</span>
-            )}
+          <div className="view-toolbar">
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() =>
+                  void invoke("memory_consolidate", {
+                    projectDir,
+                    requestId: `cons-${Date.now()}`,
+                  })
+                    .then(() => pushToast("已启动记忆整理任务", "ok"))
+                    .catch((e) => pushToast(`整理失败：${formatError(e)}`, "error"))
+                }
+              >
+                整理收件箱
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() =>
+                  void invoke("memory_dream", {
+                    projectDir,
+                    requestId: `dream-${Date.now()}`,
+                  })
+                    .then(() => pushToast("已启动记忆重构（Dream）", "ok"))
+                    .catch((e) => pushToast(`启动失败：${formatError(e)}`, "error"))
+                }
+              >
+                后台做梦重构
+              </button>
+              {jobStatus && (
+                <span className="badge badge-info">作业状态：{String(jobStatus.status ?? "idle")}</span>
+              )}
+            </div>
           </div>
 
           {candidates.length === 0 ? (
             <div className="empty-state">
-              <p>待整理收件箱为空。</p>
+              <h3>待整理收件箱为空</h3>
+              <p>对话过程中自动沉淀的候选经验笔记会汇集在此，等待审核吸收。</p>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, maxWidth: 820 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 820 }}>
               {candidates.map((cand, idx) => (
                 <div key={cand.fingerprint ?? cand.id ?? idx} className="provider-card">
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <strong>{cand.title ?? cand.header ?? `笔记 #${idx + 1}`}</strong>
+                  <div className="provider-card-head">
+                    <strong style={{ fontSize: 13.5 }}>{cand.title ?? cand.header ?? `笔记 #${idx + 1}`}</strong>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button
                         type="button"
@@ -642,19 +730,22 @@ export default function MemoryView(): React.ReactElement {
 
       {tab === "chat" && (
         <div className="page-shell">
-          <div className="page-scroll" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {chatTurns.length === 0 ? (
-              <div className="empty-state">
-                <p>可以直接对话让记忆管理员帮你检索、合并、修正或清理项目记忆。</p>
-              </div>
-            ) : (
-              chatTurns.map((turn, idx) => (
-                <div key={idx} className="provider-card">
-                  <div className="field-label">{turn.role === "user" ? "你" : "记忆管理员"}</div>
-                  <MarkdownView text={turn.text} />
+          <div className="memory-chat-stream">
+            <div className="memory-chat-inner">
+              {chatTurns.length === 0 ? (
+                <div className="empty-state">
+                  <h3>记忆管理对话</h3>
+                  <p>可以直接对话让记忆管理员帮你检索、合并、修正或清理项目记忆。</p>
                 </div>
-              ))
-            )}
+              ) : (
+                chatTurns.map((turn, idx) => (
+                  <div key={idx} className={`memory-chat-bubble ${turn.role}`}>
+                    <div className="field-label">{turn.role === "user" ? "你" : "记忆管理员"}</div>
+                    <MarkdownView text={turn.text} />
+                  </div>
+                ))
+              )}
+            </div>
           </div>
           <div className="settings-savebar">
             <input
@@ -666,55 +757,123 @@ export default function MemoryView(): React.ReactElement {
                 if (e.key === "Enter") void sendMemoryChat();
               }}
             />
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() =>
-                void invoke("memory_chat_reset", { projectDir }).then(() => {
-                  setChatTurns([]);
-                  pushToast("已重置管理对话", "ok");
-                })
-              }
-            >
-              重置
-            </button>
-            <button
-              type="button"
-              className="btn btn-accent"
-              disabled={chatBusy || !chatInput.trim()}
-              onClick={() => void sendMemoryChat()}
-            >
-              {chatBusy ? "执行中…" : "发送"}
-            </button>
+            <div style={{ display: "flex", gap: 6, flex: "none" }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() =>
+                  void invoke("memory_chat_reset", { projectDir }).then(() => {
+                    setChatTurns([]);
+                    pushToast("已重置管理对话", "ok");
+                  })
+                }
+              >
+                重置
+              </button>
+              <button
+                type="button"
+                className="btn btn-accent"
+                disabled={chatBusy || !chatInput.trim()}
+                onClick={() => void sendMemoryChat()}
+              >
+                <IconSend size={13} />
+                <span>{chatBusy ? "执行中…" : "发送"}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {tab === "graph" && (
         <div className="memory-graph-stage">
-          <div ref={graphContainerRef} style={{ width: "100%", height: "100%" }} />
+          <div className="memory-graph-legend">
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: "var(--graph-fact)" }} />
+              fact 事实
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: "var(--graph-sop)" }} />
+              sop 流程
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: "var(--graph-habit)" }} />
+              habit 习惯
+            </span>
+            <span className="legend-item">
+              <span className="legend-dot" style={{ background: "var(--graph-preference)" }} />
+              preference 偏好
+            </span>
+            <span className="badge mono">
+              {graphNodeCount} 节点 · {graphEdgeCount} 关联
+            </span>
+          </div>
+          {graphNodeCount === 0 ? (
+            <div className="empty-state" style={{ height: "100%" }}>
+              <div className="empty-state-icon">
+                <IconMemory size={20} />
+              </div>
+              <h3>暂无可展示的记忆图谱节点</h3>
+              <p>当项目积累了带交叉引用的记忆条目后，此处将自动渲染关系网络。</p>
+            </div>
+          ) : (
+            <div ref={graphContainerRef} style={{ width: "100%", height: "100%" }} />
+          )}
         </div>
       )}
 
       {tab === "diagnostics" && (
         <div className="page-scroll">
-          <div style={{ maxWidth: 820, display: "flex", flexDirection: "column", gap: 14 }}>
-            <div className="provider-card">
-              <div className="settings-section-title">记忆库概览</div>
-              <pre className="tool-pre">{JSON.stringify(overview, null, 2)}</pre>
-            </div>
-            <div className="provider-card">
-              <div className="settings-section-title">控制面诊断</div>
-              <pre className="tool-pre">{JSON.stringify(controlPlane, null, 2)}</pre>
-            </div>
-            <div className="provider-card">
-              <div className="settings-section-title">上下文注入账单</div>
-              <pre className="tool-pre">{JSON.stringify(contextBill, null, 2)}</pre>
-            </div>
-            <div className="provider-card">
-              <div className="settings-section-title">近期召回记录 ({recalls.length})</div>
-              <pre className="tool-pre">{JSON.stringify(recalls, null, 2)}</pre>
-            </div>
+          <div style={{ maxWidth: 860, display: "flex", flexDirection: "column", gap: 14 }}>
+            {overviewNumbers.length > 0 && (
+              <div className="stats-strip" style={{ marginBottom: 4 }}>
+                {overviewNumbers.map(([k, v]) => (
+                  <div key={k} className="stat-tile">
+                    <span className="stat-tile-label">{k}</span>
+                    <span className="stat-tile-value">{String(v)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <details className="diag-card" open>
+              <summary className="diag-card-summary">
+                <span>记忆库概览（原始快照）</span>
+                <span className="badge">JSON</span>
+              </summary>
+              <div className="diag-card-body">
+                <pre className="tool-pre">{JSON.stringify(overview, null, 2)}</pre>
+              </div>
+            </details>
+
+            <details className="diag-card">
+              <summary className="diag-card-summary">
+                <span>控制面诊断</span>
+                <span className="badge">JSON</span>
+              </summary>
+              <div className="diag-card-body">
+                <pre className="tool-pre">{JSON.stringify(controlPlane, null, 2)}</pre>
+              </div>
+            </details>
+
+            <details className="diag-card">
+              <summary className="diag-card-summary">
+                <span>上下文注入账单</span>
+                <span className="badge">JSON</span>
+              </summary>
+              <div className="diag-card-body">
+                <pre className="tool-pre">{JSON.stringify(contextBill, null, 2)}</pre>
+              </div>
+            </details>
+
+            <details className="diag-card">
+              <summary className="diag-card-summary">
+                <span>近期召回记录</span>
+                <span className="badge mono">{recalls.length} 条</span>
+              </summary>
+              <div className="diag-card-body">
+                <pre className="tool-pre">{JSON.stringify(recalls, null, 2)}</pre>
+              </div>
+            </details>
           </div>
         </div>
       )}

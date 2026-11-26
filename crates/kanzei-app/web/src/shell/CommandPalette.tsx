@@ -11,9 +11,11 @@ import {
   uiStore,
   useUiStore,
 } from "../store/uiStore";
+import { IconSearch } from "../components/Icons";
 
 interface CommandAction {
   id: string;
+  group: string;
   label: string;
   shortcut?: string;
   run: () => void;
@@ -29,6 +31,7 @@ export function CommandPalette(): React.ReactElement | null {
     () => [
       {
         id: "new-chat",
+        group: "对话",
         label: "新建对话",
         shortcut: "Ctrl+Shift+N",
         run: () => {
@@ -38,52 +41,60 @@ export function CommandPalette(): React.ReactElement | null {
       },
       {
         id: "general-chat",
+        group: "对话",
         label: "切换到无项目对话",
         run: () => void openGeneralChat(),
       },
       {
         id: "clear-chat",
+        group: "对话",
         label: "清空当前对话（开启新段）",
         shortcut: "Ctrl+Shift+C",
         run: () => void clearCurrentConversation(),
       },
       {
         id: "compact-chat",
+        group: "对话",
         label: "压缩当前对话上下文",
         run: () => void compactCurrentConversation(),
       },
       {
         id: "toggle-files-drawer",
+        group: "抽屉",
         label: "开关右侧文件上下文抽屉",
         run: () => toggleDrawer("files"),
       },
       {
         id: "toggle-activity-drawer",
+        group: "抽屉",
         label: "开关右侧活动面板",
         run: () => toggleDrawer("activity"),
       },
       {
         id: "add-project",
+        group: "项目",
         label: "添加已有项目目录…",
         run: () => void addExistingProject(),
       },
       {
         id: "new-project",
+        group: "项目",
         label: "新建项目…",
         run: () => uiStore.setState({ newProjectOpen: true }),
       },
       {
         id: "project-models",
+        group: "项目",
         label: "配置本项目模型覆盖…",
         run: () => uiStore.setState({ projectModelsOpen: true }),
       },
-      { id: "go-chat", label: "转到：对话工作面", run: () => navigateView("chat") },
-      { id: "go-workspace", label: "转到：工作台项目总览", run: () => navigateView("workspace") },
-      { id: "go-memory", label: "转到：记忆与知识图谱", run: () => navigateView("memory") },
-      { id: "go-skills", label: "转到：Skills 技能库", run: () => navigateView("skills") },
-      { id: "go-settings", label: "转到：全局设置", run: () => navigateView("settings") },
-      { id: "toggle-theme", label: "切换明暗主题", run: toggleTheme },
-      { id: "toggle-sidebar", label: "收起 / 展开侧栏", run: toggleSidebar },
+      { id: "go-chat", group: "导航", label: "转到：对话工作面", run: () => navigateView("chat") },
+      { id: "go-workspace", group: "导航", label: "转到：工作台项目总览", run: () => navigateView("workspace") },
+      { id: "go-memory", group: "导航", label: "转到：记忆与知识图谱", run: () => navigateView("memory") },
+      { id: "go-skills", group: "导航", label: "转到：Skills 技能库", run: () => navigateView("skills") },
+      { id: "go-settings", group: "导航", label: "转到：全局设置", run: () => navigateView("settings") },
+      { id: "toggle-theme", group: "外观", label: "切换明暗主题", run: toggleTheme },
+      { id: "toggle-sidebar", group: "外观", label: "收起 / 展开侧栏", run: toggleSidebar },
     ],
     [projectDir]
   );
@@ -91,7 +102,12 @@ export function CommandPalette(): React.ReactElement | null {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return actions;
-    return actions.filter((a) => a.label.toLowerCase().includes(q) || a.id.includes(q));
+    return actions.filter(
+      (a) =>
+        a.label.toLowerCase().includes(q) ||
+        a.group.toLowerCase().includes(q) ||
+        a.id.includes(q)
+    );
   }, [actions, query]);
 
   useEffect(() => {
@@ -113,29 +129,33 @@ export function CommandPalette(): React.ReactElement | null {
   return (
     <div className="modal-scrim" role="dialog" aria-modal="true" aria-label="命令面板" onClick={close}>
       <div className="palette-panel" onClick={(e) => e.stopPropagation()}>
-        <input
-          autoFocus
-          className="palette-input"
-          placeholder="输入命令或视图名称…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIndex(0);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") close();
-            else if (e.key === "ArrowDown") {
-              e.preventDefault();
-              setIndex((i) => Math.min(filtered.length - 1, i + 1));
-            } else if (e.key === "ArrowUp") {
-              e.preventDefault();
-              setIndex((i) => Math.max(0, i - 1));
-            } else if (e.key === "Enter") {
-              e.preventDefault();
-              execute(filtered[index]);
-            }
-          }}
-        />
+        <div className="palette-search-row">
+          <IconSearch size={15} />
+          <input
+            autoFocus
+            className="palette-input"
+            placeholder="输入命令、视图或操作名称…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setIndex(0);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") close();
+              else if (e.key === "ArrowDown") {
+                e.preventDefault();
+                setIndex((i) => Math.min(filtered.length - 1, i + 1));
+              } else if (e.key === "ArrowUp") {
+                e.preventDefault();
+                setIndex((i) => Math.max(0, i - 1));
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                execute(filtered[index]);
+              }
+            }}
+          />
+          <kbd className="kbd">ESC</kbd>
+        </div>
         <div className="palette-list">
           {filtered.map((action, idx) => (
             <button
@@ -145,12 +165,17 @@ export function CommandPalette(): React.ReactElement | null {
               onMouseEnter={() => setIndex(idx)}
               onClick={() => execute(action)}
             >
-              <span>{action.label}</span>
-              {action.shortcut && <span className="palette-shortcut">{action.shortcut}</span>}
+              <span className="palette-item-main">
+                <span className="palette-item-group">{action.group}</span>
+                <span>{action.label}</span>
+              </span>
+              {action.shortcut && <kbd className="kbd">{action.shortcut}</kbd>}
             </button>
           ))}
           {filtered.length === 0 && (
-            <div style={{ padding: 14, fontSize: 12, color: "var(--dim)" }}>无匹配命令</div>
+            <div className="empty-state" style={{ padding: "24px 12px" }}>
+              <p>无匹配命令</p>
+            </div>
           )}
         </div>
       </div>

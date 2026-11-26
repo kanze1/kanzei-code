@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { formatError, getCurrentWindow, invoke } from "../ipc/client";
 import { projectDisplayName, useAppStore } from "../store/appStore";
+import { useChatStore } from "../store/chatStore";
 import { drawerStore, toggleDrawer, useDrawerStore } from "../store/drawerStore";
 import { getActiveProcess, sessionStore, useSessionStore } from "../store/sessionStore";
 import {
@@ -23,6 +24,11 @@ export function WindowChrome(): React.ReactElement {
   const windowError = useUiStore((s) => s.windowError);
   const drawerOpen = useDrawerStore((s) => s.open);
   const drawerMode = useDrawerStore((s) => s.mode);
+  const gitChanges = useDrawerStore((s) => s.gitStatus?.changes ?? 0);
+  const touchedCount = useDrawerStore((s) => s.touchedFiles.length);
+  const liveSubagentsRunning = useChatStore((s) =>
+    s.liveSubagents.some((sub) => sub.status === "running")
+  );
   const activeProcess = useSessionStore((s) =>
     s.processes.find((p) => p.id === s.activeProcessId) ?? null
   );
@@ -49,7 +55,7 @@ export function WindowChrome(): React.ReactElement {
 
   const titleLabel =
     view === "workspace"
-      ? "工作台 · 所有项目"
+      ? "工作台"
       : view === "memory"
       ? "记忆管理"
       : view === "skills"
@@ -100,7 +106,6 @@ export function WindowChrome(): React.ReactElement {
     uiStore.setState({ closingWindow: true, windowError: "" });
     try {
       await invoke("app_shutdown").catch((err) => {
-        // 即使没有活跃任务或重复关闭，也记录日志但继续尝试安全关闭窗口
         uiStore.setState({ windowError: formatError(err) });
       });
       const win = getCurrentWindow();
@@ -126,6 +131,7 @@ export function WindowChrome(): React.ReactElement {
   };
 
   const currentProcess = activeProcess ?? getActiveProcess();
+  const fileBadgeCount = gitChanges > 0 ? gitChanges : touchedCount;
 
   return (
     <header
@@ -148,7 +154,7 @@ export function WindowChrome(): React.ReactElement {
           aria-pressed={sidebarOpen}
           onClick={toggleSidebar}
         >
-          <IconSidebar />
+          <IconSidebar size={15} />
         </button>
 
         <div className="window-title-group">
@@ -156,44 +162,51 @@ export function WindowChrome(): React.ReactElement {
             {titleLabel}
           </span>
           {view === "chat" && currentProcess && (
-            <span className="window-session-name" title={currentProcess.label}>
-              / {currentProcess.label}
-            </span>
+            <>
+              <span className="window-breadcrumb-sep" aria-hidden="true">/</span>
+              <span className="window-session-name" title={currentProcess.label}>
+                {currentProcess.label}
+              </span>
+              {currentProcess.running && <span className="status-dot running" title="运行中" />}
+            </>
           )}
         </div>
 
         <div className="window-header-actions">
           <button
             type="button"
-            className="btn btn-ghost btn-sm"
+            className="chrome-cmd-btn"
             title="命令面板 (Ctrl+P)"
             onClick={() => uiStore.setState({ paletteOpen: true })}
           >
-            <IconSearch size={14} />
+            <IconSearch size={13} />
             <span>命令</span>
+            <kbd className="kbd">Ctrl+P</kbd>
           </button>
 
           {view === "chat" && !generalMode && activeProjectDir && (
             <button
               type="button"
-              className={`btn btn-sm${drawerOpen && drawerMode === "files" ? " btn-primary" : " btn-ghost"}`}
+              className={`chrome-pill${drawerOpen && (drawerMode === "files" || drawerMode === "worktrees") ? " active" : ""}`}
               title="打开文件上下文与 Diff 抽屉"
               onClick={() => toggleDrawer("files")}
             >
               <IconFileCode size={14} />
               <span>文件上下文</span>
+              {fileBadgeCount > 0 && <span className="chrome-pill-count">{fileBadgeCount}</span>}
             </button>
           )}
 
           {view === "chat" && (
             <button
               type="button"
-              className={`btn btn-sm${drawerOpen && drawerMode === "activity" ? " btn-primary" : " btn-ghost"}`}
+              className={`chrome-pill${drawerOpen && drawerMode === "activity" ? " active" : ""}`}
               title="运行活动面板"
               onClick={() => toggleDrawer("activity")}
             >
               <IconActivity size={14} />
               <span>活动</span>
+              {liveSubagentsRunning && <span className="status-dot running" />}
             </button>
           )}
         </div>

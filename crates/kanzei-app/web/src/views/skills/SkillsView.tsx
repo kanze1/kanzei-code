@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import { confirmDialog, promptDialog, pushToast } from "../../store/uiStore";
+import { IconPlus, IconSearch, IconSkills, IconSparkles } from "../../components/Icons";
+import { MarkdownView } from "../../components/MarkdownView";
 
 interface SkillEntry {
   id: string;
@@ -17,12 +19,20 @@ interface SkillEntry {
   revision?: string;
 }
 
+function sourceLabel(src: string): string {
+  if (src === "builtin") return "内置";
+  if (src === "personal") return "个人";
+  if (src === "external") return "外部";
+  return src;
+}
+
 export default function SkillsView(): React.ReactElement {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [sourceFilter, setSourceFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SkillEntry | null>(null);
   const [editing, setEditing] = useState(false);
+  const [renderMode, setRenderMode] = useState<"preview" | "raw">("preview");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
@@ -191,27 +201,34 @@ export default function SkillsView(): React.ReactElement {
       <div className="page-header">
         <div>
           <h1 className="page-title">Skills 技能库</h1>
-          <div className="page-subtitle">管理内置与个人全局技能，决定模型可自动调用的能力集。</div>
+          <div className="page-subtitle">管理内置与个人全局技能，决定模型按需加载的专用流程规范。</div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="page-header-actions">
           <button type="button" className="btn" disabled={busy} onClick={() => void handleGenerate()}>
-            AI 生成草稿
+            <IconSparkles size={13} />
+            <span>AI 生成草稿</span>
           </button>
           <button type="button" className="btn btn-primary" onClick={startCreate}>
-            + 新建技能
+            <IconPlus size={13} />
+            <span>新建技能</span>
           </button>
         </div>
       </div>
 
       <div className="split-page">
-        <div className="split-left" style={{ width: 320 }}>
-          <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 6, borderBottom: "1px solid var(--border-soft)" }}>
-            <input
-              className="input"
-              placeholder="搜索技能名称或描述…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+        <div className="split-left">
+          <div className="split-left-filters">
+            <div className="sidebar-search-wrap">
+              <span className="sidebar-search-icon" aria-hidden="true">
+                <IconSearch size={12} />
+              </span>
+              <input
+                className="input sidebar-search"
+                placeholder="搜索技能名称或描述…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
             <select className="select" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
               <option value="all">全部来源 ({skills.length})</option>
               <option value="builtin">内置技能</option>
@@ -219,110 +236,170 @@ export default function SkillsView(): React.ReactElement {
               <option value="external">外部库</option>
             </select>
           </div>
+
           <div className="split-left-scroll">
-            {filtered.map((item) => (
-              <div
-                key={item.id}
-                className={`list-card-item${selected?.id === item.id ? " active" : ""}`}
-                role="button"
-                tabIndex={0}
-                onClick={() => void openSkill(item)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void openSkill(item);
-                }}
-              >
-                <div className="list-card-title">
-                  <span>{item.displayName}</span>
-                  <input
-                    type="checkbox"
-                    checked={item.enabled}
-                    onClick={(e) => e.stopPropagation()}
-                    onChange={() => void toggleEnabled(item)}
-                    title={item.enabled ? "已启用" : "已停用"}
-                  />
+            {filtered.length === 0 ? (
+              <div className="sidebar-empty-hint">暂无匹配的技能条目</div>
+            ) : (
+              filtered.map((item) => (
+                <div
+                  key={item.id}
+                  className={`list-card-item${selected?.id === item.id ? " active" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => void openSkill(item)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void openSkill(item);
+                  }}
+                >
+                  <div className="list-card-title">
+                    <span className="list-card-title-text">{item.displayName}</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={item.enabled}
+                      aria-label={`${item.enabled ? "停用" : "启用"} ${item.displayName}`}
+                      className="switch"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void toggleEnabled(item);
+                      }}
+                    />
+                  </div>
+                  <div className="list-card-desc">{item.description}</div>
+                  <div className="list-card-meta">
+                    <span className={`badge ${item.source === "personal" ? "badge-accent" : ""}`}>
+                      {sourceLabel(item.source)}
+                    </span>
+                    <span>{item.name}</span>
+                  </div>
                 </div>
-                <div className="list-card-desc">{item.description}</div>
-                <div style={{ fontSize: 11, color: "var(--dim)" }}>{item.source}</div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
-        <div className="split-right" style={{ padding: 20, overflowY: "auto" }}>
-          {editing ? (
-            <div style={{ maxWidth: 740, display: "flex", flexDirection: "column", gap: 12 }}>
-              <h2 style={{ fontSize: 16, color: "var(--fg-strong)" }}>
-                {selected ? `编辑技能：${selected.name}` : "新建个人技能"}
-              </h2>
-              <div className="field-group">
-                <label className="field-label">名称（小写字母、数字和连字符）</label>
-                <input className="input mono" value={name} onChange={(e) => setName(e.target.value)} />
+        <div className="split-right">
+          <div className="split-right-scroll">
+            {editing ? (
+              <div className="detail-container">
+                <div className="detail-header">
+                  <h2 className="detail-title">
+                    {selected ? `编辑技能：${selected.name}` : "新建个人技能"}
+                  </h2>
+                </div>
+                <div className="field-group">
+                  <label className="field-label">名称（小写字母、数字和连字符）</label>
+                  <input className="input mono" value={name} onChange={(e) => setName(e.target.value)} />
+                </div>
+                <div className="field-group">
+                  <label className="field-label">简介（决定模型何时触发该技能）</label>
+                  <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} />
+                </div>
+                <div className="toggle-row">
+                  <div className="toggle-row-text">
+                    <span className="toggle-row-title">仅手动触发</span>
+                    <span className="field-hint">开启后仅支持显式 `$source:name` 调用，禁止模型自动激活</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={manualOnly}
+                    className="switch"
+                    onClick={() => setManualOnly(!manualOnly)}
+                  />
+                </div>
+                <div className="field-group">
+                  <label className="field-label">技能指令正文（Markdown）</label>
+                  <textarea
+                    className="textarea mono"
+                    style={{ minHeight: 280 }}
+                    value={instructions}
+                    onChange={(e) => setInstructions(e.target.value)}
+                  />
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void saveSkill()}>
+                    {busy ? "保存中…" : "保存"}
+                  </button>
+                  <button type="button" className="btn" onClick={() => setEditing(false)}>
+                    取消
+                  </button>
+                </div>
               </div>
-              <div className="field-group">
-                <label className="field-label">简介（决定模型何时触发该技能）</label>
-                <input className="input" value={description} onChange={(e) => setDescription(e.target.value)} />
-              </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                <input
-                  type="checkbox"
-                  checked={manualOnly}
-                  onChange={(e) => setManualOnly(e.target.checked)}
-                />
-                仅手动触发（禁止模型自动激活）
-              </label>
-              <div className="field-group">
-                <label className="field-label">技能指令正文</label>
-                <textarea
-                  className="textarea mono"
-                  style={{ minHeight: 280 }}
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                />
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void saveSkill()}>
-                  {busy ? "保存中…" : "保存"}
-                </button>
-                <button type="button" className="btn" onClick={() => setEditing(false)}>
-                  取消
-                </button>
-              </div>
-            </div>
-          ) : selected ? (
-            <div style={{ maxWidth: 780, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                <div>
-                  <h2 style={{ fontSize: 18, color: "var(--fg-strong)" }}>{selected.displayName}</h2>
-                  <div className="field-hint">
-                    {selected.id} · {selected.source} · {selected.enabled ? "已启用" : "已停用"}
+            ) : selected ? (
+              <div className="detail-container">
+                <div className="detail-header">
+                  <div>
+                    <h2 className="detail-title">{selected.displayName}</h2>
+                    <div className="detail-meta-row">
+                      <span className="badge mono">{selected.id}</span>
+                      <span className="badge">{sourceLabel(selected.source)}</span>
+                      <span className={`badge ${selected.enabled ? "badge-ok" : "badge-warn"}`}>
+                        {selected.enabled ? "已启用" : "已停用"}
+                      </span>
+                      {selected.manualOnly && <span className="badge badge-info">仅手动</span>}
+                    </div>
+                  </div>
+                  <div className="detail-actions">
+                    <div className="segmented" role="tablist" aria-label="正文视图">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={renderMode === "preview"}
+                        className={`segmented-btn${renderMode === "preview" ? " active" : ""}`}
+                        onClick={() => setRenderMode("preview")}
+                      >
+                        渲染预览
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={renderMode === "raw"}
+                        className={`segmented-btn${renderMode === "raw" ? " active" : ""}`}
+                        onClick={() => setRenderMode("raw")}
+                      >
+                        源码
+                      </button>
+                    </div>
+                    <button type="button" className="btn btn-sm" onClick={() => void handleDuplicate()}>
+                      复制
+                    </button>
+                    {selected.editable && (
+                      <>
+                        <button type="button" className="btn btn-sm btn-primary" onClick={startEdit}>
+                          编辑
+                        </button>
+                        <button type="button" className="btn btn-sm btn-danger" onClick={() => void handleDelete()}>
+                          删除
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button type="button" className="btn btn-sm" onClick={() => void handleDuplicate()}>
-                    复制
-                  </button>
-                  {selected.editable && (
-                    <>
-                      <button type="button" className="btn btn-sm btn-primary" onClick={startEdit}>
-                        编辑
-                      </button>
-                      <button type="button" className="btn btn-sm btn-danger" onClick={() => void handleDelete()}>
-                        删除
-                      </button>
-                    </>
-                  )}
-                </div>
+
+                <p className="field-hint">{selected.description}</p>
+
+                {renderMode === "preview" ? (
+                  <div className="skill-code-box selectable">
+                    <MarkdownView text={selected.instructions ?? ""} />
+                  </div>
+                ) : (
+                  <pre className="tool-pre selectable skill-code-box">
+                    {selected.instructions ?? ""}
+                  </pre>
+                )}
               </div>
-              <p style={{ fontSize: 13 }}>{selected.description}</p>
-              <pre className="tool-pre selectable" style={{ padding: 12, background: "var(--code-bg)", borderRadius: 8 }}>
-                {selected.instructions ?? ""}
-              </pre>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <p>从左侧选择技能查看指令详情，或新建/AI 生成专属个人技能。</p>
-            </div>
-          )}
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-icon">
+                  <IconSkills size={20} />
+                </div>
+                <h3>选择一个技能查看指令</h3>
+                <p>从左侧选择内置或个人技能以审阅正文、启停状态，或新建/AI 生成专属技能。</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

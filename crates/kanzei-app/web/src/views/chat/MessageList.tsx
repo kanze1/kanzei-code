@@ -1,12 +1,23 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { MessagePart } from "../../ipc/types";
-import { chatStore, loadOlderMessages, useChatStore } from "../../store/chatStore";
+import { useAppStore } from "../../store/appStore";
+import { chatStore, loadOlderMessages, updateDraft, useChatStore } from "../../store/chatStore";
+import { toggleDrawer } from "../../store/drawerStore";
 import { useSessionStore } from "../../store/sessionStore";
+import {
+  IconChevronRight,
+  IconFileCode,
+  IconSearch,
+  IconSparkles,
+  IconTerminal,
+} from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
 import { MessageItem } from "./MessageItem";
 
 export function MessageList(): React.ReactElement {
+  const activeProjectDir = useAppStore((s) => s.activeProjectDir);
+  const generalMode = useAppStore((s) => s.generalMode);
   const messages = useChatStore((s) => s.messages);
   const startIndex = useChatStore((s) => s.startIndex);
   const total = useChatStore((s) => s.total);
@@ -28,7 +39,6 @@ export function MessageList(): React.ReactElement {
   const parentRef = useRef<HTMLDivElement>(null);
   const [pinnedBottom, setPinnedBottom] = useState(true);
 
-  // 构建 tool_use_id -> tool_result 索引，供助手工具调用卡片就地关联结果
   const toolResultMap = useMemo(() => {
     const map = new Map<string, MessagePart>();
     for (const msg of messages) {
@@ -63,7 +73,7 @@ export function MessageList(): React.ReactElement {
   const virtualizer = useVirtualizer({
     count: visibleEntries.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 110,
+    estimateSize: () => 118,
     overscan: 8,
   });
 
@@ -96,6 +106,14 @@ export function MessageList(): React.ReactElement {
     }
   };
 
+  const fillSuggestion = (prompt: string) => {
+    updateDraft(activeProjectDir, activeProcess?.id ?? null, prompt, []);
+    const input = document.getElementById("kz-composer-input") as HTMLTextAreaElement | null;
+    if (input) {
+      input.focus();
+    }
+  };
+
   const hasLiveContent =
     running ||
     streamingText.length > 0 ||
@@ -107,6 +125,7 @@ export function MessageList(): React.ReactElement {
     <>
       {searchOpen && (
         <div className="chat-search-bar">
+          <IconSearch size={13} />
           <input
             autoFocus
             className="input"
@@ -114,7 +133,7 @@ export function MessageList(): React.ReactElement {
             value={searchQuery}
             onChange={(e) => chatStore.setState({ searchQuery: e.target.value })}
           />
-          <span style={{ color: "var(--dim)" }}>匹配 {visibleEntries.length} 条</span>
+          <span className="field-hint">匹配 {visibleEntries.length} 条</span>
           <button
             type="button"
             className="btn btn-ghost btn-sm"
@@ -137,7 +156,7 @@ export function MessageList(): React.ReactElement {
               >
                 {loadingOlder
                   ? "正在加载更早消息…"
-                  : `加载更早消息（当前显示 ${messages.length} / 共 ${total} 条）`}
+                  : `加载更早消息（当前 ${messages.length} / 共 ${total} 条）`}
               </button>
             </div>
           )}
@@ -147,11 +166,70 @@ export function MessageList(): React.ReactElement {
               <p>正在加载对话…</p>
             </div>
           ) : visibleEntries.length === 0 && !hasLiveContent ? (
-            <div className="empty-state">
+            <div className="chat-welcome">
+              <div className="chat-welcome-mark">
+                <img src="./assets/kanzei.svg" alt="kanzei" />
+              </div>
               <h3>开始一段新对话</h3>
-              <p>
-                直接描述你的目标、粘贴截图或拖入文件。代码变更和引用文件路径会自动汇总到右侧「文件上下文」抽屉。
+              <p className="chat-welcome-desc">
+                直接描述你的工程目标、粘贴截图或拖入文件。代码改动与引用路径将自动汇聚到右侧「文件上下文」抽屉。
               </p>
+
+              <div className="chat-welcome-cards">
+                <button
+                  type="button"
+                  className="chat-welcome-card"
+                  onClick={() => fillSuggestion("梳理当前项目的模块结构、核心入口与近期改动。")}
+                >
+                  <span className="chat-welcome-card-title">
+                    <IconSparkles size={13} />
+                    <span>梳理项目结构</span>
+                  </span>
+                  <span className="chat-welcome-card-desc">快速理解目录边界、关键入口与模块协作关系</span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-welcome-card"
+                  onClick={() =>
+                    generalMode
+                      ? fillSuggestion("帮我拆解这个任务的实现步骤与边界条件：")
+                      : toggleDrawer("files")
+                  }
+                >
+                  <span className="chat-welcome-card-title">
+                    <IconFileCode size={13} />
+                    <span>{generalMode ? "拆解复杂任务" : "查看文件与 Diff"}</span>
+                  </span>
+                  <span className="chat-welcome-card-desc">
+                    {generalMode
+                      ? "明确方案权衡、风险与可执行步骤"
+                      : "打开右侧伴生抽屉，就地对照工作树改动并轻编辑"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="chat-welcome-card"
+                  onClick={() => fillSuggestion("检查当前工作树变更是否存在边界漏洞或测试缺口。")}
+                >
+                  <span className="chat-welcome-card-title">
+                    <IconTerminal size={13} />
+                    <span>自查变更质量</span>
+                  </span>
+                  <span className="chat-welcome-card-desc">聚焦潜在缺陷、未覆盖分支与本地验证门禁</span>
+                </button>
+              </div>
+
+              <div className="chat-welcome-hints">
+                <span className="chat-welcome-hint-item">
+                  <kbd className="kbd">Ctrl+K</kbd> 聚焦输入
+                </span>
+                <span className="chat-welcome-hint-item">
+                  <kbd className="kbd">Ctrl+P</kbd> 命令面板
+                </span>
+                <span className="chat-welcome-hint-item">
+                  <kbd className="kbd">Ctrl+F</kbd> 搜索对话
+                </span>
+              </div>
             </div>
           ) : (
             <div
@@ -192,9 +270,20 @@ export function MessageList(): React.ReactElement {
           {hasLiveContent && (
             <div className="msg-row">
               <div className="msg-assistant-wrap">
+                <div className="msg-assistant-head">
+                  <img src="./assets/kanzei.svg" alt="" className="msg-assistant-avatar" />
+                  <span>kanzei</span>
+                  {running && <span className="status-dot running" />}
+                </div>
+
                 {streamingReasoning && (
                   <details className="reasoning-block" open>
-                    <summary className="reasoning-summary">正在思考…</summary>
+                    <summary className="reasoning-summary">
+                      <span className="reasoning-chevron">
+                        <IconChevronRight size={12} />
+                      </span>
+                      <span>正在思考…</span>
+                    </summary>
                     <div className="reasoning-body">{streamingReasoning}</div>
                   </details>
                 )}
@@ -237,7 +326,7 @@ export function MessageList(): React.ReactElement {
                       <span className="tool-name">{tool.name}</span>
                       <span className="tool-summary mono">{tool.summary}</span>
                       {typeof tool.durationMs === "number" && (
-                        <span style={{ color: "var(--dim)", fontSize: 11 }}>
+                        <span className="field-hint mono" style={{ fontSize: 11 }}>
                           {(tool.durationMs / 1000).toFixed(1)}s
                         </span>
                       )}
@@ -257,27 +346,13 @@ export function MessageList(): React.ReactElement {
             </div>
           )}
 
-          {lastError && (
-            <div
-              style={{
-                marginTop: 10,
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--err)",
-                background: "var(--badge-err)",
-                color: "var(--err)",
-                fontSize: 12,
-              }}
-            >
-              {lastError}
-            </div>
-          )}
+          {lastError && <div className="chat-error-banner">{lastError}</div>}
         </div>
 
         {!pinnedBottom && (
           <button
             type="button"
-            className="btn btn-primary btn-sm jump-bottom-btn"
+            className="btn btn-primary btn-sm btn-pill jump-bottom-btn"
             onClick={scrollToBottom}
           >
             回到最新 ↓
