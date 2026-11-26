@@ -3,18 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "kanzei 前端静态检查与冒烟脚本的 npm 壳(无构建步骤,仅 devDependencies)",
+  "description": "kanzei 桌面端前端工程（Vite + TypeScript + React 18）与验证脚本",
   "scripts": {
-    "lint": "eslint crates/kanzei-app/ui/*.js"
+    "dev": "vite --config crates/kanzei-app/web/vite.config.ts",
+    "build": "vite build --config crates/kanzei-app/web/vite.config.ts",
+    "typecheck": "tsc -p crates/kanzei-app/web/tsconfig.json --noEmit",
+    "test": "vitest run --config crates/kanzei-app/web/vitest.config.ts",
+    "lint": "eslint crates/kanzei-app/web/src/**/*.{ts,tsx}"
+  },
+  "dependencies": {
+    "@tanstack/react-virtual": "^3.13.6",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.4.1",
     "eslint": "^9.24.0",
     "espree": "^10.4.0",
     "globals": "^17.9.0",
+    "jsdom": "^26.1.0",
     "playwright-core": "^1.62.1",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.32.1",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4",
     "ws": "^8.22.1"
   }
 }

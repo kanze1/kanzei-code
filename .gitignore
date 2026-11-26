@@ -30,6 +30,7 @@
 .kanzei/**/*.tmp
 # 打包时由 package.ps1 从 target/release 复制进来的 kz sidecar,是构建产物。
 crates/kanzei-app/binaries/
+crates/kanzei-app/dist-web/
 /dist
 crates/kanzei-app/icons/android/
 crates/kanzei-app/icons/ios/

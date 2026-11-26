@@ -1,0 +1,449 @@
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: var(--fs-14);
+  line-height: 1.5;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+input,
+textarea,
+code,
+pre,
+.selectable {
+  user-select: text;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--primary-bg);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: var(--r-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-hover);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 通用按钮 ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--ctl-h);
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border);
+  background: var(--panel2);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-raised);
+  border-color: var(--border-strong);
+  color: var(--fg-strong);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.btn-accent:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--dim);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: transparent;
+  color: var(--fg-strong);
+}
+
+.btn-danger {
+  background: var(--danger-btn);
+  color: var(--on-danger);
+  border-color: var(--border);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-btn-hover);
+  color: var(--fg-strong);
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--r-sm);
+}
+
+.btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: var(--fs-12);
+}
+
+/* ---------- 输入框与表单 ---------- */
+.input,
+.select,
+.textarea {
+  width: 100%;
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: var(--fs-14);
+  padding: 6px 10px;
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.input,
+.select {
+  height: 32px;
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--focus-ring);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+/* ---------- 徽章 / 状态点 ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--badge-soft);
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.badge-ok {
+  background: var(--badge-ok);
+  color: var(--ok);
+}
+
+.badge-warn {
+  background: var(--badge-warn);
+  color: var(--warn);
+}
+
+.badge-err {
+  background: var(--badge-err);
+  color: var(--err);
+}
+
+.badge-accent {
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dot-idle);
+  flex: none;
+}
+
+.status-dot.running {
+  background: var(--dot-run);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  animation: kz-pulse 1.4s ease-in-out infinite;
+}
+
+.status-dot.ok {
+  background: var(--ok);
+}
+
+@keyframes kz-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------- 对话框与浮层 ---------- */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: var(--scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-panel {
+  width: min(560px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-3);
+  overflow: hidden;
+}
+
+.modal-panel.modal-lg {
+  width: min(860px, 100%);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.modal-title {
+  font-size: var(--fs-16);
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.modal-body {
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-label {
+  font-size: var(--fs-12);
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.field-hint {
+  font-size: var(--fs-12);
+  color: var(--dim);
+}
+
+/* ---------- 菜单 ---------- */
+.context-menu {
+  position: fixed;
+  z-index: calc(var(--z-modal) + 10);
+  min-width: 170px;
+  padding: 4px;
+  background: var(--surface-overlay);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: var(--fs-12);
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg-strong);
+}
+
+.context-menu-item.danger {
+  color: var(--err);
+}
+
+.context-menu-sep {
+  height: 1px;
+  background: var(--border-soft);
+  margin: 3px 4px;
+}
+
+/* ---------- Toast ---------- */
+.toast-region {
+  position: fixed;
+  right: 16px;
+  bottom: 40px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 380px;
+  pointer-events: none;
+}
+
+.toast-item {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-overlay);
+  border: 1px solid var(--border);
+  box-shadow: var(--elev-2);
+  font-size: var(--fs-12);
+  color: var(--fg-strong);
+}
+
+.toast-item.toast-error {
+  border-color: var(--err);
+}
+
+.toast-item.toast-ok {
+  border-color: var(--ok);
+}
+
+.toast-item.toast-warn {
+  border-color: var(--warn);
+}
+
+/* ---------- 空态与加载 ---------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 40px 24px;
+  color: var(--dim);
+}
+
+.empty-state h3 {
+  font-size: var(--fs-16);
+  color: var(--fg-strong);
+  font-weight: 600;
+}
+
+.empty-state p {
+  max-width: 440px;
+  font-size: var(--fs-12);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
