@@ -1,6 +1,8 @@
 //! Codex 订阅凭证:复用 Codex CLI 的登录态(~/.codex/auth.json)。
 //! 只读+按需刷新写回,与 Codex CLI 完全兼容——不自己发起 OAuth 授权流程。
 
+use std::time::Duration;
+
 use serde_json::{json, Value};
 
 use crate::error::LlmError;
@@ -12,6 +14,10 @@ pub mod models;
 const REFRESH_AFTER_DAYS: i64 = 25;
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
+
+// The shared HTTP transport allows 15s to connect, including proxy/TLS.
+// Account requests also need time to receive and consume the response body.
+const ACCOUNT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 过期判定(R-297 提纯):last_refresh 距 now 达 REFRESH_AFTER_DAYS 天即需刷新。
 /// now 由调用方注入——生产传真实时钟,测试传伪造时钟覆盖边界。
@@ -133,6 +139,7 @@ async fn refresh(
     let client = build_http_client(proxy)?;
     let response = client
         .post(token_url)
+        .timeout(ACCOUNT_REQUEST_TIMEOUT)
         .json(&json!({
             "client_id": CLIENT_ID,
             "grant_type": "refresh_token",
@@ -143,13 +150,14 @@ async fn refresh(
         .await
         .map_err(LlmError::Transport)?;
     let status = response.status();
-    let body: Value = response.json().await.unwrap_or(Value::Null);
     if !status.is_success() {
+        let body: Value = response.json().await.unwrap_or(Value::Null);
         return Err(LlmError::Config(format!(
             "Codex 令牌刷新失败(HTTP {status}): {}。重新 `codex login` 后再试。",
             body["error"].as_str().unwrap_or("unknown")
         )));
     }
+    let body: Value = response.json().await?;
     apply_refresh_response(auth, &body, chrono::Utc::now())?;
     // 原子替换 + 写前重读:刷新期间 Codex CLI 可能已抢先刷过并轮换了 refresh_token,
     // 此时采纳磁盘那份而不是覆盖回去(D-061)。commit 返回的才是最终生效的凭证。

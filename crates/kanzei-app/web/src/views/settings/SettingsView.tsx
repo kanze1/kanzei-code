@@ -349,8 +349,9 @@ export default function SettingsView(): React.ReactElement {
         },
       });
       setDirty(false);
+      setSaving(false);
       pushToast("全局设置已保存", "ok");
-      await Promise.all([
+      void Promise.all([
         loadModelsCatalog(effectiveProjectDir, true),
         refreshActiveSessionMeta(),
         invoke<Record<string, unknown>>("fast_model_status")
@@ -373,7 +374,7 @@ export default function SettingsView(): React.ReactElement {
         apiKeyEnv: p.apiKeyEnv?.trim() || null,
         apiKey: p.apiKey?.trim() || null,
         auth: p.auth || null,
-        proxy: proxy.trim() || null,
+        proxy: proxy.trim() || "env",
       });
       const text = typeof res === "string" ? res : res?.message ?? `${p.name} 连通正常`;
       setProviderTestResults((prev) => ({ ...prev, [idx]: text }));

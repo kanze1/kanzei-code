@@ -217,7 +217,7 @@ pub(crate) fn openai_reasoning_effort(
     match effort {
         ReasoningEffort::Off => None,
         ReasoningEffort::None if supports_openai_none_effort(&model) => Some("none"),
-        ReasoningEffort::None if model_family_is_gpt6_astra(&model) => Some("low"),
+        ReasoningEffort::None if model_family_min_low_effort(&model) => Some("low"),
         ReasoningEffort::None => None,
         ReasoningEffort::Low => Some("low"),
         ReasoningEffort::Medium => Some("medium"),
@@ -230,15 +230,12 @@ pub(crate) fn openai_reasoning_effort(
 }
 
 fn supports_openai_none_effort(model: &str) -> bool {
-    model.contains("gpt-5.6") || (model.contains("gpt-6") && !model_family_is_gpt6_astra(model))
+    model.contains("gpt-5.6") || (model.contains("gpt-6") && !model_family_min_low_effort(model))
 }
 
-fn model_family_is_gpt6_astra(model: &str) -> bool {
-    model
-        .split('/')
-        .next_back()
-        .unwrap_or(model)
-        .starts_with("gpt-6-astra")
+fn model_family_min_low_effort(model: &str) -> bool {
+    let base = model.split('/').next_back().unwrap_or(model);
+    base.starts_with("gpt-6-astra") || base.starts_with("gpt-6.1") || base.starts_with("gpt-6.2")
 }
 
 #[derive(Debug, Clone)]
@@ -336,5 +333,39 @@ mod tests {
             assert!(effort.budget_tokens().unwrap() >= 1024);
         }
         assert!(ReasoningEffort::Off.budget_tokens().is_none());
+    }
+
+    #[test]
+    fn openai_reasoning_effort_clamps_none_for_min_low_gpt6_families() {
+        for model in [
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6.2-sol",
+            "gpt-6.2-astra",
+            "openai/gpt-6.2-sol",
+        ] {
+            assert_eq!(
+                openai_reasoning_effort(model, ReasoningEffort::None),
+                Some("low"),
+                "{model} should clamp ReasoningEffort::None to low"
+            );
+            assert_eq!(
+                openai_reasoning_effort(model, ReasoningEffort::XHigh),
+                Some("xhigh")
+            );
+            assert_eq!(
+                openai_reasoning_effort(model, ReasoningEffort::Max),
+                Some("max")
+            );
+        }
+        assert_eq!(
+            openai_reasoning_effort("gpt-6-luna", ReasoningEffort::None),
+            Some("none")
+        );
+        assert_eq!(
+            openai_reasoning_effort("gpt-5.6-luna", ReasoningEffort::None),
+            Some("none")
+        );
     }
 }

@@ -96,7 +96,7 @@ pub(crate) async fn models_list(
 
 async fn discover_models(config: &KanzeiConfig) -> serde_json::Value {
     let mut items = Vec::new();
-    for role in ["primary", "fast"] {
+    for role in ["primary", "fast", "compact"] {
         if let Ok(resolved) = config.resolve_model(role) {
             let direct = format!("{}:{}", resolved.provider_name, resolved.model);
             items.push(json!({ "id": role, "label": format!("{role} → {direct}") }));
@@ -107,28 +107,14 @@ async fn discover_models(config: &KanzeiConfig) -> serde_json::Value {
             }
         }
     }
-    let proxy = match config.proxy.as_deref() {
-        Some("off") => kanzei_llm::ProxyConfig::Disabled,
-        Some("env") | None => kanzei_llm::ProxyConfig::Env,
-        Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
-    };
-    // Provider endpoints are independent. Probe them concurrently so several slow/offline
-    // providers do not add their six-second timeouts one after another.
+    let proxy = proxy_config(config.proxy.as_deref());
+    // Provider endpoints are independent. Probe them concurrently so their
+    // request deadlines do not add up.
     let probes = config.providers.iter().map(|(name, provider)| {
         let proxy = proxy.clone();
         async move {
-            let result = tokio::time::timeout(
-                std::time::Duration::from_secs(6),
-                probe_provider_models(name.clone(), provider.clone(), proxy),
-            )
-            .await;
-            (
-                name,
-                match result {
-                    Ok(result) => result.map_err(|error| error.to_string()),
-                    Err(_) => Err("model discovery timed out".to_string()),
-                },
-            )
+            let result = probe_provider_models(name.clone(), provider.clone(), proxy).await;
+            (name, result.map_err(|error| error.to_string()))
         }
     });
     let mut errors = Vec::new();
@@ -148,16 +134,47 @@ async fn discover_models(config: &KanzeiConfig) -> serde_json::Value {
     json!({ "models": items, "errors": errors })
 }
 
+pub(crate) fn proxy_config(value: Option<&str>) -> kanzei_llm::ProxyConfig {
+    match value.map(str::trim).filter(|v| !v.is_empty()) {
+        Some("off") => kanzei_llm::ProxyConfig::Disabled,
+        Some("env") | None => kanzei_llm::ProxyConfig::Env,
+        Some(custom) => kanzei_llm::ProxyConfig::Explicit(custom.to_string()),
+    }
+}
+
+pub(crate) fn format_codex_catalog_error(error: &kanzei_llm::LlmError) -> String {
+    match error {
+        kanzei_llm::LlmError::Transport(source) if source.is_timeout() => {
+            format!("Codex 网络请求超时，请检查当前网络和代理设置：{error}")
+        }
+        kanzei_llm::LlmError::Transport(source) if source.is_connect() => {
+            format!("无法连接 Codex 服务，请检查当前网络和代理设置：{error}")
+        }
+        kanzei_llm::LlmError::Http {
+            status: 401 | 403, ..
+        } => {
+            format!("Codex 订阅授权未通过，请检查 Codex CLI 登录：{error}")
+        }
+        _ => error.to_string(),
+    }
+}
+
+pub(crate) async fn codex_catalog(proxy: &kanzei_llm::ProxyConfig) -> Result<Vec<String>, String> {
+    kanzei_llm::auth::codex::models::list_models(proxy)
+        .await
+        .map_err(|error| format_codex_catalog_error(&error))
+}
+
 async fn probe_provider_models(
     name: String,
     provider: ProviderConfig,
     proxy: kanzei_llm::ProxyConfig,
 ) -> anyhow::Result<Vec<serde_json::Value>> {
     if provider.auth.as_deref() == Some("codex") {
-        // The subscription catalog uses slugs and account login headers, not
-        // the API-key /models format. Its host is fixed in kanzei-llm.
-        let models = kanzei_llm::auth::codex::models::list_models(&proxy).await?;
-        return Ok(model_items(&name, models));
+        return codex_catalog(&proxy)
+            .await
+            .map(|models| model_items(&name, models))
+            .map_err(anyhow::Error::msg);
     }
 
     if provider.base_url.contains("11434") {
@@ -249,9 +266,58 @@ mod tests {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
     #[tokio::test]
+    #[ignore = "requires Codex CLI login and the user's network; run explicitly"]
+    async fn live_codex_catalog_uses_account_request_deadline() {
+        let started = Instant::now();
+        let models = codex_catalog(&kanzei_llm::ProxyConfig::Env).await.unwrap();
+        assert!(!models.is_empty());
+        println!(
+            "{} Codex models after {:.2?}",
+            models.len(),
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    fn proxy_config_trims_and_normalizes_empty_values() {
+        assert_eq!(proxy_config(None), kanzei_llm::ProxyConfig::Env);
+        assert_eq!(proxy_config(Some("")), kanzei_llm::ProxyConfig::Env);
+        assert_eq!(proxy_config(Some("   ")), kanzei_llm::ProxyConfig::Env);
+        assert_eq!(proxy_config(Some(" env ")), kanzei_llm::ProxyConfig::Env);
+        assert_eq!(
+            proxy_config(Some(" off ")),
+            kanzei_llm::ProxyConfig::Disabled
+        );
+        assert_eq!(
+            proxy_config(Some(" http://127.0.0.1:7890 ")),
+            kanzei_llm::ProxyConfig::Explicit("http://127.0.0.1:7890".into())
+        );
+    }
+
+    #[test]
+    fn format_codex_catalog_error_classifies_auth_and_other_failures() {
+        let auth_err = format_codex_catalog_error(&kanzei_llm::LlmError::Http {
+            status: 401,
+            body: "unauthorized".into(),
+        });
+        assert!(auth_err.contains("Codex 订阅授权未通过"));
+        let forbidden_err = format_codex_catalog_error(&kanzei_llm::LlmError::Http {
+            status: 403,
+            body: "forbidden".into(),
+        });
+        assert!(forbidden_err.contains("Codex 订阅授权未通过"));
+        let proto_err = format_codex_catalog_error(&kanzei_llm::LlmError::Protocol(
+            "Codex model catalog contains no visible models".into(),
+        ));
+        assert!(proto_err.contains("no visible models"));
+    }
+
+    #[tokio::test]
     async fn discovery_preserves_configured_models_and_reports_partial_failure() {
-        let mut config: KanzeiConfig =
-            toml::from_str("proxy = 'off'\n[models]\nprimary = 'broken:saved-model'\n").unwrap();
+        let mut config: KanzeiConfig = toml::from_str(
+            "proxy = 'off'\n[models]\nprimary = 'broken:saved-model'\ncompact = 'broken:saved-compact'\n",
+        )
+        .unwrap();
         let mut servers = Vec::new();
         for (name, status, body) in [
             ("broken", "401 Unauthorized", "{}"),
@@ -287,6 +353,7 @@ mod tests {
             .filter_map(|item| item["id"].as_str())
             .collect();
         assert!(ids.contains(&"broken:saved-model"));
+        assert!(ids.contains(&"broken:saved-compact"));
         assert!(ids.contains(&"working:discovered-model"));
         assert_eq!(result["errors"].as_array().unwrap().len(), 1);
         assert_eq!(result["errors"][0]["provider"], "broken");

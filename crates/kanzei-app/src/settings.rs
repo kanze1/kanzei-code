@@ -963,8 +963,20 @@ pub async fn provider_test(
     auth: Option<String>,
     proxy: Option<String>,
 ) -> Result<String, String> {
+    let config = kanzei_harness::KanzeiConfig::load(Path::new(".")).unwrap_or_default();
+    let proxy_value = match proxy {
+        Some(value) => Some(value),
+        None => config.proxy,
+    };
+    let proxy = crate::commands::models::proxy_config(proxy_value.as_deref());
     if auth.as_deref() == Some("codex") {
-        return Ok("订阅登录态通道,无需 key 测试".into());
+        return match crate::commands::models::codex_catalog(&proxy).await {
+            Ok(models) => Ok(format!(
+                "✓ Codex 已通过订阅认证，读取到 {} 个模型",
+                models.len()
+            )),
+            Err(error) => Ok(format!("✗ {error}")),
+        };
     }
     let key = api_key
         .filter(|k| !k.trim().is_empty())
@@ -976,13 +988,6 @@ pub async fn provider_test(
     if protocol == "anthropic" && key.is_none() {
         return Ok("✗ 缺少 Anthropic API Key——请直填 key 或配置 API Key 环境变量".into());
     }
-    let config = kanzei_harness::KanzeiConfig::load(Path::new(".")).unwrap_or_default();
-    let proxy_value = proxy.or(config.proxy);
-    let proxy = match proxy_value.as_deref() {
-        Some("off") => kanzei_llm::ProxyConfig::Disabled,
-        Some("env") | None => kanzei_llm::ProxyConfig::Env,
-        Some(p) => kanzei_llm::ProxyConfig::Explicit(p.to_string()),
-    };
     let endpoint = reqwest::Url::parse(&base_url).map_err(|e| e.to_string())?;
     if key.is_some() && endpoint.scheme() != "https" {
         return Err("API credentials require HTTPS".into());
