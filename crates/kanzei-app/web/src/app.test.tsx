@@ -997,6 +997,136 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
   });
 
+  it("StatusBar 上下文构成弹窗兼容真实后端对象 source 且不崩溃", async () => {
+    const { transport, calls } = createMockTransport({
+      context_snapshot: () => ({
+        sessionId: "ses-demo",
+        requests: [{ sequence: 12, step: 1, model: "openai:gpt-5" }],
+        selected: {
+          sequence: 12,
+          manifest: {
+            model: "openai:gpt-5",
+            estimated_tokens: 18000,
+            blocks: [
+              {
+                position: 0,
+                kind: "system",
+                role: "system",
+                label: "agent/system",
+                chars: 4000,
+                bytes: 4000,
+                sha256: "aaa",
+                inspectable: true,
+                source: { system_index: 0, offset_bytes: 0, length_bytes: 4000 },
+              },
+              {
+                position: 1,
+                kind: "runtime_context",
+                role: "user",
+                label: "memory/recall",
+                chars: 2000,
+                bytes: 2000,
+                sha256: "bbb",
+                inspectable: true,
+                source: { origin: "engine", scope: "current_request" },
+              },
+              {
+                position: 2,
+                kind: "tool_result",
+                role: "user",
+                label: "read_file",
+                chars: 1500,
+                bytes: 1500,
+                sha256: "ddd",
+                inspectable: true,
+                source: { call_id: "c1", is_error: false, tool: "read_file", input: { path: "src/main.rs" } },
+              },
+              {
+                position: 3,
+                kind: "message",
+                role: "user",
+                label: "messages/1/1",
+                chars: 6000,
+                bytes: 6000,
+                sha256: "ccc",
+                inspectable: true,
+                source: { origin: "human" },
+              },
+              {
+                position: 4,
+                kind: "attachment",
+                role: "user",
+                label: "image/png",
+                chars: 0,
+                bytes: 2048,
+                sha256: "eee",
+                inspectable: false,
+                source: null,
+              },
+            ],
+          },
+        },
+        web: [],
+      }),
+      context_content: () => "完整系统提示词原文",
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+    sessionStore.setState({
+      projectDir: "C:/demo",
+      activeProcessId: "d|C:/demo",
+      processes: [
+        {
+          id: "d|C:/demo",
+          origin_project: "C:/demo",
+          project_dir: "C:/demo",
+          worktree_path: null,
+          branch: "main",
+          session_id: "ses-demo",
+          model: null,
+          profile: "dev-auto",
+          research_topic: null,
+          reasoning: null,
+          manual_models: [],
+          subagent_mode: "auto",
+          tracker_writes: false,
+          stage: "空闲",
+          running: false,
+          label: "主对话",
+          title: null,
+          title_custom: false,
+          kind: "main",
+          ordinal: null,
+          updated_at: 1000,
+        },
+      ],
+      effectiveModel: { contextLimit: 100000 },
+    });
+
+    chatStore.setState({ lastUsage: { input: 1931, output: 913 } });
+    render(<StatusBar />);
+    fireEvent.click(screen.getByRole("button", { name: /In 1,931 \/ Out 913/ }));
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "上下文构成占比条" })).toBeTruthy();
+      expect(screen.getByText("系统提示与规则")).toBeTruthy();
+      expect(screen.getByText("长期记忆与偏好")).toBeTruthy();
+      expect(screen.getByText("工具与结果")).toBeTruthy();
+      expect(screen.getByText("对话历史与消息")).toBeTruthy();
+      expect(screen.getByText("agent/system")).toBeTruthy();
+      expect(screen.getByText("read_file")).toBeTruthy();
+      expect(screen.getByText("image/png")).toBeTruthy();
+    });
+
+    // inspectable=false 的附件块不应渲染“查看原文”按钮（共 4 个可查看块）
+    const inspectBtns = screen.getAllByRole("button", { name: "查看原文" });
+    expect(inspectBtns.length).toBe(4);
+    fireEvent.click(inspectBtns[0]);
+    await waitFor(() => {
+      expect(calls.some((c) => c.command === "context_content" && c.args?.sha256 === "aaa")).toBe(true);
+      expect(uiStore.getState().viewer?.title).toBe("agent/system");
+    });
+  });
+
   it("StatusBar 上下文构成弹窗展示彩色分类占比拆解", async () => {
     const { transport } = createMockTransport({
       context_snapshot: () => ({

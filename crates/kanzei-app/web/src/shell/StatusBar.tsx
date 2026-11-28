@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatError, invoke } from "../ipc/client";
 import { useAppStore } from "../store/appStore";
 import {
@@ -8,14 +8,19 @@ import {
 } from "../store/chatStore";
 import { getActiveProcess, useSessionStore } from "../store/sessionStore";
 import { openViewer, pushToast, uiStore, useUiStore } from "../store/uiStore";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { IconClose, IconLayers, IconTerminal } from "../components/Icons";
 
 interface ContextBlockItem {
-  source?: string;
-  role?: string;
+  position?: number;
   kind?: string;
-  chars?: number;
+  role?: string;
+  label?: string;
   sha256?: string;
+  chars?: number;
+  bytes?: number;
+  inspectable?: boolean;
+  source?: unknown;
 }
 
 interface ContextSnapshotResponse {
@@ -39,21 +44,90 @@ interface BreakdownCategory {
   count: number;
 }
 
+export function formatContextBlockTitle(block: ContextBlockItem, index: number): string {
+  if (typeof block.label === "string" && block.label.trim()) {
+    return block.label.trim();
+  }
+  if (typeof block.source === "string" && block.source.trim()) {
+    return block.source.trim();
+  }
+  const fallback = [block.kind, block.role].filter(
+    (part): part is string => typeof part === "string" && part.trim().length > 0
+  );
+  return fallback.length > 0 ? fallback.join("/") : `块 #${index + 1}`;
+}
+
+export function formatContextBlockSource(source: unknown): string | null {
+  if (source === null || source === undefined) return null;
+  if (typeof source === "string") {
+    const trimmed = source.trim();
+    return trimmed || null;
+  }
+  if (typeof source === "number" || typeof source === "boolean") {
+    return String(source);
+  }
+  if (typeof source !== "object" || Array.isArray(source)) {
+    try {
+      return JSON.stringify(source);
+    } catch {
+      return null;
+    }
+  }
+  const obj = source as Record<string, unknown>;
+  const parts: string[] = [];
+  if (typeof obj.origin === "string" && obj.origin) parts.push(`origin=${obj.origin}`);
+  if (typeof obj.scope === "string" && obj.scope) parts.push(`scope=${obj.scope}`);
+  if (typeof obj.tool === "string" && obj.tool) parts.push(`tool=${obj.tool}`);
+  if (typeof obj.is_error === "boolean" && obj.is_error) parts.push("error");
+  if (typeof obj.system_index === "number") {
+    const seg = [`system[${obj.system_index}]`];
+    if (typeof obj.offset_bytes === "number" && typeof obj.length_bytes === "number") {
+      seg.push(`${obj.offset_bytes}+${obj.length_bytes}B`);
+    }
+    parts.push(seg.join(" "));
+  }
+  if (parts.length > 0) return parts.join(" · ");
+  try {
+    const raw = JSON.stringify(obj);
+    return raw && raw !== "{}" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 function classifyContextBlock(block: ContextBlockItem): { key: string; label: string; color: string } {
-  const src = `${block.source ?? ""} ${block.kind ?? ""} ${block.role ?? ""}`.toLowerCase();
+  const sourceHint = formatContextBlockSource(block.source) ?? "";
+  const src = `${block.label ?? ""} ${block.kind ?? ""} ${block.role ?? ""} ${sourceHint}`.toLowerCase();
   if (src.includes("memory") || src.includes("recall") || src.includes("preference")) {
     return { key: "memory", label: "长期记忆与偏好", color: "#a855f7" };
   }
   if (src.includes("skill")) {
     return { key: "skill", label: "技能规范", color: "#ec4899" };
   }
-  if (src.includes("tool") || src.includes("schema")) {
+  if (
+    block.kind === "tool_call" ||
+    block.kind === "tool_result" ||
+    block.kind === "tool_schema" ||
+    src.includes("tool") ||
+    src.includes("schema")
+  ) {
     return { key: "tools", label: "工具与结果", color: "#f59e0b" };
   }
-  if (src.includes("system") || src.includes("agent") || src.includes("instruction")) {
+  if (
+    block.kind === "system" ||
+    block.kind === "runtime_context" ||
+    src.includes("system") ||
+    src.includes("agent") ||
+    src.includes("instruction")
+  ) {
     return { key: "system", label: "系统提示与规则", color: "#3b82f6" };
   }
-  if (src.includes("web") || src.includes("attach") || src.includes("image")) {
+  if (
+    block.kind === "attachment" ||
+    src.includes("web") ||
+    src.includes("attach") ||
+    src.includes("image")
+  ) {
     return { key: "web", label: "网页与附件", color: "#14b8a6" };
   }
   return { key: "history", label: "对话历史与消息", color: "#22c55e" };
@@ -77,6 +151,8 @@ export function StatusBar(): React.ReactElement {
   const running = Boolean(activeProcess?.running);
   const [ctxSnapshot, setCtxSnapshot] = useState<ContextSnapshotResponse | null>(null);
   const [ctxOpen, setCtxOpen] = useState(false);
+  const lastHandledNonceRef = useRef(contextInspectorNonce);
+  const activeProcessId = activeProcess?.id ?? null;
 
   const openContextInspector = useCallback(
     async (sequence?: number | null) => {
@@ -85,12 +161,15 @@ export function StatusBar(): React.ReactElement {
         pushToast("当前没有可检查上下文的会话", "info");
         return;
       }
+      const targetProjectDir = projectDir;
+      const targetProcessId = proc.id;
       try {
         const snap = await invoke<ContextSnapshotResponse>("context_snapshot", {
-          projectDir,
-          processId: proc.id,
+          projectDir: targetProjectDir,
+          processId: targetProcessId,
           sequence: sequence ?? null,
         });
+        if (getActiveProcess()?.id !== targetProcessId) return;
         setCtxSnapshot(snap);
         setCtxOpen(true);
       } catch (err) {
@@ -101,7 +180,13 @@ export function StatusBar(): React.ReactElement {
   );
 
   useEffect(() => {
-    if (contextInspectorNonce > 0) {
+    setCtxOpen(false);
+    setCtxSnapshot(null);
+  }, [projectDir, activeProcessId]);
+
+  useEffect(() => {
+    if (contextInspectorNonce > lastHandledNonceRef.current) {
+      lastHandledNonceRef.current = contextInspectorNonce;
       void openContextInspector();
     }
   }, [contextInspectorNonce, openContextInspector]);
@@ -128,9 +213,9 @@ export function StatusBar(): React.ReactElement {
     [breakdown]
   );
 
-  const inspectBlock = async (sequence: number, block: ContextBlockItem) => {
+  const inspectBlock = async (sequence: number, block: ContextBlockItem, index: number) => {
     const proc = activeProcess ?? getActiveProcess();
-    if (!projectDir || !proc || !block.sha256) return;
+    if (!projectDir || !proc || !block.sha256 || block.inspectable === false) return;
     try {
       const text = await invoke<string>("context_content", {
         projectDir,
@@ -139,7 +224,7 @@ export function StatusBar(): React.ReactElement {
         sha256: block.sha256,
       });
       openViewer({
-        title: block.source ?? "上下文块",
+        title: formatContextBlockTitle(block, index),
         subtitle: `请求 #${sequence} · ${block.chars ?? text.length} 字符`,
         content: text,
         kind: "text",
@@ -250,6 +335,12 @@ export function StatusBar(): React.ReactElement {
               </button>
             </div>
             <div className="modal-body">
+              <ErrorBoundary
+                scope="上下文构成弹窗"
+                resetKeys={[ctxOpen, ctxSnapshot?.selected?.sequence, activeProcessId]}
+                onReset={() => setCtxOpen(false)}
+                resetLabel="关闭弹窗"
+              >
               {!ctxSnapshot?.selected?.manifest ? (
                 <div className="empty-state">
                   <p>当前会话还没有记录到模型请求快照。</p>
@@ -347,19 +438,26 @@ export function StatusBar(): React.ReactElement {
                   <div className="ctx-block-list">
                     {(ctxSnapshot.selected.manifest.blocks ?? []).map((b, i) => {
                       const cat = classifyContextBlock(b);
+                      const title = formatContextBlockTitle(b, i);
+                      const sourceMeta = formatContextBlockSource(b.source);
                       return (
-                        <div key={i} className="ctx-block-row">
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <div key={`${b.position ?? i}-${b.sha256 ?? i}`} className="ctx-block-row">
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                             <span className="ctx-legend-dot" style={{ background: cat.color }} />
-                            <span className="mono">{b.source ?? `块 #${i + 1}`}</span>
+                            <span className="mono">{title}</span>
+                            {sourceMeta && sourceMeta !== title && (
+                              <span className="field-hint mono" title={sourceMeta}>
+                                ({sourceMeta})
+                              </span>
+                            )}
                           </span>
                           <div className="ctx-block-right">
                             <span className="field-hint">{(b.chars ?? 0).toLocaleString()} 字符</span>
-                            {b.sha256 && (
+                            {b.sha256 && b.inspectable !== false && (
                               <button
                                 type="button"
                                 className="btn btn-sm"
-                                onClick={() => void inspectBlock(ctxSnapshot.selected!.sequence, b)}
+                                onClick={() => void inspectBlock(ctxSnapshot.selected!.sequence, b, i)}
                               >
                                 查看原文
                               </button>
@@ -371,6 +469,7 @@ export function StatusBar(): React.ReactElement {
                   </div>
                 </>
               )}
+              </ErrorBoundary>
             </div>
           </div>
         </div>
