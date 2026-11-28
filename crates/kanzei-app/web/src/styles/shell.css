@@ -925,8 +925,8 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  border-radius: var(--r-md);
+  background: var(--panel);
   margin-bottom: 12px;
 }
 
@@ -935,7 +935,7 @@
   height: 10px;
   border-radius: 999px;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--surface-overlay);
   gap: 1px;
 }
 
@@ -978,8 +978,8 @@
 .inbox-empty {
   padding: 14px;
   border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
+  border-radius: var(--r-md);
+  color: var(--dim);
   font-size: 12.5px;
   text-align: center;
 }
@@ -992,8 +992,8 @@
 
 .inbox-card {
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  border-radius: var(--r-md);
+  background: var(--panel);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;

@@ -231,12 +231,12 @@ export default function WorkspaceView(): React.ReactElement {
           </div>
         </div>
         <div className="page-header-actions">
-          <div className="segmented-tabs" role="tablist" aria-label="工作台视图模式">
+          <div className="segmented" role="tablist" aria-label="工作台视图模式">
             <button
               type="button"
               role="tab"
               aria-selected={viewMode === "projects"}
-              className={`segmented-tab${viewMode === "projects" ? " active" : ""}`}
+              className={`segmented-btn${viewMode === "projects" ? " active" : ""}`}
               onClick={() => setViewMode("projects")}
             >
               项目视图 ({projects.projects.length})
@@ -245,7 +245,7 @@ export default function WorkspaceView(): React.ReactElement {
               type="button"
               role="tab"
               aria-selected={viewMode === "quests"}
-              className={`segmented-tab${viewMode === "quests" ? " active" : ""}`}
+              className={`segmented-btn${viewMode === "quests" ? " active" : ""}`}
               onClick={() => setViewMode("quests")}
             >
               My Quests 任务看板 ({quests.length})

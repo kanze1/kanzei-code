@@ -8,18 +8,20 @@
 
 :root {
   color-scheme: dark;
+  --bevel-top: inset 0 1px 0 rgba(255,255,255,.06);
+  --reading-width: 740px;
 
   /* 表面层级：由深到浅建立清晰立体感 */
-  --bg-deep: #101012;
-  --bg: #151518;
+  --bg-deep: #111114;
+  --bg: #151519;
   --chrome-bg: #131316;
-  --sidebar-bg: #19191d;
-  --chat-bg: #151518;
-  --panel: #1e1e23;
+  --sidebar-bg: #18181d;
+  --chat-bg: #151519;
+  --panel: #1d1d23;
   --panel2: #25252b;
   --input: #1b1b20;
   --surface-raised: #2c2c34;
-  --surface-overlay: #232329;
+  --surface-overlay: #23232b;
   --surface-hover: rgba(255, 255, 255, 0.055);
   --surface-selected: rgba(255, 255, 255, 0.095);
   --surface-active-tint: rgba(255, 135, 0, 0.11);
@@ -109,8 +111,8 @@
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
+  --r-lg: 11px;
+  --r-xl: 14px;
   --r-composer: 14px;
   --r-pill: 999px;
 
@@ -124,7 +126,7 @@
   --fs-24: 22px;
   --hairline: 1px;
   --window-chrome-height: 44px;
-  --ctl-h: 28px;
+  --ctl-h: 30px;
   --ctl-h-lg: 34px;
 
   /* 层级 */
@@ -179,6 +181,7 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  --bevel-top: inset 0 1px 0 rgba(255,255,255,.85);
 
   /* 亮色表面层级：微灰画布 + 纯白浮面，避免白成一片 */
   --bg-deep: #eceef2;

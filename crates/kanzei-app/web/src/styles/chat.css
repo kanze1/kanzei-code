@@ -114,7 +114,7 @@
 }
 
 .messages-inner {
-  max-width: 820px;
+  max-width: var(--reading-width);
   width: 100%;
   margin: 0 auto;
   position: relative;
@@ -337,8 +337,9 @@
 
 /* ---------- Markdown 排版 ---------- */
 .md-body {
-  font-size: var(--fs-14);
-  line-height: 1.7;
+  font-size: 14.5px;
+  line-height: 1.75;
+  letter-spacing: .005em;
   color: var(--fg);
   word-break: break-word;
 }
@@ -350,7 +351,7 @@
 .md-body blockquote,
 .md-body .md-table-wrap,
 .md-body hr {
-  margin-top: 10px;
+  margin-top: 12px;
 }
 
 .md-body h1,
@@ -377,6 +378,7 @@
 }
 
 .md-body h2 {
+  margin-top: 22px;
   font-size: 16px;
 }
 
@@ -390,7 +392,7 @@
 }
 
 .md-body li + li {
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .md-body hr {
@@ -671,7 +673,7 @@
 
 /* ---------- Ask 权限与提问浮卡 ---------- */
 .ask-overlay-bar {
-  max-width: 820px;
+  max-width: var(--reading-width);
   width: calc(100% - 32px);
   margin: 0 auto 8px;
   padding: 12px 14px;
@@ -720,7 +722,7 @@
 }
 
 .composer-card {
-  max-width: 820px;
+  max-width: var(--reading-width);
   width: 100%;
   margin: 0 auto;
   background: var(--panel);
@@ -1583,9 +1585,9 @@
 .btw-overlay {
   margin: 0 16px 8px;
   border: 1px solid rgba(168, 85, 247, 0.45);
-  border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  box-shadow: var(--shadow-md);
+  border-radius: var(--r-lg);
+  background: var(--surface-overlay);
+  box-shadow: var(--elev-2);
   display: flex;
   flex-direction: column;
   max-height: 320px;
@@ -1599,7 +1601,7 @@
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-subtle);
+  background: var(--panel);
   font-size: 12.5px;
 }
 
@@ -1621,13 +1623,13 @@
 
 .btw-turn-user {
   padding: 6px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
+  border-radius: var(--r-sm);
+  background: var(--panel);
 }
 
 .btw-turn-label {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--dim);
   font-weight: 600;
 }
 
@@ -1642,15 +1644,15 @@
   gap: 6px;
   padding: 8px 10px;
   border-top: 1px solid var(--border);
-  background: var(--bg-subtle);
+  background: var(--panel);
 }
 
 /* !命令 本地 Shell 直通卡片 */
 .quick-shell-card {
   margin: 6px 10px 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-subtle);
+  border-radius: var(--r-md);
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -1713,8 +1715,8 @@
 
 .trace-row {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-subtle);
+  border-radius: var(--r-sm);
+  background: var(--panel);
 }
 
 .trace-row-summary {
@@ -1750,10 +1752,10 @@
 /* Action Report 结构化交付验收单 */
 .action-report-card {
   margin: 14px auto 4px;
-  max-width: 820px;
+  max-width: var(--reading-width);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-subtle);
+  border-radius: var(--r-lg);
+  background: var(--panel);
   overflow: hidden;
 }
 
@@ -1764,7 +1766,7 @@
   gap: 10px;
   flex-wrap: wrap;
   padding: 8px 12px;
-  background: var(--bg-elevated);
+  background: var(--surface-overlay);
   border-bottom: 1px solid var(--border);
 }
 
@@ -1775,7 +1777,7 @@
   flex-wrap: wrap;
   background: transparent;
   border: none;
-  color: var(--text);
+  color: var(--fg-strong);
   font-size: 12.5px;
   cursor: pointer;
   padding: 0;
@@ -1810,17 +1812,17 @@
   align-items: center;
   gap: 5px;
   padding: 3px 8px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-sm);
   border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
+  background: var(--surface-overlay);
+  color: var(--fg);
   font-size: 11.5px;
   cursor: pointer;
 }
 
 .action-report-file-chip:hover {
   border-color: var(--accent);
-  color: var(--text);
+  color: var(--fg-strong);
 }
 
 .action-report-gates {

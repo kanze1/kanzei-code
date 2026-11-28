@@ -397,24 +397,24 @@ export default function RepoWikiView(): React.ReactElement {
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <div className="segmented-tabs">
+                  <div className="segmented">
                     <button
                       type="button"
-                      className={`segmented-tab${rightTab === "doc" ? " active" : ""}`}
+                      className={`segmented-btn${rightTab === "doc" ? " active" : ""}`}
                       onClick={() => setRightTab("doc")}
                     >
                       文档
                     </button>
                     <button
                       type="button"
-                      className={`segmented-tab${rightTab === "edit" ? " active" : ""}`}
+                      className={`segmented-btn${rightTab === "edit" ? " active" : ""}`}
                       onClick={() => setRightTab("edit")}
                     >
                       编辑
                     </button>
                     <button
                       type="button"
-                      className={`segmented-tab${rightTab === "structure" ? " active" : ""}`}
+                      className={`segmented-btn${rightTab === "structure" ? " active" : ""}`}
                       onClick={() => setRightTab("structure")}
                     >
                       依赖与文件 ({detail.files.length})
