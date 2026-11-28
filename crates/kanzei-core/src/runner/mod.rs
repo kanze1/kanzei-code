@@ -56,10 +56,13 @@ pub(crate) use compaction::*;
 use event::{drain_task_events, preview};
 
 /// 提问与权限提示分别处理。交互模式接收真实用户答复；自主模式可记录重要决定
-/// 和必要事实缺口。`AutoAllow` 仅改变权限提示策略，自主决定不能作为用户授权。
+/// 和必要事实缺口。`InteractiveAutoAllow` / `AutoAllow` 仅自动放行常规非敏感工具权限，
+/// 自主决定不能作为用户授权，敏感凭证资源仍不会自动放行。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AskPolicy {
     Interactive,
+    /// 交互式自动放行：常规非敏感工具权限自动放行，敏感资源仍弹窗等待用户确认。
+    InteractiveAutoAllow,
     /// Auto 的手动输入：记录自主决定，工具权限仍允许交互提示。
     DeferredQuestions,
     NonInteractive,
@@ -68,7 +71,14 @@ pub enum AskPolicy {
 
 impl AskPolicy {
     pub(crate) fn allows_permission_prompt(self) -> bool {
-        matches!(self, Self::Interactive | Self::DeferredQuestions)
+        matches!(
+            self,
+            Self::Interactive | Self::InteractiveAutoAllow | Self::DeferredQuestions
+        )
+    }
+
+    pub(crate) fn auto_allows_nonsensitive(self) -> bool {
+        matches!(self, Self::InteractiveAutoAllow | Self::AutoAllow)
     }
 }
 
@@ -295,9 +305,15 @@ mod tests {
     #[test]
     fn 自举与并行线禁止用户询问() {
         assert!(AskPolicy::Interactive.allows_permission_prompt());
+        assert!(AskPolicy::InteractiveAutoAllow.allows_permission_prompt());
         assert!(AskPolicy::DeferredQuestions.allows_permission_prompt());
         assert!(!AskPolicy::NonInteractive.allows_permission_prompt());
         assert!(!AskPolicy::AutoAllow.allows_permission_prompt());
+        assert!(!AskPolicy::Interactive.auto_allows_nonsensitive());
+        assert!(AskPolicy::InteractiveAutoAllow.auto_allows_nonsensitive());
+        assert!(!AskPolicy::DeferredQuestions.auto_allows_nonsensitive());
+        assert!(!AskPolicy::NonInteractive.auto_allows_nonsensitive());
+        assert!(AskPolicy::AutoAllow.auto_allows_nonsensitive());
     }
 
     #[test]

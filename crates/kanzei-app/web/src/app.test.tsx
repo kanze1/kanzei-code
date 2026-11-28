@@ -1,24 +1,57 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { invoke, setIpcTransport, type IpcTransport } from "./ipc/client";
 import { installEventBridge } from "./ipc/events";
 import { App } from "./App";
 import { ProjectModelsDialogHost, RewindDialogHost } from "./components/Dialogs";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import SettingsView from "./views/settings/SettingsView";
 import { AskOverlay } from "./views/chat/AskOverlay";
-import { ActionReportCard } from "./views/chat/ActionReportCard";
+import {
+  ActionReportCard,
+  buildRoundReportSummary,
+  evaluateGateVerdict,
+} from "./views/chat/ActionReportCard";
 import { BtwOverlay } from "./views/chat/BtwOverlay";
 import { Composer } from "./views/chat/Composer";
+import {
+  applyReverseHunk,
+  ContextDrawer,
+  parseUnifiedDiffHunks,
+} from "./views/chat/ContextDrawer";
 import { MessageItem } from "./views/chat/MessageItem";
+import MemoryView from "./views/memory/MemoryView";
+import SkillsView from "./views/skills/SkillsView";
 import RepoWikiView from "./views/wiki/RepoWikiView";
 import WorkspaceView from "./views/workspace/WorkspaceView";
 import { InboxDrawer } from "./shell/InboxDrawer";
 import { StatusBar } from "./shell/StatusBar";
-import { appStore } from "./store/appStore";
-import { chatStore, loadOlderMessages } from "./store/chatStore";
-import { drawerStore } from "./store/drawerStore";
-import { sessionStore } from "./store/sessionStore";
-import { openProjectModelsDialog, uiStore } from "./store/uiStore";
+import { activateProcess, appStore, createConversation } from "./store/appStore";
+import {
+  chatStore,
+  clearPendingDraftTimersForTest,
+  draftKeyFor,
+  flushPendingDraftSaves,
+  loadOlderMessages,
+  persistDraftNow,
+  updateDraft,
+} from "./store/chatStore";
+import {
+  drawerStore,
+  openFileInDrawer,
+  saveDrawerFile,
+  setDrawerContext,
+  setDrawerEditContent,
+} from "./store/drawerStore";
+import { loadProcessesForProject, sessionStore } from "./store/sessionStore";
+import { WindowChrome } from "./shell/WindowChrome";
+import type { ProcessInfo } from "./ipc/types";
+import lifecycleActive from "./ipc/lifecycle-active.fixture.json";
+import {
+  openProjectModelsDialog,
+  triggerContextInspector,
+  uiStore,
+} from "./store/uiStore";
 import { MarkdownView } from "./components/MarkdownView";
 
 function createMockTransport(overrides?: Partial<Record<string, (args?: Record<string, unknown>) => unknown>>) {
@@ -155,8 +188,10 @@ function createMockTransport(overrides?: Partial<Record<string, (args?: Record<s
 }
 
 afterEach(() => {
+  clearPendingDraftTimersForTest();
   cleanup();
   vi.unstubAllGlobals();
+  delete window.__TAURI__;
   setIpcTransport(null);
   appStore.setState({
     bootstrapped: false,
@@ -177,21 +212,50 @@ afterEach(() => {
   });
   chatStore.setState({
     sessionId: null,
+    projectDir: null,
+    processId: null,
     messages: [],
+    total: 0,
+    startIndex: 0,
+    hasMore: false,
     streamingText: "",
     streamingReasoning: "",
     liveTools: [],
     liveSubagents: [],
+    lastUsage: null,
+    lastActionReport: null,
     autoAllow: false,
+    drafts: {},
   });
-  drawerStore.setState({ open: false, activeFile: null, editDirty: false });
+  drawerStore.setState({
+    open: false,
+    projectDir: null,
+    worktreePath: null,
+    activeFile: null,
+    preview: null,
+    diff: null,
+    editContent: "",
+    editHash: null,
+    editDirty: false,
+    saving: false,
+    conflictMessage: null,
+    conflictHash: null,
+    conflictExists: true,
+    error: null,
+  });
   uiStore.setState({
     view: "chat",
     confirmDialog: null,
     closingWindow: false,
+    windowError: "",
+    contextInspectorNonce: 0,
+    globalAsks: [],
+    globalAsksError: null,
+    recentCompleted: [],
     projectModelsOpen: false,
     projectModelsTargetDir: null,
     rewindDialog: null,
+    viewer: null,
     toasts: [],
   });
 });
@@ -266,6 +330,83 @@ describe("Kanzei 新前端架构核心契约", () => {
     }
   });
 
+  it("Markdown 百分号编码绝对路径、file URI 与 worktree 路径正确转为相对路径，外部路径仍交后端拒绝且不污染变更列表", async () => {
+    const { transport, calls } = createMockTransport({
+      file_preview: (args) => {
+        const p = String(args?.path ?? "");
+        if (/^[a-z]:\//i.test(p)) {
+          throw new Error(`路径不合法(不允许盘符或冒号): ${p}`);
+        }
+        return {
+          path: p,
+          content: "line1\nline2\n",
+          binary: false,
+          truncated: false,
+          size: 12,
+          lines: 2,
+          hash: "hash-ok",
+        };
+      },
+    });
+    setIpcTransport(transport);
+    drawerStore.setState({
+      projectDir: "C:\\Users\\kanzei\\Documents\\kanzei code",
+      worktreePath: null,
+      touchedFiles: [],
+    });
+
+    render(
+      <MarkdownView
+        text={
+          "[会话库路径](C:/Users/kanzei/Documents/kanzei%20code/crates/kanzei-app/src/processes/naming.rs:18:4) " +
+          "[文件URI](file:///C:/Users/kanzei/Documents/kanzei%20code/docs/%E4%BD%BF%E7%94%A8%E6%89%8B%E5%86%8C.md#L9-L12) " +
+          "[越界文件](file:///C:/Windows/win.ini)"
+        }
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "会话库路径" }));
+    await waitFor(() =>
+      expect(drawerStore.getState().activeFile).toBe("crates/kanzei-app/src/processes/naming.rs")
+    );
+    expect(drawerStore.getState().highlightLine).toBe(18);
+    expect(drawerStore.getState().error).toBeNull();
+    expect(
+      [...calls].reverse().find((call) => call.command === "file_preview")?.args?.path
+    ).toBe("crates/kanzei-app/src/processes/naming.rs");
+
+    fireEvent.click(screen.getByRole("button", { name: "文件URI" }));
+    await waitFor(() =>
+      expect(drawerStore.getState().activeFile).toBe("docs/使用手册.md")
+    );
+    expect(drawerStore.getState().highlightLine).toBe(9);
+    expect(drawerStore.getState().error).toBeNull();
+
+    // 手动输入/直接传入带引号与行号的绝对路径也能正确剥离并定位行号
+    await openFileInDrawer(
+      '"C:\\Users\\kanzei\\Documents\\kanzei code\\crates\\kanzei-app\\src\\processes\\naming.rs:27"'
+    );
+    expect(drawerStore.getState().activeFile).toBe("crates/kanzei-app/src/processes/naming.rs");
+    expect(drawerStore.getState().highlightLine).toBe(27);
+    expect(drawerStore.getState().error).toBeNull();
+
+    // 处于 worktree 内时优先匹配 worktree 根前缀
+    drawerStore.setState({
+      worktreePath: "C:\\Users\\kanzei\\Documents\\kanzei code\\.kanzei\\worktrees\\feat-a",
+    });
+    await openFileInDrawer(
+      "C:/Users/kanzei/Documents/kanzei%20code/.kanzei/worktrees/feat-a/src/lib.rs"
+    );
+    expect(drawerStore.getState().activeFile).toBe("src/lib.rs");
+    expect(drawerStore.getState().error).toBeNull();
+
+    // 项目外路径不得静默转相对路径，应保留绝对路径交后端拒绝且不污染 touchedFiles
+    fireEvent.click(screen.getByRole("button", { name: "越界文件" }));
+    await waitFor(() => expect(drawerStore.getState().error).toContain("不允许盘符或冒号"));
+    expect(drawerStore.getState().touchedFiles).not.toContain("C:/Windows/win.ini");
+    expect(drawerStore.getState().touchedFiles).toContain("crates/kanzei-app/src/processes/naming.rs");
+  });
+
   it("流式事件按 sessionId 严格隔离，非当前会话不会污染主界面", async () => {
     const { transport, emit } = createMockTransport();
     setIpcTransport(transport);
@@ -277,6 +418,101 @@ describe("Kanzei 新前端架构核心契约", () => {
 
     expect(chatStore.getState().streamingText).toBe("正确增量");
     dispose();
+  });
+
+  it("生命周期使用 Rust 的 runtime 字段，旧快照和兼容通知不能覆盖运行状态", async () => {
+    const { transport, emit } = createMockTransport();
+    setIpcTransport(transport);
+    const dispose = await installEventBridge();
+    try {
+      await loadProcessesForProject("C:/demo");
+      const { sessionId, runtime } = lifecycleActive;
+      emit("kz:lifecycle", lifecycleActive);
+      expect(sessionStore.getState().processes[0]).toMatchObject({ running: true, runtime });
+
+      emit("kz:lifecycle", { sessionId, runtime: { ...runtime, revision: 1, phase: "idle" } });
+      emit("kz:lifecycle", { sessionId, runtime: { ...runtime, actor_epoch: "old", revision: 99, phase: "idle" } });
+      emit("kz:idle", { sessionId });
+      expect(sessionStore.getState().processes[0]?.running).toBe(true);
+
+      emit("kz:lifecycle", { sessionId, runtime: { ...runtime, revision: 3, phase: "idle" } });
+      emit("kz:turn", { sessionId });
+      expect(sessionStore.getState().processes[0]?.running).toBe(false);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("关闭最后一个对话后，侧栏不呈现已关闭会话也不查询它们", async () => {
+    let closed = false;
+    const { transport: defaults } = createMockTransport();
+    const { transport, calls } = createMockTransport({
+      process_list: async () => closed ? [] : (await defaults.invoke<ProcessInfo[]>("process_list"))
+        .map((p) => ({ ...p, id: "p42|C:/demo", ordinal: 42, label: "新对话" })),
+      process_close: () => {
+        closed = true;
+        return "已关闭";
+      },
+    });
+    setIpcTransport(transport);
+    const { container } = render(<App />);
+    const sidebar = within(container.querySelector(".sidebar") as HTMLElement);
+    const row = await sidebar.findByRole("button", { name: "新对话" });
+    expect(sidebar.queryByText(/已关闭对话/)).toBeNull();
+    fireEvent.change(sidebar.getByRole("textbox", { name: "筛选项目或当前对话" }), { target: { value: "新对话" } });
+    expect(sidebar.getByRole("button", { name: "新对话" })).toBe(row);
+    fireEvent.contextMenu(row);
+    fireEvent.click(sidebar.getByRole("button", { name: "关闭对话" }));
+    await waitFor(() => expect(sidebar.queryByRole("button", { name: "新对话" })).toBeNull());
+    expect(calls.some((c) => c.command === "process_closed_list")).toBe(false);
+    expect(sidebar.queryByText(/已关闭对话/)).toBeNull();
+  });
+
+  it("导出读取完整对话段，不依赖滚动加载的消息", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    const { transport, calls } = createMockTransport({
+      conversation_display_get: () => [
+        { role: "user", parts: [{ type: "text", text: "未在界面加载的第一条" }] },
+        { role: "assistant", parts: [{ type: "text", text: "末尾回复" }] },
+      ],
+      save_conversation_export: () => "C:/demo/export.md",
+    });
+    setIpcTransport(transport);
+    render(<App />);
+    await waitFor(() => expect(chatStore.getState().hasMore).toBe(true));
+    expect(chatStore.getState().messages.some((m) => m.parts?.some((p) => p.text === "未在界面加载的第一条"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "更多对话操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出" }));
+    fireEvent.click(await screen.findByRole("button", { name: "直接导出原文" }));
+    await waitFor(() => {
+      expect(calls.find((c) => c.command === "save_conversation_export")?.args?.content)
+        .toMatch(/未在界面加载的第一条[\s\S]*末尾回复/);
+    });
+  });
+
+  it("后台停机失败时保留窗口，并允许再次退出", async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    window.__TAURI__ = { window: { getCurrentWindow: () => ({
+      minimize: vi.fn(), toggleMaximize: vi.fn(),
+      isMaximized: vi.fn().mockResolvedValue(false), startDragging: vi.fn(),
+      close, onResized: vi.fn().mockResolvedValue(() => {}),
+    }) } };
+    let attempts = 0;
+    const { transport } = createMockTransport({
+      app_shutdown: () => {
+        if (++attempts === 1) throw new Error("后台未静止");
+        return { state: "quiescent", stopped: true };
+      },
+    });
+    setIpcTransport(transport);
+    render(<WindowChrome />);
+    const button = screen.getByRole<HTMLButtonElement>("button", { name: "关闭" });
+    fireEvent.click(button);
+    await screen.findByText("后台未静止");
+    expect(close).not.toHaveBeenCalled();
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   });
 
   it("运行中点击关闭窗口触发保护弹窗，确认后执行单进程 app_shutdown", async () => {
@@ -526,7 +762,7 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
   });
 
-  it("对话控制栏切回默认模型/思考强度发送空串清除覆盖，并正确约束自动放行与无项目模式选项", async () => {
+  it("对话控制栏切回默认模型/思考强度发送空串清除覆盖，权限审批独立于自动推进直接位于底栏", async () => {
     const { transport, calls } = createMockTransport({
       process_update: (args) => ({
         id: "d|C:/demo",
@@ -551,6 +787,7 @@ describe("Kanzei 新前端架构核心契约", () => {
         ordinal: null,
         updated_at: 1000,
       }),
+      run_prompt: () => "started",
     });
     setIpcTransport(transport);
     appStore.setState({
@@ -608,7 +845,6 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
 
     fireEvent.click(screen.getByRole("button", {name: "协作参数"}));
-    expect((screen.getByRole("button", {name:"自动放行"}) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("radio", {name:/默认 \(/}));
     await waitFor(() => {
       const reasoningCall = calls.find(
@@ -620,6 +856,23 @@ describe("Kanzei 新前端架构核心契约", () => {
     // 项目模式同时包含只读讨论 (readonly) 与隔离沙箱 (isolated)
     expect(screen.getByRole("radio", {name:"只读讨论"})).toBeTruthy();
     expect(screen.getByRole("radio", {name:"隔离沙箱"})).toBeTruthy();
+
+    // 权限审批按钮直接暴露在输入框底栏，未开启自动推进即可一键切换并透传 autoAllow
+    const permBtn = screen.getByRole("button", { name: "逐项确认" }) as HTMLButtonElement;
+    expect(permBtn.disabled).toBe(false);
+    expect(permBtn.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(permBtn);
+    const activePermBtn = screen.getByRole("button", { name: "自动放行" }) as HTMLButtonElement;
+    expect(activePermBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(chatStore.getState().autoAllow).toBe(true);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "帮我修改测试" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    await waitFor(() => {
+      const runCall = calls.find((c) => c.command === "run_prompt");
+      expect(runCall?.args?.autoAllow).toBe(true);
+      expect(runCall?.args?.autonomous).toBe(false);
+    });
   });
 
   it("AskOverlay 严格按后端契约发送 once / always / cancel，不再发送无效的 allow", async () => {
@@ -1142,37 +1395,28 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
   });
 
-  it("StatusBar 上下文构成弹窗展示彩色分类占比拆解", async () => {
-    const { transport } = createMockTransport({
-      context_snapshot: () => ({
-        requests: [{ sequence: 12, step: 1, model: "openai:gpt-5" }],
-        selected: {
-          sequence: 12,
-          manifest: {
-            model: "openai:gpt-5",
-            estimated_tokens: 18000,
-            blocks: [
-              { source: "agent/system", chars: 4000, sha256: "aaa" },
-              { source: "memory/recall", chars: 2000, sha256: "bbb" },
-              { source: "history/messages", chars: 6000, sha256: "ccc" },
-            ],
-          },
-        },
+  it("/context 打开并关闭上下文弹窗后，切换会话不会自动重开", async () => {
+    const { transport, calls } = createMockTransport({
+      context_snapshot: (args) => ({
+        sessionId: String(args?.processId ?? ""),
+        requests: [],
+        selected: null,
+        web: [],
       }),
     });
     setIpcTransport(transport);
     appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
     sessionStore.setState({
       projectDir: "C:/demo",
-      activeProcessId: "d|C:/demo",
+      activeProcessId: "p-a",
       processes: [
         {
-          id: "d|C:/demo",
+          id: "p-a",
           origin_project: "C:/demo",
           project_dir: "C:/demo",
           worktree_path: null,
           branch: "main",
-          session_id: "ses-demo",
+          session_id: "ses-a",
           model: null,
           profile: "dev-auto",
           research_topic: null,
@@ -1182,25 +1426,308 @@ describe("Kanzei 新前端架构核心契约", () => {
           tracker_writes: false,
           stage: "空闲",
           running: false,
-          label: "主对话",
+          label: "对话 A",
           title: null,
           title_custom: false,
           kind: "main",
-          ordinal: null,
+          ordinal: 1,
           updated_at: 1000,
         },
+        {
+          id: "p-b",
+          origin_project: "C:/demo",
+          project_dir: "C:/demo",
+          worktree_path: null,
+          branch: "main",
+          session_id: "ses-b",
+          model: null,
+          profile: "dev-auto",
+          research_topic: null,
+          reasoning: null,
+          manual_models: [],
+          subagent_mode: "auto",
+          tracker_writes: false,
+          stage: "空闲",
+          running: false,
+          label: "对话 B",
+          title: null,
+          title_custom: false,
+          kind: "task",
+          ordinal: 2,
+          updated_at: 2000,
+        },
       ],
-      effectiveModel: { contextLimit: 100000 },
     });
 
     render(<StatusBar />);
-    fireEvent.click(screen.getByRole("button", { name: "上下文构成" }));
+    triggerContextInspector();
     await waitFor(() => {
-      expect(screen.getByRole("img", { name: "上下文构成占比条" })).toBeTruthy();
-      expect(screen.getByText("系统提示与规则")).toBeTruthy();
-      expect(screen.getByText("长期记忆与偏好")).toBeTruthy();
-      expect(screen.getByText("对话历史与消息")).toBeTruthy();
+      expect(screen.getByRole("dialog", { name: "本轮请求上下文构成" })).toBeTruthy();
     });
+    const beforeSwitchCalls = calls.filter((c) => c.command === "context_snapshot").length;
+    expect(beforeSwitchCalls).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByRole("dialog", { name: "本轮请求上下文构成" })).toBeNull();
+
+    await activateProcess("p-b");
+    await waitFor(() => {
+      expect(sessionStore.getState().activeProcessId).toBe("p-b");
+    });
+    expect(screen.queryByRole("dialog", { name: "本轮请求上下文构成" })).toBeNull();
+    expect(calls.filter((c) => c.command === "context_snapshot").length).toBe(1);
+
+    // 再次显式触发 /context 仍可正常打开会话 B 的快照
+    triggerContextInspector();
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "本轮请求上下文构成" })).toBeTruthy();
+    });
+    expect(
+      calls.some((c) => c.command === "context_snapshot" && c.args?.processId === "p-b")
+    ).toBe(true);
+  });
+
+  it("ErrorBoundary 隔离局部渲染异常并在切换上下文后自动恢复", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      function MaybeCrash({ crash }: { crash: boolean }): React.ReactElement {
+        if (crash) throw new Error("模拟子视图崩溃");
+        return <div>视图正常运行</div>;
+      }
+      const { rerender } = render(
+        <div>
+          <nav>主导航保持可用</nav>
+          <ErrorBoundary scope="测试局部视图" resetKeys={["broken"]}>
+            <MaybeCrash crash={true} />
+          </ErrorBoundary>
+        </div>
+      );
+      expect(screen.getByText("主导航保持可用")).toBeTruthy();
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(screen.getByText(/测试局部视图暂时不可用/)).toBeTruthy();
+
+      rerender(
+        <div>
+          <nav>主导航保持可用</nav>
+          <ErrorBoundary scope="测试局部视图" resetKeys={["recovered"]}>
+            <MaybeCrash crash={false} />
+          </ErrorBoundary>
+        </div>
+      );
+      expect(screen.getByText("视图正常运行")).toBeTruthy();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  it("工作树会话下预览、Diff、保存与回退此块始终指向同一工作树，且冲突绝不误报成功", async () => {
+    let writeStep = 0;
+    const { transport, calls } = createMockTransport({
+      file_preview: (args) => ({
+        content: args?.worktreePath ? "line1\nbranch-edited\n" : "line1\nmain-only\n",
+        hash: args?.worktreePath ? "hash-wt-1" : "hash-main-1",
+        bom: false,
+        readonly: null,
+        binary: false,
+      }),
+      file_git_diff: () => ({
+        path: "src/app.rs",
+        status: "modified",
+        diff: "@@ -1,2 +1,2 @@\n line1\n-old\n+branch-edited\n",
+        additions: 1,
+        deletions: 1,
+      }),
+      file_write: () => {
+        writeStep += 1;
+        if (writeStep === 1) {
+          return {
+            status: "conflict",
+            hash: "hash-wt-disk-v2",
+            size: 20,
+            mtimeMs: 2000,
+            exists: true,
+            evidence: null,
+          };
+        }
+        return {
+          status: "saved",
+          hash: `hash-wt-saved-${writeStep}`,
+          size: 22,
+          mtimeMs: 3000,
+          exists: true,
+          evidence: writeStep === 2 ? ".kanzei/quarantine/files-overwrite-1/src/app.rs" : null,
+        };
+      },
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+    setDrawerContext("C:/demo", "C:/demo-wt/feat-a");
+
+    await openFileInDrawer("src/app.rs", { tab: "edit" });
+    expect(drawerStore.getState().preview?.content).toBe("line1\nbranch-edited\n");
+    expect(
+      calls.some(
+        (c) =>
+          c.command === "file_preview" &&
+          c.args?.projectDir === "C:/demo" &&
+          c.args?.worktreePath === "C:/demo-wt/feat-a"
+      )
+    ).toBe(true);
+
+    // 1. 磁盘冲突时必须返回 false，保持 editDirty=true，记录最新磁盘指纹，不提示成功
+    setDrawerEditContent("line1\nuser-new\n");
+    const firstSave = await saveDrawerFile(false);
+    expect(firstSave).toBe(false);
+    expect(drawerStore.getState().editDirty).toBe(true);
+    expect(drawerStore.getState().conflictHash).toBe("hash-wt-disk-v2");
+    expect(drawerStore.getState().conflictMessage).toContain("尚未写入");
+    expect(uiStore.getState().toasts.some((t) => t.text.includes("已保存"))).toBe(false);
+
+    // 2. 点击强制覆盖必须携带冲突返回的最新磁盘指纹与 worktreePath，并开启 evidence=true
+    const forcedSave = await saveDrawerFile(true);
+    expect(forcedSave).toBe(true);
+    expect(drawerStore.getState().editDirty).toBe(false);
+    expect(drawerStore.getState().conflictMessage).toBeNull();
+    expect(
+      calls.some(
+        (c) =>
+          c.command === "file_write" &&
+          c.args?.projectDir === "C:/demo" &&
+          c.args?.worktreePath === "C:/demo-wt/feat-a" &&
+          c.args?.expectedHash === "hash-wt-disk-v2" &&
+          c.args?.evidence === true
+      )
+    ).toBe(true);
+
+    // 3. Diff「回退此块」在工作树与普通文件上都能通过参数契约并携带同一 worktreePath
+    drawerStore.setState({ fileTab: "diff" });
+    render(<ContextDrawer />);
+    fireEvent.click(screen.getByRole("button", { name: "回退此块" }));
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) =>
+            c.command === "file_write" &&
+            c.args?.projectDir === "C:/demo" &&
+            c.args?.worktreePath === "C:/demo-wt/feat-a" &&
+            c.args?.content === "line1\nold\n" &&
+            c.args?.expectedHash === "hash-wt-1"
+        )
+      ).toBe(true);
+    });
+  });
+
+  it("新建对话自动加载新会话的 0 条消息并清空上一条会话历史", async () => {
+    const processes = [
+      {
+        id: "p-1",
+        origin_project: "C:/demo",
+        project_dir: "C:/demo",
+        worktree_path: null,
+        branch: "main",
+        session_id: "ses-1",
+        model: null,
+        profile: "dev-auto",
+        research_topic: null,
+        reasoning: null,
+        manual_models: [],
+        subagent_mode: "auto",
+        tracker_writes: false,
+        stage: "空闲",
+        running: false,
+        label: "对话 1",
+        title: null,
+        title_custom: false,
+        kind: "main",
+        ordinal: 1,
+        updated_at: 1000,
+      },
+    ];
+    const { transport } = createMockTransport({
+      process_list: () => [...processes],
+      process_create: () => {
+        const created = {
+          ...processes[0],
+          id: "p-2",
+          session_id: "ses-2",
+          label: "对话 2",
+          ordinal: 2,
+          updated_at: 2000,
+        };
+        processes.push(created);
+        return created;
+      },
+      conversation_page_messages: (args) => {
+        if (args?.processId === "p-1") {
+          return {
+            items: [
+              { role: "user", parts: [{ type: "text", text: "第一条对话提问" }] },
+              { role: "assistant", parts: [{ type: "text", text: "第一条对话回复" }] },
+            ],
+            total: 2,
+            startIndex: 0,
+            endIndex: 2,
+            hasMore: false,
+          };
+        }
+        return { items: [], total: 0, startIndex: 0, endIndex: 0, hasMore: false };
+      },
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+    sessionStore.setState({ projectDir: "C:/demo", processes: [...processes], activeProcessId: "p-1" });
+
+    await activateProcess("p-1");
+    expect(chatStore.getState().messages.length).toBe(2);
+
+    const created = await createConversation("C:/demo");
+    expect(created?.id).toBe("p-2");
+    expect(sessionStore.getState().activeProcessId).toBe("p-2");
+    expect(chatStore.getState().sessionId).toBe("ses-2");
+    expect(chatStore.getState().messages).toEqual([]);
+  });
+
+  it("快速切换并编辑两个会话的草稿时互不取消落盘保存", async () => {
+    vi.useFakeTimers();
+    try {
+      const savedDrafts = new Map<string, unknown>();
+      const { transport } = createMockTransport({
+        composer_draft_save: (args) => {
+          savedDrafts.set(String(args?.key), args?.draft);
+          return null;
+        },
+      });
+      setIpcTransport(transport);
+
+      updateDraft("C:/demo", "p-a", "会话 A 的草稿", []);
+      vi.advanceTimersByTime(150);
+      updateDraft("C:/demo", "p-b", "会话 B 的草稿", []);
+      vi.advanceTimersByTime(250);
+      await Promise.resolve();
+
+      // 此时已过 400ms：A 的定时器必须独立触发，不会被 B 取消
+      expect(savedDrafts.get(draftKeyFor("C:/demo", "p-a"))).toEqual({
+        text: "会话 A 的草稿",
+        attachments: [],
+      });
+
+      vi.advanceTimersByTime(200);
+      await Promise.resolve();
+      expect(savedDrafts.get(draftKeyFor("C:/demo", "p-b"))).toEqual({
+        text: "会话 B 的草稿",
+        attachments: [],
+      });
+
+      // 未到期时调用 flushPendingDraftSaves 也能立刻落盘
+      updateDraft("C:/demo", "p-a", "退出前刚输入的内容", []);
+      await flushPendingDraftSaves();
+      expect(savedDrafts.get(draftKeyFor("C:/demo", "p-a"))).toEqual({
+        text: "退出前刚输入的内容",
+        attachments: [],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("工作台 My Quests 看板按四态分组展示跨项目会话并支持就地放行", async () => {
@@ -1425,5 +1952,641 @@ describe("Kanzei 新前端架构核心契约", () => {
       expect(screen.getByText(/cargo check/)).toBeTruthy();
       expect(screen.getByText(/cargo clippy/)).toBeTruthy();
     });
+  });
+
+  it("交付验收单不把工作树原有改动算作本轮交付，纯问答默认隐藏，零项门禁明确提示验证未执行", async () => {
+    const { transport } = createMockTransport({
+      worktree_post_merge_gate: () => [],
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+    const gitWithOldChange = {
+      repo: "own" as const,
+      branch: "main",
+      changes: 2,
+      last: null,
+      additions: 15,
+      deletions: 4,
+      files: [
+        { path: "README.md", additions: 1, deletions: 1 },
+        { path: "src/app.ts", additions: 14, deletions: 3 },
+      ],
+    };
+    drawerStore.setState({ gitStatus: gitWithOldChange, touchedFiles: ["README.md"] });
+
+    // 1. 已有未提交改动、无适用检查的仓库里完成纯问答：本轮修改 0 个文件，验证未执行，且默认不展开卡片
+    const qaSummary = buildRoundReportSummary(
+      [
+        { role: "user", parts: [{ type: "text", text: "你好" }] },
+        { role: "assistant", parts: [{ type: "text", text: "你好，有什么可以帮你？" }] },
+      ],
+      new Map(),
+      {
+        sessionId: "ses-qa",
+        completedAt: 1000,
+        elapsedMs: 500,
+        inputTokens: 100,
+        outputTokens: 20,
+        toolsTotal: 0,
+        toolsFailed: 0,
+        toolNames: [],
+        touchedFiles: [],
+        modifiedFiles: [],
+      },
+      gitWithOldChange
+    );
+    expect(qaSummary.roundFiles).toEqual([]);
+    expect(qaSummary.otherGitFilesCount).toBe(2);
+    expect(qaSummary.shouldDisplay).toBe(false);
+    expect(evaluateGateVerdict([]).state).toBe("not_executed");
+
+    const { container: qaContainer } = render(
+      <ActionReportCard
+        messages={[
+          { role: "user", parts: [{ type: "text", text: "你好" }] },
+          { role: "assistant", parts: [{ type: "text", text: "你好" }] },
+        ]}
+        toolResultMap={new Map()}
+        report={{
+          sessionId: "ses-qa",
+          completedAt: 1000,
+          elapsedMs: 500,
+          inputTokens: 100,
+          outputTokens: 20,
+          toolsTotal: 0,
+          toolsFailed: 0,
+          toolNames: [],
+          touchedFiles: [],
+          modifiedFiles: [],
+        }}
+      />
+    );
+    expect(qaContainer.innerHTML).toBe("");
+
+    // 2. 实际修改 src/app.ts 时：不把 README.md 混进本轮修改；零项门禁明确提示“验证未执行”
+    render(
+      <ActionReportCard
+        messages={[]}
+        toolResultMap={new Map()}
+        report={{
+          sessionId: "ses-edit",
+          completedAt: 1000,
+          elapsedMs: 1200,
+          inputTokens: 300,
+          outputTokens: 80,
+          toolsTotal: 1,
+          toolsFailed: 0,
+          toolNames: ["edit"],
+          touchedFiles: ["src/app.ts"],
+          modifiedFiles: ["src/app.ts"],
+        }}
+      />
+    );
+
+    expect(screen.getByText("本轮 1 文件")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /本轮交付/ }));
+    expect(screen.getByText("src/app.ts")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /README\.md/ })).toBeNull();
+    expect(screen.getByText(/工作树另有 1 个非本轮未提交改动/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "运行门禁" }));
+    await waitFor(() => {
+      expect(screen.getByText("验证未执行（0 项）")).toBeTruthy();
+      expect(uiStore.getState().toasts.some((t) => t.text.includes("全部通过"))).toBe(false);
+      expect(uiStore.getState().toasts.some((t) => t.text.includes("验证未执行"))).toBe(true);
+    });
+  });
+
+  it("记忆页支持数组搜索结果、新建携带类别、读取 messages 历史以及诊断摘要折叠 JSON", async () => {
+    const stored = [
+      {
+        id: "M-001",
+        scope: "project",
+        category: "fact",
+        title: "部署端口规范",
+        description: "统一使用 8080 端口",
+        status: "active",
+        body: "服务监听 8080。",
+      },
+    ];
+    const { transport, calls } = createMockTransport({
+      memory_entries: (args) => (args?.scope === "project" ? [...stored] : []),
+      memory_search_page: (args) =>
+        stored.filter((e) => e.title.includes(String(args?.query ?? ""))),
+      memory_entry_save: (args) => {
+        const created = {
+          id: "M-002",
+          scope: String(args?.scope ?? "project"),
+          category: String(args?.category ?? "fact"),
+          title: String(args?.title ?? ""),
+          description: String(args?.description ?? ""),
+          status: "active",
+          body: String(args?.body ?? ""),
+        };
+        stored.push(created);
+        return created;
+      },
+      memory_chat_history: () => ({
+        messages: [
+          { role: "user", text: "帮我检查历史记忆" },
+          { role: "assistant", text: "已核对 M-001 有效。" },
+        ],
+        requestId: null,
+      }),
+      memory_overview: () => ({ scopes: [{ scope: "project", total: 2, integrity: [] }] }),
+      memory_control_plane: () => ({
+        promotion_gaps: 0,
+        recall: { recalled: 3, injected: 2, read: 1, events_orphaned: 0 },
+      }),
+      memory_context_bill: () => ({ bill: [], episodes: [] }),
+      memory_recalls: () => ({
+        rounds_total: 1,
+        rounds: [
+          {
+            recall_id: "r1",
+            hits: [{ id: "M-001", title: "部署端口规范", category: "fact", injected: true, read: true }],
+          },
+        ],
+      }),
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+
+    render(<MemoryView />);
+
+    await waitFor(() => {
+      expect(screen.getByText("部署端口规范")).toBeTruthy();
+    });
+
+    // 1. 搜索输入完整标题后仍命中（后端返回数组）
+    fireEvent.change(screen.getByPlaceholderText("搜索记忆标题或内容…"), {
+      target: { value: "部署端口规范" },
+    });
+    await waitFor(() => {
+      expect(calls.some((c) => c.command === "memory_search_page")).toBe(true);
+      expect(screen.getByText("部署端口规范")).toBeTruthy();
+    });
+
+    // 2. 新建记忆并选择 sop 类别，请求携带 category 且创建成功
+    fireEvent.click(screen.getByRole("button", { name: "新建记忆" }));
+    const selects = screen.getAllByRole("combobox");
+    const categorySelect = selects[selects.length - 1];
+    fireEvent.change(categorySelect, { target: { value: "sop" } });
+    const inputs = screen.getAllByRole("textbox");
+    fireEvent.change(inputs[1], { target: { value: "发布前验证流程" } });
+    fireEvent.change(inputs[3], { target: { value: "发布前执行 scripts/verify.ps1 -Full。" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) =>
+            c.command === "memory_entry_save" &&
+            c.args?.id === "" &&
+            c.args?.category === "sop" &&
+            c.args?.title === "发布前验证流程"
+        )
+      ).toBe(true);
+    });
+
+    // 3. 切到管理对话 Tab，读取后端返回的 messages 字段
+    fireEvent.click(screen.getByRole("tab", { name: "管理对话" }));
+    await waitFor(() => {
+      expect(screen.getByText("帮我检查历史记忆")).toBeTruthy();
+      expect(screen.getByText("已核对 M-001 有效。")).toBeTruthy();
+    });
+
+    // 4. 切到诊断 Tab，首屏显示可读摘要且原始 JSON 默认折叠
+    fireEvent.click(screen.getByRole("tab", { name: "概览与诊断" }));
+    await waitFor(() => {
+      expect(screen.getByText("最近一次召回与健康摘要")).toBeTruthy();
+      expect(screen.getByText("已注入")).toBeTruthy();
+      expect(screen.getByText("已读取")).toBeTruthy();
+    });
+    const details = document.querySelectorAll("details.diag-card");
+    expect(details.length).toBeGreaterThan(0);
+    details.forEach((el) => {
+      expect(el.hasAttribute("open")).toBe(false);
+    });
+  });
+
+  it("个人 Skill 连续两次编辑使用最新 revision 且保留 userInvocable=false", async () => {
+    let version = 1;
+    const { transport, calls } = createMockTransport({
+      skills_list: () => [
+        {
+          id: "personal:my-skill",
+          name: "my-skill",
+          displayName: "my-skill",
+          description: "个人流程",
+          source: "personal",
+          editable: true,
+          enabled: true,
+          manualOnly: false,
+          userInvocable: false,
+        },
+      ],
+      skills_read: () => ({
+        id: "personal:my-skill",
+        name: "my-skill",
+        displayName: "my-skill",
+        description: "个人流程",
+        source: "personal",
+        editable: true,
+        enabled: true,
+        manualOnly: false,
+        userInvocable: false,
+        instructions: version === 1 ? "第一版正文" : "第二版正文",
+        revision: `rev-${version}`,
+      }),
+      skills_save: (args) => {
+        const draft = args?.draft as Record<string, unknown>;
+        version += 1;
+        return {
+          id: "personal:my-skill",
+          name: "my-skill",
+          displayName: "my-skill",
+          description: String(draft?.description ?? ""),
+          source: "personal",
+          editable: true,
+          enabled: true,
+          manualOnly: Boolean(draft?.manualOnly),
+          userInvocable: Boolean(draft?.userInvocable),
+          instructions: String(draft?.instructions ?? ""),
+          revision: `rev-${version}`,
+        };
+      },
+    });
+    setIpcTransport(transport);
+
+    render(<SkillsView />);
+    await waitFor(() => {
+      expect(screen.getByText("个人流程")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByText("个人流程"));
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "编辑" })).toBeTruthy();
+    });
+
+    // 第一次编辑保存
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const bodyBox1 = screen.getByDisplayValue("第一版正文");
+    fireEvent.change(bodyBox1, { target: { value: "第二版正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) =>
+            c.command === "skills_save" &&
+            c.args?.expectedHash === "rev-1" &&
+            (c.args?.draft as Record<string, unknown>)?.userInvocable === false
+        )
+      ).toBe(true);
+    });
+
+    // 紧接着第二次点编辑：必须带出第二版正文与 rev-2
+    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const bodyBox2 = screen.getByDisplayValue("第二版正文");
+    fireEvent.change(bodyBox2, { target: { value: "第三版正文" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (c) =>
+            c.command === "skills_save" &&
+            c.args?.expectedHash === "rev-2" &&
+            (c.args?.draft as Record<string, unknown>)?.userInvocable === false
+        )
+      ).toBe(true);
+    });
+  });
+
+  it("设置页添加外部打开方式后底部保存栏标记未保存并可统一保存", async () => {
+    const { transport, calls } = createMockTransport({
+      settings_get: () => ({
+        path: "~/.kanzei/kanzei.toml",
+        primary: "openai:gpt-5",
+        fast: "",
+        compact: "",
+        proxy: "env",
+        reasoning: "off",
+        codexFastMode: false,
+        profileDefault: "dev-auto",
+        providers: [],
+        limits: {},
+        limitDefaults: {},
+        cadence: {},
+        hooks: [],
+      }),
+      open_tools_list: () => [],
+      open_tools_save: () => null,
+      fast_model_status: () => ({ managed: false }),
+      agent_directory_get: () => ({ agents: [] }),
+      update_receipt: () => null,
+    });
+    setIpcTransport(transport);
+
+    render(<SettingsView />);
+    await waitFor(() => {
+      expect(screen.getByText("所有设置已同步")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "添加打开方式" }));
+    expect(screen.getByText("存在未保存的外部打开方式修改")).toBeTruthy();
+    const saveAllBtn = screen.getByRole("button", { name: "保存全局设置" }) as HTMLButtonElement;
+    expect(saveAllBtn.disabled).toBe(false);
+
+    fireEvent.change(screen.getByPlaceholderText("名称，如 Cursor"), {
+      target: { value: "Zed" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("可执行程序路径"), {
+      target: { value: "C:/Tools/zed.exe" },
+    });
+    fireEvent.click(saveAllBtn);
+
+    await waitFor(() => {
+      expect(calls.some((c) => c.command === "open_tools_save")).toBe(true);
+      expect(screen.getByText("所有设置已同步")).toBeTruthy();
+    });
+  });
+
+  it("全局收件箱读取失败时显示故障告警而非空态", async () => {
+    const { transport } = createMockTransport({
+      pending_asks_all: () => {
+        throw new Error("IPC 服务连接断开");
+      },
+    });
+    setIpcTransport(transport);
+    uiStore.setState({ inboxOpen: true, globalAsks: [], globalAsksError: null, recentCompleted: [] });
+
+    render(<InboxDrawer />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeTruthy();
+      expect(screen.getByText(/无法确认是否存在待审批任务：IPC 服务连接断开/)).toBeTruthy();
+      expect(screen.queryByText("当前没有待处理的权限请求或提问。")).toBeNull();
+    });
+  });
+
+  it("工作台移除重复收件箱入口，任务看板不把空白空闲会话列为待验收", async () => {
+    const { transport } = createMockTransport({
+      pending_asks_all: () => [],
+      workspace_overview: () => ({
+        current: "C:/demo",
+        observed_at: 1000,
+        projects: [
+          {
+            path: "C:/demo",
+            project_id: "C:/demo",
+            name: "Demo",
+            current: true,
+            running_lines: 0,
+            lines_total: 2,
+            lines: [
+              {
+                id: "p-idle",
+                label: "刚新建的空对话",
+                title: "刚新建的空对话",
+                title_custom: true,
+                kind: "task",
+                ordinal: 1,
+                updated_at: 1000,
+                session_id: "ses-idle",
+                running: false,
+                stage: "空闲",
+                branch: "main",
+                worktree_path: null,
+                profile: "dev-auto",
+                available: true,
+              },
+              {
+                id: "p-done",
+                label: "已完工重构",
+                title: "已完工重构",
+                title_custom: true,
+                kind: "task",
+                ordinal: 2,
+                updated_at: 2000,
+                session_id: "ses-done",
+                running: false,
+                stage: "已完成",
+                branch: "feat-done",
+                worktree_path: null,
+                profile: "dev-auto",
+                available: true,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+    setIpcTransport(transport);
+    appStore.setState({
+      activeProjectDir: "C:/demo",
+      projects: { projects: ["C:/demo"], current: "C:/demo", names: { "C:/demo": "Demo" } },
+    });
+
+    render(<WorkspaceView />);
+    expect(screen.queryByRole("button", { name: /收件箱/ })).toBeNull();
+    expect(screen.queryByText(/显示 1 \/ 1 个项目/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: /My Quests/ }));
+    await waitFor(() => {
+      expect(screen.getByText("已完工重构")).toBeTruthy();
+      expect(screen.queryByText("刚新建的空对话")).toBeNull();
+      expect(screen.getByText(/另有 1 条空闲会话未进入任务看板/)).toBeTruthy();
+    });
+  });
+
+  it("文件保存进行中继续输入时，旧回执不会把新内容误标为已保存", async () => {
+    let resolveFirstWrite!: (val: unknown) => void;
+    let writeCount = 0;
+    const { transport, calls } = createMockTransport({
+      file_preview: () => ({
+        content: "initial\n",
+        hash: "h-init",
+        bom: false,
+        readonly: null,
+        binary: false,
+      }),
+      file_git_diff: () => ({ path: "src/a.txt", diff: "" }),
+      file_write: () => {
+        writeCount += 1;
+        if (writeCount === 1) {
+          return new Promise((resolve) => {
+            resolveFirstWrite = resolve;
+          });
+        }
+        return { status: "saved", hash: "h-two", size: 8, mtimeMs: 2000, exists: true, evidence: null };
+      },
+    });
+    setIpcTransport(transport);
+    setDrawerContext("C:/demo", null);
+
+    await openFileInDrawer("src/a.txt", { tab: "edit" });
+    setDrawerEditContent("edit one");
+    const firstSavePromise = saveDrawerFile(false);
+
+    // 在第一次保存回执到达前继续输入第二版
+    setDrawerEditContent("edit two");
+    resolveFirstWrite({ status: "saved", hash: "h-one", size: 8, mtimeMs: 1000, exists: true, evidence: null });
+    expect(await firstSavePromise).toBe(true);
+
+    // 磁盘是 edit one，但编辑器已是 edit two，必须保持 editDirty=true，且基准指纹已推进到 h-one
+    expect(drawerStore.getState().editContent).toBe("edit two");
+    expect(drawerStore.getState().preview?.content).toBe("edit one");
+    expect(drawerStore.getState().editHash).toBe("h-one");
+    expect(drawerStore.getState().editDirty).toBe(true);
+
+    // 紧接着保存 edit two 携带 h-one，完成后才清除 editDirty
+    expect(await saveDrawerFile(false)).toBe(true);
+    expect(drawerStore.getState().editDirty).toBe(false);
+    expect(drawerStore.getState().editHash).toBe("h-two");
+    expect(
+      calls.some(
+        (c) =>
+          c.command === "file_write" &&
+          c.args?.content === "edit two" &&
+          c.args?.expectedHash === "h-one"
+      )
+    ).toBe(true);
+  });
+
+  it("同会话连续草稿保存严格串行，且退出刷盘会等待在途写入全部完成", async () => {
+    const resolvers: Array<() => void> = [];
+    const writeOrder: string[] = [];
+    let persistedText = "";
+    const { transport } = createMockTransport({
+      composer_draft_save: (args) =>
+        new Promise((resolve) => {
+          const text = String((args?.draft as { text?: string } | null)?.text ?? "");
+          writeOrder.push(text);
+          resolvers.push(() => {
+            persistedText = text;
+            resolve(null);
+          });
+        }),
+    });
+    setIpcTransport(transport);
+
+    const key = draftKeyFor("C:/demo", "p-1");
+    updateDraft("C:/demo", "p-1", "draft v1", []);
+    const firstPersist = persistDraftNow(key);
+    expect(writeOrder).toEqual(["draft v1"]);
+
+    // 第一次写入尚在途时，连续更新到 v2 并模拟退出窗口调用 flushPendingDraftSaves
+    updateDraft("C:/demo", "p-1", "draft v2", []);
+    let flushed = false;
+    const flushPromise = flushPendingDraftSaves().then(() => {
+      flushed = true;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    // 第一次写入未完成前：第二次不得并发乱序发出，且 flush 绝不能提前返回
+    expect(writeOrder).toEqual(["draft v1"]);
+    expect(flushed).toBe(false);
+
+    // 放行第一次写入 -> 自动串行发出第二次写入，此时 flush 仍需等待第二次写入完成
+    resolvers[0]();
+    await waitFor(() => {
+      expect(writeOrder).toEqual(["draft v1", "draft v2"]);
+    });
+    expect(flushed).toBe(false);
+
+    // 放行第二次写入 -> firstPersist 与 flush 一起完成，且落盘最终一定是最新文本 draft v2
+    resolvers[1]();
+    await Promise.all([firstPersist, flushPromise]);
+    expect(flushed).toBe(true);
+    expect(persistedText).toBe("draft v2");
+  });
+
+  it("交付验收单不把同文件相对 HEAD 的累计增删行数算作本轮行数", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    let exportedContent = "";
+    const { transport } = createMockTransport({
+      save_conversation_export: (args) => {
+        exportedContent = String(args?.content ?? "");
+        return "C:/demo/report.md";
+      },
+    });
+    setIpcTransport(transport);
+    appStore.setState({ activeProjectDir: "C:/demo", generalMode: false });
+    drawerStore.setState({
+      gitStatus: {
+        repo: "own",
+        branch: "main",
+        changes: 1,
+        last: null,
+        additions: 101,
+        deletions: 0,
+        files: [{ path: "src/app.ts", additions: 101, deletions: 0 }],
+      },
+    });
+
+    render(
+      <ActionReportCard
+        messages={[]}
+        toolResultMap={new Map()}
+        report={{
+          sessionId: "ses-lines",
+          completedAt: 1000,
+          elapsedMs: 800,
+          inputTokens: 200,
+          outputTokens: 50,
+          toolsTotal: 1,
+          toolsFailed: 0,
+          toolNames: ["edit"],
+          touchedFiles: ["src/app.ts"],
+          modifiedFiles: ["src/app.ts"],
+        }}
+      />
+    );
+
+    expect(screen.getByText("本轮 1 文件")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /本轮交付/ }));
+    expect(screen.getByText("src/app.ts")).toBeTruthy();
+    expect(screen.queryByText(/\+101/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "更多交付操作" }));
+    fireEvent.click(screen.getByRole("button", { name: "导出" }));
+    await waitFor(() => {
+      expect(exportedContent).toContain("`src/app.ts`");
+      expect(exportedContent).not.toContain("+101");
+    });
+  });
+
+  it("Diff 回退此块正确处理末尾无换行标记，恢复后与原文件逐字节一致", () => {
+    // 1. 原文件无末尾换行，修改并加上末尾换行后回退：必须去掉多余换行
+    const diffAddedNewline = [
+      "@@ -1 +1 @@",
+      "-alpha",
+      "\\ No newline at end of file",
+      "+beta",
+    ].join("\n");
+    const hunks1 = parseUnifiedDiffHunks(diffAddedNewline).hunks;
+    expect(applyReverseHunk("beta\n", hunks1[0])).toBe("alpha");
+    expect(applyReverseHunk("beta\r\n", hunks1[0])).toBe("alpha");
+
+    // 2. 原文件有末尾换行，修改并删掉末尾换行后回退：必须补回末尾换行
+    const diffRemovedNewline = [
+      "@@ -1 +1 @@",
+      "-alpha",
+      "+beta",
+      "\\ No newline at end of file",
+    ].join("\n");
+    const hunks2 = parseUnifiedDiffHunks(diffRemovedNewline).hunks;
+    expect(applyReverseHunk("beta", hunks2[0])).toBe("alpha\n");
+
+    // 3. 原文件与新文件均无末尾换行：回退保持无末尾换行
+    const diffBothNoNewline = [
+      "@@ -1 +1 @@",
+      "-alpha",
+      "\\ No newline at end of file",
+      "+beta",
+      "\\ No newline at end of file",
+    ].join("\n");
+    const hunks3 = parseUnifiedDiffHunks(diffBothNoNewline).hunks;
+    expect(applyReverseHunk("beta", hunks3[0])).toBe("alpha");
   });
 });

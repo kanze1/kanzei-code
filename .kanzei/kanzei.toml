@@ -1,7 +1,7 @@
 # 项目覆盖配置；保留模型选择与现有权限。全局 provider 在 ~/.kanzei/kanzei.toml。
 
 [models]
-primary = "ollama:qwen38-agent-256k:latest"
+primary = "codex:gpt-6.2-sol"
 fast = "ollama:qwen38-agent-256k:latest"
 compact = "ollama:qwen38-agent-256k:latest"
 reasoning = "xhigh"

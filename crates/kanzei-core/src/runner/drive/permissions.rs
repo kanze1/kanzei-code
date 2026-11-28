@@ -246,13 +246,13 @@ pub(super) async fn resolve_permission_gate(state: &mut PermissionGateRequest<'_
                 continue;
             }
             match state.config.ask_policy {
-                // D-281:自动放行——权限询问直接放行并落事件,不短路、
-                // 不再需要前端替答(前端 07-events.js 只处理 Interactive 轮)。
-                AskPolicy::AutoAllow if pending.sensitivity.is_none() => {
+                // D-281 & 权限审批解耦：常规非敏感权限直接放行并落审计事件；
+                // 敏感资源忽略自动放行（交互模式继续弹窗确认，非交互模式拒绝）。
+                policy if policy.auto_allows_nonsensitive() && pending.sensitivity.is_none() => {
                     resolved("allow", "auto_allow");
                     continue;
                 }
-                _ if !state.config.ask_policy.allows_permission_prompt() => {
+                policy if !policy.allows_permission_prompt() => {
                     resolved("declined", "noninteractive");
                     gate_result = Gate::NonInteractive(format!(
                         "permission requires user approval: {action} on `{resource}`; autonomous/parallel run skipped it",

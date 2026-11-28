@@ -202,6 +202,7 @@ export default function SettingsView(): React.ReactElement {
   const [updateReceipt, setUpdateReceipt] = useState<Record<string, unknown> | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [customTools, setCustomTools] = useState<OpenToolInfo[]>([]);
+  const [openToolsDirty, setOpenToolsDirty] = useState(false);
   const [agentsInfo, setAgentsInfo] = useState<AgentDirectorySnapshot | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -280,8 +281,10 @@ export default function SettingsView(): React.ReactElement {
   }, [loadAll, loadPermissionRules, effectiveProjectDir]);
 
   useEffect(() => {
-    setCustomTools(openTools.filter((t) => !t.builtin));
-  }, [openTools]);
+    if (!openToolsDirty) {
+      setCustomTools(openTools.filter((t) => !t.builtin));
+    }
+  }, [openTools, openToolsDirty]);
 
   const handleScrollSpy = () => {
     const container = scrollRef.current;
@@ -310,54 +313,76 @@ export default function SettingsView(): React.ReactElement {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await invoke("settings_save", {
-        payload: {
-          language: language || null,
-          primary: primary.trim(),
-          fast: fast.trim(),
-          compact: compact.trim(),
-          proxy: proxy.trim() || "env",
-          reasoning,
-          codexFastMode,
-          profileDefault,
-          providers: providers.map((p) => ({
-            name: p.name,
-            protocol: p.protocol,
-            baseUrl: p.baseUrl,
-            apiKeyEnv: p.apiKeyEnv?.trim() || null,
-            apiKey: p.apiKey?.trim() || null,
-            auth: p.auth || null,
-            contextLimit: p.contextLimit ? Number(p.contextLimit) : null,
-          })),
-          limits,
-          cadence: {
-            full_test: cadence.full_test || null,
-            full_test_batches: cadence.full_test_batches ?? null,
-            targeted_test: cadence.targeted_test || null,
-            commit: cadence.commit || null,
-            push: cadence.push || null,
-          },
-          hooks: hooks
-            .filter((h) => h.command.trim().length > 0)
-            .map((h) => ({
-              event: h.event,
-              toolMatcher: h.toolMatcher?.trim() || null,
-              command: h.command.trim(),
-              timeoutSecs: h.timeoutSecs && h.timeoutSecs > 0 ? Number(h.timeoutSecs) : null,
-              enabled: h.enabled,
+      const savedParts: string[] = [];
+      if (dirty) {
+        await invoke("settings_save", {
+          payload: {
+            language: language || null,
+            primary: primary.trim(),
+            fast: fast.trim(),
+            compact: compact.trim(),
+            proxy: proxy.trim() || "env",
+            reasoning,
+            codexFastMode,
+            profileDefault,
+            providers: providers.map((p) => ({
+              name: p.name,
+              protocol: p.protocol,
+              baseUrl: p.baseUrl,
+              apiKeyEnv: p.apiKeyEnv?.trim() || null,
+              apiKey: p.apiKey?.trim() || null,
+              auth: p.auth || null,
+              contextLimit: p.contextLimit ? Number(p.contextLimit) : null,
             })),
-        },
-      });
-      setDirty(false);
+            limits,
+            cadence: {
+              full_test: cadence.full_test || null,
+              full_test_batches: cadence.full_test_batches ?? null,
+              targeted_test: cadence.targeted_test || null,
+              commit: cadence.commit || null,
+              push: cadence.push || null,
+            },
+            hooks: hooks
+              .filter((h) => h.command.trim().length > 0)
+              .map((h) => ({
+                event: h.event,
+                toolMatcher: h.toolMatcher?.trim() || null,
+                command: h.command.trim(),
+                timeoutSecs: h.timeoutSecs && h.timeoutSecs > 0 ? Number(h.timeoutSecs) : null,
+                enabled: h.enabled,
+              })),
+          },
+        });
+        setDirty(false);
+        savedParts.push("全局设置");
+      }
+      if (openToolsDirty) {
+        await invoke("open_tools_save", {
+          tools: customTools.map((t) => ({
+            id: t.id || "",
+            label: t.label,
+            command: t.command ?? "",
+            args: t.args ?? ["{path}"],
+          })),
+        });
+        setOpenToolsDirty(false);
+        await loadOpenTools();
+        savedParts.push("外部打开方式");
+      }
       setSaving(false);
-      pushToast("全局设置已保存", "ok");
-      void Promise.all([
-        loadModelsCatalog(effectiveProjectDir, true),
-        refreshActiveSessionMeta(),
-        invoke<Record<string, unknown>>("fast_model_status")
-          .then(setFastStatus)
-          .catch(() => {}),
-      ]);
+      pushToast(
+        savedParts.length > 0 ? `已保存${savedParts.join("与")}` : "全局设置已保存",
+        "ok"
+      );
+      if (savedParts.includes("全局设置")) {
+        void Promise.all([
+          loadModelsCatalog(effectiveProjectDir, true),
+          refreshActiveSessionMeta(),
+          invoke<Record<string, unknown>>("fast_model_status")
+            .then(setFastStatus)
+            .catch(() => {}),
+        ]);
+      }
     } catch (error) {
       pushToast(`保存设置失败：${formatError(error)}`, "error");
     } finally {
@@ -440,12 +465,26 @@ export default function SettingsView(): React.ReactElement {
           args: t.args ?? ["{path}"],
         })),
       });
+      setOpenToolsDirty(false);
       await loadOpenTools();
       pushToast("已保存外部打开方式", "ok");
     } catch (error) {
       pushToast(`保存打开方式失败：${formatError(error)}`, "error");
     }
   };
+
+  const handleDiscardAll = async () => {
+    if (dirty) {
+      await loadAll();
+    }
+    if (openToolsDirty) {
+      setOpenToolsDirty(false);
+      await loadOpenTools();
+      setCustomTools(appStore.getState().openTools.filter((t) => !t.builtin));
+    }
+  };
+
+  const hasUnsavedChanges = dirty || openToolsDirty;
 
   const reasoningOptions = withFallbackOption(REASONING_OPTIONS, reasoning);
   const profileOptions = withFallbackOption(ALL_PROFILE_OPTIONS, profileDefault);
@@ -1463,12 +1502,13 @@ export default function SettingsView(): React.ReactElement {
                 <button
                   type="button"
                   className="btn btn-sm"
-                  onClick={() =>
+                  onClick={() => {
                     setCustomTools((prev) => [
                       ...prev,
                       { id: "", label: "自定义编辑器", command: "", args: ["{path}"] },
-                    ])
-                  }
+                    ]);
+                    setOpenToolsDirty(true);
+                  }}
                 >
                   <IconPlus size={12} />
                   <span>添加打开方式</span>
@@ -1476,34 +1516,50 @@ export default function SettingsView(): React.ReactElement {
                 <button
                   type="button"
                   className="btn btn-sm btn-primary"
+                  disabled={!openToolsDirty || saving}
                   onClick={() => void handleSaveOpenTools()}
                 >
-                  保存打开方式
+                  保存打开方式{openToolsDirty ? " •" : ""}
                 </button>
               </div>
             </div>
             {customTools.map((tool, idx) => (
-              <div key={idx} className="settings-grid-2">
-                <input
-                  className="input"
-                  placeholder="名称，如 Cursor"
-                  value={tool.label}
-                  onChange={(e) => {
-                    const next = [...customTools];
-                    next[idx] = { ...tool, label: e.target.value };
-                    setCustomTools(next);
+              <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className="settings-grid-2" style={{ flex: 1 }}>
+                  <input
+                    className="input"
+                    placeholder="名称，如 Cursor"
+                    value={tool.label}
+                    onChange={(e) => {
+                      const next = [...customTools];
+                      next[idx] = { ...tool, label: e.target.value };
+                      setCustomTools(next);
+                      setOpenToolsDirty(true);
+                    }}
+                  />
+                  <input
+                    className="input mono"
+                    placeholder="可执行程序路径"
+                    value={tool.command ?? ""}
+                    onChange={(e) => {
+                      const next = [...customTools];
+                      next[idx] = { ...tool, command: e.target.value };
+                      setCustomTools(next);
+                      setOpenToolsDirty(true);
+                    }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: "var(--err)" }}
+                  onClick={() => {
+                    setCustomTools((prev) => prev.filter((_, i) => i !== idx));
+                    setOpenToolsDirty(true);
                   }}
-                />
-                <input
-                  className="input mono"
-                  placeholder="可执行程序路径"
-                  value={tool.command ?? ""}
-                  onChange={(e) => {
-                    const next = [...customTools];
-                    next[idx] = { ...tool, command: e.target.value };
-                    setCustomTools(next);
-                  }}
-                />
+                >
+                  删除
+                </button>
               </div>
             ))}
 
@@ -1795,22 +1851,30 @@ export default function SettingsView(): React.ReactElement {
 
       <div className="settings-savebar">
         <span className="settings-savebar-status">
-          <span className={`status-dot${dirty ? " running" : " ok"}`} />
-          <span>{dirty ? "存在未保存的全局设置修改" : "所有设置已同步"}</span>
+          <span className={`status-dot${hasUnsavedChanges ? " running" : " ok"}`} />
+          <span>
+            {dirty && openToolsDirty
+              ? "存在未保存的全局设置与外部打开方式修改"
+              : openToolsDirty
+              ? "存在未保存的外部打开方式修改"
+              : dirty
+              ? "存在未保存的全局设置修改"
+              : "所有设置已同步"}
+          </span>
         </span>
         <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
             className="btn"
-            disabled={!dirty || saving}
-            onClick={() => void loadAll()}
+            disabled={!hasUnsavedChanges || saving}
+            onClick={() => void handleDiscardAll()}
           >
             放弃修改
           </button>
           <button
             type="button"
             className="btn btn-primary"
-            disabled={!dirty || saving}
+            disabled={!hasUnsavedChanges || saving}
             onClick={() => void handleSave()}
           >
             {saving ? "保存中…" : "保存全局设置"}

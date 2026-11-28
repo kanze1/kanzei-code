@@ -33,11 +33,11 @@ export interface CommandArgsMap {
   "fast_model_setup": Record<string, never>;
   "fast_model_status": Record<string, never>;
   "file_git_diff": { "path": string; "projectDir": string; "worktreePath"?: string | null };
-  "file_image": { "path": string; "projectDir": string };
-  "file_preview": { "path": string; "projectDir": string };
-  "file_stat": { "path": string; "projectDir": string };
-  "file_write": { "bom"?: boolean | null; "content": string; "evidence"?: boolean | null; "expectedHash"?: string | null; "path": string; "projectDir": string };
-  "files_snapshot": { "projectDir": string };
+  "file_image": { "path": string; "projectDir": string; "worktreePath"?: string | null };
+  "file_preview": { "path": string; "projectDir": string; "worktreePath"?: string | null };
+  "file_stat": { "path": string; "projectDir": string; "worktreePath"?: string | null };
+  "file_write": { "bom"?: boolean | null; "content": string; "evidence"?: boolean | null; "expectedHash"?: string | null; "path": string; "projectDir": string; "worktreePath"?: string | null };
+  "files_snapshot": { "projectDir": string; "worktreePath"?: string | null };
   "general_chat_link": { "processId": string; "projectDir": string };
   "general_chat_location": Record<string, never>;
   "general_chat_open": Record<string, never>;
@@ -58,7 +58,7 @@ export interface CommandArgsMap {
   "memory_entry_feedback": { "expectedRevision": string; "id": string; "kind": unknown; "projectDir": string; "scope": string };
   "memory_entry_get": { "id": string; "projectDir": string; "scope": string };
   "memory_entry_restore": { "id": string; "projectDir": string; "scope": string; "status"?: string | null };
-  "memory_entry_save": { "area"?: Array<string> | null; "body"?: string | null; "description"?: string | null; "id": string; "projectDir": string; "scope": string; "status"?: string | null; "title"?: string | null };
+  "memory_entry_save": { "area"?: Array<string> | null; "body"?: string | null; "category"?: string | null; "description"?: string | null; "id": string; "projectDir": string; "scope": string; "status"?: string | null; "title"?: string | null };
   "memory_graph": { "projectDir": string };
   "memory_job_status": { "projectDir": string };
   "memory_job_stop": { "jobId": string; "projectDir": string };
@@ -277,15 +277,18 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
   },
   "file_image": {
     "path": true,
-    "projectDir": true
+    "projectDir": true,
+    "worktreePath": false
   },
   "file_preview": {
     "path": true,
-    "projectDir": true
+    "projectDir": true,
+    "worktreePath": false
   },
   "file_stat": {
     "path": true,
-    "projectDir": true
+    "projectDir": true,
+    "worktreePath": false
   },
   "file_write": {
     "bom": false,
@@ -293,10 +296,12 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
     "evidence": false,
     "expectedHash": false,
     "path": true,
-    "projectDir": true
+    "projectDir": true,
+    "worktreePath": false
   },
   "files_snapshot": {
-    "projectDir": true
+    "projectDir": true,
+    "worktreePath": false
   },
   "general_chat_link": {
     "processId": true,
@@ -385,6 +390,7 @@ export const COMMAND_PARAMETERS: Record<CommandName, Record<string, boolean>> = 
   "memory_entry_save": {
     "area": false,
     "body": false,
+    "category": false,
     "description": false,
     "id": true,
     "projectDir": true,

@@ -108,7 +108,7 @@ fn lines(
             let ordinal = process_ordinal(&item.process_id);
             let naming = load_naming(store, &session_id, kind);
             all.insert(item.process_id.clone(), json!({
-                "id": item.process_id, "label": naming.display(kind, ordinal),
+                "id": item.process_id, "label": naming.display(kind),
                 "title": naming.title(), "title_custom": naming.custom.is_some(),
                 "kind": kind.as_str(), "ordinal": ordinal, "updated_at": naming.updated_at,
                 "session_id": session_id,

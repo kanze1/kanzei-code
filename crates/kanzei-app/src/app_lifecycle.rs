@@ -28,6 +28,10 @@ pub(crate) fn admit_work() -> Result<Admission, String> {
     Ok(guard)
 }
 
+pub(crate) fn is_shutting_down() -> bool {
+    RETIRING.load(Ordering::SeqCst)
+}
+
 pub(crate) fn begin_shutdown() -> Result<(), String> {
     RETIRING
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -117,17 +121,6 @@ async fn finish_shutdown(app: &tauri::AppHandle) -> Result<Value, String> {
 }
 
 async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    for runtime in state.runtimes.lock_or_recover().values() {
-        let _lifecycle = runtime.lifecycle.lock_or_recover();
-        runtime.transition(kanzei_core::session_lifecycle::Event::CloseRequested)?;
-        runtime.retire_async();
-        runtime.task_cancellations.cancel_all();
-        if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
-            token.cancel();
-        }
-        runtime.asks.lock_or_recover().clear();
-    }
     // 等所有已准入但尚未落表的任务完成，避免在快照之后冒出新的 runtime。
     let mut poll = tokio::time::interval(Duration::from_millis(50));
     while in_flight() > 0 {
@@ -161,17 +154,16 @@ async fn settle(app: &tauri::AppHandle) -> Result<(), String> {
         }
         let session = crate::process_session_id(root, Some(&process.id));
         if let Some(runtime) = runtimes.get(&session) {
-            crate::session_supervisor::close_runtime(runtime, root, &process.id).await?;
+            crate::session_supervisor::stop_runtime(runtime, root, &process.id)?;
         }
     }
-    for runtime in runtimes.values() {
-        let _lifecycle = runtime.lifecycle.lock_or_recover();
-        runtime.retire_async();
-        runtime.task_cancellations.cancel_all();
-        if let Some(token) = runtime.halt.lock_or_recover().as_ref() {
-            token.cancel();
+    // Do not close the actor: a failed shutdown/update must leave its registered
+    // conversations reusable once their durable stop finishes.
+    for process in &processes {
+        let session = crate::process_session_id(&process.origin_project.0, Some(&process.id));
+        if let Some(runtime) = runtimes.get(&session) {
+            crate::session_supervisor::wait_until_idle(runtime).await?;
         }
-        runtime.asks.lock_or_recover().clear();
     }
     roots.sort();
     roots.dedup();
@@ -232,15 +224,18 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn shutdown_retires_opened_empty_conversations_without_creating_history() {
+    async fn shutdown_stops_without_retiring_or_creating_history() {
         let root = kanzei_base::test_support::TestDir::new("kz-shutdown-empty-");
         let state = AppState::default();
         let process = crate::processes::registry::ensure_conversation(&state, &root).unwrap();
         let session = crate::process_session_id(&root, Some(&process.id));
         let runtime = crate::runtime_for(&state, &session);
-        crate::session_supervisor::close_runtime(&runtime, &root, &process.id)
+        crate::session_supervisor::stop_runtime(&runtime, &root, &process.id).unwrap();
+        crate::session_supervisor::wait_until_idle(&runtime)
             .await
             .unwrap();
+        let handle = runtime.current_run.lock_or_recover().take().unwrap();
+        handle.await.unwrap();
         assert!(owners_quiescent(&runtime));
         let store =
             kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
@@ -248,8 +243,10 @@ mod tests {
         assert!(store.list_events(&session, 0).unwrap().is_empty());
         assert_eq!(
             runtime.snapshot().existence,
-            kanzei_core::session_lifecycle::Existence::Closed
+            kanzei_core::session_lifecycle::Existence::Open
         );
+        let _lifecycle = runtime.lifecycle.lock_or_recover();
+        runtime.begin_round().unwrap();
     }
 
     #[tokio::test]

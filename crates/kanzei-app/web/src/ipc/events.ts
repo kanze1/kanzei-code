@@ -1,6 +1,6 @@
 import { modifiedPaths } from "../store/roundFiles";
 import { invoke, listenEvent } from "./client";
-import type { PendingAskItem } from "./types";
+import type { PendingAskItem, SessionLifecycleSnapshot } from "./types";
 import { appStore, refreshWorkspaceOverview } from "../store/appStore";
 import {
   appendStreamingReasoning,
@@ -15,7 +15,9 @@ import {
 } from "../store/chatStore";
 import { refreshGitStatus } from "../store/drawerStore";
 import {
+  applySessionLifecycle,
   getActiveProcess,
+  loadProcessesForProject,
   pushPendingAsk,
   refreshActiveSessionMeta,
   removePendingAsk,
@@ -254,11 +256,8 @@ export async function installEventBridge(): Promise<() => void> {
       }
     }),
 
-    listenEvent<Record<string, unknown>>("kz:lifecycle", (payload) => {
-      const sid = sessionIdOf(payload);
-      const phase = typeof payload.phase === "string" ? payload.phase : "";
-      const running = phase !== "" && phase !== "idle";
-      updateProcessRuntime(sid, { running, runtime: payload });
+    listenEvent<{ sessionId: string; runtime: SessionLifecycleSnapshot }>("kz:lifecycle", (payload) => {
+      if (payload.runtime) applySessionLifecycle(payload.sessionId, payload.runtime);
     }),
 
     listenEvent<Record<string, unknown>>("kz:done", (payload) => {
@@ -372,6 +371,10 @@ export async function installEventBridge(): Promise<() => void> {
           label: matchedLabel,
           at: Date.now(),
         });
+      }
+      // The first persisted user message can replace the placeholder title.
+      if (projectDir && sessionStore.getState().processes.some((p) => p.session_id === sid && !p.title)) {
+        void loadProcessesForProject(projectDir);
       }
       void refreshGlobalInbox();
       void refreshWorkspaceOverview();

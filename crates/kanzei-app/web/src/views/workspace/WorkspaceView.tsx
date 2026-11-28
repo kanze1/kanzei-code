@@ -4,6 +4,7 @@ import { formatError, invoke } from "../../ipc/client";
 import type { PendingAskItem, WorkspaceLineSummary } from "../../ipc/types";
 import {
   addExistingProject,
+  createConversation,
   openGeneralChat,
   projectDisplayName,
   refreshWorkspaceOverview,
@@ -13,7 +14,7 @@ import {
   useAppStore,
 } from "../../store/appStore";
 import { openExternalPath } from "../../store/drawerStore";
-import { createConversation, removePendingAsk } from "../../store/sessionStore";
+import { removePendingAsk } from "../../store/sessionStore";
 import {
   confirmDialog,
   dismissCompletedNotice,
@@ -33,7 +34,6 @@ import {
   IconPlus,
   IconRefresh,
   IconSearch,
-  IconShield,
 } from "../../components/Icons";
 
 type WorkspaceViewMode = "projects" | "quests";
@@ -43,7 +43,7 @@ interface QuestCardItem {
   projectDir: string;
   projectName: string;
   line: WorkspaceLineSummary;
-  bucket: "running" | "action" | "ready" | "error";
+  bucket: "running" | "action" | "review" | "error";
   asks: PendingAskItem[];
   completedAt: number | null;
 }
@@ -54,7 +54,6 @@ export default function WorkspaceView(): React.ReactElement {
   const activeProjectDir = useAppStore((s) => s.activeProjectDir);
   const globalAsks = useUiStore((s) => s.globalAsks);
   const recentCompleted = useUiStore((s) => s.recentCompleted);
-  const inboxCount = globalAsks.length + recentCompleted.length;
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("projects");
   const [query, setQuery] = useState("");
   const [busyAskId, setBusyAskId] = useState<number | null>(null);
@@ -82,7 +81,10 @@ export default function WorkspaceView(): React.ReactElement {
       });
   }, [projects, overview, query]);
 
-  const quests = useMemo<QuestCardItem[]>(() => {
+  const { quests, idleLineCount } = useMemo<{
+    quests: QuestCardItem[];
+    idleLineCount: number;
+  }>(() => {
     const q = query.trim().toLowerCase();
     const asksBySession = new Map<string, PendingAskItem[]>();
     for (const ask of globalAsks) {
@@ -97,28 +99,38 @@ export default function WorkspaceView(): React.ReactElement {
     }
 
     const all: QuestCardItem[] = [];
+    let idleCount = 0;
     for (const p of overview?.projects ?? []) {
       const projectName = projects.names[p.path] ?? p.name ?? projectDisplayName(p.path);
       for (const line of p.lines ?? []) {
         const lineAsks = asksBySession.get(line.session_id) ?? [];
         const completedAt = completedBySession.get(line.session_id) ?? null;
-        const stageLower = (line.stage ?? "").toLowerCase();
+        const stageLower = (line.stage ?? "").trim().toLowerCase();
         const isError =
           !line.available ||
           Boolean(p.error) ||
           stageLower.includes("错误") ||
           stageLower.includes("失败") ||
           stageLower.includes("不可用");
+        const isNeedsReview =
+          completedAt !== null ||
+          stageLower === "已完成" ||
+          stageLower === "done" ||
+          stageLower === "completed" ||
+          stageLower.includes("待验收");
 
-        let bucket: QuestCardItem["bucket"] = "ready";
+        let bucket: QuestCardItem["bucket"] | null = null;
         if (lineAsks.length > 0) {
           bucket = "action";
         } else if (isError) {
           bucket = "error";
         } else if (line.running) {
           bucket = "running";
+        } else if (isNeedsReview) {
+          bucket = "review";
         } else {
-          bucket = "ready";
+          idleCount += 1;
+          continue;
         }
 
         if (q) {
@@ -136,28 +148,24 @@ export default function WorkspaceView(): React.ReactElement {
         });
       }
     }
-    return all.sort((a, b) => (b.completedAt ?? b.line.updated_at ?? 0) - (a.completedAt ?? a.line.updated_at ?? 0));
+    all.sort(
+      (a, b) =>
+        (b.completedAt ?? b.line.updated_at ?? 0) - (a.completedAt ?? a.line.updated_at ?? 0)
+    );
+    return { quests: all, idleLineCount: idleCount };
   }, [overview, projects.names, globalAsks, recentCompleted, query]);
 
   const questBuckets = useMemo(() => {
     return {
       running: quests.filter((q) => q.bucket === "running"),
       action: quests.filter((q) => q.bucket === "action"),
-      ready: quests.filter((q) => q.bucket === "ready"),
+      review: quests.filter((q) => q.bucket === "review"),
       error: quests.filter((q) => q.bucket === "error"),
     };
   }, [quests]);
 
   const totalRunning = useMemo(
     () => (overview?.projects ?? []).reduce((acc, p) => acc + (p.running_lines ?? 0), 0),
-    [overview]
-  );
-  const totalLinesAll = useMemo(
-    () =>
-      (overview?.projects ?? []).reduce(
-        (acc, p) => acc + (p.lines_total ?? p.lines?.length ?? 0),
-        0
-      ),
     [overview]
   );
 
@@ -240,7 +248,7 @@ export default function WorkspaceView(): React.ReactElement {
               className={`segmented-btn${viewMode === "projects" ? " active" : ""}`}
               onClick={() => setViewMode("projects")}
             >
-              项目视图 ({projects.projects.length})
+              项目视图
             </button>
             <button
               type="button"
@@ -249,17 +257,9 @@ export default function WorkspaceView(): React.ReactElement {
               className={`segmented-btn${viewMode === "quests" ? " active" : ""}`}
               onClick={() => setViewMode("quests")}
             >
-              My Quests 任务看板 ({quests.length})
+              My Quests 任务看板{quests.length > 0 ? ` (${quests.length})` : ""}
             </button>
           </div>
-          <button
-            type="button"
-            className={`btn${inboxCount > 0 ? " btn-accent" : ""}`}
-            onClick={() => uiStore.setState({ inboxOpen: true })}
-          >
-            <IconShield size={13} />
-            <span>收件箱{inboxCount > 0 ? ` (${inboxCount})` : ""}</span>
-          </button>
           <button
             type="button"
             className="btn"
@@ -316,14 +316,16 @@ export default function WorkspaceView(): React.ReactElement {
             </span>
           </div>
           <div className="stat-tile">
-            <span className="stat-tile-label">待确认审批</span>
+            <span className="stat-tile-label">待我处理</span>
             <span className={`stat-tile-value${questBuckets.action.length > 0 ? " warn" : ""}`}>
               {questBuckets.action.length}
             </span>
           </div>
           <div className="stat-tile">
-            <span className="stat-tile-label">累计会话数</span>
-            <span className="stat-tile-value ok">{totalLinesAll}</span>
+            <span className="stat-tile-label">待验收</span>
+            <span className={`stat-tile-value${questBuckets.review.length > 0 ? " ok" : ""}`}>
+              {questBuckets.review.length}
+            </span>
           </div>
         </div>
 
@@ -345,15 +347,18 @@ export default function WorkspaceView(): React.ReactElement {
                 aria-label="筛选工作台项目或任务"
               />
             </div>
-            <span className="field-hint">
-              {viewMode === "quests"
-                ? `共 ${quests.length} 条任务线`
-                : `显示 ${cards.length} / ${projects.projects.length} 个项目`}
-            </span>
+            {query.trim().length > 0 && (
+              <span className="field-hint">
+                {viewMode === "quests"
+                  ? `匹配 ${quests.length} 条任务`
+                  : `匹配 ${cards.length} / ${projects.projects.length} 个项目`}
+              </span>
+            )}
           </div>
         )}
 
         {viewMode === "quests" ? (
+          <>
           <div className="quests-board" aria-label="My Quests 全局任务状态看板">
             {(
               [
@@ -366,24 +371,24 @@ export default function WorkspaceView(): React.ReactElement {
                 },
                 {
                   id: "action",
-                  title: "待确认",
+                  title: "待我处理",
                   badgeCls: "badge-warn",
                   items: questBuckets.action,
                   empty: "暂无等待你审批或回答的任务",
                 },
                 {
-                  id: "ready",
-                  title: "已完工 / 就绪",
-                  badgeCls: "badge-ok",
-                  items: questBuckets.ready,
-                  empty: "暂无就绪或待验收任务",
-                },
-                {
                   id: "error",
-                  title: "异常 / 不可用",
+                  title: "异常 / 失败",
                   badgeCls: "badge-err",
                   items: questBuckets.error,
                   empty: "一切正常，无异常任务",
+                },
+                {
+                  id: "review",
+                  title: "待验收",
+                  badgeCls: "badge-ok",
+                  items: questBuckets.review,
+                  empty: "暂无刚完工待验收的任务",
                 },
               ] as const
             ).map((col) => (
@@ -478,6 +483,12 @@ export default function WorkspaceView(): React.ReactElement {
               </div>
             ))}
           </div>
+          {idleLineCount > 0 && (
+            <div className="field-hint" style={{ marginTop: 10 }}>
+              另有 {idleLineCount} 条空闲会话未进入任务看板，可在左侧会话列表或「项目视图」中随时进入。
+            </div>
+          )}
+          </>
         ) : cards.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">

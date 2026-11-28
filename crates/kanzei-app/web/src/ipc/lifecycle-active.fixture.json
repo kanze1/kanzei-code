@@ -1,0 +1,14 @@
+{
+  "sessionId": "ses-demo",
+  "runtime": {
+    "actor_epoch": "test-actor",
+    "revision": 2,
+    "phase": "active",
+    "existence": "open",
+    "activity": "run",
+    "round_generation": 1,
+    "last_outcome": null,
+    "stop": null,
+    "error": null
+  }
+}

@@ -188,6 +188,24 @@ pub(crate) fn resolve_conversation(
         .ok_or_else(|| "对话不存在或已被关闭".into())
 }
 
+/// Bind an invocation to the actor while its process registration still exists.
+/// Retirement removes the registration before removing the actor (same lock order).
+pub(crate) fn runtime_for_registered(
+    state: &AppState,
+    root: &Path,
+    process_id: &str,
+    session_id: &str,
+) -> Result<std::sync::Arc<crate::SessionRuntime>, String> {
+    let processes = state.processes.lock_or_recover();
+    if !processes
+        .get(process_id)
+        .is_some_and(|p| p.origin_project.0 == root)
+    {
+        return Err("对话不存在或已被关闭".into());
+    }
+    Ok(crate::runtime_for(state, session_id))
+}
+
 /// 项目首次进入时恢复持久进程注册；同一运行期后续刷新只读内存运行态。
 ///
 /// `restore_processes_from_store` 保留为重启/测试使用的明确恢复原语，不能直接挂在

@@ -51,6 +51,15 @@ export interface ChatState {
 }
 
 const DEFAULT_PAGE_LIMIT = 100;
+const AUTO_ALLOW_STORAGE_KEY = "kanzei.permission.autoAllow";
+
+function loadStoredAutoAllow(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(AUTO_ALLOW_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export const chatStore = createStore<ChatState>({
   sessionId: null,
@@ -70,7 +79,7 @@ export const chatStore = createStore<ChatState>({
   lastError: null,
   lastUsage: null,
   lastActionReport: null,
-  autoAllow: false,
+  autoAllow: loadStoredAutoAllow(),
   deliveryMode: "steer",
   selectedAgent: "",
   promptHistory: [],
@@ -79,6 +88,17 @@ export const chatStore = createStore<ChatState>({
   drafts: {},
 });
 
+export function setAutoAllow(enabled: boolean): void {
+  chatStore.setState({ autoAllow: enabled });
+  try {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(AUTO_ALLOW_STORAGE_KEY, enabled ? "1" : "0");
+    }
+  } catch {
+    // 忽略受限存储环境错误
+  }
+}
+
 export function useChatStore<S>(selector: (state: ChatState) => S): S {
   return useStore(chatStore, selector);
 }
@@ -86,6 +106,10 @@ export function useChatStore<S>(selector: (state: ChatState) => S): S {
 export function draftKeyFor(projectDir: string | null, processId: string | null): string {
   return JSON.stringify([projectDir ?? "", processId ?? "", "", "main", "", ""]);
 }
+
+const draftSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingDraftSaves = new Map<string, { text: string; attachments: PromptAttachment[] }>();
+const inFlightDraftSaves = new Map<string, Promise<void>>();
 
 export function hydrateComposerDrafts(items: ComposerDraftRecord[]): void {
   const next: Record<string, { text: string; attachments: PromptAttachment[] }> = {};
@@ -97,10 +121,80 @@ export function hydrateComposerDrafts(items: ComposerDraftRecord[]): void {
       };
     }
   }
+  const currentDrafts = chatStore.getState().drafts;
+  for (const key of inFlightDraftSaves.keys()) {
+    if (currentDrafts[key]) {
+      next[key] = currentDrafts[key];
+    }
+  }
+  for (const [key, pending] of pendingDraftSaves.entries()) {
+    next[key] = pending;
+  }
   chatStore.setState({ drafts: next });
 }
 
-let draftSaveTimer: number | null = null;
+export async function persistDraftNow(key: string): Promise<void> {
+  const timer = draftSaveTimers.get(key);
+  if (timer !== undefined) {
+    clearTimeout(timer);
+    draftSaveTimers.delete(key);
+  }
+  const existing = inFlightDraftSaves.get(key);
+  if (existing) {
+    await existing;
+    if (!pendingDraftSaves.has(key)) return;
+  }
+  if (!pendingDraftSaves.has(key)) return;
+
+  const run = (async () => {
+    try {
+      while (pendingDraftSaves.has(key)) {
+        const next = pendingDraftSaves.get(key)!;
+        pendingDraftSaves.delete(key);
+        const empty = !next.text.trim() && next.attachments.length === 0;
+        try {
+          await invoke("composer_draft_save", {
+            key,
+            draft: empty ? null : { text: next.text, attachments: next.attachments },
+          });
+        } catch (error) {
+          appendLog(`保存草稿失败: ${formatError(error)}`, "warn");
+        }
+      }
+    } finally {
+      inFlightDraftSaves.delete(key);
+    }
+  })();
+
+  inFlightDraftSaves.set(key, run);
+  await run;
+}
+
+export async function flushPendingDraftSaves(): Promise<void> {
+  while (
+    draftSaveTimers.size > 0 ||
+    pendingDraftSaves.size > 0 ||
+    inFlightDraftSaves.size > 0
+  ) {
+    const keys = Array.from(
+      new Set([
+        ...draftSaveTimers.keys(),
+        ...pendingDraftSaves.keys(),
+        ...inFlightDraftSaves.keys(),
+      ])
+    );
+    await Promise.all(keys.map((key) => persistDraftNow(key)));
+  }
+}
+
+export function clearPendingDraftTimersForTest(): void {
+  for (const timer of draftSaveTimers.values()) {
+    clearTimeout(timer);
+  }
+  draftSaveTimers.clear();
+  pendingDraftSaves.clear();
+  inFlightDraftSaves.clear();
+}
 
 export function updateDraft(
   projectDir: string | null,
@@ -109,23 +203,47 @@ export function updateDraft(
   attachments: PromptAttachment[]
 ): void {
   const key = draftKeyFor(projectDir, processId);
+  const snapshot = { text, attachments };
   chatStore.setState((prev) => ({
     ...prev,
     drafts: {
       ...prev.drafts,
-      [key]: { text, attachments },
+      [key]: snapshot,
     },
   }));
-  if (typeof window !== "undefined") {
-    if (draftSaveTimer !== null) window.clearTimeout(draftSaveTimer);
-    draftSaveTimer = window.setTimeout(() => {
-      const empty = !text.trim() && attachments.length === 0;
-      invoke("composer_draft_save", {
-        key,
-        draft: empty ? null : { text, attachments },
-      }).catch(() => {});
-    }, 350);
+  pendingDraftSaves.set(key, snapshot);
+  const prevTimer = draftSaveTimers.get(key);
+  if (prevTimer !== undefined) {
+    clearTimeout(prevTimer);
   }
+  const nextTimer = setTimeout(() => {
+    void persistDraftNow(key);
+  }, 350);
+  draftSaveTimers.set(key, nextTimer);
+}
+
+export function resetChatSession(): void {
+  chatStore.setState({
+    sessionId: null,
+    projectDir: null,
+    processId: null,
+    messages: [],
+    total: 0,
+    startIndex: 0,
+    hasMore: false,
+    loading: false,
+    loadingOlder: false,
+    streamingText: "",
+    streamingReasoning: "",
+    liveTools: [],
+    liveSubagents: [],
+    stageText: "就绪",
+    lastError: null,
+    lastUsage: null,
+    lastActionReport: null,
+    searchOpen: false,
+    searchQuery: "",
+  });
 }
 
 export async function loadConversationMessages(
@@ -133,10 +251,25 @@ export async function loadConversationMessages(
   processId: string | null,
   sessionId: string
 ): Promise<void> {
-  chatStore.setState({
+  const switchingSession = chatStore.getState().sessionId !== sessionId;
+  chatStore.setState((prev) => ({
+    ...prev,
     projectDir,
     processId,
     sessionId,
+    ...(switchingSession
+      ? {
+          messages: [],
+          total: 0,
+          startIndex: 0,
+          hasMore: false,
+          stageText: "就绪",
+          lastUsage: null,
+          lastActionReport: null,
+          searchOpen: false,
+          searchQuery: "",
+        }
+      : {}),
     loading: true,
     loadingOlder: false,
     streamingText: "",
@@ -144,7 +277,7 @@ export async function loadConversationMessages(
     liveTools: [],
     liveSubagents: [],
     lastError: null,
-  });
+  }));
   try {
     const page = await invoke<ConversationMessagePage>("conversation_page_messages", {
       projectDir,
@@ -462,7 +595,7 @@ export async function clearCurrentConversation(): Promise<void> {
     await loadConversationMessages(projectDir, active.id, active.session_id);
     pushToast("已开启新对话段", "ok");
   } catch (error) {
-    pushToast(`清空对话失败：${formatError(error)}`, "error");
+    pushToast(`重开上下文失败：${formatError(error)}`, "error");
   }
 }
 

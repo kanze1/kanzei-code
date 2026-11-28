@@ -53,14 +53,31 @@ static EVENTS: std::sync::OnceLock<crate::app_events::AppEvents> = std::sync::On
 pub(crate) fn install(app: &crate::app_events::AppEvents) {
     let _ = EVENTS.set(app.clone());
 }
+fn lifecycle_payload(
+    session: &str,
+    snapshot: &kanzei_core::session_lifecycle::Snapshot,
+) -> serde_json::Value {
+    crate::with_session_id(serde_json::json!({"runtime":snapshot}), session)
+}
+
 pub(crate) fn publish(session: &str, snapshot: &kanzei_core::session_lifecycle::Snapshot) {
     use tauri::Emitter;
     if let Some(app) = EVENTS.get() {
-        let _ = app.emit(
-            "kz:lifecycle",
-            crate::with_session_id(serde_json::json!({"runtime":snapshot}), session),
-        );
+        let _ = app.emit("kz:lifecycle", lifecycle_payload(session, snapshot));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn lifecycle_wire_format_matches_web_fixture() {
+    use kanzei_core::session_lifecycle::{Activity, ConversationSupervisor};
+    let mut supervisor = ConversationSupervisor::default();
+    supervisor.apply(Event::Acquire(Activity::Run)).unwrap();
+    let mut snapshot = supervisor.apply(Event::Acquired).unwrap();
+    snapshot.actor_epoch = "test-actor".into();
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../web/src/ipc/lifecycle-active.fixture.json")).unwrap();
+    assert_eq!(lifecycle_payload("ses-demo", &snapshot), fixture);
 }
 
 /// Compatibility render notifications are derived from the authoritative receipt.
@@ -170,31 +187,42 @@ pub(crate) async fn close_runtime(
         }
         runtime.transition(Event::CloseRequested)?;
     }
-    let session = crate::process_session_id(root, Some(process));
-    {
-        let path = kanzei_core::project_state_path(root);
-        let store = kanzei_core::SessionStore::open(&path).map_err(|e| e.to_string())?;
-        crate::request_runtime_stop(runtime, &store, &path, &session).map_err(|e| e.to_string())?;
+    stop_runtime(runtime, root, process)?;
+    wait_until_idle(runtime).await?;
+    let handle = runtime.current_run.lock_or_recover().take();
+    if let Some(handle) = handle {
+        handle.await.map_err(|e| e.to_string())?;
     }
-    ensure_stop_supervisor(runtime, root, process)?;
+    runtime.transition(Event::Closed)
+}
+
+/// Request and supervise cancellation without permanently closing the conversation.
+pub(crate) fn stop_runtime(
+    runtime: &Arc<SessionRuntime>,
+    root: &Path,
+    process: &str,
+) -> Result<(), String> {
+    let session = crate::process_session_id(root, Some(process));
+    let path = kanzei_core::project_state_path(root);
+    let store = kanzei_core::SessionStore::open(&path).map_err(|e| e.to_string())?;
+    crate::request_runtime_stop(runtime, &store, &path, &session).map_err(|e| e.to_string())?;
+    ensure_stop_supervisor(runtime, root, process)
+}
+
+pub(crate) async fn wait_until_idle(runtime: &SessionRuntime) -> Result<(), String> {
     loop {
         let changed = runtime.changed.notified();
         tokio::pin!(changed);
         changed.as_mut().enable();
         let snapshot = runtime.snapshot();
         match snapshot.phase {
-            Phase::Idle => break,
+            Phase::Idle => return Ok(()),
             Phase::Blocked => {
                 return Err(snapshot.error.unwrap_or_else(|| "对话回收未完成".into()))
             }
             _ => changed.await,
         }
     }
-    let handle = runtime.current_run.lock_or_recover().take();
-    if let Some(handle) = handle {
-        handle.await.map_err(|e| e.to_string())?;
-    }
-    runtime.transition(Event::Closed)
 }
 
 /// Wake the durable inbox after an exclusive mutation or idle resource stop.
@@ -207,7 +235,12 @@ pub(crate) fn wake_pending(session: &str) {
     let session = session.to_string();
     tauri::async_runtime::spawn(async move {
         let state = app.state::<crate::AppState>();
-        let runtime = crate::runtime_for(&state, &session);
+        if crate::app_lifecycle::is_shutting_down() {
+            return;
+        }
+        let Some(runtime) = state.runtimes.lock_or_recover().get(&session).cloned() else {
+            return;
+        };
         let s = runtime.snapshot();
         if s.existence != kanzei_core::session_lifecycle::Existence::Open || s.phase != Phase::Idle
         {
@@ -247,7 +280,14 @@ pub(crate) fn wake_pending(session: &str) {
             .map(|_| ())
         })();
         if let Err(error) = result {
-            let _ = runtime.transition(Event::Failed(error));
+            let _lifecycle = runtime.lifecycle.lock_or_recover();
+            let snapshot = runtime.snapshot();
+            if !crate::app_lifecycle::is_shutting_down()
+                && snapshot.existence == kanzei_core::session_lifecycle::Existence::Open
+                && snapshot.phase == Phase::Idle
+            {
+                let _ = runtime.transition(Event::Failed(error));
+            }
         }
     });
 }

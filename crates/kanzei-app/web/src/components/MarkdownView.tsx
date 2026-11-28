@@ -62,15 +62,17 @@ function renderInline(text: string): React.ReactNode[] {
           </a>
         );
       } else {
-        const anchor = /(?:#L([1-9]\d*)(?:-L[1-9]\d*)?|:([1-9]\d*))$/i.exec(href);
-        const path = anchor ? href.slice(0, anchor.index) : href;
+        const anchor = /(?:#L([1-9]\d*)(?:C\d+)?(?:-L?[1-9]\d*(?:C\d+)?)?|:([1-9]\d*)(?:-[1-9]\d*|:\d+)?)$/i.exec(href);
+        const withoutLine = anchor ? href.slice(0, anchor.index) : href;
+        const hashIdx = withoutLine.indexOf("#");
+        const path = hashIdx > 0 ? withoutLine.slice(0, hashIdx) : withoutLine;
         const line = anchor ? Number(anchor[1] ?? anchor[2]) : null;
         nodes.push(
           <button
             key={key++}
             type="button"
             className="md-file-link"
-            onClick={() => void openFileInDrawer(path, { line })}
+            onClick={() => void openFileInDrawer(path, { line, decodeUri: true })}
           >
             {label}
           </button>

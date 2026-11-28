@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { formatError, getCurrentWindow, invoke } from "../ipc/client";
 import { projectDisplayName, useAppStore } from "../store/appStore";
-import { useChatStore } from "../store/chatStore";
+import { flushPendingDraftSaves, useChatStore } from "../store/chatStore";
 import { drawerStore, toggleDrawer, useDrawerStore } from "../store/drawerStore";
 import { getActiveProcess, sessionStore, useSessionStore } from "../store/sessionStore";
 import {
@@ -25,6 +25,7 @@ export function WindowChrome(): React.ReactElement {
   const inboxOpen = useUiStore((s) => s.inboxOpen);
   const inboxCount = useUiStore((s) => s.globalAsks.length + s.recentCompleted.length);
   const inboxAskCount = useUiStore((s) => s.globalAsks.length);
+  const inboxError = useUiStore((s) => s.globalAsksError);
   const drawerOpen = useDrawerStore((s) => s.open);
   const drawerMode = useDrawerStore((s) => s.mode);
   const gitChanges = useDrawerStore((s) => s.gitStatus?.changes ?? 0);
@@ -110,9 +111,11 @@ export function WindowChrome(): React.ReactElement {
 
     uiStore.setState({ closingWindow: true, windowError: "" });
     try {
-      await invoke("app_shutdown").catch((err) => {
-        uiStore.setState({ windowError: formatError(err) });
-      });
+      await flushPendingDraftSaves();
+      const receipt = await invoke<{ state: string }>("app_shutdown");
+      if (receipt?.state !== "quiescent") {
+        throw new Error("后台未确认停止，窗口未关闭");
+      }
       const win = getCurrentWindow();
       if (win) {
         await win.close();
@@ -180,13 +183,23 @@ export function WindowChrome(): React.ReactElement {
         <div className="window-header-actions">
           <button
             type="button"
-            className={`chrome-pill${inboxOpen ? " active" : ""}${inboxAskCount > 0 ? " warn" : ""}`}
-            title="全局待办收件箱（跨项目权限审批与后台完工提醒）"
+            className={`chrome-pill${inboxOpen ? " active" : ""}${
+              inboxAskCount > 0 || inboxError ? " warn" : ""
+            }`}
+            title={
+              inboxError
+                ? `待办收件箱读取失败：${inboxError}`
+                : "全局待办收件箱（跨项目权限审批与后台完工提醒）"
+            }
             onClick={() => uiStore.setState({ inboxOpen: !inboxOpen })}
           >
             <IconShield size={13} />
             <span>收件箱</span>
-            {inboxCount > 0 && <span className="chrome-pill-count">{inboxCount}</span>}
+            {inboxError ? (
+              <span className="chrome-pill-count">!</span>
+            ) : (
+              inboxCount > 0 && <span className="chrome-pill-count">{inboxCount}</span>
+            )}
           </button>
 
           <button

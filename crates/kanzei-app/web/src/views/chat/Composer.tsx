@@ -23,6 +23,7 @@ import {
   compactCurrentConversation,
   draftKeyFor,
   sendPrompt,
+  setAutoAllow,
   stopCurrentRun,
   updateDraft,
   useChatStore,
@@ -169,11 +170,17 @@ export function Composer(): React.ReactElement {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const prevDraftKeyRef = useRef(key);
   useEffect(() => {
-    setText(storedDraft?.text ?? "");
-    setAttachments(storedDraft?.attachments ?? []);
-    setHistoryCursor(null);
-  }, [key, storedDraft?.text]);
+    const nextText = storedDraft?.text ?? "";
+    const nextAttachments = storedDraft?.attachments ?? [];
+    setText((prev) => (prev === nextText ? prev : nextText));
+    setAttachments((prev) => (prev === nextAttachments ? prev : nextAttachments));
+    if (prevDraftKeyRef.current !== key) {
+      prevDraftKeyRef.current = key;
+      setHistoryCursor(null);
+    }
+  }, [key, storedDraft]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -572,7 +579,6 @@ export function Composer(): React.ReactElement {
   const defaultReasoningVal = effectiveModel?.defaultReasoning?.value ?? null;
   const currentSubagentMode = activeProcess?.subagent_mode ?? "auto";
   const researchLocked = Boolean(activeProcess?.research_topic);
-  const autoRunActive = !generalMode && autoRun.enabled && !autoRun.paused;
 
   const profileOptions = withFallbackOption(
     generalMode ? GENERAL_COMPOSER_PROFILES : PROJECT_COMPOSER_PROFILES,
@@ -1047,36 +1053,37 @@ export function Composer(): React.ReactElement {
                     />
                   )}
                   {!generalMode && (
-                    <>
-                      <button
-                        type="button"
-                        className={`composer-toggle-pill${autoAllow && autoRunActive ? " active" : ""}`}
-                        disabled={!hasProcess || !autoRunActive}
-                        onClick={() => chatStore.setState({ autoAllow: !autoAllow })}
-                        title={
-                          autoRunActive
-                            ? "自动推进期间自动放行常规工具权限"
-                            : "仅在开启「自动推进」时生效（单轮交互按常规规则确认）"
-                        }
-                      >
-                        <IconShield size={12} />
-                        <span>自动放行</span>
-                      </button>
-                      <button
-                        type="button"
-                        className={`btn btn-ghost btn-icon btn-sm${autoRun.goal ? " active" : ""}`}
-                        disabled={!hasProcess}
-                        onClick={() => void handleEditGoal()}
-                        title={autoRun.goal ? `修改自动推进目标：${autoRun.goal}` : "设置自动推进停止目标"}
-                        aria-label="设置自动推进目标"
-                      >
-                        <IconTarget size={13} />
-                      </button>
-                    </>
+                    <button
+                      type="button"
+                      className={`btn btn-ghost btn-icon btn-sm${autoRun.goal ? " active" : ""}`}
+                      disabled={!hasProcess}
+                      onClick={() => void handleEditGoal()}
+                      title={autoRun.goal ? `修改自动推进目标：${autoRun.goal}` : "设置自动推进停止目标"}
+                      aria-label="设置自动推进目标"
+                    >
+                      <IconTarget size={13} />
+                    </button>
                   )}
                 </>
               )}
             </ControlPopover>
+            <button
+              type="button"
+              className={`composer-toggle-pill${autoAllow ? " active-warn" : ""}`}
+              aria-pressed={autoAllow}
+              disabled={!hasProcess}
+              onClick={() => setAutoAllow(!autoAllow)}
+              title={
+                !hasProcess
+                  ? "请先选择或创建对话"
+                  : autoAllow
+                  ? "权限审批：自动放行常规工具权限（敏感凭证、硬拒绝规则、越界路径与只读档位仍会拦截）— 点击切回逐项确认"
+                  : "权限审批：逐项确认 — 点击切换为自动放行常规工具权限（不依赖自动推进）"
+              }
+            >
+              <IconShield size={12} />
+              <span>{autoAllow ? "自动放行" : "逐项确认"}</span>
+            </button>
             {!generalMode && (
               <button
                 type="button"

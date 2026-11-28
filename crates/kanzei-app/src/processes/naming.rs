@@ -61,14 +61,6 @@ pub(crate) fn process_ordinal(process_id: &str) -> Option<u64> {
         .ok()
 }
 
-/// 没有任何标题可用时的展示名:「对话」「讨论 3」「对话 5」。
-pub(crate) fn fallback_label(kind: ProcessKind, ordinal: Option<u64>) -> String {
-    match (kind, ordinal) {
-        (_, None) => kind.word().to_string(),
-        (_, Some(ordinal)) => format!("{} {ordinal}", kind.word()),
-    }
-}
-
 /// 线路顺序键:`pN` 按**数字**升序(p2 在 p10 之前),其它形态垫底、
 /// 彼此按 id 字面序。原先按 id 字符串排,p10 会挤到 p2 前面(UX-162)。
 pub(crate) fn order_key(process_id: &str) -> (u8, u64, &str) {
@@ -119,16 +111,16 @@ impl SessionNaming {
         self.custom.as_deref().or(self.auto.as_deref())
     }
 
-    /// 展示名:有标题用标题,否则类型 + 序号。永不为空。
-    pub(crate) fn display(&self, kind: ProcessKind, ordinal: Option<u64>) -> String {
+    /// 展示名与内部编号解耦；未发消息时使用类型名称。
+    pub(crate) fn display(&self, kind: ProcessKind) -> String {
         match self.title() {
             Some(title) => title.to_string(),
-            None => fallback_label(kind, ordinal),
+            None => format!("新{}", kind.word()),
         }
     }
 }
 
-/// 只读打开项目的 state.db 取命名事实;库不存在或打不开就是没有(调用方回落到类型 + 序号)。
+/// 只读打开项目的 state.db 取命名事实;库不存在或打不开就是没有(调用方回落到类型名称)。
 pub(crate) fn open_naming_store(root: &Path) -> Option<SessionStore> {
     let path = kanzei_core::project_state_path(root);
     if !path.is_file() {
@@ -262,24 +254,6 @@ mod tests {
     }
 
     #[test]
-    fn 没有标题时回落到类型加序号且不再出现pn与默认() {
-        assert_eq!(fallback_label(ProcessKind::Conversation, None), "对话");
-        assert_eq!(fallback_label(ProcessKind::Discussion, Some(3)), "讨论 3");
-        assert_eq!(
-            fallback_label(ProcessKind::Conversation, Some(26)),
-            "对话 26"
-        );
-        assert_eq!(fallback_label(ProcessKind::Conversation, None), "对话");
-        for label in [
-            fallback_label(ProcessKind::Conversation, None),
-            fallback_label(ProcessKind::Discussion, Some(3)),
-            fallback_label(ProcessKind::Conversation, Some(26)),
-        ] {
-            assert!(!label.contains('p') && !label.contains("默认"), "{label}");
-        }
-    }
-
-    #[test]
     fn 线路按数字序排_旧格式没有特殊顺位() {
         let mut ids = vec![
             "p10|C:\\proj".to_string(),
@@ -330,24 +304,22 @@ mod tests {
     }
 
     #[test]
-    fn 展示名优先级_用户命名_自动标题_类型序号() {
+    fn 展示名优先级_用户命名_自动标题_不带编号() {
         let custom = SessionNaming {
             custom: Some("方案对照".into()),
             auto: Some("不会用到".into()),
             updated_at: Some(1),
         };
-        assert_eq!(
-            custom.display(ProcessKind::Conversation, Some(7)),
-            "方案对照"
-        );
+        assert_eq!(custom.display(ProcessKind::Conversation), "方案对照");
         let auto = SessionNaming {
             custom: None,
             auto: Some("修登录页".into()),
             updated_at: None,
         };
-        assert_eq!(auto.display(ProcessKind::Discussion, Some(2)), "修登录页");
+        assert_eq!(auto.display(ProcessKind::Discussion), "修登录页");
         let none = SessionNaming::default();
-        assert_eq!(none.display(ProcessKind::Discussion, Some(2)), "讨论 2");
+        assert_eq!(none.display(ProcessKind::Discussion), "新讨论");
+        assert_eq!(none.display(ProcessKind::Conversation), "新对话");
         assert_eq!(none.title(), None);
     }
 
@@ -377,7 +349,7 @@ mod tests {
         let renamed = load_naming(&store, "ses_disc", ProcessKind::Discussion);
         assert_eq!(renamed.custom.as_deref(), Some("需求梳理"));
         assert_eq!(renamed.auto, None, "有用户命名就不再读首条消息");
-        // 会话行不存在:全空,调用方回落到类型 + 序号。
+        // 会话行不存在:全空,调用方回落到类型名称。
         assert_eq!(
             load_naming(&store, "ses_none", ProcessKind::Conversation),
             SessionNaming::default()

@@ -16,6 +16,7 @@ import { IconActivity, IconClose, IconRefresh, IconShield } from "../components/
 export function InboxDrawer(): React.ReactElement | null {
   const open = useUiStore((s) => s.inboxOpen);
   const globalAsks = useUiStore((s) => s.globalAsks);
+  const globalAsksError = useUiStore((s) => s.globalAsksError);
   const recentCompleted = useUiStore((s) => s.recentCompleted);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -104,10 +105,32 @@ export function InboxDrawer(): React.ReactElement | null {
         <div className="modal-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <section>
             <div className="inbox-section-head">
-              <strong>待确认权限与提问（{globalAsks.length}）</strong>
+              <strong>待确认权限与提问（{globalAsksError ? "读取失败" : globalAsks.length}）</strong>
               <span className="field-hint">跨项目直接审批，无需来回切换窗口</span>
             </div>
-            {globalAsks.length === 0 ? (
+            {globalAsksError ? (
+              <div
+                className="inbox-card"
+                role="alert"
+                style={{ borderColor: "var(--err, #ef4444)" }}
+              >
+                <div className="inbox-card-head">
+                  <span className="badge badge-err">待办读取失败</span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => void refreshGlobalInbox()}
+                  >
+                    重试读取
+                  </button>
+                </div>
+                <div className="inbox-card-body">
+                  <div style={{ color: "var(--err)", fontSize: 12.5 }}>
+                    无法确认是否存在待审批任务：{globalAsksError}
+                  </div>
+                </div>
+              </div>
+            ) : globalAsks.length === 0 ? (
               <div className="inbox-empty">当前没有待处理的权限请求或提问。</div>
             ) : (
               <div className="inbox-list">

@@ -1,8 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { addExistingProject, appStore, openGeneralChat, useAppStore } from "../store/appStore";
+import {
+  addExistingProject,
+  appStore,
+  createConversation,
+  openGeneralChat,
+  useAppStore,
+} from "../store/appStore";
 import { chatStore, clearCurrentConversation, compactCurrentConversation } from "../store/chatStore";
 import { toggleDrawer } from "../store/drawerStore";
-import { createConversation } from "../store/sessionStore";
 import {
   navigateBack,
   navigateView,
@@ -53,7 +58,7 @@ export function CommandPalette(): React.ReactElement | null {
       {
         id: "clear-chat",
         group: "对话",
-        label: "清空当前对话（开启新段）",
+        label: "重开当前对话的上下文",
         shortcut: "Ctrl+Shift+C",
         run: () => void clearCurrentConversation(),
       },

@@ -60,14 +60,18 @@ pub(crate) struct RunMode {
 
 impl RunMode {
     pub(crate) fn ask_policy(&self, agent: &str) -> kanzei_core::AskPolicy {
-        if !self.autonomous && agent == kanzei_harness::DEV_AUTO_AGENT {
-            kanzei_core::AskPolicy::DeferredQuestions
-        } else if !self.autonomous {
-            kanzei_core::AskPolicy::Interactive
+        if self.autonomous {
+            if self.auto_allow {
+                kanzei_core::AskPolicy::AutoAllow
+            } else {
+                kanzei_core::AskPolicy::NonInteractive
+            }
         } else if self.auto_allow {
-            kanzei_core::AskPolicy::AutoAllow
+            kanzei_core::AskPolicy::InteractiveAutoAllow
+        } else if agent == kanzei_harness::DEV_AUTO_AGENT {
+            kanzei_core::AskPolicy::DeferredQuestions
         } else {
-            kanzei_core::AskPolicy::NonInteractive
+            kanzei_core::AskPolicy::Interactive
         }
     }
     /// Product mode is independent of whether this input was automatically submitted.
@@ -1524,19 +1528,25 @@ mod tests {
             autonomous: false,
             auto_allow: false,
         };
-        use kanzei_core::AskPolicy::{AutoAllow, DeferredQuestions, Interactive, NonInteractive};
+        use kanzei_core::AskPolicy::{
+            AutoAllow, DeferredQuestions, Interactive, InteractiveAutoAllow, NonInteractive,
+        };
         for (agent, autonomous, auto_allow, expected) in [
             ("dev-auto", false, false, DeferredQuestions),
-            ("dev-auto", false, true, DeferredQuestions),
+            ("dev-auto", false, true, InteractiveAutoAllow),
             ("dev-auto", true, false, NonInteractive),
             ("dev-auto", true, true, AutoAllow),
             ("dev-pair", false, false, Interactive),
+            ("dev-pair", false, true, InteractiveAutoAllow),
             ("dev-pair", true, false, NonInteractive),
             ("dev-pair", true, true, AutoAllow),
             ("research", false, false, Interactive),
+            ("research", false, true, InteractiveAutoAllow),
             ("research", true, false, NonInteractive),
             ("general", false, false, Interactive),
+            ("general", false, true, InteractiveAutoAllow),
             ("readonly", false, false, Interactive),
+            ("readonly", false, true, InteractiveAutoAllow),
         ] {
             mode.autonomous = autonomous;
             mode.auto_allow = auto_allow;

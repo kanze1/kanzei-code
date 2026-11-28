@@ -220,7 +220,7 @@ pub(crate) mod tests {
     async fn files_snapshot_形状与ipc契约一致() {
         let root = fixture_project();
         let actual = shape(
-            &crate::files_view::files_snapshot(root.display().to_string())
+            &crate::files_view::files_snapshot(root.display().to_string(), None)
                 .await
                 .expect("夹具项目应能取到文件快照"),
         );
@@ -235,9 +235,13 @@ pub(crate) mod tests {
     async fn file_preview_形状与ipc契约一致() {
         let root = fixture_project();
         let actual = shape(
-            &crate::files_view::file_preview(root.display().to_string(), "src/main.rs".into())
-                .await
-                .expect("夹具项目应能预览源码文件"),
+            &crate::files_view::file_preview(
+                root.display().to_string(),
+                "src/main.rs".into(),
+                None,
+            )
+            .await
+            .expect("夹具项目应能预览源码文件"),
         );
         check_contract("file_preview", actual, "file_preview 的 IPC 形状变了");
         let _ = std::fs::remove_dir_all(&root);
@@ -247,7 +251,7 @@ pub(crate) mod tests {
     async fn file_stat_形状与ipc契约一致() {
         let root = fixture_project();
         let actual = shape(
-            &crate::files_edit::file_stat(root.display().to_string(), "src/main.rs".into())
+            &crate::files_edit::file_stat(root.display().to_string(), "src/main.rs".into(), None)
                 .await
                 .expect("夹具项目应能取到文件状态"),
         );
@@ -273,6 +277,7 @@ pub(crate) mod tests {
                 Some(expected),
                 Some(false),
                 Some(true),
+                None,
             )
             .await
             .expect("夹具项目应能写入源码文件"),
@@ -301,10 +306,62 @@ pub(crate) mod tests {
             "tool_image 的返回形状变了",
         );
         let file_img =
-            crate::attachments::file_image(root.display().to_string(), "chart.png".into())
+            crate::attachments::file_image(root.display().to_string(), "chart.png".into(), None)
                 .await
                 .expect("项目图片应能读取");
         check_contract("file_image", shape(&file_img), "file_image 的返回形状变了");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn context_snapshot_形状与ipc契约一致() {
+        use kanzei_core::context_manifest::{ContextCapture, ContextSnapshot};
+        let root = fixture_project();
+        let state_path = kanzei_core::project_state_path(&root);
+        let store = kanzei_core::SessionStore::open(&state_path).unwrap();
+        store.create_session("ses-ctx", "project", None).unwrap();
+        let system_text = "项目系统规则";
+        let request = kanzei_llm::LlmRequest {
+            model: "fixture-model".into(),
+            system: vec![system_text.into()],
+            messages: vec![kanzei_llm::Message::user_text("检查上下文")],
+            tools: vec![],
+            hosted_tools: vec![],
+            max_tokens: 1024,
+            temperature: None,
+            reasoning: Default::default(),
+            service_tier: None,
+        };
+        let route = kanzei_llm::Route::openai_at("http://127.0.0.1/v1", None);
+        let captured = ContextSnapshot::capture(
+            &request,
+            &route,
+            ContextCapture {
+                system_sources: &[vec![("agent/system".into(), system_text.len())]],
+                estimated_tokens: 42,
+                ..Default::default()
+            },
+        );
+        let mut writer = kanzei_core::TypedSessionWriter::new(&state_path, "ses-ctx", "run-1");
+        assert!(writer.user_message("in-1", kanzei_llm::Message::user_text("检查上下文")));
+        writer.turn_started(1, 0);
+        let receipt = writer.record_context_request(captured).unwrap();
+        drop(writer);
+        let value = crate::context_view::snapshot(&root, "ses-ctx", Some(receipt.sequence))
+            .expect("夹具会话应能取到上下文快照");
+        assert!(
+            value["selected"]["manifest"]["blocks"][0]["source"].is_object(),
+            "system block 的 source 必须是结构化对象"
+        );
+        assert_eq!(
+            value["selected"]["manifest"]["blocks"][0]["label"],
+            "agent/system"
+        );
+        check_contract(
+            "context_snapshot",
+            shape(&value),
+            "context_snapshot 的 IPC 形状变了",
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 }

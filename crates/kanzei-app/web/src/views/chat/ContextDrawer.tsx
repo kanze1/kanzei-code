@@ -55,7 +55,7 @@ interface SnapshotFileEntry {
   lines?: number;
 }
 
-interface DiffHunk {
+export interface DiffHunk {
   index: number;
   header: string;
   oldStart: number;
@@ -65,7 +65,7 @@ interface DiffHunk {
   lines: string[];
 }
 
-function parseUnifiedDiffHunks(diffText: string): { metaLines: string[]; hunks: DiffHunk[] } {
+export function parseUnifiedDiffHunks(diffText: string): { metaLines: string[]; hunks: DiffHunk[] } {
   const all = diffText.split("\n");
   const metaLines: string[] = [];
   const hunks: DiffHunk[] = [];
@@ -95,37 +95,84 @@ function parseUnifiedDiffHunks(diffText: string): { metaLines: string[]; hunks: 
   return { metaLines, hunks };
 }
 
-function applyReverseHunk(content: string, hunk: DiffHunk): string | null {
+export function applyReverseHunk(content: string, hunk: DiffHunk): string | null {
   const eol = content.includes("\r\n") ? "\r\n" : "\n";
-  const fileLines = content.split(/\r?\n/);
+  const hasTrailingEol = content.endsWith("\r\n") || content.endsWith("\n");
+  const bodyWithoutTrailingEol = hasTrailingEol
+    ? content.slice(0, content.endsWith("\r\n") ? -2 : -1)
+    : content;
+  const fileLines = content.length === 0 ? [] : bodyWithoutTrailingEol.split(/\r?\n/);
+
   const expectedNew: string[] = [];
   const restoredOld: string[] = [];
+  let lastLineKind: "+" | "-" | " " | null = null;
+  let oldNoNewline = false;
+  let newNoNewline = false;
+
   for (const raw of hunk.lines) {
-    if (raw.startsWith("\\ No newline")) continue;
+    if (raw.startsWith("\\ ")) {
+      if (lastLineKind === "-") {
+        oldNoNewline = true;
+      } else if (lastLineKind === "+") {
+        newNoNewline = true;
+      } else if (lastLineKind === " ") {
+        oldNoNewline = true;
+        newNoNewline = true;
+      }
+      continue;
+    }
     if (raw.startsWith("+")) {
       expectedNew.push(raw.slice(1));
+      lastLineKind = "+";
     } else if (raw.startsWith("-")) {
       restoredOld.push(raw.slice(1));
+      lastLineKind = "-";
     } else if (raw.startsWith(" ")) {
       const body = raw.slice(1);
       expectedNew.push(body);
       restoredOld.push(body);
+      lastLineKind = " ";
     }
   }
-  const startIdx = Math.max(0, hunk.newStart - 1);
-  if (expectedNew.length > 0) {
-    for (let i = 0; i < expectedNew.length; i++) {
-      if (fileLines[startIdx + i] !== expectedNew[i]) {
-        return null;
-      }
+
+  const startIdx =
+    hunk.newCount === 0
+      ? Math.min(fileLines.length, hunk.newStart)
+      : Math.max(0, hunk.newStart - 1);
+  if (startIdx + expectedNew.length > fileLines.length) {
+    return null;
+  }
+  for (let i = 0; i < expectedNew.length; i += 1) {
+    if (fileLines[startIdx + i] !== expectedNew[i]) {
+      return null;
     }
   }
+
+  const touchesEnd = startIdx + expectedNew.length === fileLines.length;
+  if (touchesEnd && newNoNewline && hasTrailingEol) {
+    return null;
+  }
+
   const nextLines = [
     ...fileLines.slice(0, startIdx),
     ...restoredOld,
     ...fileLines.slice(startIdx + expectedNew.length),
   ];
-  return nextLines.join(eol);
+  if (nextLines.length === 0) {
+    return "";
+  }
+
+  let nextHasTrailingEol = hasTrailingEol;
+  if (touchesEnd) {
+    if (oldNoNewline) {
+      nextHasTrailingEol = false;
+    } else if (newNoNewline) {
+      nextHasTrailingEol = true;
+    } else if (fileLines.length === 0) {
+      nextHasTrailingEol = true;
+    }
+  }
+  return nextLines.join(eol) + (nextHasTrailingEol ? eol : "");
 }
 
 interface SplitDiffRow {
@@ -239,6 +286,7 @@ export function ContextDrawer(): React.ReactElement | null {
   const editDirty = useDrawerStore((s) => s.editDirty);
   const saving = useDrawerStore((s) => s.saving);
   const conflictMessage = useDrawerStore((s) => s.conflictMessage);
+  const conflictExists = useDrawerStore((s) => s.conflictExists);
   const error = useDrawerStore((s) => s.error);
 
   const openTools = useAppStore((s) => s.openTools);
@@ -282,7 +330,7 @@ export function ContextDrawer(): React.ReactElement | null {
   const loadFilesSnapshot = () => {
     if (!projectDir || generalMode) return;
     setLoadingTree(true);
-    invoke<{ files?: SnapshotFileEntry[] }>("files_snapshot", { projectDir })
+    invoke<{ files?: SnapshotFileEntry[] }>("files_snapshot", { projectDir, worktreePath })
       .then((res) => setAllFiles(Array.isArray(res?.files) ? res.files : []))
       .catch(() => setAllFiles([]))
       .finally(() => setLoadingTree(false));
@@ -292,14 +340,14 @@ export function ContextDrawer(): React.ReactElement | null {
     if (open && mode === "files" && fileListScope === "all" && projectDir && !generalMode) {
       loadFilesSnapshot();
     }
-  }, [open, mode, fileListScope, projectDir, generalMode]);
+  }, [open, mode, fileListScope, projectDir, worktreePath, generalMode]);
 
   useEffect(() => {
     setSelectedLines(null);
     setImagePreviewSrc(null);
     if (!open || !projectDir || !activeFile || !IMAGE_EXT_RE.test(activeFile)) return;
     let cancelled = false;
-    invoke<{ png?: string }>("file_image", { projectDir, path: activeFile })
+    invoke<{ png?: string }>("file_image", { projectDir, path: activeFile, worktreePath })
       .then((res) => {
         if (!cancelled && res?.png) {
           setImagePreviewSrc(`data:image/png;base64,${res.png}`);
@@ -309,7 +357,7 @@ export function ContextDrawer(): React.ReactElement | null {
     return () => {
       cancelled = true;
     };
-  }, [open, projectDir, activeFile]);
+  }, [open, projectDir, worktreePath, activeFile]);
 
   const loadWorktrees = () => {
     if (!projectDir || generalMode) return;
@@ -362,14 +410,16 @@ export function ContextDrawer(): React.ReactElement | null {
     if (!projectDir || !activeFile) return;
     setRevertingHunk(hunk.index);
     try {
-      const latest = await invoke<{ content?: string | null; hash?: string | null; readonly?: string | null }>(
-        "file_preview",
-        {
-          projectDir,
-          path: activeFile,
-          worktreePath,
-        }
-      );
+      const latest = await invoke<{
+        content?: string | null;
+        hash?: string | null;
+        readonly?: string | null;
+        bom?: boolean;
+      }>("file_preview", {
+        projectDir,
+        path: activeFile,
+        worktreePath,
+      });
       if (latest?.readonly) {
         pushToast(`该文件不可编辑：${latest.readonly}`, "warn");
         return;
@@ -383,14 +433,25 @@ export function ContextDrawer(): React.ReactElement | null {
         pushToast("磁盘文件相对当前 Diff 已变化，请先刷新 Diff 再回退该块", "warn");
         return;
       }
-      await invoke("file_write", {
-        projectDir: worktreePath ?? projectDir,
+      const writeRes = await invoke<{ status?: string }>("file_write", {
+        projectDir,
         path: activeFile,
         content: nextContent,
         expectedHash: latest.hash,
+        bom: Boolean(latest.bom),
+        evidence: false,
+        worktreePath,
       });
+      if (writeRes?.status === "conflict") {
+        pushToast("磁盘文件在回退期间发生变化，未写入，请刷新 Diff 后重试", "warn");
+        return;
+      }
+      if (writeRes?.status !== "saved") {
+        pushToast("后端未确认回退写入，请刷新后检查", "error");
+        return;
+      }
       pushToast(`已回退代码块 #${hunk.index + 1}`, "ok", 2000);
-      await openFileInDrawer(activeFile, { tab: "diff" });
+      await openFileInDrawer(activeFile, { tab: "diff", projectDir, worktreePath });
       await refreshGitStatus(projectDir, worktreePath);
     } catch (err) {
       pushToast(`回退代码块失败：${formatError(err)}`, "error");
@@ -543,12 +604,16 @@ export function ContextDrawer(): React.ReactElement | null {
       const list = Array.isArray(steps) ? steps : [];
       setGateResults((prev) => ({ ...prev, [wt.path]: list }));
       const failed = list.filter((s) => !s.ok).length;
-      pushToast(
-        failed === 0
-          ? `工作树 ${wt.branch} 门禁全部通过 (${list.length} 项)`
-          : `工作树 ${wt.branch} 有 ${failed}/${list.length} 项门禁未通过`,
-        failed === 0 ? "ok" : "warn"
-      );
+      if (list.length === 0) {
+        pushToast(`工作树 ${wt.branch} 验证未执行：当前未检测到适用门禁检查（0 项）`, "info");
+      } else {
+        pushToast(
+          failed === 0
+            ? `工作树 ${wt.branch} 门禁全部通过 (${list.length} 项)`
+            : `工作树 ${wt.branch} 有 ${failed}/${list.length} 项门禁未通过`,
+          failed === 0 ? "ok" : "warn"
+        );
+      }
     } catch (err) {
       pushToast(`运行工作树门禁失败：${formatError(err)}`, "error");
     } finally {
@@ -564,12 +629,16 @@ export function ContextDrawer(): React.ReactElement | null {
       const list = Array.isArray(steps) ? steps : [];
       setPostMergeGate(list);
       const failed = list.filter((s) => !s.ok).length;
-      pushToast(
-        failed === 0
-          ? `主分支合并后全量门禁通过 (${list.length} 项)`
-          : `合并后门禁有 ${failed}/${list.length} 项失败`,
-        failed === 0 ? "ok" : "error"
-      );
+      if (list.length === 0) {
+        pushToast("主分支合并后验证未执行：当前未检测到适用门禁检查（0 项）", "info");
+      } else {
+        pushToast(
+          failed === 0
+            ? `主分支合并后全量门禁通过 (${list.length} 项)`
+            : `合并后门禁有 ${failed}/${list.length} 项失败`,
+          failed === 0 ? "ok" : "error"
+        );
+      }
     } catch (err) {
       pushToast(`运行合并后门禁失败：${formatError(err)}`, "error");
     } finally {
@@ -865,7 +934,11 @@ export function ContextDrawer(): React.ReactElement | null {
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    onClick={() => void openExternalPath(activeFile, activeEditor?.id)}
+                    onClick={() =>
+                      void openExternalPath(activeFile, activeEditor?.id, {
+                        processId: activeProcessId,
+                      })
+                    }
                     title={activeEditor ? `用 ${activeEditor.label} 打开` : "在资源管理器显示"}
                   >
                     <IconExternal size={12} />
@@ -922,7 +995,7 @@ export function ContextDrawer(): React.ReactElement | null {
                       className="btn btn-danger btn-sm"
                       onClick={() => void saveDrawerFile(true)}
                     >
-                      强制覆盖
+                      {conflictExists ? "强制覆盖" : "重新创建"}
                     </button>
                   </div>
                 </div>

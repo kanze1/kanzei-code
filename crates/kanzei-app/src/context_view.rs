@@ -21,7 +21,7 @@ fn owner(
     Ok((root, session))
 }
 
-fn snapshot(root: &Path, session: &str, sequence: Option<i64>) -> Result<Value, String> {
+pub(crate) fn snapshot(root: &Path, session: &str, sequence: Option<i64>) -> Result<Value, String> {
     let path = kanzei_core::project_state_path(root);
     if !path.is_file() {
         return Ok(json!({"sessionId":session,"requests":[],"selected":null,"web":[]}));

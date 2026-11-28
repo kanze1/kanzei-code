@@ -145,11 +145,9 @@ function classifyContextBlock(block: ContextBlockItem): { key: string; label: st
 export function StatusBar(): React.ReactElement {
   const appInfo = useAppStore((s) => s.appInfo);
   const projectDir = useAppStore((s) => s.activeProjectDir);
-  const generalMode = useAppStore((s) => s.generalMode);
   const stageText = useChatStore((s) => s.stageText);
   const lastUsage = useChatStore((s) => s.lastUsage);
   const autoAllow = useChatStore((s) => s.autoAllow);
-  const autoRun = useSessionStore((s) => s.autoRun);
   const effectiveModel = useSessionStore((s) => s.effectiveModel);
   const logPanelOpen = useUiStore((s) => s.logPanelOpen);
   const logCount = useUiStore((s) => s.logs.length);
@@ -290,8 +288,10 @@ export function StatusBar(): React.ReactElement {
               建议压缩
             </button>
           )}
-          {!generalMode && autoAllow && autoRun.enabled && !autoRun.paused && (
-            <span className="badge badge-warn">自动放行</span>
+          {autoAllow && (
+            <span className="badge badge-warn" title="常规非敏感工具权限将自动放行">
+              自动放行
+            </span>
           )}
         </div>
 

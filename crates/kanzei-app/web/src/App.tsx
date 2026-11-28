@@ -1,7 +1,9 @@
 import React, { Suspense, lazy, useEffect } from "react";
 import { installEventBridge } from "./ipc/events";
 import { bootstrapApp, useAppStore } from "./store/appStore";
+import { useSessionStore } from "./store/sessionStore";
 import { refreshGlobalInbox, useUiStore } from "./store/uiStore";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { WindowChrome } from "./shell/WindowChrome";
 import { Sidebar } from "./shell/Sidebar";
 import { StatusBar } from "./shell/StatusBar";
@@ -36,6 +38,8 @@ function ViewFallback(): React.ReactElement {
 export function App(): React.ReactElement {
   const view = useUiStore((s) => s.view);
   const bootstrapped = useAppStore((s) => s.bootstrapped);
+  const activeProjectDir = useAppStore((s) => s.activeProjectDir);
+  const activeProcessId = useSessionStore((s) => s.activeProcessId);
 
   useEffect(() => {
     let dispose: (() => void) | undefined;
@@ -53,41 +57,54 @@ export function App(): React.ReactElement {
       <WindowChrome />
 
       <div className="app-body">
-        <Sidebar />
+        <ErrorBoundary scope="侧边导航栏" compact>
+          <Sidebar />
+        </ErrorBoundary>
 
         <main className="main-area">
           <div className="main-content-row">
             <div className="view-host">
-              {!bootstrapped ? (
-                <ViewFallback />
-              ) : view === "chat" ? (
-                <ChatView />
-              ) : (
-                <Suspense fallback={<ViewFallback />}>
-                  {view === "workspace" && <WorkspaceView />}
-                  {view === "wiki" && <RepoWikiView />}
-                  {view === "memory" && <MemoryView />}
-                  {view === "skills" && <SkillsView />}
-                  {view === "settings" && <SettingsView />}
-                </Suspense>
-              )}
+              <ErrorBoundary
+                scope="当前视图"
+                resetKeys={[view, activeProjectDir, activeProcessId]}
+              >
+                {!bootstrapped ? (
+                  <ViewFallback />
+                ) : view === "chat" ? (
+                  <ChatView />
+                ) : (
+                  <Suspense fallback={<ViewFallback />}>
+                    {view === "workspace" && <WorkspaceView />}
+                    {view === "wiki" && <RepoWikiView />}
+                    {view === "memory" && <MemoryView />}
+                    {view === "skills" && <SkillsView />}
+                    {view === "settings" && <SettingsView />}
+                  </Suspense>
+                )}
+              </ErrorBoundary>
             </div>
           </div>
 
-          <LogPanel />
-          <StatusBar />
+          <ErrorBoundary scope="运行日志面板" compact>
+            <LogPanel />
+          </ErrorBoundary>
+          <ErrorBoundary scope="状态栏" compact>
+            <StatusBar />
+          </ErrorBoundary>
         </main>
       </div>
 
       <GlobalShortcuts />
-      <CommandPalette />
-      <InboxDrawer />
-      <ConfirmDialogHost />
-      <InputDialogHost />
-      <NewProjectDialogHost />
-      <ProjectModelsDialogHost />
-      <RewindDialogHost />
-      <ViewerDialogHost />
+      <ErrorBoundary scope="全局弹窗" compact>
+        <CommandPalette />
+        <InboxDrawer />
+        <ConfirmDialogHost />
+        <InputDialogHost />
+        <NewProjectDialogHost />
+        <ProjectModelsDialogHost />
+        <RewindDialogHost />
+        <ViewerDialogHost />
+      </ErrorBoundary>
       <ToastRegion />
     </div>
   );

@@ -34,6 +34,31 @@ interface NoteCandidate {
   index?: number;
 }
 
+interface RecallHitItem {
+  id: string;
+  title?: string;
+  scope?: string;
+  category?: string | null;
+  injected?: boolean;
+  read?: boolean | null;
+}
+
+interface RecallRoundItem {
+  recall_id?: string;
+  at?: number;
+  created_at?: number;
+  prompt_head?: string;
+  query?: string;
+  injected_bytes?: number;
+  hits?: RecallHitItem[];
+}
+
+interface MemoryChatTurn {
+  role: string;
+  text: string;
+  changes?: Array<{ tool?: string; ok?: boolean; summary?: string }>;
+}
+
 interface GraphPayload {
   nodes?: Array<{ id: string; label?: string; category?: string; kind?: string }>;
   links?: Array<{ source: string; target: string; kind?: string }>;
@@ -93,11 +118,14 @@ export default function MemoryView(): React.ReactElement {
   const [overview, setOverview] = useState<Record<string, unknown> | null>(null);
   const [controlPlane, setControlPlane] = useState<Record<string, unknown> | null>(null);
   const [contextBill, setContextBill] = useState<Record<string, unknown> | null>(null);
-  const [recalls, setRecalls] = useState<unknown[]>([]);
+  const [recallsPayload, setRecallsPayload] = useState<{
+    rounds_total?: number;
+    rounds?: RecallRoundItem[];
+  } | null>(null);
+  const [diagErrors, setDiagErrors] = useState<string[]>([]);
   const [jobStatus, setJobStatus] = useState<Record<string, unknown> | null>(null);
-  const [chatTurns, setChatTurns] = useState<
-    Array<{ role: string; text: string; changes?: Array<{ tool?: string; ok?: boolean; summary?: string }> }>
-  >([]);
+  const [chatTurns, setChatTurns] = useState<MemoryChatTurn[]>([]);
+  const [chatHistoryError, setChatHistoryError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatRequestId, setChatRequestId] = useState<string | null>(null);
@@ -121,12 +149,21 @@ export default function MemoryView(): React.ReactElement {
         );
         setEntries(lists.flat());
       } else if (query.trim()) {
-        const res = await invoke<{ items?: MemoryListEntry[] }>("memory_search_page", {
-          projectDir,
-          query: query.trim(),
-          limit: 100,
+        const res = await invoke<MemoryListEntry[] | { items?: MemoryListEntry[] }>(
+          "memory_search_page",
+          {
+            projectDir,
+            query: query.trim(),
+            limit: 100,
+          }
+        );
+        const rawList = Array.isArray(res) ? res : Array.isArray(res?.items) ? res.items : [];
+        const filtered = rawList.filter((item) => {
+          if (scope !== "all" && item.scope !== scope) return false;
+          if (category && item.category !== category) return false;
+          return true;
         });
-        setEntries(res?.items ?? []);
+        setEntries(filtered);
       } else {
         const lists = await Promise.all(
           targetScopes.map((sc) =>
@@ -161,23 +198,63 @@ export default function MemoryView(): React.ReactElement {
         setJobStatus(job);
       });
     } else if (tab === "diagnostics") {
+      const nextErrors: string[] = [];
       Promise.all([
-        invoke<Record<string, unknown>>("memory_overview", { projectDir }).catch(() => null),
-        invoke<Record<string, unknown>>("memory_control_plane", { projectDir }).catch(() => null),
-        invoke<Record<string, unknown>>("memory_context_bill", { projectDir }).catch(() => null),
-        invoke<unknown[]>("memory_recalls", { projectDir, limit: 30 }).catch(() => []),
+        invoke<Record<string, unknown>>("memory_overview", { projectDir }).catch((err) => {
+          nextErrors.push(`记忆库概览读取失败：${formatError(err)}`);
+          return null;
+        }),
+        invoke<Record<string, unknown>>("memory_control_plane", { projectDir }).catch((err) => {
+          nextErrors.push(`控制面诊断读取失败：${formatError(err)}`);
+          return null;
+        }),
+        invoke<Record<string, unknown>>("memory_context_bill", { projectDir }).catch((err) => {
+          nextErrors.push(`上下文账单读取失败：${formatError(err)}`);
+          return null;
+        }),
+        invoke<{ rounds_total?: number; rounds?: RecallRoundItem[] } | RecallRoundItem[]>(
+          "memory_recalls",
+          { projectDir, limit: 30 }
+        ).catch((err) => {
+          nextErrors.push(`召回记录读取失败：${formatError(err)}`);
+          return null;
+        }),
       ]).then(([ov, cp, bill, rec]) => {
         setOverview(ov);
         setControlPlane(cp);
         setContextBill(bill);
-        setRecalls(Array.isArray(rec) ? rec : []);
+        if (Array.isArray(rec)) {
+          setRecallsPayload({ rounds_total: rec.length, rounds: rec });
+        } else {
+          setRecallsPayload(rec);
+        }
+        setDiagErrors(nextErrors);
       });
     } else if (tab === "chat") {
-      invoke<{ turns?: Array<{ role: string; text: string }> }>("memory_chat_history", {
+      setChatHistoryError(null);
+      invoke<{
+        messages?: MemoryChatTurn[];
+        turns?: MemoryChatTurn[];
+        requestId?: string | null;
+      }>("memory_chat_history", {
         projectDir,
       })
-        .then((res) => setChatTurns(res?.turns ?? []))
-        .catch(() => {});
+        .then((res) => {
+          const list = Array.isArray(res?.messages)
+            ? res.messages
+            : Array.isArray(res?.turns)
+            ? res.turns
+            : [];
+          setChatTurns(list);
+          if (typeof res?.requestId === "string" && res.requestId) {
+            setChatRequestId(res.requestId);
+          }
+        })
+        .catch((err) => {
+          const msg = formatError(err);
+          setChatHistoryError(msg);
+          pushToast(`读取管理对话历史失败：${msg}`, "error");
+        });
     } else if (tab === "graph") {
       invoke<GraphPayload>("memory_graph", { projectDir })
         .then(setGraphData)
@@ -299,16 +376,20 @@ export default function MemoryView(): React.ReactElement {
       return;
     }
     try {
-      await invoke("memory_entry_save", {
+      const saved = await invoke<MemoryListEntry | null>("memory_entry_save", {
         projectDir,
-        scope: editScope,
+        scope: selected ? selected.scope : editScope,
         id: selected?.id ?? "",
+        category: editCategory,
         title: editTitle.trim(),
-        description: editDesc.trim(),
+        description: editDesc.trim() || editTitle.trim(),
         body: editBody,
       });
-      pushToast("已保存记忆条目", "ok");
+      pushToast(selected ? "已保存记忆条目" : "已创建新记忆条目", "ok");
       setEditMode(false);
+      if (saved && typeof saved === "object" && saved.id) {
+        setSelected(saved);
+      }
       await loadEntries();
     } catch (error) {
       pushToast(`保存失败：${formatError(error)}`, "error");
@@ -370,8 +451,10 @@ export default function MemoryView(): React.ReactElement {
         text?: string;
         reply?: string;
         changes?: Array<{ tool?: string; ok?: boolean; summary?: string }>;
-        turns?: Array<{ role: string; text: string }>;
+        messages?: MemoryChatTurn[];
+        turns?: MemoryChatTurn[];
         stopped?: boolean;
+        error?: string | null;
       }>("memory_chat_send", {
         projectDir,
         message: prompt,
@@ -379,7 +462,9 @@ export default function MemoryView(): React.ReactElement {
         target: selected ? { scope: selected.scope, id: selected.id } : null,
         onEvent,
       });
-      if (Array.isArray(res?.turns)) {
+      if (Array.isArray(res?.messages)) {
+        setChatTurns(res.messages);
+      } else if (Array.isArray(res?.turns)) {
         setChatTurns(res.turns);
       } else {
         const finalText = res?.text ?? res?.reply ?? "";
@@ -389,6 +474,9 @@ export default function MemoryView(): React.ReactElement {
             { role: "assistant", text: finalText, changes: res?.changes },
           ]);
         }
+      }
+      if (res?.error) {
+        pushToast(`管理对话提示：${res.error}`, "warn");
       }
       if (res?.changes && res.changes.length > 0) {
         void loadEntries();
@@ -496,14 +584,7 @@ export default function MemoryView(): React.ReactElement {
                   <option value="preference">preference 偏好</option>
                 </select>
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  paddingTop: 2,
-                }}
-              >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 2 }}>
                 <span className="field-hint">查看已归档记忆</span>
                 <button
                   type="button"
@@ -550,7 +631,9 @@ export default function MemoryView(): React.ReactElement {
               {editMode ? (
                 <div className="detail-container">
                   <div className="detail-header">
-                    <h2 className="detail-title">{selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}</h2>
+                    <h2 className="detail-title">
+                      {selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}
+                    </h2>
                   </div>
                   <div className="settings-grid-2">
                     <div className="field-group">
@@ -558,6 +641,7 @@ export default function MemoryView(): React.ReactElement {
                       <select
                         className="select"
                         value={editScope}
+                        disabled={Boolean(selected)}
                         onChange={(e) => setEditScope(e.target.value)}
                       >
                         <option value="project">项目</option>
@@ -566,11 +650,7 @@ export default function MemoryView(): React.ReactElement {
                     </div>
                     <div className="field-group">
                       <label className="field-label">类别</label>
-                      <select
-                        className="select"
-                        value={editCategory}
-                        onChange={(e) => setEditCategory(e.target.value)}
-                      >
+                      <select className="select" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
                         <option value="fact">fact 事实</option>
                         <option value="sop">sop 流程</option>
                         <option value="habit">habit 习惯</option>
@@ -580,11 +660,7 @@ export default function MemoryView(): React.ReactElement {
                   </div>
                   <div className="field-group">
                     <label className="field-label">标题</label>
-                    <input
-                      className="input"
-                      value={editTitle}
-                      onChange={(e) => setEditTitle(e.target.value)}
-                    />
+                    <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
                   </div>
                   <div className="field-group">
                     <label className="field-label">简短说明</label>
@@ -682,18 +758,10 @@ export default function MemoryView(): React.ReactElement {
                               </button>
                             </>
                           )}
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary"
-                            onClick={startEditSelected}
-                          >
+                          <button type="button" className="btn btn-sm btn-primary" onClick={startEditSelected}>
                             编辑
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn-danger btn-sm"
-                            onClick={() => void deleteSelected()}
-                          >
+                          <button type="button" className="btn btn-danger btn-sm" onClick={() => void deleteSelected()}>
                             删除
                           </button>
                         </>
@@ -754,7 +822,9 @@ export default function MemoryView(): React.ReactElement {
               </button>
               {jobStatus && (
                 <>
-                  <span className="badge badge-info">作业状态：{String(jobStatus.status ?? "idle")}</span>
+                  <span className="badge badge-info">
+                    作业状态：{String(jobStatus.status ?? "idle")}
+                  </span>
                   {String(jobStatus.status ?? "") === "running" && (
                     <button
                       type="button"
@@ -779,9 +849,7 @@ export default function MemoryView(): React.ReactElement {
               {candidates.map((cand, idx) => (
                 <div key={cand.fingerprint ?? cand.id ?? idx} className="provider-card">
                   <div className="provider-card-head">
-                    <strong style={{ fontSize: 13.5 }}>
-                      {cand.title ?? cand.header ?? `笔记 #${idx + 1}`}
-                    </strong>
+                    <strong style={{ fontSize: 13.5 }}>{cand.title ?? cand.header ?? `笔记 #${idx + 1}`}</strong>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button
                         type="button"
@@ -811,7 +879,7 @@ export default function MemoryView(): React.ReactElement {
                             })
                               .then(() => {
                                 setCandidates((prev) =>
-                                  prev.filter((x) => x.fingerprint !== cand.fingerprint),
+                                  prev.filter((x) => x.fingerprint !== cand.fingerprint)
                                 );
                                 pushToast("已丢弃笔记", "ok");
                               })
@@ -835,6 +903,13 @@ export default function MemoryView(): React.ReactElement {
         <div className="page-shell">
           <div className="memory-chat-stream">
             <div className="memory-chat-inner">
+              {chatHistoryError && (
+                <div className="provider-card" role="alert" style={{ borderColor: "var(--err)" }}>
+                  <div style={{ color: "var(--err)", fontSize: 12.5 }}>
+                    读取管理对话历史失败：{chatHistoryError}
+                  </div>
+                </div>
+              )}
               {chatTurns.length === 0 ? (
                 <div className="empty-state">
                   <h3>记忆管理对话</h3>
@@ -896,7 +971,11 @@ export default function MemoryView(): React.ReactElement {
                 重置
               </button>
               {chatBusy ? (
-                <button type="button" className="btn btn-danger" onClick={() => void stopMemoryChat()}>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => void stopMemoryChat()}
+                >
                   停止
                 </button>
               ) : (
@@ -952,70 +1031,191 @@ export default function MemoryView(): React.ReactElement {
         </div>
       )}
 
-      {tab === "diagnostics" && (
-        <div className="page-scroll">
-          <div style={{ maxWidth: 860, display: "flex", flexDirection: "column", gap: 14 }}>
-            {overviewNumbers.length > 0 && (
-              <div className="stats-strip" style={{ marginBottom: 4 }}>
-                {overviewNumbers.map(([k, v]) => (
-                  <div key={k} className="stat-tile">
-                    <span className="stat-tile-label">{k}</span>
-                    <span className="stat-tile-value">{String(v)}</span>
+      {tab === "diagnostics" && (() => {
+        const recallRounds = recallsPayload?.rounds ?? [];
+        const latestRound = recallRounds[0] ?? null;
+        const latestHits = latestRound?.hits ?? [];
+        const latestInjectedCount = latestHits.filter((h) => h.injected).length;
+        const latestReadCount = latestHits.filter((h) => h.read === true).length;
+        const cpRecall = (controlPlane?.recall as Record<string, number> | undefined) ?? {};
+        const scopes = Array.isArray(overview?.scopes)
+          ? (overview.scopes as Array<{
+              scope?: string;
+              total?: number;
+              archived?: number;
+              integrity?: unknown[];
+            }>)
+          : [];
+        const integrityIssues = scopes.flatMap((sc) =>
+          Array.isArray(sc.integrity)
+            ? sc.integrity.map((issue) => `${sc.scope ?? "memory"}: ${typeof issue === "string" ? issue : JSON.stringify(issue)}`)
+            : []
+        );
+        const promotionGaps = Number(controlPlane?.promotion_gaps ?? 0);
+        const orphanedEvents = Number(cpRecall.events_orphaned ?? 0);
+        const hasFailures = diagErrors.length > 0 || integrityIssues.length > 0;
+
+        return (
+          <div className="page-scroll">
+            <div style={{ maxWidth: 860, display: "flex", flexDirection: "column", gap: 14 }}>
+              <div className="provider-card" aria-label="记忆诊断结论摘要">
+                <div className="provider-card-head">
+                  <div className="provider-card-title">最近一次召回与健康摘要</div>
+                  <span className={`badge ${hasFailures ? "badge-err" : "badge-ok"}`}>
+                    {hasFailures ? "存在读取/完整性异常" : "读取正常"}
+                  </span>
+                </div>
+
+                <div className="stats-strip" style={{ marginBottom: 4 }}>
+                  <div className="stat-tile">
+                    <span className="stat-tile-label">最近召回命中</span>
+                    <span className="stat-tile-value">{latestHits.length} 条</span>
                   </div>
-                ))}
-              </div>
-            )}
+                  <div className="stat-tile">
+                    <span className="stat-tile-label">已注入上下文</span>
+                    <span className="stat-tile-value accent">{latestInjectedCount} 条</span>
+                  </div>
+                  <div className="stat-tile">
+                    <span className="stat-tile-label">累计召回 / 注入 / 读取</span>
+                    <span className="stat-tile-value mono" style={{ fontSize: 15 }}>
+                      {cpRecall.recalled ?? 0} / {cpRecall.injected ?? 0} / {cpRecall.read ?? 0}
+                    </span>
+                  </div>
+                  <div className="stat-tile">
+                    <span className="stat-tile-label">读取失败与完整性问题</span>
+                    <span className={`stat-tile-value${hasFailures ? " warn" : " ok"}`}>
+                      {diagErrors.length + integrityIssues.length}
+                    </span>
+                  </div>
+                </div>
 
-            <details className="diag-card">
-              <summary className="diag-card-summary">
-                <span>记忆库概览（原始快照）</span>
-                <span className="badge">{overviewNumbers.length} 项统计</span>
-              </summary>
-              <div className="diag-card-body">
-                <pre className="tool-pre">{JSON.stringify(overview, null, 2)}</pre>
-              </div>
-            </details>
+                {latestRound ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div className="field-hint">
+                      最近一轮召回（共记录 {recallsPayload?.rounds_total ?? recallRounds.length} 轮）：
+                      {latestHits.length === 0
+                        ? "未命中任何记忆条目"
+                        : `命中 ${latestHits.length} 条，其中 ${latestInjectedCount} 条已注入，${latestReadCount} 条已确认被读取`}
+                    </div>
+                    {latestHits.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        {latestHits.map((hit) => (
+                          <div key={hit.id} className="perm-rule-row">
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <span className="mono">{hit.id}</span>
+                              <span>{hit.title ?? hit.id}</span>
+                              {hit.category && (
+                                <span className={categoryBadgeClass(hit.category)}>
+                                  {hit.category}
+                                </span>
+                              )}
+                            </span>
+                            <span style={{ display: "inline-flex", gap: 6 }}>
+                              <span className={`badge ${hit.injected ? "badge-ok" : ""}`}>
+                                {hit.injected ? "已注入" : "未注入"}
+                              </span>
+                              {hit.injected && (
+                                <span className={`badge ${hit.read ? "badge-accent" : ""}`}>
+                                  {hit.read === true ? "已读取" : hit.read === false ? "未读取" : "待观测"}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="field-hint">
+                    当前项目还没有记录到记忆召回事件（累计召回 {cpRecall.recalled ?? 0} 次）。
+                  </div>
+                )}
 
-            <details className="diag-card">
-              <summary className="diag-card-summary">
-                <span>控制面诊断</span>
-                <span className="badge">
+                {diagErrors.length > 0 && (
+                  <div role="alert" style={{ color: "var(--err)", fontSize: 12.5 }}>
+                    {diagErrors.map((err, idx) => (
+                      <div key={idx}>• {err}</div>
+                    ))}
+                  </div>
+                )}
+                {integrityIssues.length > 0 && (
+                  <div style={{ color: "var(--warn)", fontSize: 12.5 }}>
+                    {integrityIssues.slice(0, 6).map((issue, idx) => (
+                      <div key={idx}>• 完整性告警：{issue}</div>
+                    ))}
+                  </div>
+                )}
+                {!hasFailures && (
+                  <div className="field-hint">
+                    无读取失败与索引完整性异常
+                    {promotionGaps > 0 ? `；另有 ${promotionGaps} 条待补来源晋升条目` : ""}
+                    {orphanedEvents > 0 ? `；另有 ${orphanedEvents} 条未关联事件` : ""}。
+                  </div>
+                )}
+              </div>
+
+              {overviewNumbers.length > 0 && (
+                <div className="stats-strip" style={{ marginBottom: 4 }}>
+                  {overviewNumbers.map(([k, v]) => (
+                    <div key={k} className="stat-tile">
+                      <span className="stat-tile-label">{k}</span>
+                      <span className="stat-tile-value">{String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <details className="diag-card">
+                <summary className="diag-card-summary">
+                  <span>技术详情 · 记忆库概览（原始快照）</span>
+                  <span className="badge">{overviewNumbers.length} 项统计</span>
+                </summary>
+                <div className="diag-card-body">
+                  <pre className="tool-pre">{JSON.stringify(overview, null, 2)}</pre>
+                </div>
+              </details>
+
+              <details className="diag-card">
+                <summary className="diag-card-summary">
+                  <span>技术详情 · 控制面诊断</span>
+                  <span className="badge">
                   {typeof controlPlane?.backlog === "number"
                     ? "待处理 " + controlPlane.backlog
                     : "暂无待处理统计"}
                 </span>
-              </summary>
-              <div className="diag-card-body">
-                <pre className="tool-pre">{JSON.stringify(controlPlane, null, 2)}</pre>
-              </div>
-            </details>
+                </summary>
+                <div className="diag-card-body">
+                  <pre className="tool-pre">{JSON.stringify(controlPlane, null, 2)}</pre>
+                </div>
+              </details>
 
-            <details className="diag-card">
-              <summary className="diag-card-summary">
-                <span>上下文注入账单</span>
-                <span className="badge">
+              <details className="diag-card">
+                <summary className="diag-card-summary">
+                  <span>技术详情 · 上下文注入账单</span>
+                  <span className="badge">
                   {Array.isArray(contextBill?.episodes)
                     ? "近期 " + contextBill.episodes.length + " 轮"
                     : "暂无轮次统计"}
                 </span>
-              </summary>
-              <div className="diag-card-body">
-                <pre className="tool-pre">{JSON.stringify(contextBill, null, 2)}</pre>
-              </div>
-            </details>
+                </summary>
+                <div className="diag-card-body">
+                  <pre className="tool-pre">{JSON.stringify(contextBill, null, 2)}</pre>
+                </div>
+              </details>
 
-            <details className="diag-card">
-              <summary className="diag-card-summary">
-                <span>近期召回记录</span>
-                <span className="badge mono">{recalls.length} 条</span>
-              </summary>
-              <div className="diag-card-body">
-                <pre className="tool-pre">{JSON.stringify(recalls, null, 2)}</pre>
-              </div>
-            </details>
+              <details className="diag-card">
+                <summary className="diag-card-summary">
+                  <span>技术详情 · 近期召回记录</span>
+                  <span className="badge mono">{recallRounds.length} 轮</span>
+                </summary>
+                <div className="diag-card-body">
+                  <pre className="tool-pre">{JSON.stringify(recallsPayload, null, 2)}</pre>
+                </div>
+              </details>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

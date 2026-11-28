@@ -171,6 +171,7 @@ impl SessionRuntime {
         &self,
         activity: kanzei_core::session_lifecycle::Activity,
     ) -> Result<(), String> {
+        let _admission = crate::app_lifecycle::admit_work()?;
         self.transition(kanzei_core::session_lifecycle::Event::Acquire(activity))?;
         self.transition(kanzei_core::session_lifecycle::Event::Acquired)?;
         *self.halt.lock_or_recover() = Some(kanzei_core::CancellationToken::new());
@@ -747,7 +748,7 @@ pub(crate) fn process_info_with(
         stage,
         running,
         runtime: snapshot,
-        label: naming.display(kind, ordinal),
+        label: naming.display(kind),
         title: naming.title().map(str::to_string),
         title_custom: naming.custom.is_some(),
         kind: kind.as_str().into(),
@@ -779,6 +780,9 @@ pub(crate) fn request_runtime_stop(
 ) -> Result<usize, kanzei_core::StoreError> {
     let _lifecycle = runtime.lifecycle.lock_or_recover();
     let snapshot = runtime.snapshot();
+    if snapshot.existence == kanzei_core::session_lifecycle::Existence::Closed {
+        return Ok(0);
+    }
     if let Some(operation) = snapshot.stop.filter(|operation| !operation.settled) {
         if snapshot.phase == kanzei_core::session_lifecycle::Phase::Blocked {
             runtime

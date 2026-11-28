@@ -92,12 +92,14 @@ export interface WorkspaceOverview {
 }
 
 export interface SessionLifecycleSnapshot {
-  existence?: string;
-  phase?: string;
-  activity?: string | null;
-  revision?: number;
-  round_generation?: number;
-  error?: string | null;
+  actor_epoch: string;
+  existence: "open" | "closing" | "closed";
+  phase: "idle" | "acquiring" | "active" | "cancelling" | "reaping" | "blocked";
+  activity: "run" | "compact" | "history" | "cleanup" | null;
+  revision: number;
+  round_generation: number;
+  last_outcome: string | null;
+  error: string | null;
 }
 
 export interface ProcessInfo {
@@ -312,14 +314,28 @@ export interface GitStatusSummary {
 }
 
 export interface FilePreviewData {
-  path: string;
+  path?: string;
   content?: string | null;
   hash?: string | null;
   readonly?: string | null;
   binary?: boolean;
   truncated?: boolean;
+  bom?: boolean;
+  eol?: string;
+  mixedEol?: boolean;
+  encoding?: string;
+  mtimeMs?: number | null;
   lines?: number;
   size?: number;
+}
+
+export interface FileWriteResponse {
+  status: "saved" | "conflict";
+  hash?: string | null;
+  size?: number;
+  mtimeMs?: number | null;
+  exists?: boolean;
+  evidence?: string | null;
 }
 
 export interface FileGitDiffData {

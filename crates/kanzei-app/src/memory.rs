@@ -550,46 +550,121 @@ pub(crate) fn memory_value_flags(project_dir: String) -> serde_json::Value {
 }
 
 // IPC 命令的参数就是前端 invoke 的键(每个可选字段独立,None = 不动),不适合收成结构体。
+// `id` 为空时创建新记忆（用户直写 `source = "user"`，立即 `active`），非空时更新既有条目。
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) fn memory_entry_save(
     project_dir: String,
     scope: String,
     id: String,
+    category: Option<String>,
     title: Option<String>,
     description: Option<String>,
     body: Option<String>,
     status: Option<String>,
     // 记忆图谱「设为区域 / 清除区域」:Some([]) 清除,None 不动。
     area: Option<Vec<String>>,
-) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     for store in memory_stores_for(&project_dir) {
         if scope_matches(&store, &scope) {
             let resolved = match &area {
                 Some(tokens) => Some(resolve_area_tokens(&project_root_of(&project_dir), tokens)?),
                 None => None,
             };
-            // 内容与区域一次写盘(update_with_area),不再先 update 再 set_area 两次独立写。
-            if title.is_some()
-                || description.is_some()
-                || body.is_some()
-                || status.is_some()
-                || resolved.is_some()
-            {
-                store
-                    .update_with_area(
-                        &id,
-                        title.as_deref(),
-                        description.as_deref(),
-                        body.as_deref(),
-                        status.as_deref(),
-                        resolved.as_deref(),
+            let trimmed_id = id.trim();
+            let saved_id = if trimmed_id.is_empty() {
+                let cat = category
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("fact");
+                let title_text = title.as_deref().map(str::trim).unwrap_or("");
+                let body_text = body.as_deref().map(str::trim).unwrap_or("");
+                let desc_text = description
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(title_text);
+                let outcome = store
+                    .add(
+                        cat,
+                        title_text,
+                        desc_text,
+                        body_text,
+                        "user",
+                        &[],
                         None,
-                        false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
+                        true,
                     )
                     .map_err(|e| e.to_string())?;
+                let created = match outcome {
+                    kanzei_memory::memory::AddOutcome::Added(entry) => entry,
+                    kanzei_memory::memory::AddOutcome::Duplicate(existing) => {
+                        return Err(format!(
+                            "已存在同名记忆 {}（{}），请直接编辑该条目",
+                            existing.id, existing.title
+                        ));
+                    }
+                    kanzei_memory::memory::AddOutcome::SubjectConflict(existing) => {
+                        return Err(format!(
+                            "同主题记忆已存在 {}（{}），请直接编辑该条目",
+                            existing.id, existing.title
+                        ));
+                    }
+                    kanzei_memory::memory::AddOutcome::Uncertain(_) => {
+                        return Err("存在相近记忆条目，请确认是否更新既有条目".into());
+                    }
+                };
+                if let Some(ref areas) = resolved {
+                    store
+                        .update_with_area(
+                            &created.id,
+                            None,
+                            None,
+                            None,
+                            None,
+                            Some(areas.as_slice()),
+                            None,
+                            false,
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+                created.id
+            } else {
+                let cat = category.as_deref().map(str::trim).filter(|s| !s.is_empty());
+                if title.is_some()
+                    || description.is_some()
+                    || body.is_some()
+                    || status.is_some()
+                    || resolved.is_some()
+                    || cat.is_some()
+                {
+                    store
+                        .update_with_area_and_category(
+                            trimmed_id,
+                            title.as_deref(),
+                            description.as_deref(),
+                            body.as_deref(),
+                            status.as_deref(),
+                            resolved.as_deref(),
+                            cat,
+                            None,
+                            false, // A-005:UI 用户直写豁免主题一致性,用户有权写任何内容
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+                trimmed_id.to_string()
+            };
+            let profile = store.hit_profile();
+            let usage = store.usage_counts();
+            if let Some((path, entry)) =
+                store.load_all().into_iter().find(|(_, e)| e.id == saved_id)
+            {
+                return Ok(memory_entry_json(
+                    &store, &path, entry, &profile, &usage, false,
+                ));
             }
-            return Ok(());
+            return Ok(json!({ "id": saved_id, "scope": store.scope.selector() }));
         }
     }
     Err(format!("未知记忆域: {scope}"))
@@ -988,6 +1063,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(vec!["crates/kanzei-a/src/edit.rs".into()]),
         )
         .unwrap();
@@ -997,6 +1073,7 @@ mod tests {
             dir.clone(),
             "project".into(),
             "M-002".into(),
+            None,
             None,
             None,
             None,
@@ -1016,11 +1093,57 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(vec![]),
         )
         .unwrap();
-        let cleared = super::memory_entry_get(dir, "project".into(), "M-002".into()).unwrap();
+        let cleared =
+            super::memory_entry_get(dir.clone(), "project".into(), "M-002".into()).unwrap();
         assert_eq!(cleared["areas"], serde_json::json!([]));
+
+        // 新建记忆（id 为空）应持久化类别与正文，且可被 memory_search_page 搜到
+        let created = super::memory_entry_save(
+            dir.clone(),
+            "project".into(),
+            "".into(),
+            Some("sop".into()),
+            Some("发布前核对清单".into()),
+            Some("每次打包前执行本地验证门禁".into()),
+            Some("先跑 verify.ps1 -Full 再执行 package.ps1。".into()),
+            None,
+            None,
+        )
+        .unwrap();
+        let created_id = created["id"].as_str().unwrap().to_string();
+        assert_eq!(created["category"], "sop");
+        assert_eq!(created["title"], "发布前核对清单");
+        let hits =
+            super::memory_search_page(dir.clone(), "发布前核对清单".into(), Some(10)).unwrap();
+        assert!(hits.is_array(), "memory_search_page 应返回数组");
+        assert!(
+            hits.as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == created_id),
+            "新建记忆必须可被检索命中: {hits}"
+        );
+
+        // 更新已有记忆时同样支持修改类别
+        let updated = super::memory_entry_save(
+            dir.clone(),
+            "project".into(),
+            created_id.clone(),
+            Some("preference".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        assert_eq!(updated["category"], "preference");
+        let reloaded = super::memory_entry_get(dir, "project".into(), created_id).unwrap();
+        assert_eq!(reloaded["category"], "preference");
         std::fs::remove_dir_all(root).ok();
     }
 

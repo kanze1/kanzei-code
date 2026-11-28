@@ -24,10 +24,14 @@ pub(crate) async fn tool_image(project_dir: String, rel: String) -> Result<Value
     image_payload(&path)
 }
 
-/// 项目内图片文件预览：经 files_edit::resolve_in_root 校验路径不越出项目根。
+/// 项目内图片文件预览：经 files_edit::resolve_in_root 校验路径不越出项目根或工作树根。
 #[tauri::command]
-pub(crate) async fn file_image(project_dir: String, path: String) -> Result<Value, String> {
-    let root = crate::normalized_project_root(Path::new(&project_dir));
+pub(crate) async fn file_image(
+    project_dir: String,
+    path: String,
+    worktree_path: Option<String>,
+) -> Result<Value, String> {
+    let root = crate::files_view::resolve_target_root(&project_dir, worktree_path.as_deref())?;
     let raw = Path::new(&path);
     let rel = if raw.is_absolute() {
         let canon_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());

@@ -229,45 +229,47 @@ async fn readonly_execution_rejects_mutations_with_broad_permissions_in_serial_a
         for support in [ReadOnlySupport::Unsupported, ReadOnlySupport::ByAction] {
             let probe = Arc::new(MutationProbe(AtomicUsize::new(0), support));
             let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
-            let mut cfg = config(policy);
-            cfg.ask_policy = AskPolicy::AutoAllow;
-            for count in [1, 2] {
-                let calls = (0..count)
-                    .map(|index| {
-                        (
-                            format!("mutation-{index}"),
-                            "git".into(),
-                            json!({"action":"commit"}),
-                            "{}".into(),
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                let outcome = execute_tool_calls(
-                    &cfg,
-                    &ctx,
-                    &snapshot,
-                    &mut Vec::new(),
-                    &mut Vec::new(),
-                    &tools,
-                    &calls,
-                    None,
-                    &mut HashMap::new(),
-                    false,
-                    None,
-                    &mut |_| {},
-                    &mut |_| panic!("readonly rejection cannot ask for a scope upgrade"),
-                    &mut HashSet::new(),
-                    &mut vec![("read".into(), "*".into())],
-                    &mut Vec::new(),
-                    1,
-                )
-                .await
-                .unwrap();
-                let ToolRunOutcome::Results { results, .. } = outcome else {
-                    panic!("must return paired denied results")
-                };
-                assert_eq!(results.len(), count);
-                assert!(results.iter().all(|part| matches!(part, Part::ToolResult {is_error:true, content, ..} if content.contains("read-only execution scope"))));
+            for ask_policy in [AskPolicy::AutoAllow, AskPolicy::InteractiveAutoAllow] {
+                let mut cfg = config(policy);
+                cfg.ask_policy = ask_policy;
+                for count in [1, 2] {
+                    let calls = (0..count)
+                        .map(|index| {
+                            (
+                                format!("mutation-{index}"),
+                                "git".into(),
+                                json!({"action":"commit"}),
+                                "{}".into(),
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let outcome = execute_tool_calls(
+                        &cfg,
+                        &ctx,
+                        &snapshot,
+                        &mut Vec::new(),
+                        &mut Vec::new(),
+                        &tools,
+                        &calls,
+                        None,
+                        &mut HashMap::new(),
+                        false,
+                        None,
+                        &mut |_| {},
+                        &mut |_| panic!("readonly rejection cannot ask for a scope upgrade"),
+                        &mut HashSet::new(),
+                        &mut vec![("read".into(), "*".into())],
+                        &mut Vec::new(),
+                        1,
+                    )
+                    .await
+                    .unwrap();
+                    let ToolRunOutcome::Results { results, .. } = outcome else {
+                        panic!("must return paired denied results")
+                    };
+                    assert_eq!(results.len(), count);
+                    assert!(results.iter().all(|part| matches!(part, Part::ToolResult {is_error:true, content, ..} if content.contains("read-only execution scope"))));
+                }
             }
             assert_eq!(
                 probe.0.load(Ordering::SeqCst),
@@ -329,6 +331,7 @@ impl Tool for SensitiveProbe {
 async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_user_consent() {
     for ask_policy in [
         AskPolicy::AutoAllow,
+        AskPolicy::InteractiveAutoAllow,
         AskPolicy::Interactive,
         AskPolicy::DeferredQuestions,
     ] {
@@ -408,6 +411,106 @@ async fn credentials_ignore_auto_allow_and_broad_session_rules_but_honor_exact_u
         assert_eq!(questions.load(Ordering::SeqCst), usize::from(interactive));
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+#[tokio::test]
+async fn interactive_auto_allow_passes_nonsensitive_ask_without_prompting() {
+    let root =
+        std::env::temp_dir().join(format!("kz-interactive-auto-allow-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("note.txt"), "ok").unwrap();
+    struct AskFilePolicy;
+    impl Component for AskFilePolicy {
+        fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {
+            draft
+                .permissions
+                .push(kanzei_harness::rule("insert", "*", Effect::Ask));
+            Ok(())
+        }
+    }
+    #[derive(Default)]
+    struct InsertProbe(AtomicUsize);
+    #[async_trait]
+    impl Tool for InsertProbe {
+        fn name(&self) -> &'static str {
+            "insert"
+        }
+        fn description(&self) -> String {
+            "insert probe".into()
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({"type":"object"})
+        }
+        fn permission_resources(
+            &self,
+            _: &serde_json::Value,
+            _: &ToolCtx,
+        ) -> Vec<kanzei_harness::permission::Resource> {
+            vec![kanzei_harness::permission::Resource::File(
+                "note.txt".into(),
+            )]
+        }
+        async fn execute(&self, _: serde_json::Value, _: &ToolCtx) -> ToolOutput {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            ToolOutput::ok("inserted")
+        }
+    }
+    let ctx = ToolCtx::new(root.clone(), root.clone());
+    let mut harness = Harness::default();
+    harness.add(AskFilePolicy);
+    let snapshot = harness
+        .resolve(&ResolveCtx {
+            profile: kanzei_harness::ProfileKind::DevPair,
+            cwd: root.clone(),
+            project_root: root.clone(),
+            config: Arc::new(Default::default()),
+        })
+        .unwrap();
+    let mut cfg = config(kanzei_harness::orchestration::ExecutionPolicy::Default);
+    cfg.ask_policy = AskPolicy::InteractiveAutoAllow;
+    let probe = Arc::new(InsertProbe::default());
+    let tools: Vec<Arc<dyn Tool>> = vec![probe.clone()];
+    let calls = vec![("call-1".into(), "insert".into(), json!({}), "{}".into())];
+    let mut events = Vec::new();
+    let outcome = execute_tool_calls(
+        &cfg,
+        &ctx,
+        &snapshot,
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &tools,
+        &calls,
+        None,
+        &mut HashMap::new(),
+        false,
+        None,
+        &mut |event| events.push(event),
+        &mut |_| panic!("nonsensitive ask must auto-allow without prompting"),
+        &mut HashSet::new(),
+        &mut Vec::new(),
+        &mut Vec::new(),
+        1,
+    )
+    .await
+    .unwrap();
+    let ToolRunOutcome::Results { results, .. } = outcome else {
+        panic!("expected tool results")
+    };
+    assert_eq!(probe.0.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        &results[0],
+        Part::ToolResult { content, is_error: false, .. } if content == "inserted"
+    ));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        RunEvent::PermissionResolved {
+            action,
+            decision: "allow",
+            source: "auto_allow",
+            ..
+        } if action == "insert"
+    )));
+    std::fs::remove_dir_all(root).unwrap();
 }
 impl Component for Policy {
     fn contribute(&self, draft: &mut HarnessDraft, _: &ResolveCtx) -> anyhow::Result<()> {

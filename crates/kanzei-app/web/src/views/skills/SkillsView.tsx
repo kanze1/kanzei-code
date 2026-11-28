@@ -37,6 +37,7 @@ export default function SkillsView(): React.ReactElement {
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [manualOnly, setManualOnly] = useState(false);
+  const [userInvocable, setUserInvocable] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const loadSkills = useCallback(async () => {
@@ -93,6 +94,7 @@ export default function SkillsView(): React.ReactElement {
     setDescription("");
     setInstructions("");
     setManualOnly(false);
+    setUserInvocable(true);
     setEditing(true);
   };
 
@@ -102,22 +104,32 @@ export default function SkillsView(): React.ReactElement {
     setDescription(selected.description);
     setInstructions(selected.instructions ?? "");
     setManualOnly(Boolean(selected.manualOnly));
+    setUserInvocable(selected.userInvocable !== false);
     setEditing(true);
   };
 
   const saveSkill = async () => {
     setBusy(true);
     try {
-      await invoke("skills_save", {
+      const trimmedName = name.trim();
+      const saved = await invoke<SkillEntry | null>("skills_save", {
         draft: {
-          name: name.trim(),
+          name: trimmedName,
           description: description.trim(),
           instructions,
           manualOnly,
-          userInvocable: true,
+          userInvocable,
         },
         expectedHash: selected?.editable ? selected.revision ?? null : null,
       });
+      if (saved && typeof saved === "object" && saved.id) {
+        setSelected(saved);
+      } else if (trimmedName) {
+        const refreshed = await invoke<SkillEntry>("skills_read", {
+          name: `personal:${trimmedName}`,
+        }).catch(() => null);
+        if (refreshed) setSelected(refreshed);
+      }
       pushToast("已保存技能", "ok");
       setEditing(false);
       await loadSkills();
@@ -187,6 +199,7 @@ export default function SkillsView(): React.ReactElement {
       setDescription(draft?.description ?? "");
       setInstructions(draft?.instructions ?? "");
       setManualOnly(false);
+      setUserInvocable(true);
       setEditing(true);
       pushToast("已生成技能草稿，请审阅后保存", "ok");
     } catch (error) {
@@ -323,9 +336,24 @@ export default function SkillsView(): React.ReactElement {
                   <button
                     type="button"
                     role="switch"
+                    aria-label="仅手动触发"
                     aria-checked={manualOnly}
                     className="switch"
                     onClick={() => setManualOnly(!manualOnly)}
+                  />
+                </div>
+                <div className="toggle-row">
+                  <div className="toggle-row-text">
+                    <span className="toggle-row-title">允许用户手动调用（userInvocable）</span>
+                    <span className="field-hint">关闭后该技能不会出现在输入框 `$` 手动调用候选中</span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-label="允许用户手动调用"
+                    aria-checked={userInvocable}
+                    className="switch"
+                    onClick={() => setUserInvocable(!userInvocable)}
                   />
                 </div>
                 <div className="field-group">

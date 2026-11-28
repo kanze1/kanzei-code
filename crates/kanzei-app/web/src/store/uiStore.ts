@@ -1,4 +1,4 @@
-import { invoke } from "../ipc/client";
+import { formatError, hasDesktopRuntime, invoke } from "../ipc/client";
 import type {
   CompletedSessionNotice,
   LogEntry,
@@ -68,6 +68,7 @@ export interface UiState {
   traceDialogOpen: boolean;
   inboxOpen: boolean;
   globalAsks: PendingAskItem[];
+  globalAsksError: string | null;
   recentCompleted: CompletedSessionNotice[];
   btwOpen: boolean;
   btwInitialQuestion: string;
@@ -112,6 +113,7 @@ export const uiStore = createStore<UiState>({
   traceDialogOpen: false,
   inboxOpen: false,
   globalAsks: [],
+  globalAsksError: null,
   recentCompleted: [],
   btwOpen: false,
   btwInitialQuestion: "",
@@ -200,11 +202,19 @@ export function closeBtwOverlay(): void {
 }
 
 export async function refreshGlobalInbox(): Promise<void> {
+  if (!hasDesktopRuntime()) {
+    return;
+  }
   try {
     const asks = await invoke<PendingAskItem[]>("pending_asks_all");
-    uiStore.setState({ globalAsks: Array.isArray(asks) ? asks : [] });
-  } catch {
-    // 静默忽略非 Tauri 预览或启动早期未就绪
+    uiStore.setState({
+      globalAsks: Array.isArray(asks) ? asks : [],
+      globalAsksError: null,
+    });
+  } catch (error) {
+    const message = formatError(error);
+    uiStore.setState({ globalAsksError: message });
+    appendLog(`读取全局待办收件箱失败: ${message}`, "error");
   }
 }
 

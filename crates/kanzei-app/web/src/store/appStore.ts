@@ -5,11 +5,17 @@ import type {
   ModelCatalogError,
   ModelCatalogItem,
   OpenToolInfo,
+  ProcessInfo,
   ProjectsPrefs,
   UiPrefs,
   WorkspaceOverview,
 } from "../ipc/types";
-import { hydrateComposerDrafts, loadConversationMessages } from "./chatStore";
+import {
+  flushPendingDraftSaves,
+  hydrateComposerDrafts,
+  loadConversationMessages,
+  resetChatSession,
+} from "./chatStore";
 import { createStore, useStore } from "./createStore";
 import { refreshGitStatus, setDrawerContext } from "./drawerStore";
 import {
@@ -145,6 +151,7 @@ export async function loadOpenTools(): Promise<void> {
 }
 
 export async function activateProcess(processId: string): Promise<void> {
+  void flushPendingDraftSaves();
   const state = sessionStore.getState();
   const target = state.processes.find((p) => p.id === processId);
   if (!target || !state.projectDir) return;
@@ -159,10 +166,73 @@ export async function activateProcess(processId: string): Promise<void> {
   }
 }
 
+async function syncActiveProcessAfterListChange(projectDir: string): Promise<void> {
+  const active = getActiveProcess();
+  if (active) {
+    await activateProcess(active.id);
+    return;
+  }
+  setDrawerContext(projectDir, null);
+  resetChatSession();
+  await refreshActiveSessionMeta();
+}
+
+export async function createConversation(
+  projectDir: string,
+  profile: string | null = null,
+  worktreeName: string | null = null
+): Promise<ProcessInfo | null> {
+  void flushPendingDraftSaves();
+  try {
+    const created = await invoke<ProcessInfo>("process_create", {
+      projectDir,
+      profile,
+      worktreeName: worktreeName?.trim() ? worktreeName.trim() : null,
+    });
+    await loadProcessesForProject(projectDir, created.id);
+    await activateProcess(created.id);
+    return created;
+  } catch (error) {
+    pushToast(`新建对话失败：${formatError(error)}`, "error");
+    return null;
+  }
+}
+
+export async function closeConversation(
+  projectDir: string,
+  processId: string
+): Promise<void> {
+  void flushPendingDraftSaves();
+  try {
+    const receipt = await invoke<string>("process_close", { processId });
+    await loadProcessesForProject(projectDir);
+    await syncActiveProcessAfterListChange(projectDir);
+    pushToast(receipt, "ok");
+  } catch (error) {
+    pushToast(`关闭对话失败：${formatError(error)}`, "error");
+  }
+}
+
+export async function purgeConversation(
+  projectDir: string,
+  processId: string
+): Promise<void> {
+  void flushPendingDraftSaves();
+  try {
+    const receipt = await invoke<string>("process_purge", { projectDir, processId });
+    await loadProcessesForProject(projectDir);
+    await syncActiveProcessAfterListChange(projectDir);
+    pushToast(receipt, "ok");
+  } catch (error) {
+    pushToast(`删除对话失败：${formatError(error)}`, "error");
+  }
+}
+
 export async function selectProject(
   projectDir: string,
   preferredProcessId?: string | null
 ): Promise<void> {
+  void flushPendingDraftSaves();
   const prevGeneral = appStore.getState().generalMode;
   appStore.setState({
     generalMode: false,
@@ -189,6 +259,9 @@ export async function selectProject(
       loadConversationMessages(projectDir, active.id, active.session_id),
       refreshActiveSessionMeta(),
     ]);
+  } else {
+    resetChatSession();
+    await refreshActiveSessionMeta();
   }
   scheduleIdle(() => {
     void refreshGitStatus(projectDir, active?.worktree_path ?? null);
@@ -204,6 +277,7 @@ export async function selectProject(
 }
 
 export async function openGeneralChat(): Promise<void> {
+  void flushPendingDraftSaves();
   try {
     const root = await invoke<string>("general_chat_open");
     appStore.setState({
@@ -222,6 +296,9 @@ export async function openGeneralChat(): Promise<void> {
         loadConversationMessages(root, active.id, active.session_id),
         refreshActiveSessionMeta(),
       ]);
+    } else {
+      resetChatSession();
+      await refreshActiveSessionMeta();
     }
     scheduleIdle(() => {
       void loadModelsCatalog(root, false);

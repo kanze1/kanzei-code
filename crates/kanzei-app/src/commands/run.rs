@@ -511,14 +511,19 @@ pub(crate) fn schedule_run(
     let autonomous = !general && !discussion && autonomous;
     let model = model.or_else(|| process.model.lock().unwrap().clone());
     let reasoning = process.reasoning.lock().unwrap().clone();
-    let runtime = runtime_for(state, &session_id);
+    let runtime = crate::processes::registry::runtime_for_registered(
+        state,
+        &project_root,
+        &process.id,
+        &session_id,
+    )?;
     let _lifecycle = runtime.lifecycle.lock().unwrap();
-    if runtime.snapshot().existence != kanzei_core::session_lifecycle::Existence::Open {
-        return Err("对话正在关闭".into());
+    let snapshot = runtime.snapshot();
+    if snapshot.existence != kanzei_core::session_lifecycle::Existence::Open {
+        return Err("对话正在关闭或已关闭".into());
     }
-    if runtime.snapshot().phase == kanzei_core::session_lifecycle::Phase::Blocked {
-        return Err(runtime
-            .snapshot()
+    if snapshot.phase == kanzei_core::session_lifecycle::Phase::Blocked {
+        return Err(snapshot
             .error
             .unwrap_or_else(|| "对话回收未完成，请重试停止".into()));
     }

@@ -1,4 +1,60 @@
 {
+  "context_snapshot": {
+    "requests": [
+      {
+        "at": "number",
+        "model": "string",
+        "sequence": "number",
+        "step": "number",
+        "turnId": "string"
+      }
+    ],
+    "selected": {
+      "at": "number",
+      "manifest": {
+        "adjustments": "array",
+        "blocks": [
+          {
+            "bytes": "number",
+            "chars": "number",
+            "inspectable": "bool",
+            "kind": "string",
+            "label": "string",
+            "position": "number",
+            "role": "string",
+            "sha256": "string",
+            "source": {
+              "length_bytes": "number",
+              "offset_bytes": "number",
+              "system_index": "number"
+            }
+          }
+        ],
+        "contributions": "array",
+        "estimated_tokens": "number",
+        "execution": "nullable",
+        "format_version": "number",
+        "message_count": "number",
+        "model": "string",
+        "omitted_bytes": "number",
+        "protocol": "string",
+        "provider_channel": "string",
+        "repeated_results": "number",
+        "request_parameters": {
+          "max_tokens": "number",
+          "model": "string"
+        },
+        "source_reads": "array",
+        "wire_bytes": "number",
+        "wire_sha256": "string"
+      },
+      "sequence": "number",
+      "step": "number",
+      "turnId": "string"
+    },
+    "sessionId": "string",
+    "web": "array"
+  },
   "conversation_page": {
     "hasMore": "bool",
     "items": [
@@ -11,6 +67,16 @@
     ],
     "nextBeforeSequence": "number"
   },
+  "file_drafts_load": [
+    {
+      "bom": "bool",
+      "content": "string",
+      "eol": "string",
+      "hash": "string",
+      "path": "string",
+      "savedAtMs": "number"
+    }
+  ],
   "file_git_diff": {
     "additions": "number",
     "deletions": "number",
@@ -23,16 +89,6 @@
   "file_image": {
     "png": "string"
   },
-  "file_drafts_load": [
-    {
-      "bom": "bool",
-      "content": "string",
-      "eol": "string",
-      "hash": "string",
-      "path": "string",
-      "savedAtMs": "number"
-    }
-  ],
   "file_preview": {
     "binary": "bool",
     "bom": "bool",
@@ -88,9 +144,9 @@
       "created_at": "number",
       "delivery": "string",
       "input_id": "string",
+      "origin": "string",
       "prompt": "string",
-      "session_id": "string",
-      "origin": "string"
+      "session_id": "string"
     }
   ],
   "memory_graph": {
@@ -229,6 +285,17 @@
     "reasoning": "nullable",
     "research_topic": "nullable",
     "running": "bool",
+    "runtime": {
+      "activity": "nullable",
+      "actor_epoch": "string",
+      "error": "nullable",
+      "existence": "string",
+      "last_outcome": "nullable",
+      "phase": "string",
+      "revision": "number",
+      "round_generation": "number",
+      "stop": "nullable"
+    },
     "session_id": "string",
     "stage": "string",
     "subagent_mode": "string",
@@ -236,18 +303,7 @@
     "title_custom": "bool",
     "tracker_writes": "bool",
     "updated_at": "nullable",
-    "worktree_path": "nullable",
-    "runtime": {
-      "actor_epoch": "string",
-      "revision": "number",
-      "phase": "string",
-      "existence": "string",
-      "activity": "nullable",
-      "round_generation": "number",
-      "last_outcome": "nullable",
-      "stop": "nullable",
-      "error": "nullable"
-    }
+    "worktree_path": "nullable"
   },
   "process_list": [
     {
@@ -264,6 +320,17 @@
       "reasoning": "nullable",
       "research_topic": "nullable",
       "running": "bool",
+      "runtime": {
+        "activity": "string",
+        "actor_epoch": "string",
+        "error": "nullable",
+        "existence": "string",
+        "last_outcome": "nullable",
+        "phase": "string",
+        "revision": "number",
+        "round_generation": "number",
+        "stop": "nullable"
+      },
       "session_id": "string",
       "stage": "string",
       "subagent_mode": "string",
@@ -271,18 +338,7 @@
       "title_custom": "bool",
       "tracker_writes": "bool",
       "updated_at": "number",
-      "worktree_path": "nullable",
-      "runtime": {
-        "actor_epoch": "string",
-        "revision": "number",
-        "phase": "string",
-        "existence": "string",
-        "activity": "string",
-        "round_generation": "number",
-        "last_outcome": "nullable",
-        "stop": "nullable",
-        "error": "nullable"
-      }
+      "worktree_path": "nullable"
     }
   ],
   "project_root_info": {

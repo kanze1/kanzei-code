@@ -1283,7 +1283,7 @@ mod tests {
         assert!(running_conversation_names(&state, &path).is_empty());
         let session = crate::process_session_id(&root, Some(&main.id));
         crate::runtime_for(&state, &session).activate_for_test();
-        assert_eq!(running_conversation_names(&state, &path), ["对话"]);
+        assert_eq!(running_conversation_names(&state, &path), ["新对话"]);
         // 别的项目不受影响。
         assert!(running_conversation_names(&state, r"C:\kz-no-such-project").is_empty());
         std::fs::remove_dir_all(&dir).ok();

@@ -5,6 +5,7 @@ import type {
   PendingAskItem,
   PendingInputItem,
   ProcessInfo,
+  SessionLifecycleSnapshot,
 } from "../ipc/types";
 import { createStore, useStore } from "./createStore";
 import { pushToast } from "./uiStore";
@@ -78,30 +79,43 @@ export async function togglePinProcess(projectDir: string, processId: string): P
   }
 }
 
+let processListRequest = 0;
+
 export async function loadProcessesForProject(
   projectDir: string,
   preferredProcessId?: string | null
 ): Promise<ProcessInfo[]> {
+  const request = ++processListRequest;
   sessionStore.setState({ projectDir, loading: true });
   try {
     const list = await invoke<ProcessInfo[]>("process_list", { projectDir });
-    if (sessionStore.getState().projectDir !== projectDir) return list;
-    const prevId = preferredProcessId ?? sessionStore.getState().activeProcessId;
+    if (request !== processListRequest || sessionStore.getState().projectDir !== projectDir) return list;
+    const current = sessionStore.getState();
+    const bySession = new Map(current.processes.map((p) => [p.session_id, p]));
+    const processes = list.map((p) => {
+      const prev = bySession.get(p.session_id);
+      if (prev?.runtime && p.runtime?.actor_epoch === prev.runtime.actor_epoch &&
+          prev.runtime.revision > p.runtime.revision) {
+        return { ...p, runtime: prev.runtime, running: prev.running, stage: prev.stage };
+      }
+      return p;
+    });
+    const prevId = preferredProcessId ?? current.activeProcessId;
     const selected =
       (prevId && list.find((p) => p.id === prevId)?.id) ??
       list[0]?.id ??
       null;
     sessionStore.setState({
-      processes: list,
+      processes,
       activeProcessId: selected,
       loading: false,
     });
     return list;
   } catch (error) {
-    if (sessionStore.getState().projectDir === projectDir) {
+    if (request === processListRequest && sessionStore.getState().projectDir === projectDir) {
       sessionStore.setState({ loading: false });
+      pushToast(`读取会话列表失败：${formatError(error)}`, "error");
     }
-    pushToast(`读取会话列表失败：${formatError(error)}`, "error");
     return [];
   }
 }
@@ -149,13 +163,33 @@ export async function refreshActiveSessionMeta(): Promise<void> {
 
 export function updateProcessRuntime(
   sessionId: string,
-  patch: Partial<Pick<ProcessInfo, "running" | "stage" | "runtime">>
+  patch: Partial<Pick<ProcessInfo, "running" | "stage">>
 ): void {
   sessionStore.setState((prev) => {
     const idx = prev.processes.findIndex((p) => p.session_id === sessionId);
     if (idx < 0) return prev;
     const next = [...prev.processes];
-    next[idx] = { ...next[idx], ...patch };
+    // Compatibility notifications may update wording, but once an actor snapshot is
+    // available they cannot alter whether the session is busy.
+    const { running, ...presentation } = patch;
+    next[idx] = { ...next[idx], ...presentation,
+      ...(running !== undefined && !next[idx].runtime ? { running } : {}),
+    };
+    return { ...prev, processes: next };
+  });
+}
+
+export function applySessionLifecycle(sessionId: string, runtime: SessionLifecycleSnapshot): void {
+  sessionStore.setState((prev) => {
+    const idx = prev.processes.findIndex((p) => p.session_id === sessionId);
+    if (idx < 0) return prev;
+    const process = prev.processes[idx];
+    const current = process.runtime;
+    if (current && (runtime.actor_epoch !== current.actor_epoch || runtime.revision <= current.revision)) {
+      return prev;
+    }
+    const next = [...prev.processes];
+    next[idx] = { ...process, running: runtime.phase !== "idle", runtime };
     return { ...prev, processes: next };
   });
 }
@@ -174,25 +208,6 @@ export function removePendingAsk(askId: number): void {
   }));
 }
 
-export async function createConversation(
-  projectDir: string,
-  profile: string | null = null,
-  worktreeName: string | null = null
-): Promise<ProcessInfo | null> {
-  try {
-    const created = await invoke<ProcessInfo>("process_create", {
-      projectDir,
-      profile,
-      worktreeName: worktreeName?.trim() ? worktreeName.trim() : null,
-    });
-    await loadProcessesForProject(projectDir, created.id);
-    return created;
-  } catch (error) {
-    pushToast(`新建对话失败：${formatError(error)}`, "error");
-    return null;
-  }
-}
-
 export async function renameConversation(
   projectDir: string,
   processId: string,
@@ -204,32 +219,6 @@ export async function renameConversation(
     pushToast("已更新对话名称", "ok");
   } catch (error) {
     pushToast(`重命名失败：${formatError(error)}`, "error");
-  }
-}
-
-export async function closeConversation(
-  projectDir: string,
-  processId: string
-): Promise<void> {
-  try {
-    await invoke("process_close", { processId });
-    await loadProcessesForProject(projectDir);
-    pushToast("已关闭对话", "ok");
-  } catch (error) {
-    pushToast(`关闭对话失败：${formatError(error)}`, "error");
-  }
-}
-
-export async function purgeConversation(
-  projectDir: string,
-  processId: string
-): Promise<void> {
-  try {
-    await invoke("process_purge", { projectDir, processId });
-    await loadProcessesForProject(projectDir);
-    pushToast("已删除对话", "ok");
-  } catch (error) {
-    pushToast(`删除对话失败：${formatError(error)}`, "error");
   }
 }
 

@@ -61,6 +61,7 @@ try {
     window.__E2E_CALLS__ = [];
     window.__E2E_WINDOW_ACTIONS__ = [];
     let maximized = false;
+    let fileWriteAttempt = 0;
     window.__TAURI__ = {
       core: {
         async invoke(command, args) {
@@ -133,9 +134,48 @@ try {
                 files: [{ path: "src/main.rs", additions: 5, deletions: 1 }],
               };
             case "file_preview":
-              return { path: args?.path || "src/main.rs", content: "fn main() {\n    println!(\"ok\");\n}\n", hash: "h1" };
+              return {
+                path: args?.path || "src/main.rs",
+                content: "new\n",
+                hash: "h1",
+                bom: false,
+                readonly: null,
+                binary: false,
+              };
             case "file_git_diff":
               return { path: args?.path || "src/main.rs", diff: "@@ -1 +1 @@\n-old\n+new\n" };
+            case "file_write":
+              fileWriteAttempt += 1;
+              if (fileWriteAttempt === 1) {
+                return { status: "conflict", hash: "h-disk-v2", size: 12, mtimeMs: 1000, exists: true, evidence: null };
+              }
+              return { status: "saved", hash: `h-saved-${fileWriteAttempt}`, size: 14, mtimeMs: 2000, exists: true, evidence: null };
+            case "context_snapshot":
+              return {
+                sessionId: "ses-e2e",
+                requests: [{ sequence: 1, step: 1, model: "openai:gpt-5" }],
+                selected: {
+                  sequence: 1,
+                  manifest: {
+                    model: "openai:gpt-5",
+                    estimated_tokens: 1200,
+                    blocks: [
+                      {
+                        position: 0,
+                        kind: "system",
+                        role: "system",
+                        label: "agent/system",
+                        chars: 320,
+                        bytes: 320,
+                        sha256: "sha-sys",
+                        inspectable: true,
+                        source: { system_index: 0, offset_bytes: 0, length_bytes: 320 },
+                      },
+                    ],
+                  },
+                },
+                web: [],
+              };
             case "workspace_overview":
               return {
                 current: "C:/demo-repo",
@@ -233,11 +273,27 @@ try {
     await page.keyboard.press("Escape");
   }
 
-  // 2. 点击对话中的文件链接打开右侧文件上下文抽屉并切到 Diff
+  // 2. 点击对话中的文件链接打开右侧文件上下文抽屉，验证 Diff 回退此块、轻编辑冲突保护与强制覆盖
   await page.getByRole("button", { name: "src/main.rs:10" }).click();
   await page.waitForSelector(".side-drawer");
+  await page.getByRole("button", { name: "轻编辑" }).click();
+  await page.locator(".drawer-editor").fill("edited-in-e2e\n");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.waitForSelector(".drawer-conflict-bar");
+  await page.getByRole("button", { name: "强制覆盖" }).click();
+  await page.waitForSelector(".drawer-conflict-bar", { state: "detached" });
   await page.getByRole("button", { name: "Diff" }).click();
   await page.waitForSelector(".diff-line-add");
+  await page.getByRole("button", { name: "回退此块" }).click();
+  await page.waitForTimeout(120);
+
+  // 2b. 点击底栏「上下文构成」验证真实结构化 source 对象渲染不触发白屏
+  await page.getByRole("button", { name: "上下文构成" }).click();
+  await page.waitForSelector('[role="dialog"][aria-label="本轮请求上下文构成"]');
+  await page.locator(".context-group summary").filter({hasText:"系统提示与规则"}).click();
+  await page.locator('[role="dialog"][aria-label="本轮请求上下文构成"] >> text=agent/system').waitFor();
+  await page.locator('[role="dialog"][aria-label="本轮请求上下文构成"]').getByRole("button", { name: "关闭" }).click();
+  await page.waitForSelector('[role="dialog"][aria-label="本轮请求上下文构成"]', { state: "detached" });
 
   // 3. 依次切换四个懒加载二级视图，确认无横向溢出与报错
   for (const navLabel of ["工作台", "记忆", "Skills", "设置"]) {

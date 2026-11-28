@@ -20,8 +20,8 @@ use tauri::State;
 use crate::state::legacy_process_id;
 use crate::state::{process_info_with, process_kind_of};
 use crate::{
-    normalized_project_root, process_info, process_session_id, AppState, ProcessHandle,
-    ProcessInfo, WorktreeRoot,
+    normalized_project_root, process_info, process_session_id, AppState, MutexPoisonExt,
+    ProcessHandle, ProcessInfo, WorktreeRoot,
 };
 use kanzei_tools::worktree as wt;
 
@@ -799,36 +799,29 @@ pub(crate) fn unregister_parallel_process(
     let state_path = kanzei_core::project_state_path(root);
     let store = kanzei_core::SessionStore::open(&state_path).map_err(|e| e.to_string())?;
     let session_id = process_session_id(root, Some(process_id));
-    let branch = state
-        .processes
-        .lock()
-        .unwrap()
-        .get(process_id)
-        .and_then(|process| process.branch.clone());
-    let runtime = state.runtimes.lock().unwrap().get(&session_id).cloned();
-    if let Some(runtime) = runtime {
-        if runtime.is_running() {
-            // 注销是运行会话的终点，不能只 abort future。统一出口会先落在飞轨迹、
-            // 清 ask，再把 promoted/running/pending 输入收敛为 cancelled。
-            return Err("对话尚未回收，不能注销执行身份或处置工作树".into());
-        } else {
-            // runtime 容器会在首次历史读取/ask 恢复时提前存在；空闲容器没有
-            // promoted 输入可 finalize，直接清待答队列即可。
-            let _lifecycle = runtime.lifecycle.lock().unwrap();
-            runtime.retire_async();
-            runtime.asks.lock().unwrap().clear();
-        }
+    // Share the same actor lock as input admission. A request that already
+    // captured this actor must observe Closed; one that did not must find no registration.
+    let runtime = crate::runtime_for(state, &session_id);
+    let _lifecycle = runtime.lifecycle.lock_or_recover();
+    if runtime.is_running() {
+        return Err("对话尚未回收，不能注销执行身份或处置工作树".into());
     }
-    let _ = branch;
-    let released = Vec::new();
-    // finalize 成功后才退役身份；若持久化失败，保留已停止的内存线路。
     store
         .delete_process(process_id)
         .map_err(|e| format!("删除对话登记失败: {e}"))?;
-    state.runtimes.lock().unwrap().remove(&session_id);
-    state.auto_runs.lock().unwrap().remove(&session_id);
-    state.processes.lock().unwrap().remove(process_id);
-    Ok(released)
+    use kanzei_core::session_lifecycle::{Event, Existence};
+    if runtime.snapshot().existence != Existence::Closed {
+        runtime.transition(Event::CloseRequested)?;
+        runtime.transition(Event::Closed)?;
+    }
+    runtime.retire_async();
+    runtime.asks.lock_or_recover().clear();
+    let mut processes = state.processes.lock_or_recover();
+    processes.remove(process_id);
+    state.runtimes.lock_or_recover().remove(&session_id);
+    drop(processes);
+    state.auto_runs.lock_or_recover().remove(&session_id);
+    Ok(Vec::new())
 }
 
 /// 高频列表刷新也要修复本运行期里被外部删除的树。恢复阶段只处理 state.db；这里
@@ -922,6 +915,40 @@ mod tests {
     use super::*;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
+
+    #[tokio::test]
+    async fn retirement_rejects_submissions_on_both_sides_of_actor_lookup() {
+        use super::super::registry::{resolve_conversation, runtime_for_registered};
+        use kanzei_core::session_lifecycle::Existence;
+
+        let root = temp_project("retirement-admission");
+        let state = AppState::default();
+        let info = discussion(&state, &root.display().to_string()).await;
+        let stale = resolve_conversation(&state, &root, Some(&info.id)).unwrap();
+        let runtime = runtime_for_registered(&state, &root, &stale.id, &info.session_id).unwrap();
+        let store =
+            kanzei_core::SessionStore::open(&kanzei_core::project_state_path(&root)).unwrap();
+        store
+            .create_session(&info.session_id, &root.display().to_string(), None)
+            .unwrap();
+
+        close_process(&state, &stale).await.unwrap();
+
+        // A submission that got the actor before close observes Closed under the lifecycle lock.
+        let _lifecycle = runtime.lifecycle.lock_or_recover();
+        assert_eq!(runtime.snapshot().existence, Existence::Closed);
+        // A submission that only got a process handle must not create a fresh Open actor.
+        assert!(runtime_for_registered(&state, &root, &stale.id, &info.session_id).is_err());
+        assert!(!state
+            .runtimes
+            .lock_or_recover()
+            .contains_key(&info.session_id));
+        assert!(store.get_session(&info.session_id).unwrap().is_some());
+        assert!(store
+            .list_pending_inputs(&info.session_id)
+            .unwrap()
+            .is_empty());
+    }
 
     #[tokio::test]
     async fn settings_write_failure_preserves_runtime_and_success_publishes() {
@@ -1039,7 +1066,7 @@ mod tests {
         }
         let first = &created[0];
         assert_eq!(first.kind, "discussion");
-        assert_eq!(first.label, "讨论 1");
+        assert_eq!(first.label, "新讨论");
         assert_eq!((first.ordinal, first.title.as_deref()), (Some(1), None));
         assert!(!first.title_custom);
 
@@ -1050,7 +1077,7 @@ mod tests {
         assert_eq!(ordinals, expected);
         assert_eq!(
             (list[0].kind.as_str(), list[0].label.as_str()),
-            ("discussion", "讨论 1")
+            ("discussion", "新讨论")
         );
 
         // 用户命名(整理空白)→ 优先于一切;空白 = 清除,回到类型 + 序号。
@@ -1063,7 +1090,7 @@ mod tests {
         assert!(renamed.updated_at.is_some(), "改名顺手建出了会话行");
         rename_process(&state, &project, &second, "   ").unwrap();
         let cleared = info_of(&state, &project, &second);
-        assert_eq!(cleared.label, "讨论 2");
+        assert_eq!(cleared.label, "新讨论");
         assert!(!cleared.title_custom && cleared.title.is_none());
 
         // 自动标题:首条消息第一行的前 48 字;用户命名压过它,清掉命名后回到它。

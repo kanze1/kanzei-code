@@ -891,15 +891,6 @@
   background: var(--warn);
 }
 
-.session-row-closed-toggle {
-  opacity: 0.78;
-}
-
-.session-row-closed {
-  opacity: 0.72;
-  font-size: 11.5px;
-}
-
 /* ---------- 窄窗口响应式 ---------- */
 @media (max-width: 960px) {
   .window-project-name {

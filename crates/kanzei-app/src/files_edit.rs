@@ -465,13 +465,23 @@ pub(crate) struct WriteRequest<'a> {
     pub evidence: bool,
 }
 
-/// `file_write` 的实现。统一返回 `{status: "saved"|"conflict", hash, size, mtimeMs, exists, evidence}`;
-/// 只读、越界、超限、IO 失败才是 Err(只读以 `READONLY:<code>` 开头)。
+#[cfg(test)]
 pub(crate) fn write_at(
     root: &Path,
     request: WriteRequest<'_>,
 ) -> Result<serde_json::Value, String> {
-    let resolved = resolve_in_root(root, request.rel)?;
+    write_at_in(root, root, request)
+}
+
+/// 在 `target_root`(主根或已校验的独立 git worktree)内写入文件。
+/// 覆盖留证始终落在 `project_root/.kanzei/quarantine/`，避免污染 worktree 的 git 状态；
+/// 写日志仅在写入主根且主根已有 `.kanzei` 时记录。
+pub(crate) fn write_at_in(
+    target_root: &Path,
+    project_root: &Path,
+    request: WriteRequest<'_>,
+) -> Result<serde_json::Value, String> {
+    let resolved = resolve_in_root(target_root, request.rel)?;
     if let Some(code) = write_policy(&resolved.rel) {
         return Err(readonly_error(code));
     }
@@ -521,7 +531,10 @@ pub(crate) fn write_at(
         let mut evidence_dir: Option<PathBuf> = None;
         if request.evidence {
             let dir_name = format!("{OVERWRITE_EVIDENCE_KIND}-{}", now_ms());
-            let dir = root.join(".kanzei").join("quarantine").join(&dir_name);
+            let dir = project_root
+                .join(".kanzei")
+                .join("quarantine")
+                .join(&dir_name);
             let target = resolved
                 .rel
                 .split('/')
@@ -588,9 +601,11 @@ pub(crate) fn write_at(
     // 根下没有 `.kanzei`(resolve_root 退回到了打开的目录本身)就不记:
     // 那里没有围栏会读它,不凭空建出 `.kanzei/.write-log`——与代理 write 工具无 run 身份时不建
     // `.kanzei` 同一口径。覆盖留证照常建目录(安全比整洁重要)。
-    if root.join(".kanzei").is_dir() {
+    let is_main_root = kanzei_tools::worktree::worktree_key(target_root)
+        == kanzei_tools::worktree::worktree_key(project_root);
+    if is_main_root && project_root.join(".kanzei").is_dir() {
         kanzei_tools::write_log::record(
-            root,
+            project_root,
             &kanzei_tools::write_log::WriteLogEntry {
                 at_ms: now_ms(),
                 path: resolved.rel.clone(),
@@ -613,8 +628,12 @@ pub(crate) fn write_at(
 
 /// 文件页轮询用:大小与修改时间(不读内容)。
 #[tauri::command]
-pub async fn file_stat(project_dir: String, path: String) -> Result<serde_json::Value, String> {
-    let root = crate::files_view::resolve_root(&project_dir);
+pub async fn file_stat(
+    project_dir: String,
+    path: String,
+    worktree_path: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let root = crate::files_view::resolve_target_root(&project_dir, worktree_path.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || stat_at(&root, &path))
         .await
         .map_err(|e| e.to_string())?
@@ -630,11 +649,15 @@ pub async fn file_write(
     expected_hash: Option<String>,
     bom: Option<bool>,
     evidence: Option<bool>,
+    worktree_path: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let root = crate::files_view::resolve_root(&project_dir);
+    let project_root = crate::files_view::resolve_root(&project_dir);
+    let target_root =
+        crate::files_view::resolve_target_root(&project_dir, worktree_path.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || {
-        write_at(
-            &root,
+        write_at_in(
+            &target_root,
+            &project_root,
             WriteRequest {
                 rel: &path,
                 content: &content,
@@ -1322,6 +1345,130 @@ pub(crate) mod tests {
             std::fs::read_to_string(root.join("notes.txt")).unwrap(),
             "alpha\nBETA by user\nGAMMA\n"
         );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn 工作树保存只改工作树不碰主目录且冲突留证不污染工作树() {
+        let root = temp_root("worktree-write");
+        let run_git = |dir: &Path, args: &[&str]| {
+            let out = crate::state::hidden_command("git")
+                .args(args)
+                .current_dir(dir)
+                .output()
+                .expect("git must run");
+            assert!(
+                out.status.success(),
+                "git {:?} failed: {}",
+                args,
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run_git(&root, &["init", "-q"]);
+        run_git(&root, &["config", "user.email", "test@example.com"]);
+        run_git(&root, &["config", "user.name", "Test"]);
+        put(&root, "app.txt", b"main-v1\n");
+        run_git(&root, &["add", "app.txt"]);
+        run_git(&root, &["commit", "-q", "-m", "init"]);
+
+        let wt_holder = temp_root("worktree-write-branch");
+        let wt = wt_holder.join("branch-edit");
+        run_git(
+            &root,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "branch-edit",
+                &wt.display().to_string(),
+            ],
+        );
+        std::fs::write(wt.join("app.txt"), "branch-v1\n").unwrap();
+
+        let project_str = root.display().to_string();
+        let wt_str = wt.display().to_string();
+
+        let preview = crate::files_view::file_preview(
+            project_str.clone(),
+            "app.txt".into(),
+            Some(wt_str.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(preview["content"], "branch-v1\n");
+        let opened_hash = preview["hash"].as_str().unwrap().to_string();
+
+        let saved = file_write(
+            project_str.clone(),
+            "app.txt".into(),
+            "branch-v2\n".into(),
+            Some(opened_hash.clone()),
+            Some(false),
+            Some(false),
+            Some(wt_str.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(saved["status"], "saved");
+        assert_eq!(
+            std::fs::read_to_string(wt.join("app.txt")).unwrap(),
+            "branch-v2\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("app.txt")).unwrap(),
+            "main-v1\n",
+            "工作树轻编辑不得修改项目主目录文件"
+        );
+
+        // 外部改写工作树文件后，使用旧指纹保存必须返回 conflict 且保留磁盘内容
+        std::fs::write(wt.join("app.txt"), "external-branch\n").unwrap();
+        let conflict = file_write(
+            project_str.clone(),
+            "app.txt".into(),
+            "branch-v3\n".into(),
+            Some(saved["hash"].as_str().unwrap().to_string()),
+            Some(false),
+            Some(false),
+            Some(wt_str.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(conflict["status"], "conflict");
+        assert_eq!(
+            std::fs::read_to_string(wt.join("app.txt")).unwrap(),
+            "external-branch\n"
+        );
+
+        // 带着冲突返回的最新指纹强制覆盖并留证：工作树被更新，留证进主项目 .kanzei/quarantine，不污染工作树
+        let forced = file_write(
+            project_str.clone(),
+            "app.txt".into(),
+            "branch-v3\n".into(),
+            conflict["hash"].as_str().map(str::to_string),
+            Some(false),
+            Some(true),
+            Some(wt_str.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(forced["status"], "saved");
+        assert_eq!(
+            std::fs::read_to_string(wt.join("app.txt")).unwrap(),
+            "branch-v3\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.join("app.txt")).unwrap(),
+            "main-v1\n"
+        );
+        let evidence_rel = forced["evidence"].as_str().unwrap();
+        assert!(root.join(evidence_rel).is_file(), "留证必须落主项目目录");
+        assert!(
+            !wt.join(".kanzei").exists(),
+            "留证不得污染工作树的 .kanzei 目录"
+        );
+
+        let _ = std::fs::remove_dir_all(wt_holder);
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1,11 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { formatError, invoke } from "../ipc/client";
-import type { ChatMessage, ConversationMessagePage, ProcessInfo } from "../ipc/types";
+import React, { useMemo, useState } from "react";
+import type { ProcessInfo } from "../ipc/types";
 import {
   activateProcess,
   addExistingProject,
+  closeConversation,
+  createConversation,
   openGeneralChat,
   projectDisplayName,
+  purgeConversation,
   removeProject,
   renameProject,
   reorderProjects,
@@ -14,9 +16,6 @@ import {
 } from "../store/appStore";
 import { openExternalPath } from "../store/drawerStore";
 import {
-  closeConversation,
-  createConversation,
-  purgeConversation,
   renameConversation,
   togglePinProcess,
   useSessionStore,
@@ -24,7 +23,6 @@ import {
 import {
   confirmDialog,
   navigateView,
-  openViewer,
   promptDialog,
   pushToast,
   setSidebarWidth,
@@ -56,14 +54,6 @@ interface ContextMenuState {
   process?: ProcessInfo;
 }
 
-interface ClosedProcessSummary {
-  id: string;
-  session_id: string;
-  ordinal?: number | null;
-  title?: string | null;
-  closed_at?: number | null;
-}
-
 export function Sidebar(): React.ReactElement {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen);
   const sidebarWidth = useUiStore((s) => s.sidebarWidth);
@@ -79,21 +69,6 @@ export function Sidebar(): React.ReactElement {
   const asks = useSessionStore((s) => s.asks);
   const [filter, setFilter] = useState("");
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
-  const [closedOpen, setClosedOpen] = useState(false);
-  const [closedList, setClosedList] = useState<ClosedProcessSummary[]>([]);
-
-  useEffect(() => {
-    setClosedOpen(false);
-    setClosedList([]);
-  }, [activeProjectDir, generalMode]);
-
-  useEffect(() => {
-    if (!closedOpen || !activeProjectDir || generalMode) return;
-    invoke<ClosedProcessSummary[]>("process_closed_list", { projectDir: activeProjectDir })
-      .then((list) => setClosedList(Array.isArray(list) ? list : []))
-      .catch(() => setClosedList([]));
-  }, [closedOpen, activeProjectDir, generalMode, processes.length]);
-
   const askCountBySession = useMemo(() => {
     const map = new Map<string, number>();
     for (const ask of asks) {
@@ -102,38 +77,6 @@ export function Sidebar(): React.ReactElement {
     }
     return map;
   }, [asks]);
-
-  const openClosedReadonly = async (item: ClosedProcessSummary) => {
-    if (!activeProjectDir) return;
-    try {
-      const page = await invoke<ConversationMessagePage>("conversation_page_messages", {
-        projectDir: activeProjectDir,
-        processId: item.id,
-        limit: 200,
-      });
-      const md = (page?.items ?? [])
-        .filter((m: ChatMessage) => m.role === "user" || m.role === "assistant")
-        .map((m: ChatMessage) => {
-          const text = (m.parts ?? [])
-            .filter((p) => p.type === "text" && typeof p.text === "string")
-            .map((p) => p.text ?? "")
-            .join("\n")
-            .trim();
-          if (!text) return "";
-          return `${m.role === "user" ? "### 用户" : "### 助手"}\n\n${text}`;
-        })
-        .filter(Boolean)
-        .join("\n\n---\n\n");
-      openViewer({
-        title: item.title || `已关闭对话 ${item.ordinal ?? item.id}`,
-        subtitle: "只读历史记录（已关闭会话）",
-        content: md || "该会话暂无可显示的文本消息。",
-        kind: "markdown",
-      });
-    } catch (error) {
-      pushToast(`读取已关闭对话失败：${formatError(error)}`, "error");
-    }
-  };
 
   const handleCreateWorktreeChat = async (dir: string) => {
     setMenu(null);
@@ -150,7 +93,6 @@ export function Sidebar(): React.ReactElement {
     const created = await createConversation(dir, null, name);
     if (created) {
       navigateView("chat");
-      await activateProcess(created.id);
       pushToast(`已创建工作树对话 ${created.branch ?? name}`, "ok");
     }
   };
@@ -178,14 +120,10 @@ export function Sidebar(): React.ReactElement {
     setMenu({ ...payload, x: Math.max(8, x), y: Math.max(8, y) });
   };
 
-  const filteredProjects = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    return projects.projects.filter((dir) => {
-      if (!q) return true;
-      const name = (projects.names[dir] ?? dir).toLowerCase();
-      return name.includes(q) || dir.toLowerCase().includes(q);
-    });
-  }, [projects, filter]);
+  const query = filter.trim().toLowerCase();
+  const matchesProject = (dir: string) =>
+    !query || (projects.names[dir] ?? dir).toLowerCase().includes(query) || dir.toLowerCase().includes(query);
+  const matchesConversation = (process: ProcessInfo) => process.label.toLowerCase().includes(query);
 
   const sortedActiveProcesses = useMemo(() => {
     if (!activeProjectDir) return [];
@@ -193,11 +131,17 @@ export function Sidebar(): React.ReactElement {
     return [...processes].sort((a, b) => {
       const pinDiff = Number(pins.has(b.id)) - Number(pins.has(a.id));
       if (pinDiff !== 0) return pinDiff;
-      const runDiff = Number(b.running) - Number(a.running);
-      if (runDiff !== 0) return runDiff;
       return (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
   }, [processes, activeProjectDir, pinnedByProject]);
+
+  const visibleProcesses = sortedActiveProcesses.filter((process) =>
+    process.origin_project === activeProjectDir &&
+    ((!generalMode && matchesProject(process.origin_project)) || matchesConversation(process))
+  );
+  const filteredProjects = projects.projects.filter((dir) =>
+    matchesProject(dir) || (!generalMode && dir === activeProjectDir && visibleProcesses.length > 0)
+  );
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -249,7 +193,9 @@ export function Sidebar(): React.ReactElement {
     setMenu(null);
     const ok = await confirmDialog({
       title: "永久删除对话？",
-      message: `确定永久删除对话「${proc.label}」及其历史消息？此操作不可恢复。`,
+      message: proc.worktree_path
+        ? `删除「${proc.label}」后无法恢复。如果工作树仍有未提交或未合并的内容，将只关闭对话，并保留工作树和历史。`
+        : `确定永久删除对话「${proc.label}」及其历史消息？此操作不可恢复。`,
       confirmLabel: "删除",
       danger: true,
     });
@@ -301,10 +247,10 @@ export function Sidebar(): React.ReactElement {
           </span>
           <input
             className="input sidebar-search"
-            placeholder="筛选项目…"
+            placeholder="筛选项目或当前对话…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            aria-label="筛选项目"
+            aria-label="筛选项目或当前对话"
           />
           {filter && (
             <button
@@ -321,19 +267,12 @@ export function Sidebar(): React.ReactElement {
 
       <div className="sidebar-scroll">
         <div className="sidebar-section-header">
-          <span>项目 · {filteredProjects.length}</span>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={() => navigateView("workspace")}
-          >
-            总览
-          </button>
+          <span>项目</span>
         </div>
 
         {filteredProjects.length === 0 ? (
           <div className="sidebar-empty-hint">
-            {filter.trim() ? "没有匹配的项目名称。" : "还没有项目，点击上方按钮添加或新建。"}
+            {filter.trim() ? "没有匹配的项目或当前项目的对话。" : "还没有项目，点击上方按钮添加或新建。"}
           </div>
         ) : (
           filteredProjects.map((dir) => {
@@ -380,9 +319,9 @@ export function Sidebar(): React.ReactElement {
                   </span>
                 </div>
 
-                {!generalMode && activeProjectDir === dir && sortedActiveProcesses.length > 0 && (
+                {!generalMode && activeProjectDir === dir && visibleProcesses.length > 0 && (
                   <div className="session-list">
-                    {sortedActiveProcesses.map((proc) => {
+                    {visibleProcesses.map((proc) => {
                       const pinned = (pinnedByProject[dir] ?? []).includes(proc.id);
                       const selected = proc.id === activeProcessId && view === "chat";
                       const pendingAskCount = askCountBySession.get(proc.session_id) ?? 0;
@@ -417,7 +356,7 @@ export function Sidebar(): React.ReactElement {
                               待确认 {pendingAskCount}
                             </span>
                           )}
-                          {proc.branch && (
+                          {proc.worktree_path && proc.branch && (
                             <span className="session-row-meta" title={proc.branch}>
                               {proc.branch}
                             </span>
@@ -425,36 +364,6 @@ export function Sidebar(): React.ReactElement {
                         </button>
                       );
                     })}
-                    <button
-                      type="button"
-                      className="session-row session-row-closed-toggle"
-                      onClick={() => setClosedOpen((v) => !v)}
-                    >
-                      <span className="field-hint">
-                        {closedOpen ? "▾ 收起已关闭对话" : "▸ 查看已关闭对话"}
-                      </span>
-                    </button>
-                    {closedOpen &&
-                      (closedList.length === 0 ? (
-                        <div className="field-hint" style={{ padding: "4px 10px" }}>
-                          暂无已关闭的历史对话
-                        </div>
-                      ) : (
-                        closedList.map((closed) => (
-                          <button
-                            key={closed.id}
-                            type="button"
-                            className="session-row session-row-closed"
-                            onClick={() => void openClosedReadonly(closed)}
-                            title="点击只读查看该已关闭对话历史"
-                          >
-                            <span className="session-row-label">
-                              {closed.title || `已关闭对话 ${closed.ordinal ?? closed.id}`}
-                            </span>
-                            <span className="badge">只读</span>
-                          </button>
-                        ))
-                      ))}
                   </div>
                 )}
               </div>
@@ -476,7 +385,7 @@ export function Sidebar(): React.ReactElement {
               </button>
             </div>
             <div className="session-list session-list-flat">
-              {sortedActiveProcesses.map((proc) => (
+              {visibleProcesses.map((proc) => (
                 <button
                   key={proc.id}
                   type="button"

@@ -1,20 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { profileDisplayLabel } from "../../configOptions";
 import { formatError, invoke } from "../../ipc/client";
+import type { ChatMessage } from "../../ipc/types";
 import {
+  createConversation,
   projectDisplayName,
   selectProject,
   useAppStore,
 } from "../../store/appStore";
 import {
-  chatStore,
   clearCurrentConversation,
   compactCurrentConversation,
   loadConversationMessages,
 } from "../../store/chatStore";
 import { ControlPopover } from "../../components/ControlPopover";
 import { refreshGitStatus, toggleDrawer, useDrawerStore } from "../../store/drawerStore";
-import { createConversation, useSessionStore } from "../../store/sessionStore";
+import { useSessionStore } from "../../store/sessionStore";
+import { ErrorBoundary } from "../../components/ErrorBoundary";
 import {
   confirmDialog,
   navigateView,
@@ -262,17 +264,23 @@ export function ChatView(): React.ReactElement {
 
   const handleClear = async () => {
     const ok = await confirmDialog({
-      title: "清空当前对话？",
-      message: "将在当前会话开启新的空白对话段，历史记录仍保留在数据库中。",
+      title: "重开上下文？",
+      message: "开始一段空白对话，不再使用当前上下文。原记录仍可在「历史段」查看。",
       confirmLabel: "开启新段",
     });
     if (ok) await clearCurrentConversation();
   };
 
   const handleExport = async () => {
-    const msgs = chatStore.getState().messages;
-    if (msgs.length === 0) {
-      pushToast("当前对话暂无可导出的消息", "info");
+    if (!activeProjectDir || !activeProcess) return;
+    let msgs: ChatMessage[];
+    try {
+      msgs = await invoke<ChatMessage[]>("conversation_display_get", {
+        projectDir: activeProjectDir,
+        processId: activeProcess.id,
+      });
+    } catch (err) {
+      pushToast(`读取对话失败：${formatError(err)}`, "error");
       return;
     }
     const transcript = msgs
@@ -288,6 +296,10 @@ export function ChatView(): React.ReactElement {
       })
       .filter(Boolean)
       .join("\n\n---\n\n");
+    if (!transcript) {
+      pushToast("当前对话暂无可导出的文本", "info");
+      return;
+    }
     const withSummary = await confirmDialog({
       title: "导出对话为 Markdown",
       message: "是否先调用快速模型在文件顶部生成简明纪要？选择「取消」则直接导出原始对话。",
@@ -395,7 +407,8 @@ export function ChatView(): React.ReactElement {
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"
-                    title="导出对话为 Markdown"
+                    title="导出当前对话段的全部文本为 Markdown"
+                    disabled={!activeProcess}
                     onClick={() => {
                       close();
                       void handleExport();
@@ -452,7 +465,7 @@ export function ChatView(): React.ReactElement {
                     }}
                   >
                     <IconTrash size={12} />
-                    <span>清空</span>
+                    <span>重开上下文</span>
                   </button>
                 </>
               )}
@@ -477,7 +490,13 @@ export function ChatView(): React.ReactElement {
         <Composer />
       </div>
 
-      <ContextDrawer />
+      <ErrorBoundary
+        scope="文件与活动抽屉"
+        resetKeys={[activeProjectDir, activeProcess?.id]}
+        compact
+      >
+        <ContextDrawer />
+      </ErrorBoundary>
 
       {traceOpen && (
         <div

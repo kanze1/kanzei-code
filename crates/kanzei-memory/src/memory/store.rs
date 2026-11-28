@@ -273,6 +273,41 @@ impl MemoryStore {
         expected_hash: Option<&str>,
         enforce_topic: bool,
     ) -> anyhow::Result<MemoryEntry> {
+        self.update_with_area_and_category(
+            id,
+            title,
+            description,
+            body,
+            status,
+            area,
+            None,
+            expected_hash,
+            enforce_topic,
+        )
+    }
+
+    /// update 的全参版本：除 `update_with_area` 外同时支持更新 `category`（经 `CATEGORIES` 校验）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_with_area_and_category(
+        &self,
+        id: &str,
+        title: Option<&str>,
+        description: Option<&str>,
+        body: Option<&str>,
+        status: Option<&str>,
+        area: Option<&[String]>,
+        category: Option<&str>,
+        expected_hash: Option<&str>,
+        enforce_topic: bool,
+    ) -> anyhow::Result<MemoryEntry> {
+        if let Some(cat) = category {
+            if !super::CATEGORIES.contains(&cat) {
+                anyhow::bail!(
+                    "invalid category `{cat}`; valid: {}",
+                    super::CATEGORIES.join(" | ")
+                );
+            }
+        }
         if let Some(status) = status {
             // 兼容旧档别名:stale → deprecated(R-165 兼容映射,写入侧统一归一化)。
             let status = super::normalize_status(status);
@@ -299,6 +334,9 @@ impl MemoryStore {
                      重读当前条目后合并再写。当前 hash: {current}"
                 );
             }
+        }
+        if let Some(cat) = category {
+            entry.category = cat.into();
         }
         if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
             entry.title = title.into();
