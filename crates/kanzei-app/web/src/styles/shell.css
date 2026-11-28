@@ -945,19 +945,6 @@
   min-width: 4px;
 }
 
-.ctx-breakdown-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  font-size: 12px;
-}
-
-.ctx-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .ctx-legend-dot {
   width: 8px;
   height: 8px;
@@ -1015,3 +1002,7 @@
   display: flex;
   flex-direction: column;
 }
+
+.context-empty-group { color: var(--dim); padding: 7px 4px; font-size: var(--fs-12); }
+.context-empty-group .ctx-legend-dot { margin-inline-end: 8px; }
+.context-group meter { width: 52px; height: 8px; vertical-align: middle; }

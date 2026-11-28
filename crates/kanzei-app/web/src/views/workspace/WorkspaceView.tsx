@@ -1,3 +1,4 @@
+import { ControlPopover } from "../../components/ControlPopover";
 import React, { useEffect, useMemo, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import type { PendingAskItem, WorkspaceLineSummary } from "../../ipc/types";
@@ -460,6 +461,7 @@ export default function WorkspaceView(): React.ReactElement {
                               : "进入会话"}
                           </button>
                           {item.completedAt && (
+
                             <button
                               type="button"
                               className="btn btn-ghost btn-sm"
@@ -576,20 +578,22 @@ export default function WorkspaceView(): React.ReactElement {
                         <IconLayers size={11} />
                         <span>百科</span>
                       </button>
+                      <ControlPopover label={"更多项目操作 " + name} trigger="···">{close => <>
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={() => void handleRename(path, name)}
+                        onClick={() => { close(); void handleRename(path, name); }}
                       >
                         重命名
                       </button>
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
-                        onClick={() => void handleRemove(path, name)}
+                        onClick={() => { close(); void handleRemove(path, name); }}
                       >
                         移除
                       </button>
+                        </>}</ControlPopover>
                     </div>
                     <button
                       type="button"

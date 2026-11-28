@@ -496,7 +496,14 @@ export default function MemoryView(): React.ReactElement {
                   <option value="preference">preference 偏好</option>
                 </select>
               </div>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: 2 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingTop: 2,
+                }}
+              >
                 <span className="field-hint">查看已归档记忆</span>
                 <button
                   type="button"
@@ -543,21 +550,27 @@ export default function MemoryView(): React.ReactElement {
               {editMode ? (
                 <div className="detail-container">
                   <div className="detail-header">
-                    <h2 className="detail-title">
-                      {selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}
-                    </h2>
+                    <h2 className="detail-title">{selected ? `编辑记忆 ${selected.id}` : "新建记忆条目"}</h2>
                   </div>
                   <div className="settings-grid-2">
                     <div className="field-group">
                       <label className="field-label">范围</label>
-                      <select className="select" value={editScope} onChange={(e) => setEditScope(e.target.value)}>
+                      <select
+                        className="select"
+                        value={editScope}
+                        onChange={(e) => setEditScope(e.target.value)}
+                      >
                         <option value="project">项目</option>
                         <option value="global">全局</option>
                       </select>
                     </div>
                     <div className="field-group">
                       <label className="field-label">类别</label>
-                      <select className="select" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+                      <select
+                        className="select"
+                        value={editCategory}
+                        onChange={(e) => setEditCategory(e.target.value)}
+                      >
                         <option value="fact">fact 事实</option>
                         <option value="sop">sop 流程</option>
                         <option value="habit">habit 习惯</option>
@@ -567,7 +580,11 @@ export default function MemoryView(): React.ReactElement {
                   </div>
                   <div className="field-group">
                     <label className="field-label">标题</label>
-                    <input className="input" value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+                    <input
+                      className="input"
+                      value={editTitle}
+                      onChange={(e) => setEditTitle(e.target.value)}
+                    />
                   </div>
                   <div className="field-group">
                     <label className="field-label">简短说明</label>
@@ -665,10 +682,18 @@ export default function MemoryView(): React.ReactElement {
                               </button>
                             </>
                           )}
-                          <button type="button" className="btn btn-sm btn-primary" onClick={startEditSelected}>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-primary"
+                            onClick={startEditSelected}
+                          >
                             编辑
                           </button>
-                          <button type="button" className="btn btn-danger btn-sm" onClick={() => void deleteSelected()}>
+                          <button
+                            type="button"
+                            className="btn btn-danger btn-sm"
+                            onClick={() => void deleteSelected()}
+                          >
                             删除
                           </button>
                         </>
@@ -729,9 +754,7 @@ export default function MemoryView(): React.ReactElement {
               </button>
               {jobStatus && (
                 <>
-                  <span className="badge badge-info">
-                    作业状态：{String(jobStatus.status ?? "idle")}
-                  </span>
+                  <span className="badge badge-info">作业状态：{String(jobStatus.status ?? "idle")}</span>
                   {String(jobStatus.status ?? "") === "running" && (
                     <button
                       type="button"
@@ -756,7 +779,9 @@ export default function MemoryView(): React.ReactElement {
               {candidates.map((cand, idx) => (
                 <div key={cand.fingerprint ?? cand.id ?? idx} className="provider-card">
                   <div className="provider-card-head">
-                    <strong style={{ fontSize: 13.5 }}>{cand.title ?? cand.header ?? `笔记 #${idx + 1}`}</strong>
+                    <strong style={{ fontSize: 13.5 }}>
+                      {cand.title ?? cand.header ?? `笔记 #${idx + 1}`}
+                    </strong>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button
                         type="button"
@@ -786,7 +811,7 @@ export default function MemoryView(): React.ReactElement {
                             })
                               .then(() => {
                                 setCandidates((prev) =>
-                                  prev.filter((x) => x.fingerprint !== cand.fingerprint)
+                                  prev.filter((x) => x.fingerprint !== cand.fingerprint),
                                 );
                                 pushToast("已丢弃笔记", "ok");
                               })
@@ -871,11 +896,7 @@ export default function MemoryView(): React.ReactElement {
                 重置
               </button>
               {chatBusy ? (
-                <button
-                  type="button"
-                  className="btn btn-danger"
-                  onClick={() => void stopMemoryChat()}
-                >
+                <button type="button" className="btn btn-danger" onClick={() => void stopMemoryChat()}>
                   停止
                 </button>
               ) : (
@@ -945,10 +966,10 @@ export default function MemoryView(): React.ReactElement {
               </div>
             )}
 
-            <details className="diag-card" open>
+            <details className="diag-card">
               <summary className="diag-card-summary">
                 <span>记忆库概览（原始快照）</span>
-                <span className="badge">JSON</span>
+                <span className="badge">{overviewNumbers.length} 项统计</span>
               </summary>
               <div className="diag-card-body">
                 <pre className="tool-pre">{JSON.stringify(overview, null, 2)}</pre>
@@ -958,7 +979,11 @@ export default function MemoryView(): React.ReactElement {
             <details className="diag-card">
               <summary className="diag-card-summary">
                 <span>控制面诊断</span>
-                <span className="badge">JSON</span>
+                <span className="badge">
+                  {typeof controlPlane?.backlog === "number"
+                    ? "待处理 " + controlPlane.backlog
+                    : "暂无待处理统计"}
+                </span>
               </summary>
               <div className="diag-card-body">
                 <pre className="tool-pre">{JSON.stringify(controlPlane, null, 2)}</pre>
@@ -968,7 +993,11 @@ export default function MemoryView(): React.ReactElement {
             <details className="diag-card">
               <summary className="diag-card-summary">
                 <span>上下文注入账单</span>
-                <span className="badge">JSON</span>
+                <span className="badge">
+                  {Array.isArray(contextBill?.episodes)
+                    ? "近期 " + contextBill.episodes.length + " 轮"
+                    : "暂无轮次统计"}
+                </span>
               </summary>
               <div className="diag-card-body">
                 <pre className="tool-pre">{JSON.stringify(contextBill, null, 2)}</pre>

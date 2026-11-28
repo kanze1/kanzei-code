@@ -896,3 +896,10 @@ input[type="radio"] {
 .chip-btn:hover { background: var(--surface-selected); }
 :where(button, summary, [role=option]):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mono, .statusbar-usage, .action-report-head { font-variant-numeric: tabular-nums; }
+
+.control-popover { position: fixed; z-index: var(--z-modal); min-width: 175px; max-width: min(340px, calc(100vw - 12px)); overflow: auto; display: grid; gap: 3px; padding: 8px; color: var(--fg); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-overlay); box-shadow: var(--elev-2); }
+.control-popover button { justify-content: flex-start; }
+.choice-group { min-width: 0; border: 0; padding: 5px; display: flex; gap: 4px 8px; flex-wrap: wrap; }
+.choice-group legend { color: var(--dim); font-size: var(--fs-12); }
+.choice-group label { font-size: var(--fs-12); cursor: pointer; padding: 4px 2px; }
+.choice-group input { accent-color: var(--accent); }

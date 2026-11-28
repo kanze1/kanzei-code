@@ -1022,3 +1022,6 @@
   border-color: var(--border);
   color: var(--fg-strong);
 }
+
+.wiki-reading-column { max-width: var(--reading-width); margin-inline: auto; width: 100%; }
+.wiki-file-list summary { cursor: pointer; padding: 6px; color: var(--dim); }

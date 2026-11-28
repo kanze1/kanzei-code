@@ -5,6 +5,12 @@ import { getActiveSessionId, removePendingAsk, useSessionStore } from "../../sto
 import { pushToast } from "../../store/uiStore";
 import { IconShield, IconSparkles } from "../../components/Icons";
 
+function ApprovalText({text}: {text:string}) {
+  const lines = text.split("\n");
+  if (lines.length <= 3 && text.length <= 240) return <>{text}</>;
+  return <details><summary>{lines[0].slice(0, 100)}…　展开完整内容</summary><pre>{text}</pre></details>;
+}
+
 export function AskOverlay(): React.ReactElement | null {
   const asks = useSessionStore((s) => s.asks);
   const activeSessionId = getActiveSessionId();
@@ -71,7 +77,12 @@ export function AskOverlay(): React.ReactElement | null {
   const isQuestion = current.kind === "question" || current.action === "question";
 
   return (
-    <div className="ask-overlay-bar" role="region" aria-label="等待用户确认">
+    <div
+      className="ask-overlay-bar"
+      data-kind={isQuestion ? "question" : "permission"}
+      role="region"
+      aria-label="等待用户确认"
+    >
       <div className="ask-overlay-title">
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
           {isQuestion ? <IconSparkles size={13} /> : <IconShield size={13} />}
@@ -85,7 +96,9 @@ export function AskOverlay(): React.ReactElement | null {
         )}
       </div>
 
-      <div className="ask-overlay-resource">{current.question ?? current.resource}</div>
+      <div className="ask-overlay-resource">
+        <ApprovalText key={current.id} text={current.question ?? current.resource ?? ""} />
+      </div>
 
       {isQuestion ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -124,12 +137,7 @@ export function AskOverlay(): React.ReactElement | null {
             >
               回复
             </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={busy}
-              onClick={() => void cancelQuestion()}
-            >
+            <button type="button" className="btn" disabled={busy} onClick={() => void cancelQuestion()}>
               取消
             </button>
           </div>

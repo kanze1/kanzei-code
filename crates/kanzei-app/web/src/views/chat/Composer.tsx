@@ -1,3 +1,5 @@
+import { ChoiceGroup, ControlPopover } from "../../components/ControlPopover";
+import { OutputPreview } from "./ActivityTimeline";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatError, invoke } from "../../ipc/client";
 import type { PromptAttachment, QuickShellResult } from "../../ipc/types";
@@ -13,7 +15,7 @@ import {
   SUBAGENT_MODE_OPTIONS,
   withFallbackOption,
 } from "../../configOptions";
-import { loadModelsCatalog, projectDisplayName, useAppStore } from "../../store/appStore";
+import { loadModelsCatalog, useAppStore } from "../../store/appStore";
 import {
   cancelPendingInput,
   chatStore,
@@ -25,7 +27,7 @@ import {
   updateDraft,
   useChatStore,
 } from "../../store/chatStore";
-import { toggleDrawer, useDrawerStore } from "../../store/drawerStore";
+import { toggleDrawer } from "../../store/drawerStore";
 import {
   updateAutoRun,
   updateProcessSettings,
@@ -43,7 +45,6 @@ import {
 } from "../../store/uiStore";
 import {
   IconAttach,
-  IconBranch,
   IconClose,
   IconCpu,
   IconSend,
@@ -143,7 +144,6 @@ export function Composer(): React.ReactElement {
   const promptHistory = useChatStore((s) => s.promptHistory);
   const messages = useChatStore((s) => s.messages);
   const drafts = useChatStore((s) => s.drafts);
-  const gitStatus = useDrawerStore((s) => s.gitStatus);
 
   const key = draftKeyFor(activeProjectDir, activeProcess?.id ?? null);
   const storedDraft = drafts[key];
@@ -662,7 +662,9 @@ export function Composer(): React.ReactElement {
           <div className="quick-shell-card" role="region" aria-label="本地命令执行结果">
             <div className="quick-shell-head">
               <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                <span className={`badge ${quickShellResult.exitCode === 0 && !quickShellResult.timedOut ? "badge-ok" : "badge-err"}`}>
+                <span
+                  className={`badge ${quickShellResult.exitCode === 0 && !quickShellResult.timedOut ? "badge-ok" : "badge-err"}`}
+                >
                   exit {quickShellResult.exitCode}
                 </span>
                 <span className="mono quick-shell-cmd" title={quickShellResult.command}>
@@ -718,92 +720,54 @@ export function Composer(): React.ReactElement {
               </div>
             </div>
             {(quickShellResult.stdout || quickShellResult.stderr) && (
-              <pre className="quick-shell-output mono">
-                {[quickShellResult.stdout, quickShellResult.stderr ? `[stderr]\n${quickShellResult.stderr}` : ""]
+              <OutputPreview
+                tail
+                text={[
+                  quickShellResult.stdout,
+                  quickShellResult.stderr && "[stderr]\n" + quickShellResult.stderr,
+                  quickShellResult.truncated ? "…[输出已截断]" : "",
+                ]
                   .filter(Boolean)
                   .join("\n")}
-                {quickShellResult.truncated ? "\n…[输出已截断]" : ""}
-              </pre>
+              />
             )}
           </div>
         )}
 
-        <div className="composer-context-strip">
-          <div className="composer-context-left">
-            {!generalMode && gitStatus?.branch ? (
-              <button
-                type="button"
-                className="composer-chip mono"
-                onClick={() => toggleDrawer("files")}
-                title="点击查看本轮文件改动与 Diff"
-              >
-                <IconBranch size={11} />
-                <span className="composer-chip-text">{gitStatus.branch}</span>
-                {gitStatus.changes > 0 && (
-                  <span style={{ color: "var(--ok)", fontWeight: 600 }}>
-                    · {gitStatus.changes} 改动
-                  </span>
-                )}
-              </button>
-            ) : (
-              <span className="composer-chip-text">
-                {generalMode ? "无项目对话" : projectDisplayName(activeProjectDir)}
-              </span>
-            )}
+        {(autoRun.goal || showPlanApproveBar) && (
+          <div className="composer-context-strip">
+            <div className="composer-context-left">
+              {autoRun.goal && (
+                <button
+                  type="button"
+                  className="composer-chip composer-chip-goal"
+                  onClick={() => void handleEditGoal()}
+                  title={`自动推进目标：${autoRun.goal}（点击修改）`}
+                >
+                  <IconTarget size={11} />
+                  <span className="composer-chip-text">{autoRun.goal}</span>
+                </button>
+              )}
 
-            {!generalMode && gitStatus?.repo === "none" && (
-              <span className="badge badge-warn">未初始化 Git</span>
-            )}
-
-            {autoRun.goal && (
-              <button
-                type="button"
-                className="composer-chip composer-chip-goal"
-                onClick={() => void handleEditGoal()}
-                title={`自动推进目标：${autoRun.goal}（点击修改）`}
-              >
-                <IconTarget size={11} />
-                <span className="composer-chip-text">{autoRun.goal}</span>
-              </button>
-            )}
-
-            {showPlanApproveBar && (
-              <button
-                type="button"
-                className="composer-chip composer-chip-goal"
-                onClick={() => {
-                  if (!activeProjectDir || !activeProcess) return;
-                  void updateProcessSettings(activeProjectDir, activeProcess.id, {
-                    profile: "dev-auto",
-                  }).then(() => sendPrompt("批准以上方案，请按计划开始实施并验证。"));
-                }}
-                title="切换到自主开发模式并执行刚才讨论的方案"
-              >
-                <IconSparkles size={11} />
-                <span>批准方案并实施</span>
-              </button>
-            )}
+              {showPlanApproveBar && (
+                <button
+                  type="button"
+                  className="composer-chip composer-chip-goal"
+                  onClick={() => {
+                    if (!activeProjectDir || !activeProcess) return;
+                    void updateProcessSettings(activeProjectDir, activeProcess.id, {
+                      profile: "dev-auto",
+                    }).then(() => sendPrompt("批准以上方案，请按计划开始实施并验证。"));
+                  }}
+                  title="切换到自主开发模式并执行刚才讨论的方案"
+                >
+                  <IconSparkles size={11} />
+                  <span>批准方案并实施</span>
+                </button>
+              )}
+            </div>
           </div>
-
-          <button
-            type="button"
-            className={`composer-chip composer-chip-model mono${modelError ? " composer-chip-error" : ""}`}
-            onClick={() => {
-              if (generalMode || !activeProjectDir) {
-                navigateView("settings");
-              } else {
-                openProjectModelsDialog(activeProjectDir);
-              }
-            }}
-            title={modelChipTitle}
-          >
-            <IconCpu size={11} />
-            <span className="composer-chip-text">{effectiveModelLabel}</span>
-            {modelSource && !modelError && (
-              <span className="composer-chip-source">{modelSource}</span>
-            )}
-          </button>
-        </div>
+        )}
 
         {pendingInputs.length > 0 && (
           <div className="composer-queue-strip">
@@ -977,194 +941,172 @@ export function Composer(): React.ReactElement {
               <IconAttach size={14} />
             </button>
 
-            <select
-              className="composer-select composer-select-model"
-              aria-label="模型选择"
-              value={activeProcess?.model ?? ""}
-              disabled={!hasProcess}
-              title={
-                hasProcess
-                  ? activeProcess?.model
-                    ? `当前对话临时指定：${activeProcess.model}`
-                    : defaultModelId
-                    ? `跟随默认模型：${defaultModelId}`
-                    : "选择当前对话模型"
-                  : "请先选择或创建对话"
+            <ControlPopover
+              label="模型选择"
+              title={modelChipTitle}
+              trigger={
+                <>
+                  <IconCpu size={12} />
+                  {effectiveModelLabel} ▾
+                </>
               }
-              onFocus={() => {
-                if (modelsCatalog.length === 0 && !modelsLoading) {
-                  void loadModelsCatalog(activeProjectDir, false);
-                }
-              }}
-              onChange={(e) => {
-                void handleModelChange(e.target.value);
+              onOpen={() => {
+                if (!modelsCatalog.length && !modelsLoading) void loadModelsCatalog(activeProjectDir, false);
               }}
             >
-              <option value="">
-                {defaultModelId ? `默认 (${defaultModelId})` : "默认模型"}
-              </option>
-              {selectableModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-              <option value={MANUAL_MODEL_SENTINEL}>＋ 手填模型…</option>
-            </select>
-
-            <select
-              className="composer-select"
-              aria-label="思考强度"
-              value={currentReasoning}
+              {(close) => (
+                <>
+                  <div role="listbox" aria-label="对话模型" className="model-options">
+                    {[
+                      { id: "", label: defaultModelId ? `默认 (${defaultModelId})` : "默认模型" },
+                      ...selectableModels,
+                      { id: MANUAL_MODEL_SENTINEL, label: "手填模型…" },
+                    ].map((model) => (
+                      <button
+                        type="button"
+                        key={model.id}
+                        role="option"
+                        aria-selected={model.id === (activeProcess?.model ?? "")}
+                        className="btn btn-sm btn-ghost"
+                        disabled={!hasProcess}
+                        onClick={() => {
+                          close();
+                          void handleModelChange(model.id);
+                        }}
+                      >
+                        {model.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => {
+                      close();
+                      if (generalMode || !activeProjectDir) navigateView("settings");
+                      else openProjectModelsDialog(activeProjectDir);
+                    }}
+                  >
+                    {generalMode ? "全局模型设置" : "项目模型配置"}
+                  </button>
+                </>
+              )}
+            </ControlPopover>
+            <ControlPopover
+              label="协作参数"
               disabled={!hasProcess}
-              title={
-                hasProcess
-                  ? "设置当前对话的思考强度覆盖（选默认则跟随项目/全局配置）"
-                  : "请先选择或创建对话"
-              }
-              onChange={(e) => {
-                if (activeProjectDir && activeProcess) {
-                  void updateProcessSettings(activeProjectDir, activeProcess.id, {
-                    reasoning: e.target.value,
-                  });
-                }
-              }}
+              trigger={profileDisplayLabel(currentProfile) + " ▾"}
             >
-              <option value="">
-                {defaultReasoningVal
-                  ? `思考: 默认 (${reasoningShortLabel(defaultReasoningVal)})`
-                  : "思考: 默认"}
-              </option>
-              {reasoningOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  思考: {reasoningShortLabel(opt.value)}
-                </option>
-              ))}
-            </select>
-
-            <select
-              className="composer-select"
-              aria-label="执行模式"
-              value={currentProfile}
-              disabled={!hasProcess || researchLocked}
-              title={
-                !hasProcess
-                  ? "请先选择或创建对话"
-                  : researchLocked
-                  ? "已绑定研究课题的对话不能切换执行模式"
-                  : generalMode
-                  ? "无项目对话支持自主开发、结伴开发与隔离沙箱模式（Shift+Tab 切换）"
-                  : "切换当前对话的执行档位（Shift+Tab 循环切换）"
-              }
-              onChange={(e) => {
-                if (activeProjectDir && activeProcess) {
-                  void updateProcessSettings(activeProjectDir, activeProcess.id, {
-                    profile: e.target.value,
-                  });
-                }
-              }}
-            >
-              {profileOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-
-            {primaryAgents.length > 1 && (
-              <select
-                className="composer-select"
-                aria-label="主 Agent 选择"
-                value={selectedAgent}
-                disabled={!hasProcess}
-                title="选择下一轮使用的主 Agent 定义"
-                onChange={(e) => chatStore.setState({ selectedAgent: e.target.value })}
-              >
-                <option value="">Agent: 默认</option>
-                {primaryAgents.map((name) => (
-                  <option key={name} value={name}>
-                    Agent: {name}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <select
-              className="composer-select"
-              aria-label="子代理协作"
-              value={currentSubagentMode}
-              disabled={!hasProcess}
-              title={hasProcess ? "调整本对话的子代理委派倾向" : "请先选择或创建对话"}
-              onChange={(e) => {
-                if (activeProjectDir && activeProcess) {
-                  void updateProcessSettings(activeProjectDir, activeProcess.id, {
-                    subagentMode: e.target.value,
-                  });
-                }
-              }}
-            >
-              {subagentOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-
+              {() => (
+                <>
+                  <ChoiceGroup
+                    label="执行模式"
+                    value={currentProfile}
+                    options={profileOptions}
+                    disabled={researchLocked}
+                    onChange={(profile) => {
+                      if (activeProjectDir && activeProcess)
+                        void updateProcessSettings(activeProjectDir, activeProcess.id, { profile });
+                    }}
+                  />
+                  <ChoiceGroup
+                    label="思考强度"
+                    value={currentReasoning}
+                    options={[
+                      {
+                        value: "",
+                        label: defaultReasoningVal
+                          ? `默认 (${reasoningShortLabel(defaultReasoningVal)})`
+                          : "默认",
+                      },
+                      ...reasoningOptions.filter((o) => o.value),
+                    ]}
+                    onChange={(reasoning) => {
+                      if (activeProjectDir && activeProcess)
+                        void updateProcessSettings(activeProjectDir, activeProcess.id, { reasoning });
+                    }}
+                  />
+                  <ChoiceGroup
+                    label="子代理协作"
+                    value={currentSubagentMode}
+                    options={subagentOptions}
+                    onChange={(subagentMode) => {
+                      if (activeProjectDir && activeProcess)
+                        void updateProcessSettings(activeProjectDir, activeProcess.id, { subagentMode });
+                    }}
+                  />
+                  {primaryAgents.length > 1 && (
+                    <ChoiceGroup
+                      label="主 Agent 选择"
+                      value={selectedAgent ?? ""}
+                      options={[
+                        { value: "", label: "默认" },
+                        ...primaryAgents.map((name) => ({ value: name, label: name })),
+                      ]}
+                      onChange={(agent) => chatStore.setState({ selectedAgent: agent })}
+                    />
+                  )}
+                  {!generalMode && (
+                    <>
+                      <button
+                        type="button"
+                        className={`composer-toggle-pill${autoAllow && autoRunActive ? " active" : ""}`}
+                        disabled={!hasProcess || !autoRunActive}
+                        onClick={() => chatStore.setState({ autoAllow: !autoAllow })}
+                        title={
+                          autoRunActive
+                            ? "自动推进期间自动放行常规工具权限"
+                            : "仅在开启「自动推进」时生效（单轮交互按常规规则确认）"
+                        }
+                      >
+                        <IconShield size={12} />
+                        <span>自动放行</span>
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-ghost btn-icon btn-sm${autoRun.goal ? " active" : ""}`}
+                        disabled={!hasProcess}
+                        onClick={() => void handleEditGoal()}
+                        title={autoRun.goal ? `修改自动推进目标：${autoRun.goal}` : "设置自动推进停止目标"}
+                        aria-label="设置自动推进目标"
+                      >
+                        <IconTarget size={13} />
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+            </ControlPopover>
             {!generalMode && (
-              <>
-                <button
-                  type="button"
-                  className={`composer-toggle-pill${autoRun.enabled ? " active-accent" : ""}`}
-                  disabled={!hasProcess}
-                  onClick={() => void updateAutoRun({ enabled: !autoRun.enabled, paused: false })}
-                  title={hasProcess ? "开启或关闭多轮自主推进" : "请先选择或创建对话"}
-                >
-                  <IconSparkles size={12} />
-                  <span>{autoRun.enabled ? "推进中" : "自动推进"}</span>
-                </button>
-                <button
-                  type="button"
-                  className={`composer-toggle-pill${autoAllow && autoRunActive ? " active" : ""}`}
-                  disabled={!hasProcess || !autoRunActive}
-                  onClick={() => chatStore.setState({ autoAllow: !autoAllow })}
-                  title={
-                    autoRunActive
-                      ? "自动推进期间自动放行常规工具权限"
-                      : "仅在开启「自动推进」时生效（单轮交互按常规规则确认）"
-                  }
-                >
-                  <IconShield size={12} />
-                  <span>自动放行</span>
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-ghost btn-icon btn-sm${autoRun.goal ? " active" : ""}`}
-                  disabled={!hasProcess}
-                  onClick={() => void handleEditGoal()}
-                  title={autoRun.goal ? `修改自动推进目标：${autoRun.goal}` : "设置自动推进停止目标"}
-                  aria-label="设置自动推进目标"
-                >
-                  <IconTarget size={13} />
-                </button>
-              </>
+              <button
+                type="button"
+                className={`composer-toggle-pill${autoRun.enabled ? " active-accent" : ""}`}
+                disabled={!hasProcess}
+                onClick={() => void updateAutoRun({ enabled: !autoRun.enabled, paused: false })}
+                title={hasProcess ? "开启或关闭多轮自主推进" : "请先选择或创建对话"}
+              >
+                <IconSparkles size={12} />
+                <span>{autoRun.enabled ? "推进中" : "自动推进"}</span>
+              </button>
             )}
           </div>
 
           <div className="composer-toolbar-right">
             {running && (
               <>
-                <select
-                  className="composer-select"
-                  aria-label="运行中投递方式"
-                  value={deliveryMode}
-                  onChange={(e) =>
-                    chatStore.setState({
-                      deliveryMode: e.target.value === "queue" ? "queue" : "steer",
-                    })
-                  }
-                >
-                  <option value="steer">插话</option>
-                  <option value="queue">排队</option>
-                </select>
+                <div className="segmented" aria-label="运行中投递方式">
+                  {(["steer", "queue"] as const).map((mode) => (
+                    <button
+                      type="button"
+                      key={mode}
+                      aria-pressed={deliveryMode === mode}
+                      className={"segmented-btn" + (deliveryMode === mode ? " active" : "")}
+                      onClick={() => chatStore.setState({ deliveryMode: mode })}
+                    >
+                      {mode === "steer" ? "插话" : "排队"}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   className="btn btn-danger btn-pill"

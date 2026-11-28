@@ -12,7 +12,8 @@ import {
   compactCurrentConversation,
   loadConversationMessages,
 } from "../../store/chatStore";
-import { refreshGitStatus } from "../../store/drawerStore";
+import { ControlPopover } from "../../components/ControlPopover";
+import { refreshGitStatus, toggleDrawer, useDrawerStore } from "../../store/drawerStore";
 import { createConversation, useSessionStore } from "../../store/sessionStore";
 import {
   confirmDialog,
@@ -318,6 +319,7 @@ export function ChatView(): React.ReactElement {
     }
   };
 
+  const gitStatus = useDrawerStore(state => state.gitStatus);
   const needsGitBanner = !generalMode && projectFacts && projectFacts.has_git === false;
   const profileLabel = profileDisplayLabel(activeProcess?.profile);
 
@@ -326,11 +328,15 @@ export function ChatView(): React.ReactElement {
       <div className="chat-column">
         <div className="chat-topbar">
           <div className="chat-topbar-left">
-            {activeProcess?.branch && (
-              <span className="chat-topbar-meta mono" title={`当前分支：${activeProcess.branch}`}>
+            {!generalMode && gitStatus?.branch && (
+              <button
+                className="btn btn-ghost btn-sm mono"
+                onClick={() => toggleDrawer("files")}
+                title="查看分支与改动"
+              >
                 <IconBranch size={12} />
-                <span>{activeProcess.branch}</span>
-              </span>
+                {gitStatus.branch} <span>{gitStatus.changes} 改动</span>
+              </button>
             )}
             {generalMode ? (
               <span className="badge badge-accent">无项目模式</span>
@@ -376,15 +382,6 @@ export function ChatView(): React.ReactElement {
             <button
               type="button"
               className="btn btn-ghost btn-sm"
-              title="导出对话为 Markdown"
-              onClick={() => void handleExport()}
-            >
-              <IconDownload size={12} />
-              <span>导出</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
               title="打开 /btw 旁路只读提问（不写入主对话历史）"
               disabled={!activeProcess}
               onClick={() => openBtwOverlay("")}
@@ -392,44 +389,74 @@ export function ChatView(): React.ReactElement {
               <IconSparkles size={12} />
               <span>/btw</span>
             </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              title="查看当前会话的运行轨迹与工具耗时（/trace）"
-              disabled={!activeProcess}
-              onClick={() => openTraceDialog()}
-            >
-              <IconActivity size={12} />
-              <span>轨迹</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              title="查看或清理当前会话的历次对话段"
-              disabled={!activeProcess}
-              onClick={() => void openHistorySegments()}
-            >
-              <IconLayers size={12} />
-              <span>历史段</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              title="压缩当前上下文（可指定保留重点）"
-              onClick={() => void handleCompact()}
-            >
-              <IconCompact size={12} />
-              <span>压缩</span>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              title="开启新的空白对话段"
-              onClick={() => void handleClear()}
-            >
-              <IconTrash size={12} />
-              <span>清空</span>
-            </button>
+            <ControlPopover label="更多对话操作" trigger="···">
+              {(close) => (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    title="导出对话为 Markdown"
+                    onClick={() => {
+                      close();
+                      void handleExport();
+                    }}
+                  >
+                    <IconDownload size={12} />
+                    <span>导出</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    title="查看当前会话的运行轨迹与工具耗时（/trace）"
+                    disabled={!activeProcess}
+                    onClick={() => {
+                      close();
+                      openTraceDialog();
+                    }}
+                  >
+                    <IconActivity size={12} />
+                    <span>轨迹</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    title="查看或清理当前会话的历次对话段"
+                    disabled={!activeProcess}
+                    onClick={() => {
+                      close();
+                      void openHistorySegments();
+                    }}
+                  >
+                    <IconLayers size={12} />
+                    <span>历史段</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    title="压缩当前上下文（可指定保留重点）"
+                    onClick={() => {
+                      close();
+                      void handleCompact();
+                    }}
+                  >
+                    <IconCompact size={12} />
+                    <span>压缩</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    title="开启新的空白对话段"
+                    onClick={() => {
+                      close();
+                      void handleClear();
+                    }}
+                  >
+                    <IconTrash size={12} />
+                    <span>清空</span>
+                  </button>
+                </>
+              )}
+            </ControlPopover>
           </div>
         </div>
 
@@ -492,18 +519,19 @@ export function ChatView(): React.ReactElement {
                 </div>
               ) : (
                 <div className="trace-list">
-                  {flatTraceRows.slice(-200).reverse().map((row) => (
-                    <details key={row.key} className="trace-row">
-                      <summary className="trace-row-summary">
-                        <span className="badge">{row.kind}</span>
-                        <span className="mono trace-row-title">{row.title}</span>
-                        {row.detail && <span className="field-hint trace-row-detail">{row.detail}</span>}
-                      </summary>
-                      <pre className="trace-row-json mono">
-                        {JSON.stringify(row.raw, null, 2)}
-                      </pre>
-                    </details>
-                  ))}
+                  {flatTraceRows
+                    .slice(-200)
+                    .reverse()
+                    .map((row) => (
+                      <details key={row.key} className="trace-row">
+                        <summary className="trace-row-summary">
+                          <span className="badge">{row.kind}</span>
+                          <span className="mono trace-row-title">{row.title}</span>
+                          {row.detail && <span className="field-hint trace-row-detail">{row.detail}</span>}
+                        </summary>
+                        <pre className="trace-row-json mono">{JSON.stringify(row.raw, null, 2)}</pre>
+                      </details>
+                    ))}
                 </div>
               )}
             </div>
@@ -548,7 +576,10 @@ export function ChatView(): React.ReactElement {
                           {typeof seg.count === "number" ? ` · ${seg.count} 条消息` : ""}
                         </div>
                         {seg.preview && (
-                          <div className="field-hint" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          <div
+                            className="field-hint"
+                            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          >
                             {seg.preview}
                           </div>
                         )}

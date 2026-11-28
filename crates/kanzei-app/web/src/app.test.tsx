@@ -156,6 +156,7 @@ function createMockTransport(overrides?: Partial<Record<string, (args?: Record<s
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   setIpcTransport(null);
   appStore.setState({
     bootstrapped: false,
@@ -596,20 +597,19 @@ describe("Kanzei 新前端架构核心契约", () => {
 
     render(<Composer />);
 
-    // 顶部模型 chip 正确显示 model.resolved 与来源
-    expect(screen.getByText("本线临时")).toBeTruthy();
-
-    // 未开启自动推进时，“自动放行”按钮应处于禁用态
-    expect((screen.getByRole("button", { name: "自动放行" }) as HTMLButtonElement).disabled).toBe(true);
-
-    // 选回默认模型和默认思考强度，后端必须收到空字符串 "" 而非 null
-    fireEvent.change(screen.getByLabelText("模型选择"), { target: { value: "" } });
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    const model = screen.getByRole("button", { name: "模型选择" });
+    expect(model.title).toContain("本线临时");
+    fireEvent.click(model);
+    fireEvent.click(screen.getByRole("option", {name: "默认 (openai:gpt-5)"}));
     await waitFor(() => {
       const updateCall = calls.find((c) => c.command === "process_update");
       expect(updateCall?.args).toEqual({ processId: "d|C:/demo", model: "" });
     });
 
-    fireEvent.change(screen.getByLabelText("思考强度"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", {name: "协作参数"}));
+    expect((screen.getByRole("button", {name:"自动放行"}) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("radio", {name:/默认 \(/}));
     await waitFor(() => {
       const reasoningCall = calls.find(
         (c) => c.command === "process_update" && "reasoning" in (c.args ?? {})
@@ -618,10 +618,8 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
 
     // 项目模式同时包含只读讨论 (readonly) 与隔离沙箱 (isolated)
-    const profileSelect = screen.getByLabelText("执行模式") as HTMLSelectElement;
-    const profileValues = Array.from(profileSelect.options).map((o) => o.value);
-    expect(profileValues).toContain("readonly");
-    expect(profileValues).toContain("isolated");
+    expect(screen.getByRole("radio", {name:"只读讨论"})).toBeTruthy();
+    expect(screen.getByRole("radio", {name:"隔离沙箱"})).toBeTruthy();
   });
 
   it("AskOverlay 严格按后端契约发送 once / always / cancel，不再发送无效的 allow", async () => {
@@ -1134,9 +1132,10 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
 
     // inspectable=false 的附件块不应渲染“查看原文”按钮（共 4 个可查看块）
-    const inspectBtns = screen.getAllByRole("button", { name: "查看原文" });
-    expect(inspectBtns.length).toBe(4);
-    fireEvent.click(inspectBtns[0]);
+    const group = screen.getByText("系统提示与规则").closest("summary")!;
+    fireEvent.click(group);
+    expect(document.querySelectorAll(".ctx-block-right button")).toHaveLength(4);
+    fireEvent.click(group.parentElement!.querySelector("button")!);
     await waitFor(() => {
       expect(calls.some((c) => c.command === "context_content" && c.args?.sha256 === "aaa")).toBe(true);
       expect(uiStore.getState().viewer?.title).toBe("agent/system");
@@ -1408,12 +1407,15 @@ describe("Kanzei 新前端架构核心契约", () => {
           toolsTotal: 4,
           toolsFailed: 0,
           toolNames: ["read", "edit"],
+          modifiedFiles: ["src/app.ts"],
           touchedFiles: ["src/app.ts"],
         }}
       />
     );
 
-    expect(screen.getByText("交付验收单（Action Report）")).toBeTruthy();
+    const receipt = screen.getByRole("button", { name: /本轮交付/ });
+    expect(receipt.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(receipt);
     expect(screen.getByText("工具 4/4")).toBeTruthy();
     expect(screen.getByText("src/app.ts")).toBeTruthy();
 

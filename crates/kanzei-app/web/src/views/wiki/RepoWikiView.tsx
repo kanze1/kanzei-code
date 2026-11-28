@@ -29,6 +29,20 @@ function statusMeta(status: RepoWikiPageSummary["status"]): { text: string; cls:
   }
 }
 
+function WikiFiles({files}: {files: string[]}) {
+  const row = (rel: string) => <button key={rel} type="button" className="wiki-file-row mono"
+    onClick={() => { navigateView("chat"); void openFileInDrawer(rel, {tab:"preview"}); }}>{rel}</button>;
+  if (files.length <= 12) return <>{files.map(row)}</>;
+  const groups = new Map<string, string[]>();
+  for (const file of files) {
+    const folder = file.slice(0, Math.max(0, file.lastIndexOf("/"))) || "项目根目录";
+    const list = groups.get(folder);
+    if (list) list.push(file); else groups.set(folder, [file]);
+  }
+  return <>{Array.from(groups, ([folder, entries]) => <details key={folder}>
+    <summary>{folder}（{entries.length}）</summary>{entries.map(row)}</details>)}</>;
+}
+
 export default function RepoWikiView(): React.ReactElement {
   const projectDir = useAppStore((s) => s.activeProjectDir);
   const generalMode = useAppStore((s) => s.generalMode);
@@ -529,24 +543,12 @@ export default function RepoWikiView(): React.ReactElement {
                         <IconFileCode size={13} /> 区域源码文件清单（{detail.files.length}）
                       </div>
                       <div className="wiki-file-list">
-                        {detail.files.map((rel) => (
-                          <button
-                            key={rel}
-                            type="button"
-                            className="wiki-file-row mono"
-                            onClick={() => {
-                              navigateView("chat");
-                              void openFileInDrawer(rel, { tab: "preview" });
-                            }}
-                          >
-                            {rel}
-                          </button>
-                        ))}
+                        <WikiFiles files={detail.files} />
                       </div>
                     </div>
                   </div>
                 ) : detail.content ? (
-                  <MarkdownView text={detail.content} />
+                  <div className="wiki-reading-column"><MarkdownView text={detail.content} /></div>
                 ) : (
                   <div className="empty-state" style={{ padding: "48px 16px" }}>
                     <div className="empty-state-icon">

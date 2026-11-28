@@ -41,7 +41,7 @@ interface BreakdownCategory {
   label: string;
   color: string;
   chars: number;
-  count: number;
+  items: Array<{block: ContextBlockItem; index: number}>;
 }
 
 export function formatContextBlockTitle(block: ContextBlockItem, index: number): string {
@@ -95,14 +95,23 @@ export function formatContextBlockSource(source: unknown): string | null {
   }
 }
 
+const contextCategories = {
+  memory: {key:"memory", label:"长期记忆与偏好", color:"#a855f7"},
+  skill: {key:"skill", label:"技能规范", color:"#ec4899"},
+  tools: {key:"tools", label:"工具与结果", color:"#f59e0b"},
+  system: {key:"system", label:"系统提示与规则", color:"#3b82f6"},
+  web: {key:"web", label:"网页与附件", color:"#14b8a6"},
+  history: {key:"history", label:"对话历史与消息", color:"#22c55e"},
+};
+
 function classifyContextBlock(block: ContextBlockItem): { key: string; label: string; color: string } {
   const sourceHint = formatContextBlockSource(block.source) ?? "";
   const src = `${block.label ?? ""} ${block.kind ?? ""} ${block.role ?? ""} ${sourceHint}`.toLowerCase();
   if (src.includes("memory") || src.includes("recall") || src.includes("preference")) {
-    return { key: "memory", label: "长期记忆与偏好", color: "#a855f7" };
+    return contextCategories.memory;
   }
   if (src.includes("skill")) {
-    return { key: "skill", label: "技能规范", color: "#ec4899" };
+    return contextCategories.skill;
   }
   if (
     block.kind === "tool_call" ||
@@ -111,7 +120,7 @@ function classifyContextBlock(block: ContextBlockItem): { key: string; label: st
     src.includes("tool") ||
     src.includes("schema")
   ) {
-    return { key: "tools", label: "工具与结果", color: "#f59e0b" };
+    return contextCategories.tools;
   }
   if (
     block.kind === "system" ||
@@ -120,7 +129,7 @@ function classifyContextBlock(block: ContextBlockItem): { key: string; label: st
     src.includes("agent") ||
     src.includes("instruction")
   ) {
-    return { key: "system", label: "系统提示与规则", color: "#3b82f6" };
+    return contextCategories.system;
   }
   if (
     block.kind === "attachment" ||
@@ -128,9 +137,9 @@ function classifyContextBlock(block: ContextBlockItem): { key: string; label: st
     src.includes("attach") ||
     src.includes("image")
   ) {
-    return { key: "web", label: "网页与附件", color: "#14b8a6" };
+    return contextCategories.web;
   }
-  return { key: "history", label: "对话历史与消息", color: "#22c55e" };
+  return contextCategories.history;
 }
 
 export function StatusBar(): React.ReactElement {
@@ -193,17 +202,12 @@ export function StatusBar(): React.ReactElement {
 
   const breakdown = useMemo<BreakdownCategory[]>(() => {
     const blocks = ctxSnapshot?.selected?.manifest?.blocks ?? [];
-    const map = new Map<string, BreakdownCategory>();
-    for (const b of blocks) {
-      const cat = classifyContextBlock(b);
-      const existing = map.get(cat.key);
-      const chars = Math.max(0, Number(b.chars ?? 0));
-      if (existing) {
-        existing.chars += chars;
-        existing.count += 1;
-      } else {
-        map.set(cat.key, { ...cat, chars, count: 1 });
-      }
+    const map = new Map<string, BreakdownCategory>(Object.values(contextCategories).map(cat =>
+      [cat.key, {...cat, chars: 0, items: []}]));
+    for (const [index, block] of blocks.entries()) {
+      const cat = map.get(classifyContextBlock(block).key)!;
+      cat.chars += Math.max(0, Number(block.chars ?? 0));
+      cat.items.push({block, index});
     }
     return Array.from(map.values()).sort((a, b) => b.chars - a.chars);
   }, [ctxSnapshot]);
@@ -341,134 +345,152 @@ export function StatusBar(): React.ReactElement {
                 onReset={() => setCtxOpen(false)}
                 resetLabel="关闭弹窗"
               >
-              {!ctxSnapshot?.selected?.manifest ? (
-                <div className="empty-state">
-                  <p>当前会话还没有记录到模型请求快照。</p>
-                </div>
-              ) : (
-                <>
-                  <div className="ctx-meta-strip">
-                    <span>模型：{ctxSnapshot.selected.manifest.model ?? "-"}</span>
-                    <span>
-                      估算 Token：{ctxSnapshot.selected.manifest.estimated_tokens?.toLocaleString() ?? "-"}
-                      {contextLimit
-                        ? ` / ${contextLimit.toLocaleString()} (${Math.min(
-                            100,
-                            Math.round(
-                              ((ctxSnapshot.selected.manifest.estimated_tokens ?? 0) / contextLimit) * 100
-                            )
-                          )}%)`
-                        : ""}
-                    </span>
-                    {ctxSnapshot.requests && ctxSnapshot.requests.length > 1 ? (
-                      <select
-                        className="composer-select"
-                        aria-label="切换历史请求快照"
-                        value={String(ctxSnapshot.selected.sequence)}
-                        onChange={(e) => void openContextInspector(Number(e.target.value))}
-                      >
-                        {ctxSnapshot.requests.map((r) => (
-                          <option key={r.sequence} value={String(r.sequence)}>
-                            请求 #{r.sequence}
-                            {typeof r.step === "number" ? ` · 第 ${r.step} 步` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span>请求序号：#{ctxSnapshot.selected.sequence}</span>
-                    )}
-                    <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-                      <button
-                        type="button"
-                        className="btn btn-sm"
-                        disabled={running}
-                        onClick={() => {
-                          setCtxOpen(false);
-                          void compactCurrentConversation();
-                        }}
-                      >
-                        立即压缩
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        disabled={running}
-                        onClick={() => {
-                          setCtxOpen(false);
-                          void clearCurrentConversation();
-                        }}
-                      >
-                        清空重开
-                      </button>
-                    </div>
+                {!ctxSnapshot?.selected?.manifest ? (
+                  <div className="empty-state">
+                    <p>当前会话还没有记录到模型请求快照。</p>
                   </div>
-
-                  {breakdown.length > 0 && totalBlockChars > 0 && (
-                    <div className="ctx-breakdown-box">
-                      <div className="ctx-breakdown-bar" role="img" aria-label="上下文构成占比条">
-                        {breakdown.map((cat) => {
-                          const pct = Math.max(1, Math.round((cat.chars / totalBlockChars) * 100));
-                          return (
-                            <span
-                              key={cat.key}
-                              className="ctx-breakdown-seg"
-                              style={{ width: `${pct}%`, background: cat.color }}
-                              title={`${cat.label}：${cat.chars.toLocaleString()} 字符 (${pct}%)`}
-                            />
-                          );
-                        })}
-                      </div>
-                      <div className="ctx-breakdown-legend">
-                        {breakdown.map((cat) => {
-                          const pct = Math.round((cat.chars / totalBlockChars) * 100);
-                          return (
-                            <span key={cat.key} className="ctx-legend-item">
-                              <span className="ctx-legend-dot" style={{ background: cat.color }} />
-                              <span>{cat.label}</span>
-                              <span className="mono field-hint">
-                                {pct}% · {cat.chars.toLocaleString()} 字 ({cat.count})
-                              </span>
-                            </span>
-                          );
-                        })}
+                ) : (
+                  <>
+                    <div className="ctx-meta-strip">
+                      <span>模型：{ctxSnapshot.selected.manifest.model ?? "-"}</span>
+                      <span>
+                        估算 Token：{ctxSnapshot.selected.manifest.estimated_tokens?.toLocaleString() ?? "-"}
+                        {contextLimit
+                          ? ` / ${contextLimit.toLocaleString()} (${Math.min(
+                              100,
+                              Math.round(
+                                ((ctxSnapshot.selected.manifest.estimated_tokens ?? 0) / contextLimit) * 100,
+                              ),
+                            )}%)`
+                          : ""}
+                      </span>
+                      {ctxSnapshot.requests && ctxSnapshot.requests.length > 1 ? (
+                        <select
+                          className="composer-select"
+                          aria-label="切换历史请求快照"
+                          value={String(ctxSnapshot.selected.sequence)}
+                          onChange={(e) => void openContextInspector(Number(e.target.value))}
+                        >
+                          {ctxSnapshot.requests.map((r) => (
+                            <option key={r.sequence} value={String(r.sequence)}>
+                              请求 #{r.sequence}
+                              {typeof r.step === "number" ? ` · 第 ${r.step} 步` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span>请求序号：#{ctxSnapshot.selected.sequence}</span>
+                      )}
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={running}
+                          onClick={() => {
+                            setCtxOpen(false);
+                            void compactCurrentConversation();
+                          }}
+                        >
+                          立即压缩
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm"
+                          disabled={running}
+                          onClick={() => {
+                            setCtxOpen(false);
+                            void clearCurrentConversation();
+                          }}
+                        >
+                          清空重开
+                        </button>
                       </div>
                     </div>
-                  )}
 
-                  <div className="ctx-block-list">
-                    {(ctxSnapshot.selected.manifest.blocks ?? []).map((b, i) => {
-                      const cat = classifyContextBlock(b);
-                      const title = formatContextBlockTitle(b, i);
-                      const sourceMeta = formatContextBlockSource(b.source);
-                      return (
-                        <div key={`${b.position ?? i}-${b.sha256 ?? i}`} className="ctx-block-row">
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                            <span className="ctx-legend-dot" style={{ background: cat.color }} />
-                            <span className="mono">{title}</span>
-                            {sourceMeta && sourceMeta !== title && (
-                              <span className="field-hint mono" title={sourceMeta}>
-                                ({sourceMeta})
-                              </span>
-                            )}
-                          </span>
-                          <div className="ctx-block-right">
-                            <span className="field-hint">{(b.chars ?? 0).toLocaleString()} 字符</span>
-                            {b.sha256 && b.inspectable !== false && (
-                              <button
-                                type="button"
-                                className="btn btn-sm"
-                                onClick={() => void inspectBlock(ctxSnapshot.selected!.sequence, b, i)}
-                              >
-                                查看原文
-                              </button>
-                            )}
-                          </div>
+                    {breakdown.length > 0 && totalBlockChars > 0 && (
+                      <div className="ctx-breakdown-box">
+                        <div className="ctx-breakdown-bar" role="img" aria-label="上下文构成占比条">
+                          {breakdown
+                            .filter((cat) => cat.chars > 0)
+                            .map((cat) => {
+                              const pct = Math.max(1, Math.round((cat.chars / totalBlockChars) * 100));
+                              return (
+                                <span
+                                  key={cat.key}
+                                  className="ctx-breakdown-seg"
+                                  style={{ width: `${pct}%`, background: cat.color }}
+                                  title={`${cat.label}：${cat.chars.toLocaleString()} 字符 (${pct}%)`}
+                                />
+                              );
+                            })}
                         </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
+                      </div>
+                    )}
+
+                    <div className="ctx-block-list">
+                      {breakdown.map((cat) =>
+                        cat.items.length === 0 ? (
+                          <div className="context-empty-group" key={cat.key}>
+                            <span className="ctx-legend-dot" style={{ background: cat.color }} />
+                            {cat.label} <small>0 项</small>
+                          </div>
+                        ) : (
+                          <details key={ctxSnapshot.selected?.sequence + cat.key} className="context-group">
+                            <summary>
+                              <span className="ctx-legend-dot" style={{ background: cat.color }} />
+                              <strong>{cat.label}</strong>
+                              <span>{cat.items.length} 项</span>
+                              <small>
+                                {cat.chars.toLocaleString()} 字符 ·{" "}
+                                {totalBlockChars ? Math.round((cat.chars * 100) / totalBlockChars) : 0}%
+                              </small>
+                              <meter
+                                aria-label={cat.label + "字符占比"}
+                                value={cat.chars}
+                                max={totalBlockChars || 1}
+                              />
+                            </summary>
+                            {cat.items.map(({ block: b, index: i }) => {
+                              const title = formatContextBlockTitle(b, i);
+                              const sourceMeta = formatContextBlockSource(b.source);
+                              return (
+                                <div key={`${b.position ?? i}-${b.sha256 ?? i}`} className="ctx-block-row">
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      minWidth: 0,
+                                    }}
+                                  >
+                                    <span className="ctx-legend-dot" style={{ background: cat.color }} />
+                                    <span className="mono" title={sourceMeta ?? undefined}>
+                                      {title}
+                                    </span>
+                                  </span>
+                                  <div className="ctx-block-right">
+                                    <span className="field-hint">{(b.chars ?? 0).toLocaleString()} 字符</span>
+                                    {b.sha256 && b.inspectable !== false && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-sm"
+                                        onClick={() =>
+                                          void inspectBlock(ctxSnapshot.selected!.sequence, b, i)
+                                        }
+                                      >
+                                        查看原文
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </details>
+                        ),
+                      )}
+                    </div>
+                  </>
+                )}
               </ErrorBoundary>
             </div>
           </div>

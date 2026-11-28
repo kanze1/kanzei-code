@@ -256,6 +256,7 @@ export function ContextDrawer(): React.ReactElement | null {
   const [selectedLines, setSelectedLines] = useState<{ start: number; end: number } | null>(null);
   const [selectedEditorId, setSelectedEditorId] = useState<string>("");
 
+  const [filesExpanded, setFilesExpanded] = useState(true);
   const [terminals, setTerminals] = useState<TerminalProcessInfo[]>([]);
   const [expandedTerminalId, setExpandedTerminalId] = useState<string | null>(null);
   const [expandedSubagentId, setExpandedSubagentId] = useState<string | null>(null);
@@ -737,9 +738,11 @@ export function ContextDrawer(): React.ReactElement | null {
                 <span style={{ color: "var(--diff-del)" }}>-{gitStatus.deletions}</span>
               </span>
             )}
+            <button type="button" className="btn btn-xs btn-ghost" aria-expanded={filesExpanded}
+              onClick={() => setFilesExpanded(!filesExpanded)}>{filesExpanded ? "收起列表" : "展开列表"}</button>
           </div>
 
-          <div className="drawer-file-list">
+          <div className="drawer-file-list" hidden={!filesExpanded}>
             {fileListScope === "all" && loadingTree ? (
               <div className="field-hint" style={{ padding: 10 }}>
                 正在扫描项目文件树…
@@ -1116,7 +1119,7 @@ export function ContextDrawer(): React.ReactElement | null {
                   <button
                     key={step.name}
                     type="button"
-                    className={`badge ${step.ok ? "badge-ok" : "badge-err"}`}
+                    className={`chip-btn ${step.ok ? "badge-ok" : "badge-err"}`}
                     style={{ border: 0, cursor: "pointer" }}
                     onClick={() =>
                       openViewer({
@@ -1158,7 +1161,7 @@ export function ContextDrawer(): React.ReactElement | null {
                         <button
                           key={step.name}
                           type="button"
-                          className={`badge ${step.ok ? "badge-ok" : "badge-err"}`}
+                          className={`chip-btn ${step.ok ? "badge-ok" : "badge-err"}`}
                           style={{ border: 0, cursor: "pointer" }}
                           onClick={() =>
                             openViewer({
@@ -1239,6 +1242,7 @@ export function ContextDrawer(): React.ReactElement | null {
                           type="button"
                           className="btn btn-ghost btn-sm"
                           style={{ padding: "0 4px", fontWeight: 600 }}
+                          aria-expanded={isExpanded}
                           onClick={() => setExpandedSubagentId(isExpanded ? null : sub.id)}
                         >
                           {isExpanded ? "▾" : "▸"} {sub.agent ?? sub.label}
@@ -1280,7 +1284,7 @@ export function ContextDrawer(): React.ReactElement | null {
                       )}
                       {sub.progress.length > 0 && (
                         <pre className="tool-pre">
-                          {(isExpanded ? sub.progress : sub.progress.slice(-4)).join("\n")}
+                          {(isExpanded ? sub.progress : sub.progress.slice(-1)).join("\n")}
                         </pre>
                       )}
                     </div>
@@ -1314,6 +1318,7 @@ export function ContextDrawer(): React.ReactElement | null {
                             justifyContent: "flex-start",
                           }}
                           title={term.command ?? term.id}
+                          aria-expanded={isOpen}
                           onClick={() => setExpandedTerminalId(isOpen ? null : term.id)}
                         >
                           {isOpen ? "▾" : "▸"} {term.command ?? term.id}
@@ -1342,6 +1347,9 @@ export function ContextDrawer(): React.ReactElement | null {
                           )}
                         </div>
                       </div>
+                      {!isOpen && term.output?.trim() && (
+                        <div className="activity-tail mono">{term.output.trimEnd().split("\n").at(-1)}</div>
+                      )}
                       {isOpen && (
                         <pre className="tool-pre" style={{ maxHeight: 220 }}>
                           {term.output?.trim() ? term.output : "（暂无终端输出）"}

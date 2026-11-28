@@ -214,6 +214,25 @@ try {
   assert.ok(rects[0].x + rects[0].width <= rects[1].x + 0.5, "最小化与最大化按钮重叠");
   assert.ok(rects[1].x + rects[1].width <= rects[2].x + 0.5, "最大化与关闭按钮重叠");
 
+  // Exercise the redesigned controls in both actual Edge color schemes.
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") await page.getByRole("button", {name:"切换明暗主题"}).click();
+    await page.waitForFunction(value => document.documentElement.dataset.theme === value, theme);
+    const model = page.getByRole("button", {name:"模型选择"});
+    await model.focus();
+    await page.keyboard.press("Enter");
+    const popup = page.getByRole("dialog", {name:"模型选择"});
+    await popup.waitFor();
+    const rect = await popup.boundingBox();
+    assert.ok(rect && rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= 1281 && rect.y + rect.height <= 801);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Escape");
+    assert.ok(await model.evaluate(el => document.activeElement === el));
+    await page.getByRole("button", {name:"更多对话操作"}).click();
+    await page.getByRole("button", {name:"轨迹",exact:true}).waitFor();
+    await page.keyboard.press("Escape");
+  }
+
   // 2. 点击对话中的文件链接打开右侧文件上下文抽屉并切到 Diff
   await page.getByRole("button", { name: "src/main.rs:10" }).click();
   await page.waitForSelector(".side-drawer");
