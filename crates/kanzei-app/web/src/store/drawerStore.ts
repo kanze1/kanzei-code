@@ -120,8 +120,19 @@ export async function refreshGitStatus(
   }
 }
 
+// File IPC accepts project-relative names. Leave external absolute paths to its root check.
+function projectRelativePath(file: string, projectDir: string): string {
+  const path = file.replace(/\\/g, "/");
+  const prefix = projectDir.replace(/\\/g, "/").replace(/\/+$/, "") + "/";
+  const windowsRoot = /^(?:[a-z]:\/|\/\/)/i.test(prefix);
+  const inside = windowsRoot
+    ? path.slice(0, prefix.length).toLowerCase() === prefix.toLowerCase()
+    : path.startsWith(prefix);
+  return inside ? path.slice(prefix.length) : path;
+}
+
 export async function openFileInDrawer(
-  path: string,
+  file: string,
   options?: { line?: number | null; tab?: FileViewTab; projectDir?: string | null }
 ): Promise<void> {
   const state = drawerStore.getState();
@@ -130,6 +141,7 @@ export async function openFileInDrawer(
     pushToast("请先选择一个项目以查看文件上下文", "warn");
     return;
   }
+  const path = projectRelativePath(file, projectDir);
   const tab = options?.tab ?? "preview";
   drawerStore.setState({
     open: true,

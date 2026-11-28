@@ -249,6 +249,22 @@ describe("Kanzei 新前端架构核心契约", () => {
     });
   });
 
+  it("Markdown 绝对路径链接向文件接口传递项目相对路径并定位行号", async () => {
+    const { transport, calls } = createMockTransport();
+    setIpcTransport(transport);
+    drawerStore.setState({ projectDir: "C:\\Work\\kanzei code" });
+
+    render(<MarkdownView text="[运行架构图](<c:/Work/kanzei code/docs/architecture/01_runtime_loop.md#L42>)" />);
+    fireEvent.click(screen.getByRole("button", { name: "运行架构图" }));
+
+    const path = "docs/architecture/01_runtime_loop.md";
+    await waitFor(() => expect(drawerStore.getState().highlightLine).toBe(42));
+    expect(drawerStore.getState().activeFile).toBe(path);
+    for (const command of ["file_preview", "file_git_diff"]) {
+      expect(calls.find((call) => call.command === command)?.args?.path).toBe(path);
+    }
+  });
+
   it("流式事件按 sessionId 严格隔离，非当前会话不会污染主界面", async () => {
     const { transport, emit } = createMockTransport();
     setIpcTransport(transport);

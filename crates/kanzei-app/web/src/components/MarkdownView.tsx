@@ -174,7 +174,7 @@ const FILE_REF_RE = /^([\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|p
 function renderInline(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   const tokenRe =
-    /(`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*\n]+\*|\[([^\]]+)\]\(([^)]+)\)|\b(?:[\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|py|go|sql|ps1|sh))(?::\d+)?\b)/g;
+    /(`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*\n]+\*|\[([^\]]+)\]\((<[^<>\n]+>|[^)\n]+)\)|\b(?:[\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|py|go|sql|ps1|sh))(?::\d+)?\b)/g;
   let lastIndex = 0;
   let key = 0;
 
@@ -212,7 +212,8 @@ function renderInline(text: string): React.ReactNode[] {
       nodes.push(<em key={key++}>{full.slice(1, -1)}</em>);
     } else if (match[2] && match[3]) {
       const label = match[2];
-      const href = match[3];
+      const target = match[3].trim();
+      const href = target.startsWith("<") && target.endsWith(">") ? target.slice(1, -1) : target;
       if (/^https?:\/\//i.test(href)) {
         nodes.push(
           <a key={key++} href={href} target="_blank" rel="noreferrer" className="md-file-link">
@@ -220,12 +221,15 @@ function renderInline(text: string): React.ReactNode[] {
           </a>
         );
       } else {
+        const anchor = /(?:#L([1-9]\d*)(?:-L[1-9]\d*)?|:([1-9]\d*))$/i.exec(href);
+        const path = anchor ? href.slice(0, anchor.index) : href;
+        const line = anchor ? Number(anchor[1] ?? anchor[2]) : null;
         nodes.push(
           <button
             key={key++}
             type="button"
             className="md-file-link"
-            onClick={() => void openFileInDrawer(href)}
+            onClick={() => void openFileInDrawer(path, { line })}
           >
             {label}
           </button>

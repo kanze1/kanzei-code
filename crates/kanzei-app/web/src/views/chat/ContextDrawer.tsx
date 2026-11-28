@@ -342,10 +342,10 @@ export function ContextDrawer(): React.ReactElement | null {
   }, [open, mode, projectDir, activeProcessId]);
 
   useEffect(() => {
-    if (!open || mode !== "files" || fileTab !== "preview" || !highlightLine) return;
+    if (!open || mode !== "files" || fileTab !== "preview" || loadingFile || !highlightLine) return;
     const target = codeViewRef.current?.querySelector(".code-line.highlight");
     target?.scrollIntoView({ block: "center" });
-  }, [open, mode, fileTab, highlightLine, preview?.path]);
+  }, [open, mode, fileTab, highlightLine, loadingFile]);
 
   const splitDiffRows = useMemo(
     () => (diff?.diff ? parseUnifiedDiffToSplit(diff.diff) : []),
