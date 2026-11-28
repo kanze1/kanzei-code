@@ -12,6 +12,7 @@ import {
   IconRefresh,
   IconTerminal,
 } from "../../components/Icons";
+import { ActivityTimeline, OutputPreview } from "./ActivityTimeline";
 import { MarkdownView } from "../../components/MarkdownView";
 
 interface MessageItemProps {
@@ -67,8 +68,8 @@ function getInlineDiffLines(
   const oldLines = oldStr ? oldStr.split("\n") : [];
   const newLines = newStr ? newStr.split("\n") : [];
   const lines: Array<{ kind: "del" | "add"; text: string }> = [
-    ...oldLines.slice(0, 60).map((text) => ({ kind: "del" as const, text })),
-    ...newLines.slice(0, 60).map((text) => ({ kind: "add" as const, text })),
+    ...oldLines.map((text) => ({ kind: "del" as const, text })),
+    ...newLines.map((text) => ({ kind: "add" as const, text })),
   ];
   return { added: newLines.length, removed: oldLines.length, lines };
 }
@@ -81,6 +82,7 @@ function ToolCallCard({
   result?: MessagePart;
 }): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
+  const [fullDiff, setFullDiff] = useState(false);
   const projectDir = useAppStore((s) => s.activeProjectDir);
   const name = part.name ?? "tool";
   const inputObj = (part.input ?? {}) as Record<string, unknown>;
@@ -139,7 +141,7 @@ function ToolCallCard({
           <IconChevronRight size={12} />
         </span>
         <span className={`badge ${isError ? "badge-err" : "badge-ok"}`}>
-          {isError ? "失败" : "完成"}
+          {isError ? "失败" : result ? "完成" : "未记录结果"}
         </span>
         {isBash && <IconTerminal size={12} />}
         <span className="tool-name">{name}</span>
@@ -206,7 +208,7 @@ function ToolCallCard({
                 内联变更预览
               </div>
               <div className="inline-diff-box mono">
-                {inlineDiff.lines.map((line, idx) => (
+                {(fullDiff ? inlineDiff.lines : inlineDiff.lines.slice(0, 14)).map((line, idx) => (
                   <div
                     key={idx}
                     className={`diff-line ${line.kind === "add" ? "diff-line-add" : "diff-line-del"}`}
@@ -215,6 +217,15 @@ function ToolCallCard({
                   </div>
                 ))}
               </div>
+              {inlineDiff.lines.length > 14 && (
+                <button
+                  className="btn btn-ghost btn-xs"
+                  aria-expanded={fullDiff}
+                  onClick={() => setFullDiff(!fullDiff)}
+                >
+                  {fullDiff ? "收起变更" : "展开完整变更"}
+                </button>
+              )}
             </div>
           ) : isBash ? (
             <div>
@@ -236,7 +247,7 @@ function ToolCallCard({
               <div className="field-label" style={{ marginBottom: 4 }}>
                 结果
               </div>
-              <pre className="tool-pre">{resultContent.slice(0, 8000)}</pre>
+              <OutputPreview text={resultContent} />
             </div>
           )}
         </div>
@@ -336,6 +347,26 @@ function ToolCallList({
   );
 }
 
+function UserText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  if (lines.length <= 8) return <>{text}</>;
+  return (
+    <div>
+      <div className={expanded ? undefined : "reading-fade"}>
+        {expanded ? text : lines.slice(0, 8).join("\n")}
+      </div>
+      <button
+        className="btn btn-xs btn-ghost"
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+      >
+        {expanded ? "收起" : "展开全部（" + lines.length + " 行）"}
+      </button>
+    </div>
+  );
+}
+
 export const MessageItem = React.memo(function MessageItem({
   message,
   toolResultMap,
@@ -350,6 +381,7 @@ export const MessageItem = React.memo(function MessageItem({
   );
   const toolCalls = (message.parts ?? []).filter((p) => p.type === "tool_use");
 
+  const failedCalls = toolCalls.filter(call => call.id && toolResultMap.get(call.id)?.is_error);
   if (message.role === "user") {
     const hasOnlyToolResults =
       !text.trim() &&
@@ -379,7 +411,7 @@ export const MessageItem = React.memo(function MessageItem({
       <div className="msg-row">
         <div className="msg-user-wrap">
           <div className="msg-user-bubble">
-            {text}
+            <UserText text={text} />
             {images.length > 0 && (
               <div className="msg-user-images">
                 {images.map((img, idx) => {
@@ -449,11 +481,9 @@ export const MessageItem = React.memo(function MessageItem({
   return (
     <div className="msg-row">
       <div className="msg-assistant-wrap">
-        <div className="msg-assistant-head">
-          <img src="./assets/kanzei.svg" alt="" className="msg-assistant-avatar" />
-          <span>kanzei</span>
-        </div>
-
+        {(message.reasoning || toolCalls.length > 0) && <ActivityTimeline
+          summary={toolCalls.length ? `执行过程（${toolCalls.length} 次工具调用）` : "思考过程"}
+          failures={failedCalls.length} issue={failedCalls[0]?.name}>
         {message.reasoning && (
           <details className="reasoning-block">
             <summary className="reasoning-summary">
@@ -472,6 +502,8 @@ export const MessageItem = React.memo(function MessageItem({
         {toolCalls.length > 0 && (
           <ToolCallList toolCalls={toolCalls} toolResultMap={toolResultMap} />
         )}
+
+        </ActivityTimeline>}
 
         {text.trim() && <MarkdownView text={text} />}
 

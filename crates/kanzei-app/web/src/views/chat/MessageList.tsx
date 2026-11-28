@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { MessagePart } from "../../ipc/types";
+import type { ChatMessage, MessagePart } from "../../ipc/types";
 import { useAppStore } from "../../store/appStore";
 import { chatStore, loadOlderMessages, updateDraft, useChatStore } from "../../store/chatStore";
 import { toggleDrawer } from "../../store/drawerStore";
 import { useSessionStore } from "../../store/sessionStore";
 import {
-  IconChevronRight,
   IconFileCode,
   IconSearch,
   IconSparkles,
@@ -14,6 +13,7 @@ import {
 } from "../../components/Icons";
 import { MarkdownView } from "../../components/MarkdownView";
 import { ActionReportCard } from "./ActionReportCard";
+import { ActivityTimeline, OutputPreview } from "./ActivityTimeline";
 import { MessageItem } from "./MessageItem";
 
 export function MessageList(): React.ReactElement {
@@ -33,9 +33,7 @@ export function MessageList(): React.ReactElement {
   const lastError = useChatStore((s) => s.lastError);
   const searchOpen = useChatStore((s) => s.searchOpen);
   const searchQuery = useChatStore((s) => s.searchQuery);
-  const activeProcess = useSessionStore((s) =>
-    s.processes.find((p) => p.id === s.activeProcessId) ?? null
-  );
+  const activeProcess = useSessionStore((s) => s.processes.find((p) => p.id === s.activeProcessId) ?? null);
   const running = Boolean(activeProcess?.running);
 
   const parentRef = useRef<HTMLDivElement>(null);
@@ -51,6 +49,45 @@ export function MessageList(): React.ReactElement {
       }
     }
     return map;
+  }, [messages]);
+
+  // Project tool-only assistant messages onto the same turn, preserving persisted indices for user actions.
+  const historyRows = useMemo(() => {
+    const rows: Array<{ message: ChatMessage; index: number }> = [];
+    let pending: ChatMessage[] = [];
+    let firstIndex = 0;
+    function flush() {
+      if (!pending.length) return;
+      rows.push({
+        index: firstIndex,
+        message: {
+          role: "assistant",
+          parts: pending.flatMap((msg) => msg.parts),
+          reasoning: pending
+            .map((msg) => msg.reasoning)
+            .filter(Boolean)
+            .join("\n\n"),
+        },
+      });
+      pending = [];
+    }
+    messages.forEach((message, index) => {
+      if (
+        message.role === "tool" ||
+        (message.role === "user" && message.parts.every((part) => part.type === "tool_result"))
+      )
+        return;
+      if (message.role === "assistant") {
+        if (!pending.length) firstIndex = index;
+        pending.push(message);
+        if (message.parts.some((part) => part.type === "text" && part.text?.trim())) flush();
+      } else {
+        flush();
+        rows.push({ message, index });
+      }
+    });
+    flush();
+    return rows;
   }, [messages]);
 
   const visibleEntries = useMemo(() => {
@@ -69,13 +106,14 @@ export function MessageList(): React.ReactElement {
       text: string;
       precedingUserText: string | null;
     }> = [];
-    messages.forEach((msg, idx) => {
+    historyRows.forEach(({ message: msg }, idx) => {
       if (msg.role === "tool") return;
       const textParts = (msg.parts ?? [])
         .filter((p) => p.type === "text" && typeof p.text === "string")
         .map((p) => p.text ?? "")
         .join("\n");
       const hasContent =
+        Boolean(msg.reasoning) ||
         textParts.trim().length > 0 ||
         (msg.parts ?? []).some((p) => p.type === "tool_use" || p.type === "image");
       if (!hasContent) return;
@@ -85,7 +123,7 @@ export function MessageList(): React.ReactElement {
       if (q && !textParts.toLowerCase().includes(q)) return;
       rawItems.push({
         index: idx,
-        globalIndex: startIndex + idx,
+        globalIndex: startIndex + historyRows[idx].index,
         role: msg.role,
         text: textParts,
         precedingUserText: msg.role === "assistant" ? lastUserText : null,
@@ -108,21 +146,17 @@ export function MessageList(): React.ReactElement {
       };
     }
     return list;
-  }, [messages, startIndex, searchQuery]);
+  }, [historyRows, startIndex, searchQuery]);
 
   // 提取实时步骤清单（支持结构化 todos/steps 工具参数或实时工具/子代理执行汇总）
   const liveChecklist = useMemo(() => {
-    const todoTool = [...liveTools]
-      .reverse()
-      .find((t) => {
-        const inp = t.input as Record<string, unknown> | undefined;
-        return inp && (Array.isArray(inp.todos) || Array.isArray(inp.steps));
-      });
+    const todoTool = [...liveTools].reverse().find((t) => {
+      const inp = t.input as Record<string, unknown> | undefined;
+      return inp && (Array.isArray(inp.todos) || Array.isArray(inp.steps));
+    });
     if (todoTool) {
       const inp = todoTool.input as Record<string, unknown>;
-      const rawList = (Array.isArray(inp.todos) ? inp.todos : inp.steps) as Array<
-        Record<string, unknown>
-      >;
+      const rawList = (Array.isArray(inp.todos) ? inp.todos : inp.steps) as Array<Record<string, unknown>>;
       return rawList
         .map((item, idx) => ({
           id: String(item.id ?? idx),
@@ -134,9 +168,23 @@ export function MessageList(): React.ReactElement {
     return null;
   }, [liveTools]);
 
+  const activeTool = liveTools.find((tool) => !tool.done);
+  const activeAgent = liveSubagents.find((agent) => agent.status === "running");
+  const failedTool = liveTools.find((tool) => tool.done && tool.ok === false);
+  const failedAgent = liveSubagents.find((agent) => agent.status === "error");
+  const issue = failedTool
+    ? [failedTool.name, (failedTool.output || failedTool.preview || "").split("\n")[0]]
+        .filter(Boolean)
+        .join(" · ")
+    : failedAgent?.label;
+  const currentStep = liveChecklist?.find((step) => step.status === "in_progress");
+  const completedSteps =
+    liveChecklist?.filter((step) => step.status === "done" || step.status === "completed").length ?? 0;
+
   const virtualizer = useVirtualizer({
     count: visibleEntries.length,
     getScrollElement: () => parentRef.current,
+    getItemKey: (index) => visibleEntries[index].globalIndex,
     estimateSize: () => 118,
     overscan: 8,
   });
@@ -306,7 +354,7 @@ export function MessageList(): React.ReactElement {
               {virtualizer.getVirtualItems().map((vItem) => {
                 const entry = visibleEntries[vItem.index];
                 if (!entry) return null;
-                const msg = messages[entry.index];
+                const msg = historyRows[entry.index].message;
                 return (
                   <div
                     key={vItem.key}
@@ -336,118 +384,74 @@ export function MessageList(): React.ReactElement {
           {hasLiveContent && (
             <div className="msg-row">
               <div className="msg-assistant-wrap">
-                <div className="msg-assistant-head">
-                  <img src="./assets/kanzei.svg" alt="" className="msg-assistant-avatar" />
-                  <span>kanzei</span>
-                  {running && <span className="status-dot running" />}
-                </div>
-
-                {(liveChecklist || liveTools.length > 0 || liveSubagents.length > 0) && (
-                  <div className="live-progress-card">
-                    <div className="live-progress-head">
-                      <span className="live-progress-title">
-                        {liveChecklist
-                          ? `执行步骤 (${liveChecklist.filter((s) => s.status === "done" || s.status === "completed").length}/${liveChecklist.length})`
-                          : `本轮进度 · 工具 ${liveTools.filter((t) => t.done).length}/${liveTools.length}${
-                              liveSubagents.length > 0 ? ` · 子代理 ${liveSubagents.length}` : ""
-                            }`}
-                      </span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn-sm"
-                        onClick={() => toggleDrawer("activity")}
-                      >
-                        活动面板
-                      </button>
-                    </div>
+                {(liveTools.length > 0 || liveSubagents.length > 0 || streamingReasoning) && (
+                  <ActivityTimeline
+                    summary={
+                      currentStep && liveChecklist
+                        ? currentStep.title + "（已完成 " + completedSteps + "/" + liveChecklist.length + "）"
+                        : activeTool
+                          ? `正在执行 ${activeTool.name} ${activeTool.summary ?? ""}`
+                          : activeAgent
+                            ? `子代理运行中 ${activeAgent.agent ?? activeAgent.label}`
+                            : streamingReasoning && !streamingText
+                              ? "正在思考…"
+                              : `执行过程（${liveTools.length} 次工具调用）`
+                    }
+                    issue={issue}
+                    failures={
+                      liveTools.filter((t) => t.done && t.ok === false).length +
+                      liveSubagents.filter((s) => s.status === "error").length
+                    }
+                  >
                     {liveChecklist && (
-                      <div className="live-checklist">
-                        {liveChecklist.map((step) => {
-                          const isDone = step.status === "done" || step.status === "completed";
-                          const isActive = step.status === "in_progress";
-                          return (
-                            <div
-                              key={step.id}
-                              className={`live-check-item${isDone ? " done" : isActive ? " active" : ""}`}
-                            >
-                              <span className="live-check-mark" aria-hidden="true">
-                                {isDone ? "✓" : isActive ? "◉" : "○"}
-                              </span>
-                              <span>{step.title}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
+                      <ol>
+                        {liveChecklist.map((step) => (
+                          <li key={step.id}>
+                            {step.title} <small>{step.status}</small>
+                          </li>
+                        ))}
+                      </ol>
                     )}
+                    {streamingReasoning && (
+                      <details className="reasoning-block">
+                        <summary>思考过程（{streamingReasoning.length} 字）</summary>
+                        <div className="reasoning-body">{streamingReasoning}</div>
+                      </details>
+                    )}
+                    {liveTools.map((tool) => (
+                      <details key={tool.id}>
+                        <summary>
+                          <span className={tool.ok === false && tool.done ? "error-text" : ""}>
+                            {tool.name}
+                          </span>{" "}
+                          {tool.summary}
+                          <small>{!tool.done ? "执行中" : tool.ok ? "完成" : "失败"}</small>
+                        </summary>
+                        <OutputPreview text={tool.output ?? tool.preview ?? ""} tail />
+                      </details>
+                    ))}
+                    {liveSubagents.map((sub) => (
+                      <details key={sub.id}>
+                        <summary>
+                          {sub.agent ?? sub.label}{" "}
+                          <small>
+                            {sub.status === "running" ? "运行中" : sub.status === "error" ? "失败" : "完成"}
+                          </small>
+                        </summary>
+                        <OutputPreview text={sub.progress.join("\n")} tail />
+                      </details>
+                    ))}
+                    <button className="btn btn-ghost btn-sm" onClick={() => toggleDrawer("activity")}>
+                      活动面板
+                    </button>
+                  </ActivityTimeline>
+                )}
+                {streamingReasoning && !streamingText && (
+                  <div className="thinking-preview">
+                    {streamingReasoning.split("\n").slice(-4).join("\n")}
                   </div>
                 )}
-
-                {streamingReasoning && (
-                  <details className="reasoning-block" open>
-                    <summary className="reasoning-summary">
-                      <span className="reasoning-chevron">
-                        <IconChevronRight size={12} />
-                      </span>
-                      <span>正在思考…</span>
-                    </summary>
-                    <div className="reasoning-body">{streamingReasoning}</div>
-                  </details>
-                )}
-
-                {liveSubagents.map((sub) => (
-                  <div key={sub.id} className="tool-card">
-                    <div className="tool-card-head">
-                      <span
-                        className={`badge ${
-                          sub.status === "running"
-                            ? "badge-accent"
-                            : sub.status === "error"
-                            ? "badge-err"
-                            : "badge-ok"
-                        }`}
-                      >
-                        子代理 · {sub.status === "running" ? "运行中" : sub.status === "error" ? "失败" : "完成"}
-                      </span>
-                      <span className="tool-name">{sub.agent ?? sub.label}</span>
-                      {sub.model && <span className="tool-summary mono">{sub.model}</span>}
-                    </div>
-                    {sub.progress.length > 0 && (
-                      <div className="tool-body">
-                        <pre className="tool-pre">{sub.progress.slice(-6).join("\n")}</pre>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {liveTools.map((tool) => (
-                  <div key={tool.id} className="tool-card">
-                    <div className="tool-card-head">
-                      <span
-                        className={`badge ${
-                          !tool.done ? "badge-accent" : tool.ok ? "badge-ok" : "badge-err"
-                        }`}
-                      >
-                        {!tool.done ? "执行中" : tool.ok ? "完成" : "失败"}
-                      </span>
-                      <span className="tool-name">{tool.name}</span>
-                      <span className="tool-summary mono">{tool.summary}</span>
-                      {typeof tool.durationMs === "number" && (
-                        <span className="field-hint mono" style={{ fontSize: 11 }}>
-                          {(tool.durationMs / 1000).toFixed(1)}s
-                        </span>
-                      )}
-                    </div>
-                    {(tool.preview || tool.output) && (
-                      <div className="tool-body">
-                        <pre className="tool-pre">
-                          {(tool.output ?? tool.preview ?? "").slice(0, 4000)}
-                        </pre>
-                      </div>
-                    )}
-                  </div>
-                ))}
-
-                {streamingText && <MarkdownView text={streamingText} />}
+                {streamingText && <MarkdownView text={streamingText} streaming />}
               </div>
             </div>
           )}
@@ -456,6 +460,7 @@ export function MessageList(): React.ReactElement {
 
           {!running && visibleEntries.length > 0 && (
             <ActionReportCard
+              key={`${activeProcess?.session_id}:${lastActionReport?.completedAt ?? total}`}
               messages={messages}
               toolResultMap={toolResultMap}
               report={

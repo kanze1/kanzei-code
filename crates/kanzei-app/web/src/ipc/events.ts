@@ -1,3 +1,4 @@
+import { modifiedPaths } from "../store/roundFiles";
 import { invoke, listenEvent } from "./client";
 import type { PendingAskItem } from "./types";
 import { appStore, refreshWorkspaceOverview } from "../store/appStore";
@@ -12,7 +13,7 @@ import {
   onToolStartEvent,
   sendPrompt,
 } from "../store/chatStore";
-import { drawerStore, refreshGitStatus } from "../store/drawerStore";
+import { refreshGitStatus } from "../store/drawerStore";
 import {
   getActiveProcess,
   pushPendingAsk,
@@ -66,7 +67,7 @@ export async function installEventBridge(): Promise<() => void> {
         const maxSteps = typeof payload.maxSteps === "number" ? payload.maxSteps : undefined;
         chatStore.setState((prev) => ({
           ...prev,
-          stageText: step && maxSteps ? `第 ${step}/${maxSteps} 步` : "思考中…",
+          stageText: step ? `第 ${step} 步` : "思考中…",
           lastUsage: {
             input: prev.lastUsage?.input ?? 0,
             output: prev.lastUsage?.output ?? 0,
@@ -283,6 +284,8 @@ export async function installEventBridge(): Promise<() => void> {
             }
           | undefined;
         const usageObj = payload.usage as { input?: number; output?: number } | undefined;
+        const roundModifiedFiles = [...new Set(doneTools.filter(t => t.done && t.ok)
+          .flatMap(t => modifiedPaths(t.name, t.input)))];
         chatStore.setState({
           stageText: "已完成",
           lastActionReport: {
@@ -299,7 +302,8 @@ export async function installEventBridge(): Promise<() => void> {
             toolsTotal: doneTools.length,
             toolsFailed: doneTools.filter((t) => t.done && t.ok === false).length,
             toolNames: Array.from(new Set(doneTools.map((t) => t.name))),
-            touchedFiles: [...drawerStore.getState().touchedFiles],
+            modifiedFiles: roundModifiedFiles,
+            touchedFiles: roundModifiedFiles,
             autoReason: autoObj?.reason ?? null,
             handoffSummary:
               typeof autoObj?.handoff?.summary === "string" ? autoObj.handoff.summary : null,

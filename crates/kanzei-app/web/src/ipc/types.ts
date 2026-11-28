@@ -282,6 +282,7 @@ export interface ActionReportData {
   toolsFailed: number;
   toolNames: string[];
   touchedFiles: string[];
+  modifiedFiles?: string[];
   autoReason?: string | null;
   handoffSummary?: string | null;
 }

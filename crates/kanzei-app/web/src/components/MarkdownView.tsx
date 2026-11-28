@@ -1,3 +1,4 @@
+import { parseBlocks, type Block } from "./markdownBlocks";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { openFileInDrawer } from "../store/drawerStore";
 import { pushToast } from "../store/uiStore";
@@ -6,167 +7,7 @@ import { IconCopy } from "./Icons";
 interface MarkdownViewProps {
   text: string;
   searchQuery?: string;
-}
-
-type Block =
-  | { kind: "code"; lang: string; code: string }
-  | { kind: "mermaid"; code: string }
-  | { kind: "math"; expr: string }
-  | { kind: "heading"; level: number; text: string }
-  | { kind: "hr" }
-  | { kind: "ul"; items: string[] }
-  | { kind: "ol"; items: string[] }
-  | { kind: "quote"; lines: string[] }
-  | { kind: "table"; headers: string[]; rows: string[][] }
-  | { kind: "p"; text: string };
-
-function parseBlocks(raw: string): Block[] {
-  const lines = raw.replace(/\r\n/g, "\n").split("\n");
-  const blocks: Block[] = [];
-  let i = 0;
-
-  while (i < lines.length) {
-    const line = lines[i];
-    if (!line.trim()) {
-      i += 1;
-      continue;
-    }
-
-    // Horizontal rule
-    if (/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(line)) {
-      blocks.push({ kind: "hr" });
-      i += 1;
-      continue;
-    }
-
-    // Fenced code or mermaid
-    const fence = line.match(/^```([\w-]*)\s*$/);
-    if (fence) {
-      const lang = (fence[1] ?? "").toLowerCase();
-      const buf: string[] = [];
-      i += 1;
-      while (i < lines.length && !/^```\s*$/.test(lines[i])) {
-        buf.push(lines[i]);
-        i += 1;
-      }
-      if (i < lines.length) i += 1;
-      const code = buf.join("\n");
-      if (lang === "mermaid") {
-        blocks.push({ kind: "mermaid", code });
-      } else {
-        blocks.push({ kind: "code", lang, code });
-      }
-      continue;
-    }
-
-    // Display math $$...$$
-    if (line.trim().startsWith("$$")) {
-      const rest = line.trim().slice(2);
-      if (rest.endsWith("$$") && rest.length > 2) {
-        blocks.push({ kind: "math", expr: rest.slice(0, -2).trim() });
-        i += 1;
-        continue;
-      }
-      const buf: string[] = [];
-      if (rest) buf.push(rest);
-      i += 1;
-      while (i < lines.length && !lines[i].trim().endsWith("$$")) {
-        buf.push(lines[i]);
-        i += 1;
-      }
-      if (i < lines.length) {
-        const tail = lines[i].trim().slice(0, -2);
-        if (tail) buf.push(tail);
-        i += 1;
-      }
-      blocks.push({ kind: "math", expr: buf.join("\n").trim() });
-      continue;
-    }
-
-    // Heading
-    const heading = line.match(/^(#{1,4})\s+(.+)$/);
-    if (heading) {
-      blocks.push({ kind: "heading", level: heading[1].length, text: heading[2].trim() });
-      i += 1;
-      continue;
-    }
-
-    // Blockquote
-    if (line.startsWith(">")) {
-      const buf: string[] = [];
-      while (i < lines.length && lines[i].startsWith(">")) {
-        buf.push(lines[i].replace(/^>\s?/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "quote", lines: buf });
-      continue;
-    }
-
-    // Markdown Table
-    if (
-      line.includes("|") &&
-      i + 1 < lines.length &&
-      /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[i + 1])
-    ) {
-      const splitRow = (row: string) =>
-        row
-          .trim()
-          .replace(/^\|/, "")
-          .replace(/\|$/, "")
-          .split("|")
-          .map((c) => c.trim());
-      const headers = splitRow(line);
-      i += 2;
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
-        rows.push(splitRow(lines[i]));
-        i += 1;
-      }
-      blocks.push({ kind: "table", headers, rows });
-      continue;
-    }
-
-    // Unordered list
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*+]\s+/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "ul", items });
-      continue;
-    }
-
-    // Ordered list
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = [];
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""));
-        i += 1;
-      }
-      blocks.push({ kind: "ol", items });
-      continue;
-    }
-
-    // Paragraph
-    const buf: string[] = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !/^```/.test(lines[i]) &&
-      !/^(#{1,4})\s+/.test(lines[i]) &&
-      !/^\s*(?:---+|\*\*\*+|___+)\s*$/.test(lines[i]) &&
-      !lines[i].startsWith(">") &&
-      !/^\s*[-*+]\s+/.test(lines[i]) &&
-      !/^\s*\d+\.\s+/.test(lines[i])
-    ) {
-      buf.push(lines[i]);
-      i += 1;
-    }
-    blocks.push({ kind: "p", text: buf.join("\n") });
-  }
-
-  return blocks;
+  streaming?: boolean;
 }
 
 const FILE_REF_RE = /^([\w./-]+\.(?:rs|ts|tsx|js|jsx|mjs|json|toml|md|css|html|py|go|sql|ps1|sh))(?::(\d+))?$/;
@@ -385,43 +226,78 @@ function MermaidBlock({ code }: { code: string }): React.ReactElement {
   return <div ref={ref} className="md-mermaid-box" />;
 }
 
-export const MarkdownView = React.memo(function MarkdownView({
-  text,
-}: MarkdownViewProps): React.ReactElement {
-  const blocks = useMemo(() => parseBlocks(text), [text]);
-
+function CodeBlock({ lang, code }: { lang: string; code: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = code.split("\n");
+  const long = lines.length > 18;
   const copyCode = (code: string) => {
     navigator.clipboard?.writeText(code).then(
       () => pushToast("已复制代码", "ok", 1800),
-      () => pushToast("复制失败", "error", 2200)
+      () => pushToast("复制失败", "error", 2200),
     );
   };
 
   return (
-    <div className="md-body">
+    <div className="md-code-block">
+      <div className="md-code-head">
+        <span>{lang || "text"}</span>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => copyCode(code)}>
+          <IconCopy size={12} />
+          <span>复制</span>
+        </button>
+      </div>
+      <pre className={long && !expanded ? "reading-fade" : undefined}>
+        <code>{long && !expanded ? lines.slice(0, 14).join("\n") : code}</code>
+      </pre>
+      {long && (
+        <FoldControl
+          expanded={expanded}
+          toggle={() => setExpanded(!expanded)}
+          label={"展开完整代码（共 " + lines.length + " 行）"}
+        />
+      )}
+    </div>
+  );
+}
+
+function FoldControl({ expanded, toggle, label }: { expanded: boolean; toggle: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      className="btn btn-xs btn-ghost fold-control"
+      aria-expanded={expanded}
+      onClick={toggle}
+    >
+      {expanded ? "收起" : label}
+    </button>
+  );
+}
+
+function RenderBlocks({ blocks }: { blocks: Block[] }) {
+  return (
+    <>
       {blocks.map((block, idx) => {
         switch (block.kind) {
+          case "details":
+          case "section":
+            return (
+              <details key={idx} open={block.kind === "section"} className={"md-" + block.kind}>
+                <summary>
+                  {block.kind === "section" ? (
+                    <span role="heading" aria-level={block.level}>
+                      {renderInline(block.title)}
+                    </span>
+                  ) : (
+                    renderInline(block.title)
+                  )}
+                </summary>
+                <RenderBlocks blocks={block.children} />
+              </details>
+            );
           case "hr":
             return <hr key={idx} />;
           case "code":
-            return (
-              <div key={idx} className="md-code-block">
-                <div className="md-code-head">
-                  <span>{block.lang || "text"}</span>
-                  <button
-                    type="button"
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => copyCode(block.code)}
-                  >
-                    <IconCopy size={12} />
-                    <span>复制</span>
-                  </button>
-                </div>
-                <pre>
-                  <code>{block.code}</code>
-                </pre>
-              </div>
-            );
+            return <CodeBlock key={idx} code={block.code} lang={block.lang} />;
           case "mermaid":
             return <MermaidBlock key={idx} code={block.code} />;
           case "math":
@@ -438,49 +314,108 @@ export const MarkdownView = React.memo(function MarkdownView({
                 ))}
               </blockquote>
             );
-          case "ul":
+          case "list": {
+            const Tag = block.ordered ? "ol" : "ul";
             return (
-              <ul key={idx}>
-                {block.items.map((item, i) => (
-                  <li key={i}>{renderInline(item)}</li>
+              <Tag key={idx} start={block.ordered ? block.start : undefined}>
+                {block.items.map((item, index) => (
+                  <li key={index}>
+                    {renderInline(item.text)}
+                    <RenderBlocks blocks={item.children} />
+                  </li>
                 ))}
-              </ul>
+              </Tag>
             );
-          case "ol":
-            return (
-              <ol key={idx}>
-                {block.items.map((item, i) => (
-                  <li key={i}>{renderInline(item)}</li>
-                ))}
-              </ol>
-            );
-          case "table":
-            return (
-              <div key={idx} className="md-table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      {block.headers.map((h, i) => (
-                        <th key={i}>{renderInline(h)}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {block.rows.map((row, rIdx) => (
-                      <tr key={rIdx}>
-                        {row.map((cell, cIdx) => (
-                          <td key={cIdx}>{renderInline(cell)}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            );
+          }
           case "p":
             return <p key={idx}>{renderInline(block.text)}</p>;
+          case "table":
+            return <MarkdownTable key={idx} block={block} />;
         }
       })}
+    </>
+  );
+}
+
+function MarkdownTable({ block }: { block: Extract<Block, { kind: "table" }> }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = block.rows.length > 10;
+  return (
+    <div className="md-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            {block.headers.map((h, i) => (
+              <th key={i}>{renderInline(h)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(long && !expanded ? block.rows.slice(0, 8) : block.rows).map((row, rIdx) => (
+            <tr key={rIdx}>
+              {row.map((cell, cIdx) => (
+                <td key={cIdx}>{renderInline(cell)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {long && (
+        <FoldControl
+          expanded={expanded}
+          toggle={() => setExpanded(!expanded)}
+          label={"显示全部 " + block.rows.length + " 行"}
+        />
+      )}
+    </div>
+  );
+}
+
+export const MarkdownView = React.memo(function MarkdownView({ text, streaming = false }: MarkdownViewProps) {
+  const blocks = useMemo(() => parseBlocks(text, streaming), [text, streaming]);
+  const root = useRef<HTMLDivElement>(null);
+  const outline = useMemo(() => {
+    const titles: string[] = [];
+    function collect(nodes: Block[]) {
+      for (const block of nodes)
+        if (block.kind === "section") {
+          titles.push(block.title);
+          collect(block.children);
+        }
+    }
+    if (text.length > 2000) collect(blocks);
+    return titles;
+  }, [blocks, text.length]);
+  return (
+    <div className="md-body" ref={root}>
+      {outline.length > 0 && (
+        <details className="md-outline">
+          <summary>本条提纲（{outline.length} 节）</summary>
+          {outline.map((title, index) => (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              key={index}
+              onClick={() => {
+                const section = root.current?.querySelectorAll<HTMLDetailsElement>(".md-section")[index];
+                if (section) {
+                  for (
+                    let parent: HTMLDetailsElement | null = section;
+                    parent;
+                    parent = parent.parentElement?.closest("details") ?? null
+                  )
+                    parent.open = true;
+                  section.querySelector("summary")?.focus();
+                  section.scrollIntoView({ block: "nearest" });
+                }
+              }}
+            >
+              {title}
+            </button>
+          ))}
+        </details>
+      )}
+      <RenderBlocks blocks={blocks} />
     </div>
   );
 });
